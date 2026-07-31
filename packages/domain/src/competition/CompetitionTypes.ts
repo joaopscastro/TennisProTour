@@ -3,6 +3,9 @@ import { PlayerId } from '../shared/ids';
 
 export type TournamentTier = 'junior' | 'futures' | 'challenger' | 'tour' | 'major';
 
+/** Single-elimination draw sizes the game supports. */
+export type DrawSize = 16 | 32 | 64 | 128;
+
 /** Ranking points awarded per tier/round — externalized as data, not
  * hardcoded into Tournament, so game-balance changes don't require
  * touching the aggregate's code (Open/Closed). */

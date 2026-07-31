@@ -1,27 +1,29 @@
 import { TournamentId, GameWeek, PlayerId } from '../shared/ids';
 import { Surface } from '../player/PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
-import { BracketRound, MatchOutcome, TournamentEntrant, TournamentTier } from './CompetitionTypes';
+import { BracketRound, DrawSize, MatchOutcome, TournamentEntrant, TournamentTier } from './CompetitionTypes';
 
-export interface TournamentProps {
+export interface TournamentOpenProps {
   id: TournamentId;
   tier: TournamentTier;
   surface: Surface;
   weekScheduled: GameWeek;
-  entrants: TournamentEntrant[];
-  firstRound: BracketRound;
+  drawSize: DrawSize;
 }
 
 /**
- * Tournament aggregate root. Owns bracket integrity: a match's
- * outcome can only be recorded once, and a new round can only be
- * added once every match in the previous round has one. Seeding a
- * bracket is a separate, not-yet-built `BracketGenerator` domain
- * service — Tournament only enforces the rules a bracket must satisfy,
- * not how one gets generated.
+ * Tournament aggregate root. Owns bracket integrity across its whole
+ * lifecycle: registration is open (entrants trickle in one at a time,
+ * capped at `drawSize`) until `startWithBracket` seeds the draw; after
+ * that, a match's outcome can only be recorded once, and a new round
+ * can only be added once every match in the previous round has one.
+ * Seeding itself is a separate domain service (`BracketGenerator`) —
+ * Tournament only enforces the rules a bracket must satisfy, not how
+ * one gets seeded.
  */
 export class Tournament {
-  private rounds: BracketRound[];
+  private _entrants: TournamentEntrant[] = [];
+  private rounds: BracketRound[] = [];
   private domainEvents: DomainEvent[] = [];
 
   private constructor(
@@ -29,27 +31,49 @@ export class Tournament {
     readonly tier: TournamentTier,
     readonly surface: Surface,
     readonly weekScheduled: GameWeek,
-    readonly entrants: ReadonlyArray<TournamentEntrant>,
-    firstRound: BracketRound,
-  ) {
-    this.rounds = [firstRound];
+    readonly drawSize: DrawSize,
+  ) {}
+
+  static open(props: TournamentOpenProps): Tournament {
+    return new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize);
   }
 
-  static schedule(props: TournamentProps): Tournament {
-    if (props.entrants.length < 2) {
-      throw new Error('A tournament needs at least 2 entrants');
+  get entrants(): ReadonlyArray<TournamentEntrant> {
+    return this._entrants;
+  }
+
+  get hasStarted(): boolean {
+    return this.rounds.length > 0;
+  }
+
+  registerEntrant(entrant: TournamentEntrant): void {
+    if (this.hasStarted) {
+      throw new Error(`Cannot register an entrant: tournament ${this.id} has already started`);
     }
-    if (props.firstRound.roundNumber !== 1) {
-      throw new Error('First round must be round number 1');
+    if (this._entrants.some((e) => e.playerId === entrant.playerId)) {
+      throw new Error(`Player ${entrant.playerId} is already registered for tournament ${this.id}`);
     }
-    return new Tournament(
-      props.id,
-      props.tier,
-      props.surface,
-      props.weekScheduled,
-      props.entrants,
-      props.firstRound,
-    );
+    if (this._entrants.length >= this.drawSize) {
+      throw new Error(`Tournament ${this.id}'s draw is full (${this.drawSize} entrants)`);
+    }
+    this._entrants.push(entrant);
+  }
+
+  startWithBracket(rounds: BracketRound[]): void {
+    if (this.hasStarted) {
+      throw new Error(`Tournament ${this.id} has already started`);
+    }
+    if (rounds.length === 0) {
+      throw new Error('Cannot start a tournament with an empty bracket');
+    }
+    if (rounds[0].roundNumber !== 1) {
+      throw new Error('The first bracket round must be round number 1');
+    }
+    this.rounds = [...rounds];
+    this.domainEvents.push({
+      type: 'TournamentStarted',
+      payload: { tournamentId: this.id, entrantCount: this._entrants.length },
+    });
   }
 
   getScheduledMatch(roundNumber: number, matchIndex: number): { entrantA: PlayerId; entrantB: PlayerId } {

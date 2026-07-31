@@ -5,5 +5,6 @@ export * from './player/Player';
 export * from './player/PlayerAgingService';
 export * from './competition/CompetitionTypes';
 export * from './competition/Tournament';
+export * from './competition/BracketGenerator';
 export * from './match-simulation/MatchSimulator';
 export * from './match-simulation/StatisticalMatchSimulator';
