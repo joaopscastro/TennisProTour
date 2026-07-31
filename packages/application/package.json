@@ -6,9 +6,13 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc --build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
     "@tennis-manager/domain": "^0.1.0"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

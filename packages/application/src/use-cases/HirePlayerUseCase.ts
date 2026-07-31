@@ -1,5 +1,5 @@
-import { ManagerId } from '../../domain/shared/ids';
-import { Player } from '../../domain/player/Player';
+import { ManagerId } from '../../../domain/src/shared/ids';
+import { Player } from '../../../domain/src/player/Player';
 import { PlayerRepository } from '../ports/ports';
 
 export interface HirePlayerCommand {

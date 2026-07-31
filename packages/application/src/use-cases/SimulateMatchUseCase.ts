@@ -1,5 +1,5 @@
-import { TournamentId, PlayerId, MatchId } from '../../domain/shared/ids';
-import { MatchSimulator } from '../../domain/match-simulation/MatchSimulator';
+import { TournamentId, PlayerId, MatchId } from '../../../domain/src/shared/ids';
+import { MatchSimulator } from '../../../domain/src/match-simulation/MatchSimulator';
 import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
 
 export interface SimulateMatchCommand {
