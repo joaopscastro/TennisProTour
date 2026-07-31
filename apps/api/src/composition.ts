@@ -1,7 +1,7 @@
-import { ManagerId } from '@tennis-manager/domain';
+import Stripe from 'stripe';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
-import { PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
+import { AcceleratedDeclinePolicy, PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
 import { HirePlayerUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -10,6 +10,7 @@ import { Db } from './db/client';
 import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
+import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
 import { LoggingEventPublisher } from './adapters/outbound/LoggingEventPublisher';
 import { MathRandomSource } from './adapters/outbound/MathRandomSource';
@@ -19,12 +20,24 @@ export interface CompositionOptions {
   matchLogDirectory: string;
   matchLogPublicBaseUrl?: string;
   logEvent: (message: string, payload: Record<string, unknown>) => void;
+  /** Omitted = dev placeholders: entitlement reads work (local table),
+   * but checkout/webhook calls fail loudly until real keys are set. */
+  stripe?: {
+    secretKey: string;
+    config: StripeBillingConfig;
+  };
 }
+
+/** Steeper weekly decline for Pro-managed players — the built-in cost
+ * of the 4-slot roster (CLAUDE.md principle #1). Placeholder factor,
+ * to be tuned with the rest of the aging curve before launch. */
+export const PRO_DECLINE_MULTIPLIER = 1.5;
 
 export interface Dependencies {
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
+  billing: StripeBillingAdapter;
   hirePlayer: HirePlayerUseCase;
   openTournament: OpenTournamentUseCase;
   simulateMatch: SimulateMatchUseCase;
@@ -50,27 +63,33 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const bracketGenerator = new BracketGenerator();
   const matchSimulator = new StatisticalMatchSimulator(new MathRandomSource());
 
-  // Free-tier roster cap; becomes a Billing/Manager & Progression
-  // entitlement lookup once those contexts exist (the use case already
-  // takes it as a function for exactly that reason).
-  const maxRosterSizeFor = async (_managerId: ManagerId): Promise<number> => 3;
+  const stripeSettings = options.stripe ?? {
+    secretKey: process.env.STRIPE_SECRET_KEY ?? 'sk_test_placeholder',
+    config: {
+      proPriceId: process.env.STRIPE_PRO_PRICE_ID ?? 'price_placeholder',
+      successUrl: process.env.BILLING_SUCCESS_URL ?? 'http://localhost:3000/billing/success',
+      cancelUrl: process.env.BILLING_CANCEL_URL ?? 'http://localhost:3000/billing/cancel',
+      webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? 'whsec_placeholder',
+    },
+  };
+  const billing = new StripeBillingAdapter(options.db, new Stripe(stripeSettings.secretKey), stripeSettings.config);
 
   const worlds = new DrizzleGameWorldRepository(options.db);
   const simulateMatch = new SimulateMatchUseCase(tournaments, players, matchSimulator, matchLogs, events, bracketGenerator);
+
+  const standardAgingPolicy = new StandardAgingPolicy();
+  const standardAging = new PlayerAgingService(standardAgingPolicy);
+  const proAging = new PlayerAgingService(new AcceleratedDeclinePolicy(standardAgingPolicy, PRO_DECLINE_MULTIPLIER));
 
   return {
     players,
     tournaments,
     worlds,
-    hirePlayer: new HirePlayerUseCase(players, events, maxRosterSizeFor),
+    billing,
+    hirePlayer: new HirePlayerUseCase(players, events, billing),
     openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(
-      worlds,
-      players,
-      new PlayerAgingService(new StandardAgingPolicy()),
-      events,
-    ),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
   };
 }

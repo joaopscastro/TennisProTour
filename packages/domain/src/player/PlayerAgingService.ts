@@ -45,6 +45,40 @@ export class StandardAgingPolicy implements AgingPolicy {
   }
 }
 
+/**
+ * The built-in cost of the Manager Pro roster upgrade (CLAUDE.md
+ * principle #1, copied from Rocking Rackets' VIP design): extra
+ * roster capacity is paired with steeper weekly decline, never a flat
+ * unlock. Implemented as a decorator over any base policy so the
+ * multiplier composes with whatever curve a game-world runs —
+ * exactly the Open/Closed seam the AgingPolicy interface exists for.
+ *
+ * Stage thresholds are untouched: Pro players decline *faster*, they
+ * don't retire *earlier*.
+ */
+export class AcceleratedDeclinePolicy implements AgingPolicy {
+  constructor(
+    private readonly base: AgingPolicy,
+    private readonly declineMultiplier: number,
+  ) {
+    if (declineMultiplier < 1) {
+      throw new Error('AcceleratedDeclinePolicy must not soften the base policy (multiplier >= 1)');
+    }
+  }
+
+  weeklyDeclineDelta(stage: PlayerLifecycleStage): number {
+    return this.base.weeklyDeclineDelta(stage) * this.declineMultiplier;
+  }
+
+  stageForAge(ageInWeeks: number): PlayerLifecycleStage {
+    return this.base.stageForAge(ageInWeeks);
+  }
+
+  retirementAgeInWeeks(): number {
+    return this.base.retirementAgeInWeeks();
+  }
+}
+
 export class PlayerAgingService {
   constructor(private readonly policy: AgingPolicy) {}
 

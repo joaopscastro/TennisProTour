@@ -35,6 +35,7 @@ beforeEach(async () => {
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
+  await db.delete(schema.managerEntitlements);
 });
 
 afterAll(async () => {
@@ -72,12 +73,10 @@ describe('API', () => {
     expect(dto.attributes.surfaceAffinities.clay).toBe(20);
   });
 
-  it('enforces the roster cap through the use case (409, not a controller rule)', async () => {
-    // Each manager gets 3 slots from the composition root's stub.
+  it('enforces the free-tier roster cap of 2 through BillingPort (409, not a controller rule)', async () => {
     expect(await hirePlayer('p1', 'm1')).toBe(201);
     expect(await hirePlayer('p2', 'm1')).toBe(201);
-    expect(await hirePlayer('p3', 'm1')).toBe(201);
-    expect(await hirePlayer('p4', 'm1')).toBe(409);
+    expect(await hirePlayer('p3', 'm1')).toBe(409);
   });
 
   it('404s on a missing player and rejects an invalid hire body', async () => {
@@ -92,9 +91,9 @@ describe('API', () => {
   });
 
   it('opens a tournament, simulates a match, and exposes the outcome and replay URL', async () => {
-    // 16 players across distinct managers (roster cap is 3 per manager).
+    // 16 players across distinct managers (free roster cap is 2 per manager).
     for (let i = 1; i <= 16; i++) {
-      expect(await hirePlayer(`p${i}`, `m${Math.ceil(i / 3)}`)).toBe(201);
+      expect(await hirePlayer(`p${i}`, `m${Math.ceil(i / 2)}`)).toBe(201);
     }
 
     const opened = await app.inject({

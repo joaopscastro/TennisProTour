@@ -15,6 +15,13 @@
       "when": 1785516973779,
       "tag": "0001_swift_pandemic",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785517707387,
+      "tag": "0002_daily_lizard",
+      "breakpoints": true
     }
   ]
 }

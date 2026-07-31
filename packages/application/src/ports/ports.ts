@@ -62,3 +62,21 @@ export interface EventPublisherPort {
 export interface MatchLogStorePort {
   save(matchId: MatchId, log: MatchLog): Promise<{ url: string }>;
 }
+
+/**
+ * Billing context boundary (CLAUDE.md bounded context #5). Game logic
+ * only ever asks entitlement questions and requests a checkout URL —
+ * it never sees Stripe types, webhook payloads, or subscription
+ * records; those live entirely inside the billing adapter. Per
+ * principle #1, everything a Pro entitlement grants must carry its
+ * built-in tradeoff cost wherever it's consumed (roster cap 4 comes
+ * with faster stat decay — see AdvanceWorldWeekUseCase).
+ */
+export interface BillingPort {
+  isProSubscriber(managerId: ManagerId): Promise<boolean>;
+  /** Starts a Manager Pro subscription checkout; the returned URL is
+   * where the manager's browser gets redirected to pay. Entitlement
+   * flips only when the provider's webhook confirms completion —
+   * never optimistically at session creation. */
+  createProCheckoutSession(managerId: ManagerId): Promise<{ url: string }>;
+}

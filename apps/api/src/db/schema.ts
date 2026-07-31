@@ -50,6 +50,20 @@ export const gameWorlds = pgTable('game_worlds', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Manager Pro entitlement state, maintained exclusively by billing
+ * webhooks (checkout completed -> active, subscription deleted ->
+ * canceled). Game logic reads it only through BillingPort — one row
+ * per manager who has ever subscribed; absence of a row = free tier.
+ */
+export const managerEntitlements = pgTable('manager_entitlements', {
+  managerId: text('manager_id').primaryKey(),
+  stripeCustomerId: text('stripe_customer_id'),
+  stripeSubscriptionId: text('stripe_subscription_id'),
+  status: text('status', { enum: ['active', 'canceled'] }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

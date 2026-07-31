@@ -1,7 +1,15 @@
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, SurfaceAffinities, Skill } from '@tennis-manager/domain';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
-import { EventPublisherPort, PlayerRepository } from '../ports/ports';
+import { BillingPort, EventPublisherPort, PlayerRepository } from '../ports/ports';
+
+/** Free-tier roster cap (Rocking Rackets' base 2-player scarcity). */
+export const FREE_ROSTER_CAP = 2;
+/** Manager Pro roster cap. The extra capacity is NOT a flat unlock:
+ * per CLAUDE.md principle #1 it's paired with faster stat decay for
+ * Pro-managed players (see AdvanceWorldWeekUseCase's accelerated
+ * aging path). */
+export const PRO_ROSTER_CAP = 4;
 
 export interface HirePlayerCommand {
   playerId: PlayerId;
@@ -23,7 +31,7 @@ export class HirePlayerUseCase {
   constructor(
     private readonly players: PlayerRepository,
     private readonly events: EventPublisherPort,
-    private readonly maxRosterSizeFor: (managerId: ManagerId) => Promise<number>,
+    private readonly billing: BillingPort,
   ) {}
 
   async execute(command: HirePlayerCommand): Promise<void> {
@@ -66,5 +74,13 @@ export class HirePlayerUseCase {
 
     await this.players.save(player);
     await this.events.publish(player.pullDomainEvents());
+  }
+
+  /** The real entitlement lookup the earlier injected stub stood in
+   * for: Manager Pro subscribers get the extended cap, everyone else
+   * the free one. execute() is untouched by the swap (Open/Closed,
+   * as the seam intended). */
+  private async maxRosterSizeFor(managerId: ManagerId): Promise<number> {
+    return (await this.billing.isProSubscriber(managerId)) ? PRO_ROSTER_CAP : FREE_ROSTER_CAP;
   }
 }

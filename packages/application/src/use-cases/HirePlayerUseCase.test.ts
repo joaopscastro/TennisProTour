@@ -2,8 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { DomainEvent } from '@tennis-manager/domain';
-import { EventPublisherPort, PlayerRepository } from '../ports/ports';
+import { BillingPort, EventPublisherPort, PlayerRepository } from '../ports/ports';
 import { HirePlayerUseCase } from './HirePlayerUseCase';
+
+class FakeBillingPort implements BillingPort {
+  constructor(private readonly proManagers: Set<string> = new Set()) {}
+
+  async isProSubscriber(managerId: ManagerId): Promise<boolean> {
+    return this.proManagers.has(managerId);
+  }
+
+  async createProCheckoutSession(): Promise<{ url: string }> {
+    return { url: 'https://checkout.test/session' };
+  }
+}
 
 class InMemoryPlayerRepository implements PlayerRepository {
   private readonly store = new Map<PlayerId, Player>();
@@ -38,7 +50,7 @@ describe('HirePlayerUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
     const managerId = ManagerId('m1');
-    const useCase = new HirePlayerUseCase(players, events, async () => 3);
+    const useCase = new HirePlayerUseCase(players, events, new FakeBillingPort());
 
     await useCase.execute({
       playerId: PlayerId('p1'),
@@ -55,33 +67,61 @@ describe('HirePlayerUseCase', () => {
     expect(events.published[0]).toMatchObject({ type: 'PlayerHired' });
   });
 
-  it('throws when the roster is already at the cap', async () => {
+  it('caps a free manager at 2 players', async () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
     const managerId = ManagerId('m1');
-    const useCase = new HirePlayerUseCase(players, events, async () => 1);
+    const useCase = new HirePlayerUseCase(players, events, new FakeBillingPort());
 
-    await useCase.execute({
-      playerId: PlayerId('p1'),
-      name: 'First Player',
-      managerId,
-      startingAgeInWeeks: 18 * 52,
-    });
+    for (let i = 1; i <= 2; i++) {
+      await useCase.execute({
+        playerId: PlayerId(`p${i}`),
+        name: `Player ${i}`,
+        managerId,
+        startingAgeInWeeks: 18 * 52,
+      });
+    }
 
     await expect(
       useCase.execute({
-        playerId: PlayerId('p2'),
-        name: 'Second Player',
+        playerId: PlayerId('p3'),
+        name: 'One Too Many',
         managerId,
         startingAgeInWeeks: 18 * 52,
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/roster is full/);
+  });
+
+  it('caps a Pro manager at 4 players via BillingPort.isProSubscriber', async () => {
+    const players = new InMemoryPlayerRepository();
+    const events = new RecordingEventPublisher();
+    const managerId = ManagerId('pro-manager');
+    const useCase = new HirePlayerUseCase(players, events, new FakeBillingPort(new Set(['pro-manager'])));
+
+    for (let i = 1; i <= 4; i++) {
+      await useCase.execute({
+        playerId: PlayerId(`p${i}`),
+        name: `Player ${i}`,
+        managerId,
+        startingAgeInWeeks: 18 * 52,
+      });
+    }
+    expect(await players.findByManager(managerId)).toHaveLength(4);
+
+    await expect(
+      useCase.execute({
+        playerId: PlayerId('p5'),
+        name: 'One Too Many',
+        managerId,
+        startingAgeInWeeks: 18 * 52,
+      }),
+    ).rejects.toThrow(/roster is full/);
   });
 
   it('starts every hired player with the same baseline attributes', async () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
-    const useCase = new HirePlayerUseCase(players, events, async () => 5);
+    const useCase = new HirePlayerUseCase(players, events, new FakeBillingPort());
 
     await useCase.execute({
       playerId: PlayerId('p1'),

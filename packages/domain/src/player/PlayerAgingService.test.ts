@@ -2,7 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '../shared/ids';
 import { Player, PlayerLifecycleStage } from './Player';
 import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
-import { AgingPolicy, PlayerAgingService, StandardAgingPolicy } from './PlayerAgingService';
+import { AcceleratedDeclinePolicy, AgingPolicy, PlayerAgingService, StandardAgingPolicy } from './PlayerAgingService';
+
+describe('AcceleratedDeclinePolicy', () => {
+  const base: AgingPolicy = {
+    weeklyDeclineDelta: (stage) => (stage === 'decline' ? -2 : 0),
+    stageForAge: (ageInWeeks) => (ageInWeeks >= 100 ? 'decline' : 'prime'),
+    retirementAgeInWeeks: () => 200,
+  };
+
+  it('multiplies the decline delta but leaves stage thresholds untouched', () => {
+    const accelerated = new AcceleratedDeclinePolicy(base, 1.5);
+
+    expect(accelerated.weeklyDeclineDelta('decline')).toBe(-3);
+    expect(accelerated.weeklyDeclineDelta('prime')).toBe(0);
+    expect(accelerated.stageForAge(99)).toBe('prime');
+    expect(accelerated.stageForAge(100)).toBe('decline');
+    expect(accelerated.retirementAgeInWeeks()).toBe(200);
+  });
+
+  it('refuses a multiplier below 1 (the tradeoff must be a cost, never a buff)', () => {
+    expect(() => new AcceleratedDeclinePolicy(base, 0.5)).toThrow();
+  });
+});
 
 function startingAttributes(): PlayerAttributes {
   return new PlayerAttributes({
