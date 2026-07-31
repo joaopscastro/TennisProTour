@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "start": "tsc --build && node dist/index.js"
   },
   "dependencies": {
@@ -14,5 +15,8 @@
     "@tennis-manager/domain": "^0.1.0",
     "bullmq": "^5.81.3",
     "ioredis": "^5.11.1"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.10"
   }
 }

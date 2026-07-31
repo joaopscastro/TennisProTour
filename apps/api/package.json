@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc --build",
     "start": "tsc --build && node dist/index.js",
+    "seed": "tsc --build && node dist/scripts/seed.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
