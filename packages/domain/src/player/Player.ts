@@ -1,107 +1,134 @@
-import { ManagerId, PlayerId } from '../shared/ids';
+import { PlayerId, ManagerId } from '../shared/ids';
+import { PlayerAttributes, Surface } from './PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
-import { PlayerAttributes } from './PlayerAttributes';
 
-export type AgingStage = 'youth' | 'prime' | 'decline' | 'retired';
+export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
 export interface PlayerProps {
   id: PlayerId;
-  managerId: ManagerId;
   name: string;
-  ageInYears: number;
+  ageInWeeks: number;
+  managerId: ManagerId | null;
   attributes: PlayerAttributes;
-  fatigue?: number;
-  stage?: AgingStage;
+  stage: PlayerLifecycleStage;
+  fatigue: number; // 0 (fresh) – 100 (exhausted)
 }
 
-/**
- * Player aggregate root. Every mutation goes through a named method —
- * never a raw setter, and never reached into via an `as unknown as
- * {...}` cast from outside (see CLAUDE.md's SOLID discipline section)
- * — so invariants like fatigue staying in [0, 100] can't be bypassed.
+/** Aggregate root for the Player & Roster bounded context.
+ *
+ * SRP note: Player owns identity + lifecycle transitions only. It does
+ * NOT know how to age itself week-over-week (that's
+ * PlayerAgingService's job, since aging curves are a policy that may
+ * change independently of what a Player *is*), and it does NOT know
+ * how to simulate a match (that's the Match Simulation Engine's job,
+ * consuming only the immutable PlayerAttributes snapshot).
  */
 export class Player {
-  private _attributes: PlayerAttributes;
-  private _fatigue: number;
-  private _ageInYears: number;
-  private _stage: AgingStage;
-  private domainEvents: DomainEvent[] = [];
+  private readonly _domainEvents: DomainEvent[] = [];
 
-  private constructor(
-    readonly id: PlayerId,
-    readonly managerId: ManagerId,
-    readonly name: string,
-    ageInYears: number,
+  private constructor(private props: PlayerProps) {}
+
+  static hire(
+    id: PlayerId,
+    name: string,
+    ageInWeeks: number,
     attributes: PlayerAttributes,
-    fatigue: number,
-    stage: AgingStage,
-  ) {
-    this._ageInYears = ageInYears;
-    this._attributes = attributes;
-    this._fatigue = fatigue;
-    this._stage = stage;
+    managerId: ManagerId,
+  ): Player {
+    const player = new Player({
+      id,
+      name,
+      ageInWeeks,
+      managerId,
+      attributes,
+      stage: 'youth',
+      fatigue: 0,
+    });
+    player._domainEvents.push({
+      type: 'PlayerHired',
+      occurredAt: new Date(),
+      payload: { playerId: id, managerId },
+    });
+    return player;
   }
 
-  static create(props: PlayerProps): Player {
-    return new Player(
-      props.id,
-      props.managerId,
-      props.name,
-      props.ageInYears,
-      props.attributes,
-      props.fatigue ?? 0,
-      props.stage ?? 'youth',
-    );
+  get id() {
+    return this.props.id;
   }
 
-  get attributes(): PlayerAttributes {
-    return this._attributes;
+  get ageInWeeks() {
+    return this.props.ageInWeeks;
   }
 
-  get fatigue(): number {
-    return this._fatigue;
+  get managerId() {
+    return this.props.managerId;
   }
 
-  get ageInYears(): number {
-    return this._ageInYears;
+  get attributes() {
+    return this.props.attributes;
   }
 
-  get stage(): AgingStage {
-    return this._stage;
+  get stage() {
+    return this.props.stage;
   }
 
-  applyMatchFatigue(amount: number): void {
-    this._fatigue = Math.min(100, this._fatigue + amount);
+  get fatigue() {
+    return this.props.fatigue;
+  }
+
+  isRetired(): boolean {
+    return this.props.stage === 'retired';
+  }
+
+  /** Applies a training session on a given surface. Actual gain
+   * amounts are computed by a policy object passed in by the caller
+   * (application layer / TrainingPolicy), keeping this method a pure
+   * state-transition rather than a place where balance numbers live. */
+  applyTraining(surface: Surface, updatedAttributes: PlayerAttributes): void {
+    if (this.isRetired()) {
+      throw new Error(`Cannot train retired player ${this.props.id}`);
+    }
+    this.props = { ...this.props, attributes: updatedAttributes };
+  }
+
+  applyMatchFatigue(fatigueDelta: number): void {
+    this.props = {
+      ...this.props,
+      fatigue: Math.max(0, Math.min(100, this.props.fatigue + fatigueDelta)),
+    };
   }
 
   recoverFatigue(amount: number): void {
-    this._fatigue = Math.max(0, this._fatigue - amount);
+    this.applyMatchFatigue(-amount);
   }
 
-  growOlder(): void {
-    this._ageInYears += 1;
+  /** Advances lifecycle stage and age. Called by PlayerAgingService,
+   * never invoked directly by application code, so aging rules stay
+   * centralized in one place. */
+  advanceWeek(newAgeInWeeks: number, newStage: PlayerLifecycleStage, updatedAttributes: PlayerAttributes): void {
+    const wasRetired = this.isRetired();
+    this.props = {
+      ...this.props,
+      ageInWeeks: newAgeInWeeks,
+      stage: newStage,
+      attributes: updatedAttributes,
+    };
+    if (!wasRetired && newStage === 'retired') {
+      this._domainEvents.push({
+        type: 'PlayerRetired',
+        occurredAt: new Date(),
+        payload: { playerId: this.props.id },
+      });
+    }
   }
 
-  transitionTo(stage: AgingStage): void {
-    if (stage === this._stage) return;
-    this._stage = stage;
-    this.domainEvents.push({
-      type: 'PlayerAgingStageChanged',
-      payload: { playerId: this.id, stage },
-    });
-  }
-
-  declinePhysical(amount: number): void {
-    this._attributes = this._attributes.withPhysical({
-      speed: this._attributes.physical.speed.adjust(-amount),
-      stamina: this._attributes.physical.stamina.adjust(-amount),
-      strength: this._attributes.physical.strength.adjust(-amount),
-    });
+  releaseFromManager(): void {
+    this.props = { ...this.props, managerId: null };
   }
 
   pullDomainEvents(): DomainEvent[] {
-    const events = this.domainEvents;
-    this.domainEvents = [];
+    const events = [...this._domainEvents];
+    this._domainEvents.length = 0;
     return events;
   }
 }

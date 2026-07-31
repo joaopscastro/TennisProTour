@@ -72,6 +72,7 @@ export class Tournament {
     this.rounds = [...rounds];
     this.domainEvents.push({
       type: 'TournamentStarted',
+      occurredAt: new Date(),
       payload: { tournamentId: this.id, entrantCount: this._entrants.length },
     });
   }
@@ -91,21 +92,44 @@ export class Tournament {
     if (match.outcome) {
       throw new Error(`Match ${roundNumber}/${matchIndex} already has a recorded outcome`);
     }
+    if (outcome.winner !== match.entrantA && outcome.winner !== match.entrantB) {
+      throw new Error('Winner must be one of the two scheduled entrants');
+    }
 
     const updatedMatches = round.matches.map((m, i) => (i === matchIndex ? { ...m, outcome } : m));
     this.rounds[roundIndex] = { ...round, matches: updatedMatches };
 
     this.domainEvents.push({
       type: 'MatchOutcomeRecorded',
+      occurredAt: new Date(),
       payload: { tournamentId: this.id, roundNumber, matchIndex, winner: outcome.winner },
     });
 
     if (updatedMatches.every((m) => m.outcome !== null)) {
-      this.domainEvents.push({
-        type: 'TournamentRoundAdvanced',
-        payload: { tournamentId: this.id, roundNumber },
-      });
+      if (this.isFinalRound(roundNumber)) {
+        this.domainEvents.push({
+          type: 'TournamentCompleted',
+          occurredAt: new Date(),
+          payload: { tournamentId: this.id },
+        });
+      } else {
+        this.domainEvents.push({
+          type: 'TournamentRoundAdvanced',
+          occurredAt: new Date(),
+          payload: { tournamentId: this.id, roundNumber },
+        });
+      }
     }
+  }
+
+  /** Total rounds in a single-elimination draw of this tournament's
+   * drawSize is log2(drawSize) (16 -> 4 rounds, 32 -> 5, ...), so the
+   * round that just completed is the final one exactly when its
+   * number equals that total — no separate "is this the last round I
+   * happen to have on file" check is needed, which matters since
+   * rounds are added incrementally via addRound(), not all upfront. */
+  private isFinalRound(roundNumber: number): boolean {
+    return roundNumber === Math.log2(this.drawSize);
   }
 
   isRoundComplete(roundNumber: number): boolean {

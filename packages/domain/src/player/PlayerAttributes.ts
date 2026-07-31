@@ -1,97 +1,109 @@
-export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
+/**
+ * Value objects for a player's attributes. All are immutable — any
+ * "change" (training, aging) produces a new instance rather than
+ * mutating in place, which keeps Player.ts's invariants easy to reason
+ * about and trivial to unit test.
+ */
 
-/** A single 0–100 rated attribute. Immutable — every change returns a
- * new Skill, so a Player's attribute history can never be mutated out
- * from under a caller holding an old reference. */
+/** A single 0–100 skill rating. Clamps itself on construction so no
+ * consumer needs to re-validate bounds (SRP: this VO owns its own
+ * validity, nothing else needs to). */
 export class Skill {
-  private constructor(private readonly _value: number) {}
+  private constructor(readonly value: number) {}
 
   static of(value: number): Skill {
-    if (value < 0 || value > 100) {
-      throw new Error(`Skill value out of range [0, 100]: ${value}`);
-    }
-    return new Skill(value);
+    return new Skill(Math.max(0, Math.min(100, Math.round(value))));
   }
 
-  get value(): number {
-    return this._value;
+  add(delta: number): Skill {
+    return Skill.of(this.value + delta);
   }
 
-  adjust(delta: number): Skill {
-    return Skill.of(Math.min(100, Math.max(0, this._value + delta)));
+  toBallRating(): number {
+    // Rocking Rackets-style presentation: 20 skill points ≈ 1 "ball" icon
+    return this.value / 20;
   }
 }
 
-export class SurfaceAffinities {
-  private constructor(private readonly affinities: ReadonlyMap<Surface, number>) {}
+export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
 
-  static of(values: Record<Surface, number>): SurfaceAffinities {
-    return new SurfaceAffinities(new Map(Object.entries(values) as Array<[Surface, number]>));
+/**
+ * Percentage bonus per surface. Mirrors Rocking Rackets' rule that each
+ * surface affinity is trainable but capped at 60%, and the four
+ * surfaces needn't sum to any fixed total (unlike a "distribute 100
+ * points" allocation system, which would add UI complexity we don't
+ * need at MVP).
+ */
+export class SurfaceAffinities {
+  private static readonly MAX_PER_SURFACE = 60;
+
+  private constructor(private readonly values: Record<Surface, number>) {}
+
+  static initial(): SurfaceAffinities {
+    return new SurfaceAffinities({ clay: 20, grass: 20, hard: 20, indoor: 20 });
   }
 
   get(surface: Surface): number {
-    const value = this.affinities.get(surface);
-    if (value === undefined) {
-      throw new Error(`No affinity defined for surface: ${surface}`);
-    }
-    return value;
+    return this.values[surface];
   }
 
-  with(surface: Surface, value: number): SurfaceAffinities {
-    const next = new Map(this.affinities);
-    next.set(surface, value);
+  trainedOn(surface: Surface, gain: number): SurfaceAffinities {
+    const next = { ...this.values };
+    next[surface] = Math.min(SurfaceAffinities.MAX_PER_SURFACE, next[surface] + gain);
     return new SurfaceAffinities(next);
   }
 }
 
-export interface TechnicalAttributes {
-  serve: Skill;
-  forehand: Skill;
-  backhand: Skill;
-  volley: Skill;
+export interface PlayerAttributesProps {
+  technical: {
+    serve: Skill;
+    forehand: Skill;
+    backhand: Skill;
+    volley: Skill;
+  };
+  physical: {
+    speed: Skill;
+    stamina: Skill;
+    strength: Skill;
+  };
+  mental: {
+    consistency: Skill;
+    clutch: Skill; // "mentality" in Rocking Rackets terms — bonus on break/tiebreak points
+  };
+  surfaceAffinities: SurfaceAffinities;
 }
 
-export interface PhysicalAttributes {
-  speed: Skill;
-  stamina: Skill;
-  strength: Skill;
-}
-
-export interface MentalAttributes {
-  consistency: Skill;
-  clutch: Skill;
-}
-
-/** Groups the three stat categories plus surface affinities — directly
- * inspired by Rocking Rackets' model but split into technical/physical
- * /mental groups for more build-diversity granularity (see business
- * plan, section 2). */
+/** Groups the three attribute clusters (technical / physical / mental)
+ * plus surface affinities into a single immutable snapshot that the
+ * Match Simulation Engine consumes. This is the seam between the
+ * Player & Roster context and the Match Simulation context — the
+ * simulator only ever sees this plain snapshot, never the Player
+ * entity itself, which keeps the two contexts decoupled. */
 export class PlayerAttributes {
-  private constructor(
-    readonly technical: TechnicalAttributes,
-    readonly physical: PhysicalAttributes,
-    readonly mental: MentalAttributes,
-    readonly surfaceAffinities: SurfaceAffinities,
-  ) {}
+  constructor(private readonly props: PlayerAttributesProps) {}
 
-  static create(params: {
-    technical: TechnicalAttributes;
-    physical: PhysicalAttributes;
-    mental: MentalAttributes;
-    surfaceAffinities: SurfaceAffinities;
-  }): PlayerAttributes {
-    return new PlayerAttributes(params.technical, params.physical, params.mental, params.surfaceAffinities);
+  get technical() {
+    return this.props.technical;
   }
 
-  withTechnical(patch: Partial<TechnicalAttributes>): PlayerAttributes {
-    return new PlayerAttributes({ ...this.technical, ...patch }, this.physical, this.mental, this.surfaceAffinities);
+  get physical() {
+    return this.props.physical;
   }
 
-  withPhysical(patch: Partial<PhysicalAttributes>): PlayerAttributes {
-    return new PlayerAttributes(this.technical, { ...this.physical, ...patch }, this.mental, this.surfaceAffinities);
+  get mental() {
+    return this.props.mental;
   }
 
-  withMental(patch: Partial<MentalAttributes>): PlayerAttributes {
-    return new PlayerAttributes(this.technical, this.physical, { ...this.mental, ...patch }, this.surfaceAffinities);
+  get surfaceAffinities() {
+    return this.props.surfaceAffinities;
+  }
+
+  overallRating(): number {
+    const all = [
+      ...Object.values(this.props.technical),
+      ...Object.values(this.props.physical),
+      ...Object.values(this.props.mental),
+    ] as Skill[];
+    return all.reduce((sum, s) => sum + s.value, 0) / all.length;
   }
 }

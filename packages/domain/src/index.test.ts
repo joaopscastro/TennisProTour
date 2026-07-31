@@ -10,6 +10,6 @@ describe('domain package boundary', () => {
     expect(domain.Tournament).toBeDefined();
     expect(domain.StatisticalMatchSimulator).toBeDefined();
     expect(domain.StandardRankingPointsTable).toBeDefined();
-    expect(domain.GameWeek).toBeDefined();
+    expect(domain.compareGameWeek).toBeDefined();
   });
 });

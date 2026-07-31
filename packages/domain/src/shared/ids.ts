@@ -1,54 +1,28 @@
-/** Branded string IDs so a PlayerId can never be passed where a
- * TournamentId is expected, without needing full value-object
- * wrapper classes for something this simple. */
-export type PlayerId = string & { readonly __brand: 'PlayerId' };
-export type TournamentId = string & { readonly __brand: 'TournamentId' };
-export type ManagerId = string & { readonly __brand: 'ManagerId' };
-export type MatchId = string & { readonly __brand: 'MatchId' };
+/**
+ * Branded primitive types so a PlayerId can never be accidentally passed
+ * where a TournamentId is expected, without needing full value-object
+ * ceremony for simple identifiers.
+ */
+export type Brand<T, B extends string> = T & { readonly __brand: B };
 
-export function asPlayerId(value: string): PlayerId {
-  return value as PlayerId;
+export type PlayerId = Brand<string, 'PlayerId'>;
+export type ManagerId = Brand<string, 'ManagerId'>;
+export type TournamentId = Brand<string, 'TournamentId'>;
+export type MatchId = Brand<string, 'MatchId'>;
+
+export const PlayerId = (value: string): PlayerId => value as PlayerId;
+export const ManagerId = (value: string): ManagerId => value as ManagerId;
+export const TournamentId = (value: string): TournamentId => value as TournamentId;
+export const MatchId = (value: string): MatchId => value as MatchId;
+
+/** A single point in in-game time. Kept as a value object so the domain
+ * never depends on wall-clock Date directly (see ClockPort). */
+export interface GameWeek {
+  readonly season: number;
+  readonly week: number;
 }
 
-export function asTournamentId(value: string): TournamentId {
-  return value as TournamentId;
-}
-
-export function asManagerId(value: string): ManagerId {
-  return value as ManagerId;
-}
-
-export function asMatchId(value: string): MatchId {
-  return value as MatchId;
-}
-
-/** The in-game clock's unit of time. Every domain rule (aging,
- * tournament scheduling) is expressed in weeks, never wall-clock
- * dates, so game-speed servers can compress or stretch real time
- * without touching domain logic. */
-export class GameWeek {
-  private constructor(private readonly weekNumber: number) {}
-
-  static of(weekNumber: number): GameWeek {
-    if (!Number.isInteger(weekNumber) || weekNumber < 0) {
-      throw new Error(`Invalid GameWeek: ${weekNumber}`);
-    }
-    return new GameWeek(weekNumber);
-  }
-
-  next(): GameWeek {
-    return new GameWeek(this.weekNumber + 1);
-  }
-
-  toNumber(): number {
-    return this.weekNumber;
-  }
-
-  isBefore(other: GameWeek): boolean {
-    return this.weekNumber < other.weekNumber;
-  }
-
-  equals(other: GameWeek): boolean {
-    return this.weekNumber === other.weekNumber;
-  }
+export function compareGameWeek(a: GameWeek, b: GameWeek): number {
+  if (a.season !== b.season) return a.season - b.season;
+  return a.week - b.week;
 }

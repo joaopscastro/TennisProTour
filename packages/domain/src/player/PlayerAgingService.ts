@@ -1,55 +1,82 @@
-import { GameWeek } from '../shared/ids';
-import { AgingStage, Player } from './Player';
-
-export interface AgingCurvePolicy {
-  readonly weeksPerYear: number;
-  readonly weeklyDeclineAmount: number;
-  stageFor(ageInYears: number): AgingStage;
-}
+import { Player, PlayerLifecycleStage } from './Player';
+import { PlayerAttributes, Skill } from './PlayerAttributes';
 
 /**
- * Illustrative, not balanced — prime/decline/retirement thresholds
- * need a real tuning pass before launch (see CLAUDE.md's "known
- * placeholders" section). `weeksPerYear` is what lets a fast-speed
- * game-world and a slow-speed one run the same policy shape.
+ * Domain service (not a Player method) because aging is a *policy*
+ * that the business may want to tune per game-world speed (fast
+ * servers vs. slow servers, mirroring Rocking Rackets' multi-speed
+ * server model) without touching the Player entity itself.
+ *
+ * SOLID note: this is the Open/Closed seam for aging. A new
+ * `AcceleratedAgingService` for "fast" worlds can be introduced
+ * without modifying Player or any consumer that depends on the
+ * `AgingPolicy` interface below.
  */
-export class StandardAgingCurvePolicy implements AgingCurvePolicy {
-  readonly weeklyDeclineAmount = 0.15;
+export interface AgingPolicy {
+  /** Physical/technical decay applied per week once a player enters
+   * the 'decline' stage. Negative number. */
+  weeklyDeclineDelta(stage: PlayerLifecycleStage): number;
 
-  constructor(
-    private readonly primeAge = 20,
-    private readonly declineAge = 30,
-    private readonly retirementAge = 38,
-    readonly weeksPerYear = 52,
-  ) {}
+  /** Age (in weeks) thresholds for stage transitions. */
+  stageForAge(ageInWeeks: number): PlayerLifecycleStage;
 
-  stageFor(ageInYears: number): AgingStage {
-    if (ageInYears >= this.retirementAge) return 'retired';
-    if (ageInYears >= this.declineAge) return 'decline';
-    if (ageInYears >= this.primeAge) return 'prime';
+  retirementAgeInWeeks(): number;
+}
+
+export class StandardAgingPolicy implements AgingPolicy {
+  // Ages expressed in in-game weeks; a "season" is 52 weeks by convention.
+  private readonly PRIME_START_WEEK = 20 * 52;
+  private readonly DECLINE_START_WEEK = 30 * 52;
+  private readonly RETIREMENT_WEEK = 38 * 52;
+
+  weeklyDeclineDelta(stage: PlayerLifecycleStage): number {
+    return stage === 'decline' ? -0.05 : 0;
+  }
+
+  stageForAge(ageInWeeks: number): PlayerLifecycleStage {
+    if (ageInWeeks >= this.RETIREMENT_WEEK) return 'retired';
+    if (ageInWeeks >= this.DECLINE_START_WEEK) return 'decline';
+    if (ageInWeeks >= this.PRIME_START_WEEK) return 'prime';
     return 'youth';
+  }
+
+  retirementAgeInWeeks(): number {
+    return this.RETIREMENT_WEEK;
   }
 }
 
-/**
- * Weekly aging/decline domain service, kept separate from the Player
- * aggregate because the aging curve is a swappable *policy* — a
- * fast-speed game-world can run a different curve than a slow one —
- * rather than a fixed rule the entity owns itself (SRP + OCP).
- */
 export class PlayerAgingService {
-  constructor(private readonly policy: AgingCurvePolicy = new StandardAgingCurvePolicy()) {}
+  constructor(private readonly policy: AgingPolicy) {}
 
-  applyWeeklyTick(player: Player, currentWeek: GameWeek): void {
-    if (currentWeek.toNumber() > 0 && currentWeek.toNumber() % this.policy.weeksPerYear === 0) {
-      player.growOlder();
-    }
+  /** Advances a single player by one in-game week. Pure w.r.t. its
+   * inputs aside from mutating the passed-in aggregate via its own
+   * public methods — no direct field access, so Player's invariants
+   * stay enforced by Player itself. */
+  advance(player: Player): void {
+    const newAge = player.ageInWeeks + 1;
+    const newStage = this.policy.stageForAge(newAge);
+    const decayPerAttribute = this.policy.weeklyDeclineDelta(newStage);
 
-    const stage = this.policy.stageFor(player.ageInYears);
-    player.transitionTo(stage);
+    const current = player.attributes;
+    const decayed = new PlayerAttributes({
+      technical: {
+        serve: current.technical.serve.add(decayPerAttribute),
+        forehand: current.technical.forehand.add(decayPerAttribute),
+        backhand: current.technical.backhand.add(decayPerAttribute),
+        volley: current.technical.volley.add(decayPerAttribute),
+      },
+      physical: {
+        speed: current.physical.speed.add(decayPerAttribute),
+        stamina: current.physical.stamina.add(decayPerAttribute),
+        strength: current.physical.strength.add(decayPerAttribute),
+      },
+      mental: {
+        consistency: current.mental.consistency.add(decayPerAttribute),
+        clutch: current.mental.clutch.add(decayPerAttribute),
+      },
+      surfaceAffinities: current.surfaceAffinities,
+    });
 
-    if (stage === 'decline' || stage === 'retired') {
-      player.declinePhysical(this.policy.weeklyDeclineAmount);
-    }
+    player.advanceWeek(newAge, newStage, decayed);
   }
 }

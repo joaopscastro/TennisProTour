@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { asPlayerId } from '../shared/ids';
+import { PlayerId } from '../shared/ids';
 import { TournamentEntrant } from './CompetitionTypes';
 import { BracketGenerator } from './BracketGenerator';
 
 function entrant(seed: number, id: string): TournamentEntrant {
-  return { playerId: asPlayerId(id), seed };
+  return { playerId: PlayerId(id), seed };
 }
 
 describe('BracketGenerator', () => {
@@ -20,14 +20,14 @@ describe('BracketGenerator', () => {
     expect(round1.roundNumber).toBe(1);
     expect(round1.matches).toHaveLength(8);
     expect(round1.matches.map((m) => [m.entrantA, m.entrantB])).toEqual([
-      [asPlayerId('seed-1'), asPlayerId('seed-16')],
-      [asPlayerId('seed-8'), asPlayerId('seed-9')],
-      [asPlayerId('seed-4'), asPlayerId('seed-13')],
-      [asPlayerId('seed-5'), asPlayerId('seed-12')],
-      [asPlayerId('seed-2'), asPlayerId('seed-15')],
-      [asPlayerId('seed-7'), asPlayerId('seed-10')],
-      [asPlayerId('seed-3'), asPlayerId('seed-14')],
-      [asPlayerId('seed-6'), asPlayerId('seed-11')],
+      [PlayerId('seed-1'), PlayerId('seed-16')],
+      [PlayerId('seed-8'), PlayerId('seed-9')],
+      [PlayerId('seed-4'), PlayerId('seed-13')],
+      [PlayerId('seed-5'), PlayerId('seed-12')],
+      [PlayerId('seed-2'), PlayerId('seed-15')],
+      [PlayerId('seed-7'), PlayerId('seed-10')],
+      [PlayerId('seed-3'), PlayerId('seed-14')],
+      [PlayerId('seed-6'), PlayerId('seed-11')],
     ]);
     expect(round1.matches.every((m) => m.outcome === null)).toBe(true);
   });
@@ -40,13 +40,13 @@ describe('BracketGenerator', () => {
     // 6 byes (16 - 10) go to the top 6 seeds; only seeds 7-10 play round 1.
     expect(round1.matches).toHaveLength(2);
     expect(round1.matches.map((m) => [m.entrantA, m.entrantB])).toEqual([
-      [asPlayerId('seed-8'), asPlayerId('seed-9')],
-      [asPlayerId('seed-7'), asPlayerId('seed-10')],
+      [PlayerId('seed-8'), PlayerId('seed-9')],
+      [PlayerId('seed-7'), PlayerId('seed-10')],
     ]);
 
     const playingIds = new Set(round1.matches.flatMap((m) => [m.entrantA, m.entrantB]));
     for (let seed = 1; seed <= 6; seed++) {
-      expect(playingIds.has(asPlayerId(`seed-${seed}`))).toBe(false);
+      expect(playingIds.has(PlayerId(`seed-${seed}`))).toBe(false);
     }
   });
 
