@@ -1,3 +1,4 @@
+import { PlayerId } from '../shared/ids';
 import { BracketRound, DrawSize, TournamentEntrant } from './CompetitionTypes';
 
 type BracketMatch = BracketRound['matches'][number];
@@ -38,6 +39,79 @@ export class BracketGenerator {
     }
 
     return [{ roundNumber: 1, matches }];
+  }
+
+  /**
+   * Pairs the winners of a completed round into the next round: winner
+   * of match 0 vs winner of match 1, winner of match 2 vs winner of
+   * match 3, and so on.
+   *
+   * Round 1 needs special handling here that later rounds don't: a bye
+   * never gets a match entry at all (see generate()), so a bye
+   * recipient's "win" can't be read off completedRound.matches — it has
+   * to be reconstructed from the same seed slot order used to build
+   * round 1 in the first place, which is why this method takes the
+   * same entrants + drawSize generate() does. From round 2 onward,
+   * every entrant already has a real recorded match (byes only ever
+   * happen in round 1), so pairing is just reading winners off in
+   * match order, exactly as round 1 would be if there were no byes.
+   */
+  generateNextRound(
+    completedRound: BracketRound,
+    entrants: ReadonlyArray<TournamentEntrant>,
+    drawSize: DrawSize,
+  ): BracketRound {
+    const winners =
+      completedRound.roundNumber === 1
+        ? this.round1WinnersInBracketOrder(completedRound, entrants, drawSize)
+        : completedRound.matches.map((m) => this.requireWinner(m));
+
+    const matches: BracketMatch[] = [];
+    for (let i = 0; i < winners.length; i += 2) {
+      matches.push({ entrantA: winners[i], entrantB: winners[i + 1], outcome: null });
+    }
+
+    return { roundNumber: completedRound.roundNumber + 1, matches };
+  }
+
+  private round1WinnersInBracketOrder(
+    completedRound: BracketRound,
+    entrants: ReadonlyArray<TournamentEntrant>,
+    drawSize: DrawSize,
+  ): PlayerId[] {
+    const seeded = this.orderBySeed(entrants);
+    const slots = BracketGenerator.seedSlotOrder(drawSize);
+    const winners: PlayerId[] = [];
+
+    for (let i = 0; i < slots.length; i += 2) {
+      const entrantA = this.entrantForSlot(seeded, slots[i]);
+      const entrantB = this.entrantForSlot(seeded, slots[i + 1]);
+
+      if (entrantA && entrantB) {
+        const match = completedRound.matches.find(
+          (m) => m.entrantA === entrantA.playerId && m.entrantB === entrantB.playerId,
+        );
+        if (!match) {
+          throw new Error(`No completed match found for seeds ${slots[i]} vs ${slots[i + 1]}`);
+        }
+        winners.push(this.requireWinner(match));
+      } else if (entrantA) {
+        winners.push(entrantA.playerId); // bye: carries over as if they'd won
+      } else if (entrantB) {
+        winners.push(entrantB.playerId); // bye: carries over as if they'd won
+      }
+      // Neither slot filled: nobody to carry over — only possible with
+      // very few entrants relative to the draw size.
+    }
+
+    return winners;
+  }
+
+  private requireWinner(match: BracketRound['matches'][number]): PlayerId {
+    if (!match.outcome) {
+      throw new Error('Cannot generate the next round: a match has no recorded outcome yet');
+    }
+    return match.outcome.winner;
   }
 
   private orderBySeed(entrants: ReadonlyArray<TournamentEntrant>): TournamentEntrant[] {

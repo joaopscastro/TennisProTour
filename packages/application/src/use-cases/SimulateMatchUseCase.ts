@@ -1,5 +1,6 @@
 import { TournamentId, PlayerId, MatchId } from '../../../domain/src/shared/ids';
 import { MatchSimulator } from '../../../domain/src/match-simulation/MatchSimulator';
+import { BracketGenerator } from '../../../domain/src/competition/BracketGenerator';
 import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
 
 export interface SimulateMatchCommand {
@@ -34,6 +35,7 @@ export class SimulateMatchUseCase {
     private readonly matchSimulator: MatchSimulator,
     private readonly matchLogs: MatchLogStorePort,
     private readonly events: EventPublisherPort,
+    private readonly bracketGenerator: BracketGenerator,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -50,6 +52,20 @@ export class SimulateMatchUseCase {
     const { outcome, log } = this.matchSimulator.simulate(playerA, playerB, tournament.surface);
 
     tournament.recordMatchOutcome(command.roundNumber, command.matchIndex, outcome);
+
+    if (tournament.isRoundComplete(command.roundNumber) && !tournament.isFinalRound(command.roundNumber)) {
+      const completedRound = tournament.getRounds()[command.roundNumber - 1];
+      const nextRound = this.bracketGenerator.generateNextRound(
+        completedRound,
+        tournament.entrants,
+        tournament.drawSize,
+      );
+      tournament.addRound(nextRound);
+    }
+    // If it was the final round instead, there's nothing further to
+    // generate — the TournamentCompleted event Tournament already
+    // emitted above is the signal for that.
+
     await this.tournaments.save(tournament);
     await this.events.publish(tournament.pullDomainEvents());
 

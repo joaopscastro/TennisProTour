@@ -127,8 +127,10 @@ export class Tournament {
    * round that just completed is the final one exactly when its
    * number equals that total — no separate "is this the last round I
    * happen to have on file" check is needed, which matters since
-   * rounds are added incrementally via addRound(), not all upfront. */
-  private isFinalRound(roundNumber: number): boolean {
+   * rounds are added incrementally via addRound(), not all upfront.
+   * Public so use cases can decide whether to generate a next round
+   * without duplicating this formula themselves. */
+  isFinalRound(roundNumber: number): boolean {
     return roundNumber === Math.log2(this.drawSize);
   }
 

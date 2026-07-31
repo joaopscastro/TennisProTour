@@ -55,4 +55,54 @@ describe('BracketGenerator', () => {
 
     expect(() => generator.generate(entrants, 16)).toThrow();
   });
+
+  describe('generateNextRound', () => {
+    it('pairs round 1 winners into round 2 when there were no byes', () => {
+      const entrants = Array.from({ length: 16 }, (_, i) => entrant(i + 1, `seed-${i + 1}`));
+      const [round1] = generator.generate(entrants, 16);
+
+      // entrantA wins every match, for a deterministic expected pairing.
+      const completedRound1 = {
+        ...round1,
+        matches: round1.matches.map((m) => ({
+          ...m,
+          outcome: { winner: m.entrantA, loser: m.entrantB, setScores: [] },
+        })),
+      };
+
+      const round2 = generator.generateNextRound(completedRound1, entrants, 16);
+
+      expect(round2.roundNumber).toBe(2);
+      expect(round2.matches.map((m) => [m.entrantA, m.entrantB])).toEqual([
+        [PlayerId('seed-1'), PlayerId('seed-8')],
+        [PlayerId('seed-4'), PlayerId('seed-5')],
+        [PlayerId('seed-2'), PlayerId('seed-7')],
+        [PlayerId('seed-3'), PlayerId('seed-6')],
+      ]);
+      expect(round2.matches.every((m) => m.outcome === null)).toBe(true);
+    });
+
+    it('carries byed entrants over as if they had won, interleaved in bracket order', () => {
+      const entrants = Array.from({ length: 10 }, (_, i) => entrant(i + 1, `seed-${i + 1}`));
+      const [round1] = generator.generate(entrants, 16); // 2 real matches: seed8v9, seed7v10
+
+      const completedRound1 = {
+        ...round1,
+        matches: round1.matches.map((m) => ({
+          ...m,
+          outcome: { winner: m.entrantA, loser: m.entrantB, setScores: [] },
+        })),
+      };
+
+      const round2 = generator.generateNextRound(completedRound1, entrants, 16);
+
+      expect(round2.roundNumber).toBe(2);
+      expect(round2.matches.map((m) => [m.entrantA, m.entrantB])).toEqual([
+        [PlayerId('seed-1'), PlayerId('seed-8')], // seed-1 had a bye, seed-8 won its match
+        [PlayerId('seed-4'), PlayerId('seed-5')], // both had byes
+        [PlayerId('seed-2'), PlayerId('seed-7')], // seed-2 had a bye, seed-7 won its match
+        [PlayerId('seed-3'), PlayerId('seed-6')], // both had byes
+      ]);
+    });
+  });
 });
