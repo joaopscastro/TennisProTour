@@ -1,0 +1,98 @@
+name: CI
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    # Real Postgres + real Redis, matching docker-compose.yml exactly —
+    # every integration test in this repo (including the Prompt 11
+    # end-to-end smoke test) is written against real infrastructure,
+    # never mocks of it, so CI has to give it the same.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tennis
+          POSTGRES_PASSWORD: tennis
+          POSTGRES_DB: tennis_manager
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tennis -d tennis_manager"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://tennis:tennis@localhost:5432/tennis_manager
+      REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Cross-package imports (@tennis-manager/domain, etc.) resolve
+      # through node_modules symlinks to each package's dist/ output,
+      # not through TS project-reference source-redirect — a bare
+      # `tsc --noEmit` per package fails on a fresh checkout without
+      # this build having run first. Every workspace's tsconfig has
+      # strict: true, so this build IS the strict check for anything
+      # it covers; the explicit --strict runs below are the same
+      # strictness again, just scoped and named per package for clear
+      # pass/fail attribution in the log.
+      - name: Build (packages/domain, packages/application, apps/api, apps/worker)
+        run: npx tsc --build
+
+      - name: Typecheck — domain
+        working-directory: packages/domain
+        run: npx tsc --noEmit --strict
+
+      - name: Typecheck — application
+        working-directory: packages/application
+        run: npx tsc --noEmit --strict
+
+      - name: Typecheck — api
+        working-directory: apps/api
+        run: npx tsc --noEmit --strict
+
+      - name: Typecheck — worker
+        working-directory: apps/worker
+        run: npx tsc --noEmit --strict
+
+      - name: Typecheck — web
+        run: npm run typecheck -w apps/web
+
+      # Each of these applies its own Drizzle migrations in a beforeAll
+      # (see e.g. apps/api's integration test files and apps/worker's
+      # e2e.smoke.test.ts) — no separate migrate step needed here.
+      - name: Test — domain
+        run: npm run test -w packages/domain
+
+      - name: Test — application
+        run: npm run test -w packages/application
+
+      - name: Test — api (unit + integration, real Postgres)
+        run: npm run test -w apps/api
+
+      - name: Test — worker (includes the Prompt 11 end-to-end smoke test, real Postgres + real Redis)
+        run: npm run test -w apps/worker
