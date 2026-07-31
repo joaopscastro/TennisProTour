@@ -1,8 +1,9 @@
 import { FastifyInstance } from 'fastify';
-import { MatchId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
+import { matchIdForSlot } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 
 /** Thin serialization only — no domain rules here. */
@@ -132,10 +133,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     async (request) => {
       const roundNumber = Number(request.params.round);
       const matchIndex = Number(request.params.index);
-      // Deterministic matchId: one immutable replay blob per bracket
-      // slot, and re-simulating the same slot collides on the
-      // write-once store instead of orphaning blobs.
-      const matchId = MatchId(`${request.params.id}-r${roundNumber}-m${matchIndex}`);
+      const matchId = matchIdForSlot(TournamentId(request.params.id), roundNumber, matchIndex);
 
       const { replayUrl } = await deps.simulateMatch.execute({
         matchId,

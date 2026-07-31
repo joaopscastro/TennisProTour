@@ -32,6 +32,11 @@ export class DrizzlePlayerRepository implements PlayerRepository {
     return rows.map(toDomain);
   }
 
+  async findAll(): Promise<Player[]> {
+    const rows = await this.db.select().from(players);
+    return rows.map(toDomain);
+  }
+
   async save(player: Player): Promise<void> {
     const row = toRow(player);
     await this.db

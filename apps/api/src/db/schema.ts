@@ -39,6 +39,17 @@ export const tournamentTier = pgEnum('tournament_tier', ['junior', 'futures', 'c
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
 
+/** One row per game-world clock (single world at MVP). Players/
+ * tournaments gain a world_id column when multi-world arrives. */
+export const gameWorlds = pgTable('game_worlds', {
+  id: text('id').primaryKey(),
+  season: integer('season').notNull(),
+  week: integer('week').notNull(),
+  /** Idempotency guard for the weekly advance job — see GameWorld. */
+  lastAppliedTick: text('last_applied_tick'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

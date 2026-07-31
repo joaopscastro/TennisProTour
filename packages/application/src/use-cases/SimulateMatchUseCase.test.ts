@@ -21,6 +21,10 @@ class InMemoryTournamentRepository implements TournamentRepository {
     return [...this.store.values()].filter((t) => !t.hasStarted);
   }
 
+  async findStarted(): Promise<Tournament[]> {
+    return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
   async save(tournament: Tournament): Promise<void> {
     this.store.set(tournament.id, tournament);
   }
@@ -35,6 +39,10 @@ class InMemoryPlayerRepository implements PlayerRepository {
 
   async findByManager(managerId: ManagerId): Promise<Player[]> {
     return [...this.store.values()].filter((p) => p.managerId === managerId);
+  }
+
+  async findAll(): Promise<Player[]> {
+    return [...this.store.values()];
   }
 
   async save(player: Player): Promise<void> {

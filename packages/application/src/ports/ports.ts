@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId } from '@tennis-manager/domain';
-import { MatchLog } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId } from '@tennis-manager/domain';
+import { MatchLog, GameWorld } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -12,12 +12,19 @@ import { MatchLog } from '@tennis-manager/domain';
 export interface PlayerRepository {
   findById(id: PlayerId): Promise<Player | null>;
   findByManager(managerId: ManagerId): Promise<Player[]>;
+  /** Every player in the game-world. Becomes world-scoped when
+   * multi-world arrives; today there is a single implicit world. */
+  findAll(): Promise<Player[]>;
   save(player: Player): Promise<void>;
 }
 
 export interface TournamentRepository {
   findById(id: TournamentId): Promise<Tournament | null>;
   findOpenForRegistration(): Promise<Tournament[]>;
+  /** Tournaments whose bracket exists (started). Includes finished
+   * ones — callers that only want playable matches filter via the
+   * aggregate's own round/final checks. */
+  findStarted(): Promise<Tournament[]>;
   save(tournament: Tournament): Promise<void>;
 }
 
@@ -25,6 +32,13 @@ export interface TournamentRepository {
  * in-game weeks, and tests can inject a fixed clock. */
 export interface ClockPort {
   currentWeek(): GameWeek;
+}
+
+/** One row per game-world clock (see GameWorld aggregate). Single
+ * world at MVP; the port already takes ids so multi-world is additive. */
+export interface GameWorldRepository {
+  findById(id: WorldId): Promise<GameWorld | null>;
+  save(world: GameWorld): Promise<void>;
 }
 
 /** Outbound port for anything that needs to leave the process:

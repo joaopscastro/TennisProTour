@@ -40,6 +40,11 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     return Promise.all(rows.map((row) => this.load(row)));
   }
 
+  async findStarted(): Promise<Tournament[]> {
+    const rows = await this.db.select().from(tournaments).where(eq(tournaments.hasStarted, true));
+    return Promise.all(rows.map((row) => this.load(row)));
+  }
+
   async save(tournament: Tournament): Promise<void> {
     const tournamentRow: typeof tournaments.$inferInsert = {
       id: tournament.id,

@@ -2,7 +2,8 @@
   "name": "@tennis-manager/api",
   "version": "0.1.0",
   "private": true,
-  "main": "dist/index.js",
+  "main": "dist/lib.js",
+  "types": "dist/lib.d.ts",
   "scripts": {
     "build": "tsc --build",
     "start": "tsc --build && node dist/index.js",

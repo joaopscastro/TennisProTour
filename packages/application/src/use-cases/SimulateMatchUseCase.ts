@@ -10,6 +10,14 @@ export interface SimulateMatchCommand {
   matchIndex: number;
 }
 
+/** The canonical MatchId for a bracket slot. One deterministic id per
+ * slot means one immutable replay blob per slot, and every caller
+ * (HTTP route, worker job) colliding on the same id instead of
+ * minting duplicates. */
+export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, matchIndex: number): MatchId {
+  return MatchId(`${tournamentId}-r${roundNumber}-m${matchIndex}`);
+}
+
 /**
  * This use case is the cross-context orchestration point: it reads
  * from Player & Roster (attributes, fatigue), calls into Match

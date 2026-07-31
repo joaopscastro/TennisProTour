@@ -34,13 +34,18 @@ npm install
 npm run typecheck   # strict tsc --build across every package/app
 ```
 
-## Database (development)
+## Database & queues (development)
 
 ```
-docker compose up -d                  # local Postgres 16 (tennis/tennis, db tennis_manager, port 5432)
+docker compose up -d                  # Postgres 16 (port 5432) + Redis 7 (port 6379)
 npm run db:migrate -w apps/api        # apply Drizzle migrations
 npm run db:generate -w apps/api       # regenerate migrations after editing apps/api/src/db/schema.ts
+npm run start -w apps/api             # Fastify API on :3000
+npm run start -w apps/worker          # BullMQ worker: weekly world tick + due-match sweep
 ```
 
-Set `DATABASE_URL` to override the default connection string
-(`postgresql://tennis:tennis@localhost:5432/tennis_manager`).
+Set `DATABASE_URL` / `REDIS_URL` to override the defaults
+(`postgresql://tennis:tennis@localhost:5432/tennis_manager`,
+`redis://localhost:6379`). The worker's schedules are overridable via
+`WORLD_TICK_CRON` (default Mondays 03:00 UTC) and `MATCH_SWEEP_CRON`
+(default every 5 minutes).

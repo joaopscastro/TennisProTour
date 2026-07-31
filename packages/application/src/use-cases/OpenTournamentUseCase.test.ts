@@ -17,6 +17,10 @@ class InMemoryTournamentRepository implements TournamentRepository {
     return [...this.store.values()].filter((t) => !t.hasStarted);
   }
 
+  async findStarted(): Promise<Tournament[]> {
+    return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
   async save(tournament: Tournament): Promise<void> {
     this.store.set(tournament.id, tournament);
   }

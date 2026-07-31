@@ -16,6 +16,10 @@ class InMemoryPlayerRepository implements PlayerRepository {
     return [...this.store.values()].filter((p) => p.managerId === managerId);
   }
 
+  async findAll(): Promise<Player[]> {
+    return [...this.store.values()];
+  }
+
   async save(player: Player): Promise<void> {
     this.store.set(player.id, player);
   }
