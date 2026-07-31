@@ -43,6 +43,13 @@ export class SurfaceAffinities {
     return new SurfaceAffinities({ clay: 20, grass: 20, hard: 20, indoor: 20 });
   }
 
+  /** Rehydrates stored affinity values (persistence adapters). Values
+   * were validated when originally produced via initial()/trainedOn(),
+   * so this does not re-cap them. */
+  static of(values: Record<Surface, number>): SurfaceAffinities {
+    return new SurfaceAffinities({ ...values });
+  }
+
   get(surface: Surface): number {
     return this.values[surface];
   }

@@ -52,8 +52,19 @@ export class Player {
     return player;
   }
 
+  /** Rehydrates a persisted player (repository adapters only). Unlike
+   * hire(), this is not a domain action — it emits NO events; the
+   * player being loaded back is not being hired again. */
+  static reconstitute(props: PlayerProps): Player {
+    return new Player({ ...props });
+  }
+
   get id() {
     return this.props.id;
+  }
+
+  get name() {
+    return this.props.name;
   }
 
   get ageInWeeks() {

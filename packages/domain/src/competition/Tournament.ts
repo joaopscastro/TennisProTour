@@ -38,6 +38,19 @@ export class Tournament {
     return new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize);
   }
 
+  /** Rehydrates a persisted tournament (repository adapters only).
+   * Unlike open()/registerEntrant()/startWithBracket(), this is not a
+   * sequence of domain actions — it restores state as-is and emits NO
+   * events (loading a started tournament back is not starting it). */
+  static reconstitute(
+    props: TournamentOpenProps & { entrants: TournamentEntrant[]; rounds: BracketRound[] },
+  ): Tournament {
+    const tournament = new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize);
+    tournament._entrants = [...props.entrants];
+    tournament.rounds = [...props.rounds];
+    return tournament;
+  }
+
   get entrants(): ReadonlyArray<TournamentEntrant> {
     return this._entrants;
   }
