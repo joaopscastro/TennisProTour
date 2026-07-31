@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, MatchId, PlayerId, TournamentId } from '../../../domain/src/shared/ids';
-import { Player } from '../../../domain/src/player/Player';
-import { PlayerAttributes, Skill, SurfaceAffinities } from '../../../domain/src/player/PlayerAttributes';
-import { Tournament } from '../../../domain/src/competition/Tournament';
-import { BracketGenerator } from '../../../domain/src/competition/BracketGenerator';
-import { DrawSize, MatchLog } from '../../../domain/src/competition/CompetitionTypes';
-import { MatchParticipant, MatchSimulator, SimulatedMatch } from '../../../domain/src/match-simulation/MatchSimulator';
-import { Surface } from '../../../domain/src/player/PlayerAttributes';
+import { ManagerId, MatchId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { Player } from '@tennis-manager/domain';
+import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
+import { BracketGenerator } from '@tennis-manager/domain';
+import { DrawSize, MatchLog } from '@tennis-manager/domain';
+import { MatchParticipant, MatchSimulator, SimulatedMatch } from '@tennis-manager/domain';
+import { Surface } from '@tennis-manager/domain';
 import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
 import { SimulateMatchUseCase } from './SimulateMatchUseCase';
 

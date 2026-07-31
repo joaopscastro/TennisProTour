@@ -1,6 +1,6 @@
-import { TournamentId, PlayerId, MatchId } from '../../../domain/src/shared/ids';
-import { MatchSimulator } from '../../../domain/src/match-simulation/MatchSimulator';
-import { BracketGenerator } from '../../../domain/src/competition/BracketGenerator';
+import { TournamentId, PlayerId, MatchId } from '@tennis-manager/domain';
+import { MatchSimulator } from '@tennis-manager/domain';
+import { BracketGenerator } from '@tennis-manager/domain';
 import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
 
 export interface SimulateMatchCommand {

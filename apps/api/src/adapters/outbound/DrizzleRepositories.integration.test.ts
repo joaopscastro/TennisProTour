@@ -2,15 +2,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
-import { ManagerId, PlayerId, TournamentId } from '../../../../../packages/domain/src/shared/ids';
-import { Player } from '../../../../../packages/domain/src/player/Player';
+import { ManagerId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { Player } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
   Skill,
   SurfaceAffinities,
-} from '../../../../../packages/domain/src/player/PlayerAttributes';
-import { Tournament } from '../../../../../packages/domain/src/competition/Tournament';
-import { BracketGenerator } from '../../../../../packages/domain/src/competition/BracketGenerator';
+} from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
+import { BracketGenerator } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';

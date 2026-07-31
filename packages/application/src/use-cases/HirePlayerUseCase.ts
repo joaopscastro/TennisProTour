@@ -1,6 +1,6 @@
-import { Player } from '../../../domain/src/player/Player';
-import { PlayerAttributes, SurfaceAffinities, Skill } from '../../../domain/src/player/PlayerAttributes';
-import { ManagerId, PlayerId } from '../../../domain/src/shared/ids';
+import { Player } from '@tennis-manager/domain';
+import { PlayerAttributes, SurfaceAffinities, Skill } from '@tennis-manager/domain';
+import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { EventPublisherPort, PlayerRepository } from '../ports/ports';
 
 export interface HirePlayerCommand {

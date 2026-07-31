@@ -3,15 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { MatchId, PlayerId } from '../../../../../packages/domain/src/shared/ids';
+import { MatchId, PlayerId } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
   Skill,
   SurfaceAffinities,
-} from '../../../../../packages/domain/src/player/PlayerAttributes';
-import { MatchParticipant, RandomSource } from '../../../../../packages/domain/src/match-simulation/MatchSimulator';
-import { StatisticalMatchSimulator } from '../../../../../packages/domain/src/match-simulation/StatisticalMatchSimulator';
-import { MatchLog } from '../../../../../packages/domain/src/competition/CompetitionTypes';
+} from '@tennis-manager/domain';
+import { MatchParticipant, RandomSource } from '@tennis-manager/domain';
+import { StatisticalMatchSimulator } from '@tennis-manager/domain';
+import { MatchLog } from '@tennis-manager/domain';
 import { FilesystemMatchLogStore } from './FilesystemMatchLogStore';
 
 /** Cycles through a fixed sequence — deterministic without being

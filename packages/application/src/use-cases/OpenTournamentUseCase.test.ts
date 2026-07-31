@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { PlayerId, TournamentId } from '../../../domain/src/shared/ids';
-import { Tournament } from '../../../domain/src/competition/Tournament';
-import { BracketGenerator } from '../../../domain/src/competition/BracketGenerator';
-import { TournamentEntrant } from '../../../domain/src/competition/CompetitionTypes';
+import { PlayerId, TournamentId } from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
+import { BracketGenerator } from '@tennis-manager/domain';
+import { TournamentEntrant } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 import { OpenTournamentUseCase } from './OpenTournamentUseCase';
 

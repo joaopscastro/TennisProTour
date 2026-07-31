@@ -1,15 +1,15 @@
 import { asc, eq } from 'drizzle-orm';
-import { PlayerId, TournamentId } from '../../../../../packages/domain/src/shared/ids';
-import { Tournament } from '../../../../../packages/domain/src/competition/Tournament';
+import { PlayerId, TournamentId } from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
 import {
   BracketRound,
   DrawSize,
   MatchOutcome,
   TournamentEntrant,
   TournamentTier,
-} from '../../../../../packages/domain/src/competition/CompetitionTypes';
-import { Surface } from '../../../../../packages/domain/src/player/PlayerAttributes';
-import { TournamentRepository } from '../../../../../packages/application/src/ports/ports';
+} from '@tennis-manager/domain';
+import { Surface } from '@tennis-manager/domain';
+import { TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
 

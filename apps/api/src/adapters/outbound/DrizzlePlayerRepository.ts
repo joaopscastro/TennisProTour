@@ -1,12 +1,12 @@
 import { eq } from 'drizzle-orm';
-import { ManagerId, PlayerId } from '../../../../../packages/domain/src/shared/ids';
-import { Player, PlayerLifecycleStage } from '../../../../../packages/domain/src/player/Player';
+import { ManagerId, PlayerId } from '@tennis-manager/domain';
+import { Player, PlayerLifecycleStage } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
   Skill,
   SurfaceAffinities,
-} from '../../../../../packages/domain/src/player/PlayerAttributes';
-import { PlayerRepository } from '../../../../../packages/application/src/ports/ports';
+} from '@tennis-manager/domain';
+import { PlayerRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { players } from '../../db/schema';
 

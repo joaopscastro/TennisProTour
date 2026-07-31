@@ -1,8 +1,8 @@
-import { GameWeek, TournamentId } from '../../../domain/src/shared/ids';
-import { Tournament } from '../../../domain/src/competition/Tournament';
-import { BracketGenerator } from '../../../domain/src/competition/BracketGenerator';
-import { DrawSize, TournamentEntrant, TournamentTier } from '../../../domain/src/competition/CompetitionTypes';
-import { Surface } from '../../../domain/src/player/PlayerAttributes';
+import { GameWeek, TournamentId } from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
+import { BracketGenerator } from '@tennis-manager/domain';
+import { DrawSize, TournamentEntrant, TournamentTier } from '@tennis-manager/domain';
+import { Surface } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
 export interface OpenTournamentCommand {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, PlayerId } from '../../../domain/src/shared/ids';
-import { Player } from '../../../domain/src/player/Player';
-import { DomainEvent } from '../../../domain/src/shared/DomainEvent';
+import { ManagerId, PlayerId } from '@tennis-manager/domain';
+import { Player } from '@tennis-manager/domain';
+import { DomainEvent } from '@tennis-manager/domain';
 import { EventPublisherPort, PlayerRepository } from '../ports/ports';
 import { HirePlayerUseCase } from './HirePlayerUseCase';
 

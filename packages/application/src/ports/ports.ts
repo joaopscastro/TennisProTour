@@ -1,7 +1,7 @@
-import { Player } from '../../../domain/src/player/Player';
-import { Tournament } from '../../../domain/src/competition/Tournament';
-import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId } from '../../../domain/src/shared/ids';
-import { MatchLog } from '../../../domain/src/competition/CompetitionTypes';
+import { Player } from '@tennis-manager/domain';
+import { Tournament } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId } from '@tennis-manager/domain';
+import { MatchLog } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface

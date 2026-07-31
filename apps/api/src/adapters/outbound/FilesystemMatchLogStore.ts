@@ -1,9 +1,9 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { MatchId } from '../../../../../packages/domain/src/shared/ids';
-import { MatchLog } from '../../../../../packages/domain/src/competition/CompetitionTypes';
-import { MatchLogStorePort } from '../../../../../packages/application/src/ports/ports';
+import { MatchId } from '@tennis-manager/domain';
+import { MatchLog } from '@tennis-manager/domain';
+import { MatchLogStorePort } from '@tennis-manager/application';
 
 export interface FilesystemMatchLogStoreOptions {
   /** Directory the JSON blobs land in (created on demand). */
