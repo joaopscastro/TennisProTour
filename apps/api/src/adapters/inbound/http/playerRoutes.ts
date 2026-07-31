@@ -84,4 +84,11 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     }
     return toPlayerDto(player);
   });
+
+  // Roster read for the dashboard. An empty roster is a 200 with [],
+  // not a 404 — a manager with no players is a normal state.
+  app.get<{ Params: { id: string } }>('/managers/:id/players', async (request) => {
+    const roster = await deps.players.findByManager(ManagerId(request.params.id));
+    return roster.map(toPlayerDto);
+  });
 }

@@ -26,7 +26,7 @@ beforeAll(async () => {
     matchLogDirectory,
     logEvent: () => {},
   });
-  app = buildApp({ deps, logger: false });
+  app = buildApp({ deps, matchLogDirectory, logger: false });
   await app.ready();
 });
 
@@ -130,6 +130,28 @@ describe('API', () => {
     // Re-simulating the same slot must fail (already-decided match), not overwrite.
     const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate' });
     expect(again.statusCode).toBe(409);
+
+    // The replay blob is served by the dev match-log route, immutable-cached.
+    const replay = await app.inject({ method: 'GET', url: '/match-logs/t1-r1-m0.json' });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.headers['cache-control']).toContain('immutable');
+    const log = replay.json();
+    expect(log.entries.length).toBeGreaterThan(0);
+    expect(log.totalDurationSeconds).toBeGreaterThan(0);
+  });
+
+  it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {
+    expect((await app.inject({ method: 'GET', url: '/managers/m9/players' })).json()).toEqual([]);
+
+    await hirePlayer('p1', 'm1');
+    await hirePlayer('p2', 'm1');
+    await hirePlayer('p3', 'm2');
+
+    const roster = (await app.inject({ method: 'GET', url: '/managers/m1/players' })).json();
+    expect(roster).toHaveLength(2);
+    expect(roster.map((p: { id: string }) => p.id).sort()).toEqual(['p1', 'p2']);
+
+    expect((await app.inject({ method: 'GET', url: '/match-logs/ghost.json' })).statusCode).toBe(404);
   });
 
   it('404s when simulating a match in a missing tournament', async () => {

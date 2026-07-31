@@ -1,4 +1,7 @@
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import Fastify, { FastifyInstance } from 'fastify';
+import cors from '@fastify/cors';
 import { Dependencies } from './composition';
 import { registerPlayerRoutes } from './adapters/inbound/http/playerRoutes';
 import { registerTournamentRoutes } from './adapters/inbound/http/tournamentRoutes';
@@ -6,6 +9,9 @@ import { registerBillingRoutes } from './adapters/inbound/http/billingRoutes';
 
 export interface AppOptions {
   deps: Dependencies;
+  /** Where FilesystemMatchLogStore writes blobs; served read-only at
+   * GET /match-logs/:file in dev (a CDN does this job in production). */
+  matchLogDirectory: string;
   logger?: boolean;
 }
 
@@ -22,7 +28,33 @@ export function buildApp(options: AppOptions): FastifyInstance {
     logger: options.logger ?? true,
   });
 
+  // Dev CORS: the Next.js frontend runs on another port. Tighten to a
+  // configured origin allowlist before anything public.
+  app.register(cors, { origin: true });
+
   app.get('/health', async () => ({ status: 'ok' }));
+
+  // Dev-mode stand-in for the CDN in front of object storage: serve
+  // the immutable replay blobs FilesystemMatchLogStore wrote. Reads
+  // only — nothing here can create or mutate a blob.
+  app.get<{ Params: { file: string } }>(
+    '/match-logs/:file',
+    { schema: { params: { type: 'object', properties: { file: { type: 'string', pattern: '^[A-Za-z0-9_-]+\\.json$' } } } } },
+    async (request, reply) => {
+      try {
+        const blob = await readFile(join(options.matchLogDirectory, request.params.file), 'utf8');
+        return reply
+          .header('content-type', 'application/json')
+          .header('cache-control', 'public, max-age=31536000, immutable')
+          .send(blob);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return reply.code(404).send({ error: `Replay ${request.params.file} not found` });
+        }
+        throw error;
+      }
+    },
+  );
 
   registerPlayerRoutes(app, options.deps);
   registerTournamentRoutes(app, options.deps);

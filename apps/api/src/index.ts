@@ -14,10 +14,12 @@ async function main(): Promise<void> {
   const deps = buildDependencies({
     db,
     matchLogDirectory,
-    matchLogPublicBaseUrl: process.env.MATCH_LOG_PUBLIC_BASE_URL,
+    // Default to this API's own dev blob route so simulate responses
+    // return browser-fetchable replay URLs out of the box.
+    matchLogPublicBaseUrl: process.env.MATCH_LOG_PUBLIC_BASE_URL ?? `http://localhost:${port}/match-logs`,
     logEvent: (message, payload) => app.log.info(payload, message),
   });
-  app = buildApp({ deps });
+  app = buildApp({ deps, matchLogDirectory });
 
   await app.listen({ port, host: '0.0.0.0' });
 }

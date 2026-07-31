@@ -13,6 +13,7 @@
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
+    "@fastify/cors": "^11.3.0",
     "@tennis-manager/application": "^0.1.0",
     "@tennis-manager/domain": "^0.1.0",
     "drizzle-orm": "^0.45.2",

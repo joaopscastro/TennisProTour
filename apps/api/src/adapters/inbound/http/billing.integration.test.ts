@@ -39,7 +39,7 @@ beforeAll(async () => {
       },
     },
   });
-  app = buildApp({ deps, logger: false });
+  app = buildApp({ deps, matchLogDirectory, logger: false });
   await app.ready();
 });
 
