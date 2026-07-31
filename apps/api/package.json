@@ -1,0 +1,14 @@
+{
+  "name": "@tennis-manager/api",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@tennis-manager/application": "^0.1.0",
+    "@tennis-manager/domain": "^0.1.0"
+  }
+}
