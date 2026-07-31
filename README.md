@@ -33,3 +33,14 @@ the apps that consume them, per the hexagonal architecture principle in
 npm install
 npm run typecheck   # strict tsc --build across every package/app
 ```
+
+## Database (development)
+
+```
+docker compose up -d                  # local Postgres 16 (tennis/tennis, db tennis_manager, port 5432)
+npm run db:migrate -w apps/api        # apply Drizzle migrations
+npm run db:generate -w apps/api       # regenerate migrations after editing apps/api/src/db/schema.ts
+```
+
+Set `DATABASE_URL` to override the default connection string
+(`postgresql://tennis:tennis@localhost:5432/tennis_manager`).
