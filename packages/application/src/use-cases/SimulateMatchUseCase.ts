@@ -1,7 +1,15 @@
-import { TournamentId, PlayerId, MatchId } from '@tennis-manager/domain';
+import { TournamentId, PlayerId, MatchId, Player, TournamentTier } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
+import { RankingPointsTable } from '@tennis-manager/domain';
+import { ManagerRanking } from '@tennis-manager/domain';
+import {
+  EventPublisherPort,
+  ManagerRankingRepository,
+  MatchLogStorePort,
+  PlayerRepository,
+  TournamentRepository,
+} from '../ports/ports';
 
 export interface SimulateMatchCommand {
   matchId: MatchId;
@@ -35,6 +43,14 @@ export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, 
  * MatchLogStorePort, and every viewer later fetches that same
  * immutable blob and fakes the live experience client-side. Viewer
  * count therefore has zero effect on this use case or its cost.
+ *
+ * Ranking points are also awarded from here, since this is the one
+ * place a player's tournament fate changes: the loser is eliminated
+ * the instant any match is decided (award now, using how many rounds
+ * they'd won before this loss), and the winner becomes champion
+ * exactly when the match just decided was the final (award them too,
+ * including this round). A player who wins a non-final match gets
+ * nothing yet — they're still alive, not eliminated or crowned.
  */
 export class SimulateMatchUseCase {
   constructor(
@@ -44,6 +60,8 @@ export class SimulateMatchUseCase {
     private readonly matchLogs: MatchLogStorePort,
     private readonly events: EventPublisherPort,
     private readonly bracketGenerator: BracketGenerator,
+    private readonly rankingPointsTable: RankingPointsTable,
+    private readonly managerRankings: ManagerRankingRepository,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -87,7 +105,22 @@ export class SimulateMatchUseCase {
     if (winnerPlayer) await this.players.save(winnerPlayer);
     if (loserPlayer) await this.players.save(loserPlayer);
 
+    // Ranking points: the loser is eliminated the moment any match is
+    // decided; the winner becomes champion only if this was the final.
+    await this.awardRankingPoints(loserPlayer, tournament.roundsWonBy(outcome.loser), tournament.tier);
+    if (tournament.isFinalRound(command.roundNumber)) {
+      await this.awardRankingPoints(winnerPlayer, tournament.roundsWonBy(outcome.winner), tournament.tier);
+    }
+
     return { replayUrl: url };
+  }
+
+  private async awardRankingPoints(player: Player | null, roundsWon: number, tier: TournamentTier): Promise<void> {
+    if (!player || player.managerId === null) return;
+    const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
+    const ranking = (await this.managerRankings.findById(player.managerId)) ?? ManagerRanking.empty(player.managerId);
+    ranking.addPoints(points);
+    await this.managerRankings.save(ranking);
   }
 
   private async loadParticipant(playerId: PlayerId) {

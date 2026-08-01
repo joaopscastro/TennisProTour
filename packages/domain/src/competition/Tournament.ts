@@ -168,6 +168,17 @@ export class Tournament {
     return this.rounds;
   }
 
+  /** Counts the rounds this player has a recorded win in — the
+   * "roundsWon" RankingPointsTable.pointsFor() expects. A bye never
+   * produces a match record at all (see BracketGenerator), so a round
+   * skipped via bye does not count here; only rounds actually won via
+   * a decided match do. A player appears in at most one match per
+   * round in a single-elimination bracket, so this is equivalent to
+   * counting matches won. */
+  roundsWonBy(playerId: PlayerId): number {
+    return this.rounds.filter((round) => round.matches.some((match) => match.outcome?.winner === playerId)).length;
+  }
+
   pullDomainEvents(): DomainEvent[] {
     const events = this.domainEvents;
     this.domainEvents = [];

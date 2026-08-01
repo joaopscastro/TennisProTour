@@ -2,6 +2,7 @@ import Stripe from 'stripe';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
 import { AcceleratedDeclinePolicy, PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
+import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { HirePlayerUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -10,6 +11,7 @@ import { Db } from './db/client';
 import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
+import { DrizzleManagerRankingRepository } from './adapters/outbound/DrizzleManagerRankingRepository';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
 import { LoggingEventPublisher } from './adapters/outbound/LoggingEventPublisher';
@@ -37,6 +39,7 @@ export interface Dependencies {
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
+  managerRankings: DrizzleManagerRankingRepository;
   billing: StripeBillingAdapter;
   hirePlayer: HirePlayerUseCase;
   openTournament: OpenTournamentUseCase;
@@ -75,7 +78,18 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const billing = new StripeBillingAdapter(options.db, new Stripe(stripeSettings.secretKey), stripeSettings.config);
 
   const worlds = new DrizzleGameWorldRepository(options.db);
-  const simulateMatch = new SimulateMatchUseCase(tournaments, players, matchSimulator, matchLogs, events, bracketGenerator);
+  const managerRankings = new DrizzleManagerRankingRepository(options.db);
+  const rankingPointsTable = new StandardRankingPointsTable();
+  const simulateMatch = new SimulateMatchUseCase(
+    tournaments,
+    players,
+    matchSimulator,
+    matchLogs,
+    events,
+    bracketGenerator,
+    rankingPointsTable,
+    managerRankings,
+  );
 
   const standardAgingPolicy = new StandardAgingPolicy();
   const standardAging = new PlayerAgingService(standardAgingPolicy);
@@ -85,6 +99,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     players,
     tournaments,
     worlds,
+    managerRankings,
     billing,
     hirePlayer: new HirePlayerUseCase(players, events, billing),
     openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),

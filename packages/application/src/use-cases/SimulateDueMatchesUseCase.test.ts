@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BracketGenerator,
   ManagerId,
+  ManagerRanking,
   MatchId,
   MatchLog,
   MatchParticipant,
@@ -11,12 +12,19 @@ import {
   PlayerId,
   SimulatedMatch,
   Skill,
+  StandardRankingPointsTable,
   Surface,
   SurfaceAffinities,
   Tournament,
   TournamentId,
 } from '@tennis-manager/domain';
-import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
+import {
+  EventPublisherPort,
+  ManagerRankingRepository,
+  MatchLogStorePort,
+  PlayerRepository,
+  TournamentRepository,
+} from '../ports/ports';
 import { SimulateMatchUseCase } from './SimulateMatchUseCase';
 import { SimulateDueMatchesUseCase } from './SimulateDueMatchesUseCase';
 
@@ -73,6 +81,18 @@ class NullEventPublisher implements EventPublisherPort {
   async publish(): Promise<void> {}
 }
 
+class InMemoryManagerRankingRepository implements ManagerRankingRepository {
+  private readonly store = new Map<ManagerId, ManagerRanking>();
+
+  async findById(managerId: ManagerId): Promise<ManagerRanking | null> {
+    return this.store.get(managerId) ?? null;
+  }
+
+  async save(ranking: ManagerRanking): Promise<void> {
+    this.store.set(ranking.managerId, ranking);
+  }
+}
+
 class AlwaysAWinsSimulator implements MatchSimulator {
   simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
     return {
@@ -121,6 +141,8 @@ async function setup() {
     matchLogs,
     new NullEventPublisher(),
     bracketGenerator,
+    new StandardRankingPointsTable(),
+    new InMemoryManagerRankingRepository(),
   );
   const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch);
 

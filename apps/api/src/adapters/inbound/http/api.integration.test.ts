@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
+import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
 import { buildDependencies } from '../../../composition';
 import { buildApp } from '../../../app';
@@ -36,6 +37,7 @@ beforeEach(async () => {
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
+  await db.delete(schema.managerRankings);
 });
 
 afterAll(async () => {
@@ -157,5 +159,79 @@ describe('API', () => {
   it('404s when simulating a match in a missing tournament', async () => {
     const response = await app.inject({ method: 'POST', url: '/tournaments/ghost/matches/1/0/simulate' });
     expect(response.statusCode).toBe(404);
+  });
+
+  it('awards ranking points through a full tournament, matching StandardRankingPointsTable per manager', async () => {
+    // 8 managers, 2 players each, so every manager's final total is the
+    // sum of exactly two pointsFor() awards (one per player, awarded
+    // whenever that player is eliminated or, for the eventual champion,
+    // crowned).
+    const managerOf = (playerIndex: number) => `rm${Math.ceil(playerIndex / 2)}`;
+    for (let i = 1; i <= 16; i++) {
+      expect(await hirePlayer(`rp${i}`, managerOf(i))).toBe(201);
+    }
+
+    const opened = await app.inject({
+      method: 'POST',
+      url: '/tournaments',
+      payload: {
+        tournamentId: 'rt1',
+        tier: 'challenger',
+        surface: 'clay',
+        weekScheduled: { season: 1, week: 5 },
+        drawSize: 16,
+        entrants: Array.from({ length: 16 }, (_, i) => ({ playerId: `rp${i + 1}`, seed: i + 1 })),
+      },
+    });
+    expect(opened.statusCode).toBe(201);
+
+    // The real StatisticalMatchSimulator is non-deterministic, so who
+    // wins which match can't be predicted up front — only the round
+    // structure (8/4/2/1 matches for a 16-draw) is known in advance;
+    // actual winners are discovered afterward from the tournament DTO.
+    const roundMatchCounts = [8, 4, 2, 1];
+    for (let roundNumber = 1; roundNumber <= roundMatchCounts.length; roundNumber++) {
+      for (let matchIndex = 0; matchIndex < roundMatchCounts[roundNumber - 1]; matchIndex++) {
+        const response = await app.inject({
+          method: 'POST',
+          url: `/tournaments/rt1/matches/${roundNumber}/${matchIndex}/simulate`,
+        });
+        expect(response.statusCode).toBe(200);
+      }
+    }
+
+    const finished = await app.inject({ method: 'GET', url: '/tournaments/rt1' });
+    expect(finished.statusCode).toBe(200);
+    const dto = finished.json();
+
+    const roundsWonByPlayer = new Map<string, number>();
+    for (const round of dto.rounds) {
+      for (const match of round.matches) {
+        const winner: string = match.outcome.winner;
+        roundsWonByPlayer.set(winner, (roundsWonByPlayer.get(winner) ?? 0) + 1);
+      }
+    }
+
+    const rankingPointsTable = new StandardRankingPointsTable();
+    for (let managerIndex = 1; managerIndex <= 8; managerIndex++) {
+      const managerId = `rm${managerIndex}`;
+      const playerIds = [`rp${managerIndex * 2 - 1}`, `rp${managerIndex * 2}`];
+      const expectedPoints = playerIds.reduce(
+        (sum, playerId) => sum + rankingPointsTable.pointsFor('challenger', roundsWonByPlayer.get(playerId) ?? 0),
+        0,
+      );
+
+      const rankingResponse = await app.inject({ method: 'GET', url: `/managers/${managerId}/ranking` });
+      expect(rankingResponse.statusCode).toBe(200);
+      const ranking = rankingResponse.json();
+      expect(ranking.managerId).toBe(managerId);
+      expect(ranking.totalPoints).toBeCloseTo(expectedPoints, 6);
+    }
+  });
+
+  it("defaults a manager's ranking to zero points when they haven't earned any yet", async () => {
+    const response = await app.inject({ method: 'GET', url: '/managers/never-earned-anything/ranking' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ managerId: 'never-earned-anything', totalPoints: 0 });
   });
 });

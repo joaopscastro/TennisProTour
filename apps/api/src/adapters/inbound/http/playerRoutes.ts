@@ -91,4 +91,13 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     const roster = await deps.players.findByManager(ManagerId(request.params.id));
     return roster.map(toPlayerDto);
   });
+
+  // Same "empty is a normal state" rule as the roster read above: a
+  // manager who has never earned ranking points gets 200 with 0, not
+  // a 404 — absence of a row means zero (see ManagerRankingRepository).
+  app.get<{ Params: { id: string } }>('/managers/:id/ranking', async (request) => {
+    const managerId = ManagerId(request.params.id);
+    const ranking = await deps.managerRankings.findById(managerId);
+    return { managerId, totalPoints: ranking?.totalPoints ?? 0 };
+  });
 }

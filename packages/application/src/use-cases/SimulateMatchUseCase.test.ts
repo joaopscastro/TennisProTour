@@ -1,13 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, MatchId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { ManagerId, ManagerRanking, MatchId, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawSize, MatchLog } from '@tennis-manager/domain';
 import { MatchParticipant, MatchSimulator, SimulatedMatch } from '@tennis-manager/domain';
+import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
-import { EventPublisherPort, MatchLogStorePort, PlayerRepository, TournamentRepository } from '../ports/ports';
+import {
+  EventPublisherPort,
+  ManagerRankingRepository,
+  MatchLogStorePort,
+  PlayerRepository,
+  TournamentRepository,
+} from '../ports/ports';
 import { SimulateMatchUseCase } from './SimulateMatchUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
@@ -64,6 +71,18 @@ class RecordingEventPublisher implements EventPublisherPort {
   }
 }
 
+class InMemoryManagerRankingRepository implements ManagerRankingRepository {
+  private readonly store = new Map<ManagerId, ManagerRanking>();
+
+  async findById(managerId: ManagerId): Promise<ManagerRanking | null> {
+    return this.store.get(managerId) ?? null;
+  }
+
+  async save(ranking: ManagerRanking): Promise<void> {
+    this.store.set(ranking.managerId, ranking);
+  }
+}
+
 /** Always declares entrantA (playerA) the winner, for deterministic
  * cascades through a bracket in these tests. */
 class AlwaysAWinsSimulator implements MatchSimulator {
@@ -88,8 +107,8 @@ function startingAttributes(): PlayerAttributes {
   });
 }
 
-function makePlayer(id: PlayerId): Player {
-  return Player.hire(id, id, 20 * 52, startingAttributes(), ManagerId('m1'));
+function makePlayer(id: PlayerId, managerId: ManagerId = ManagerId('m1')): Player {
+  return Player.hire(id, id, 20 * 52, startingAttributes(), managerId);
 }
 
 function buildStartedTournament(
@@ -136,6 +155,8 @@ describe('SimulateMatchUseCase', () => {
       new FakeMatchLogStore(),
       new RecordingEventPublisher(),
       bracketGenerator,
+      new StandardRankingPointsTable(),
+      new InMemoryManagerRankingRepository(),
     );
 
     const round1MatchCount = tournament.getRounds()[0].matches.length; // 8
@@ -202,6 +223,8 @@ describe('SimulateMatchUseCase', () => {
       new FakeMatchLogStore(),
       events,
       bracketGenerator,
+      new StandardRankingPointsTable(),
+      new InMemoryManagerRankingRepository(),
     );
 
     await useCase.execute({ matchId: MatchId('final'), tournamentId, roundNumber: 4, matchIndex: 0 });
@@ -209,5 +232,151 @@ describe('SimulateMatchUseCase', () => {
     const saved = await tournaments.findById(tournamentId);
     expect(saved!.getRounds()).toHaveLength(4); // no round 5 — nothing further to generate
     expect(events.published.some((e) => e.type === 'TournamentCompleted')).toBe(true);
+  });
+
+  describe('ranking points', () => {
+    /** Cascades rounds 1..upToRound-1 of a 16-draw tournament via
+     * SimulateMatchUseCase itself (not fabricated directly on the
+     * aggregate), so the ranking-awarding path under test runs on
+     * every decided match exactly as it would in production. Returns
+     * the still-alive entrant reaching round `upToRound` at
+     * matchIndex 0, i.e. the top of the bracket, since AlwaysAWinsSimulator
+     * always advances entrantA. */
+    async function cascadeToRound(
+      useCase: SimulateMatchUseCase,
+      tournaments: InMemoryTournamentRepository,
+      tournamentId: TournamentId,
+      upToRound: number,
+    ): Promise<void> {
+      for (let roundNumber = 1; roundNumber < upToRound; roundNumber++) {
+        const tournament = (await tournaments.findById(tournamentId))!;
+        const matchCount = tournament.getRounds()[roundNumber - 1].matches.length;
+        for (let matchIndex = 0; matchIndex < matchCount; matchIndex++) {
+          await useCase.execute({
+            matchId: MatchId(`m-r${roundNumber}-${matchIndex}`),
+            tournamentId,
+            roundNumber,
+            matchIndex,
+          });
+        }
+      }
+    }
+
+    it('awards a first-round loser pointsFor(tier, 0), and awards the round-1 winner nothing yet', async () => {
+      const tournamentId = TournamentId('t-r1');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const winnerManager = ManagerId('winner-mgr');
+      const loserManager = ManagerId('loser-mgr');
+      const players = new InMemoryPlayerRepository();
+      const firstMatch = tournament.getRounds()[0].matches[0];
+      await players.save(makePlayer(firstMatch.entrantA, winnerManager));
+      await players.save(makePlayer(firstMatch.entrantB, loserManager));
+      for (let i = 1; i <= 16; i++) {
+        const id = PlayerId(`p${i}`);
+        if (id === firstMatch.entrantA || id === firstMatch.entrantB) continue;
+        await players.save(makePlayer(id));
+      }
+
+      const rankingPointsTable = new StandardRankingPointsTable();
+      const managerRankings = new InMemoryManagerRankingRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        rankingPointsTable,
+        managerRankings,
+      );
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const loserRanking = await managerRankings.findById(loserManager);
+      expect(loserRanking?.totalPoints).toBe(rankingPointsTable.pointsFor('challenger', 0));
+
+      const winnerRanking = await managerRankings.findById(winnerManager);
+      expect(winnerRanking).toBeNull();
+    });
+
+    /** Builds and cascades a 16-draw tournament through rounds 1-3 (all
+     * players under a shared default manager), then reassigns whoever
+     * ended up in the round-4 final to their own distinct managers —
+     * discovering the actual finalists off the aggregate rather than
+     * predicting bracket placement up front, since who wins each
+     * earlier round is themselves a moving part of the setup. */
+    async function setupThroughSemifinals(tournamentId: TournamentId) {
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+
+      const rankingPointsTable = new StandardRankingPointsTable();
+      const managerRankings = new InMemoryManagerRankingRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        rankingPointsTable,
+        managerRankings,
+      );
+
+      await cascadeToRound(useCase, tournaments, tournamentId, 4);
+
+      const finalTournament = (await tournaments.findById(tournamentId))!;
+      const finalMatch = finalTournament.getRounds()[3].matches[0];
+      const championManager = ManagerId('champion-mgr');
+      const finalistManager = ManagerId('finalist-mgr');
+      // AlwaysAWinsSimulator always advances entrantA, so entrantA of
+      // the final is the eventual champion and entrantB the runner-up.
+      await players.save(makePlayer(finalMatch.entrantA, championManager));
+      await players.save(makePlayer(finalMatch.entrantB, finalistManager));
+
+      return { tournaments, useCase, rankingPointsTable, managerRankings, championManager, finalistManager };
+    }
+
+    it('awards a finalist (loses the final after winning 3 rounds) pointsFor(tier, 3)', async () => {
+      const { useCase, rankingPointsTable, managerRankings, finalistManager } = await setupThroughSemifinals(
+        TournamentId('t-finalist'),
+      );
+
+      await useCase.execute({
+        matchId: MatchId('final'),
+        tournamentId: TournamentId('t-finalist'),
+        roundNumber: 4,
+        matchIndex: 0,
+      });
+
+      const finalistRanking = await managerRankings.findById(finalistManager);
+      expect(finalistRanking?.totalPoints).toBe(rankingPointsTable.pointsFor('challenger', 3));
+    });
+
+    it('awards the champion pointsFor(tier, 4)', async () => {
+      const { useCase, rankingPointsTable, managerRankings, championManager } = await setupThroughSemifinals(
+        TournamentId('t-champion'),
+      );
+
+      await useCase.execute({
+        matchId: MatchId('final'),
+        tournamentId: TournamentId('t-champion'),
+        roundNumber: 4,
+        matchIndex: 0,
+      });
+
+      const championRanking = await managerRankings.findById(championManager);
+      expect(championRanking?.totalPoints).toBe(rankingPointsTable.pointsFor('challenger', 4));
+    });
   });
 });

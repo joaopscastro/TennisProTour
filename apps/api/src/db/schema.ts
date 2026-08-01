@@ -1,4 +1,4 @@
-import { boolean, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
  * Drizzle schema for the Player & Roster and Competition contexts.
@@ -61,6 +61,16 @@ export const managerEntitlements = pgTable('manager_entitlements', {
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   status: text('status', { enum: ['active', 'canceled'] }).notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** One row per manager who has ever earned ranking points (absence =
+ * zero, see ManagerRankingRepository). totalPoints is a double, not an
+ * integer: StandardRankingPointsTable's formula
+ * (BASE_POINTS[tier] * 1.6^roundsWon) is fractional for most inputs. */
+export const managerRankings = pgTable('manager_rankings', {
+  managerId: text('manager_id').primaryKey(),
+  totalPoints: doublePrecision('total_points').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

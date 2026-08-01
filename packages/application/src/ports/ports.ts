@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, ManagerRanking } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -79,4 +79,13 @@ export interface BillingPort {
    * flips only when the provider's webhook confirms completion —
    * never optimistically at session creation. */
   createProCheckoutSession(managerId: ManagerId): Promise<{ url: string }>;
+}
+
+/** One row per manager who has ever earned ranking points. Absence of
+ * a row (findById returns null) means zero, not "manager unknown" —
+ * managers aren't a persisted entity of their own anywhere in this
+ * system, just an id referenced by players. */
+export interface ManagerRankingRepository {
+  findById(managerId: ManagerId): Promise<ManagerRanking | null>;
+  save(ranking: ManagerRanking): Promise<void>;
 }
