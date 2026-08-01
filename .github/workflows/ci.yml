@@ -82,6 +82,13 @@ jobs:
       - name: Typecheck — web
         run: npm run typecheck -w apps/web
 
+      # tsc --noEmit alone can't catch everything: a broken import can
+      # type-check cleanly (e.g. behind a stray ambient module
+      # declaration) and still fail webpack's real module resolution.
+      # next build exercises that resolution for real.
+      - name: Build — web (next build)
+        run: npm run build -w apps/web
+
       # Each of these applies its own Drizzle migrations in a beforeAll
       # (see e.g. apps/api's integration test files and apps/worker's
       # e2e.smoke.test.ts) — no separate migrate step needed here.
@@ -96,3 +103,11 @@ jobs:
 
       - name: Test — worker (includes the Prompt 11 end-to-end smoke test, real Postgres + real Redis)
         run: npm run test -w apps/worker
+
+      # Boots the actual compiled apps/api and apps/worker dist/
+      # output against real Postgres/Redis and hits a real HTTP
+      # endpoint — catches the class of bug where an import
+      # type-checks (every step above) but resolves to nothing once
+      # Node actually requires the compiled output.
+      - name: Boot smoke test — apps/api and apps/worker compiled dist/
+        run: ./scripts/boot-smoke-test.sh
