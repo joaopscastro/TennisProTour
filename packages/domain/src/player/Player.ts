@@ -1,6 +1,7 @@
 import { PlayerId, ManagerId } from '../shared/ids';
-import { PlayerAttributes, Surface } from './PlayerAttributes';
+import { PlayerAttributes } from './PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
+import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
 
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
@@ -91,14 +92,20 @@ export class Player {
     return this.props.stage === 'retired';
   }
 
-  /** Applies a training session on a given surface. Actual gain
-   * amounts are computed by a policy object passed in by the caller
-   * (application layer / TrainingPolicy), keeping this method a pure
-   * state-transition rather than a place where balance numbers live. */
-  applyTraining(surface: Surface, updatedAttributes: PlayerAttributes): void {
+  /** Applies a single training session for one focus (surface XOR
+   * skill cluster — see TrainingFocus). The delta itself is computed
+   * by the injected policy, never by Player: this method's job is
+   * only to apply whatever delta it's given to the right part of
+   * PlayerAttributes, not to decide how much training is worth. */
+  applyTraining(focus: TrainingFocus, policy: TrainingPolicy): void {
     if (this.isRetired()) {
       throw new Error(`Cannot train retired player ${this.props.id}`);
     }
+    const delta = policy.computeDelta(focus, this.props.stage);
+    const updatedAttributes =
+      focus.kind === 'surface'
+        ? this.props.attributes.trainedOnSurface(focus.surface, delta)
+        : this.props.attributes.trainedOnCluster(focus.cluster, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
   }
 

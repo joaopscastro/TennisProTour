@@ -3,6 +3,7 @@ export * from './shared/DomainEvent';
 export * from './player/PlayerAttributes';
 export * from './player/Player';
 export * from './player/PlayerAgingService';
+export * from './player/TrainingPolicy';
 export * from './competition/CompetitionTypes';
 export * from './competition/Tournament';
 export * from './competition/BracketGenerator';

@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '../shared/ids';
 import { Player } from './Player';
 import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
+import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
+
+/** Fixed, deterministic stand-in for StandardTrainingPolicy — Player's
+ * own tests only need to verify it delegates and applies correctly,
+ * not exercise real balance numbers (that's TrainingPolicy.test.ts). */
+class FixedTrainingPolicy implements TrainingPolicy {
+  constructor(private readonly delta: number) {}
+
+  computeDelta(): number {
+    return this.delta;
+  }
+}
 
 function startingAttributes(): PlayerAttributes {
   return new PlayerAttributes({
@@ -60,19 +72,31 @@ describe('Player', () => {
     expect(player.fatigue).toBe(0);
   });
 
-  it('applies training by replacing attributes, unless the player is retired', () => {
+  it('applies surface training by delegating the delta to the injected policy', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
-    const trained = startingAttributes();
+    const focus: TrainingFocus = { kind: 'surface', surface: 'clay' };
 
-    player.applyTraining('clay', trained);
-    expect(player.attributes).toBe(trained);
+    player.applyTraining(focus, new FixedTrainingPolicy(5));
+
+    expect(player.attributes.surfaceAffinities.get('clay')).toBe(25); // 20 starting + 5
+    expect(player.attributes.surfaceAffinities.get('grass')).toBe(20); // untouched
+  });
+
+  it('applies skill-cluster training by delegating the delta to the injected policy', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    const focus: TrainingFocus = { kind: 'skill', cluster: 'physical' };
+
+    player.applyTraining(focus, new FixedTrainingPolicy(4));
+
+    expect(player.attributes.physical.speed.value).toBe(34); // 30 starting + 4
+    expect(player.attributes.technical.serve.value).toBe(30); // untouched
   });
 
   it('throws when training a retired player', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 38 * 52, startingAttributes(), ManagerId('m1'));
     player.advanceWeek(38 * 52 + 1, 'retired', startingAttributes());
 
-    expect(() => player.applyTraining('clay', startingAttributes())).toThrow();
+    expect(() => player.applyTraining({ kind: 'surface', surface: 'clay' }, new FixedTrainingPolicy(5))).toThrow();
   });
 
   it('advanceWeek updates age, stage, and attributes', () => {

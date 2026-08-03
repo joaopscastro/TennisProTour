@@ -27,6 +27,10 @@ export class Skill {
 
 export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
 
+/** The three attribute groups PlayerAttributes is organized into —
+ * the other training axis alongside Surface (see TrainingFocus). */
+export type SkillCluster = 'technical' | 'physical' | 'mental';
+
 /**
  * Percentage bonus per surface. Mirrors Rocking Rackets' rule that each
  * surface affinity is trainable but capped at 60%, and the four
@@ -112,5 +116,49 @@ export class PlayerAttributes {
       ...Object.values(this.props.mental),
     ] as Skill[];
     return all.reduce((sum, s) => sum + s.value, 0) / all.length;
+  }
+
+  /** Surface-focused training: bumps one surface affinity, leaves
+   * every skill cluster untouched. */
+  trainedOnSurface(surface: Surface, gain: number): PlayerAttributes {
+    return new PlayerAttributes({
+      ...this.props,
+      surfaceAffinities: this.props.surfaceAffinities.trainedOn(surface, gain),
+    });
+  }
+
+  /** Skill-focused training: bumps every skill in one cluster by the
+   * same delta, leaves surface affinities and the other two clusters
+   * untouched. */
+  trainedOnCluster(cluster: SkillCluster, delta: number): PlayerAttributes {
+    switch (cluster) {
+      case 'technical':
+        return new PlayerAttributes({
+          ...this.props,
+          technical: {
+            serve: this.props.technical.serve.add(delta),
+            forehand: this.props.technical.forehand.add(delta),
+            backhand: this.props.technical.backhand.add(delta),
+            volley: this.props.technical.volley.add(delta),
+          },
+        });
+      case 'physical':
+        return new PlayerAttributes({
+          ...this.props,
+          physical: {
+            speed: this.props.physical.speed.add(delta),
+            stamina: this.props.physical.stamina.add(delta),
+            strength: this.props.physical.strength.add(delta),
+          },
+        });
+      case 'mental':
+        return new PlayerAttributes({
+          ...this.props,
+          mental: {
+            consistency: this.props.mental.consistency.add(delta),
+            clutch: this.props.mental.clutch.add(delta),
+          },
+        });
+    }
   }
 }
