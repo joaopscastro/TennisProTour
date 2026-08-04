@@ -8,11 +8,25 @@ export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 export interface PlayerProps {
   id: PlayerId;
   name: string;
+  /** Set once at hire time, purely a presentation concern (a flag next
+   * to the player's name) — the domain attaches no gameplay meaning to
+   * it. Free-text rather than an enum/ISO-code type on purpose: no
+   * country reference data exists anywhere else in the domain, and
+   * adding one for a display-only field would be exactly the kind of
+   * scope CLAUDE.md warns against. */
+  nationality: string;
   ageInWeeks: number;
   managerId: ManagerId | null;
   attributes: PlayerAttributes;
   stage: PlayerLifecycleStage;
   fatigue: number; // 0 (fresh) – 100 (exhausted)
+  /** The training focus a manager has committed this player to for
+   * upcoming weekly ticks (see TrainingPolicy) — null means no
+   * standing focus, so no delta applies until one is set. Distinct
+   * from applyTraining(), which applies a delta immediately given a
+   * focus; this field only records the *standing selection* that
+   * AdvanceWorldWeekUseCase reads each week. */
+  currentFocus: TrainingFocus | null;
 }
 
 /** Aggregate root for the Player & Roster bounded context.
@@ -35,15 +49,21 @@ export class Player {
     ageInWeeks: number,
     attributes: PlayerAttributes,
     managerId: ManagerId,
+    /** Optional so existing call sites (mostly tests that don't care
+     * about nationality) don't all need updating — HirePlayerUseCase,
+     * the real product entry point, always passes a real value. */
+    nationality = 'XX',
   ): Player {
     const player = new Player({
       id,
       name,
+      nationality,
       ageInWeeks,
       managerId,
       attributes,
       stage: 'youth',
       fatigue: 0,
+      currentFocus: null,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -66,6 +86,14 @@ export class Player {
 
   get name() {
     return this.props.name;
+  }
+
+  get nationality() {
+    return this.props.nationality;
+  }
+
+  get currentFocus() {
+    return this.props.currentFocus;
   }
 
   get ageInWeeks() {
@@ -107,6 +135,19 @@ export class Player {
         ? this.props.attributes.trainedOnSurface(focus.surface, delta)
         : this.props.attributes.trainedOnCluster(focus.cluster, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
+  }
+
+  /** Records the standing training focus a manager has committed this
+   * player to — does NOT apply any attribute delta itself. The delta
+   * is applied later, once per game week, by AdvanceWorldWeekUseCase
+   * calling applyTraining() during the weekly tick (the same cadence
+   * PlayerAgingService already ages players on). Passing null clears
+   * the focus, so no training delta applies until a new one is set. */
+  setTrainingFocus(focus: TrainingFocus | null): void {
+    if (this.isRetired()) {
+      throw new Error(`Cannot set training focus for retired player ${this.props.id}`);
+    }
+    this.props = { ...this.props, currentFocus: focus };
   }
 
   applyMatchFatigue(fatigueDelta: number): void {

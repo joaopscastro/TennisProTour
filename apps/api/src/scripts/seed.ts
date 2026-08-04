@@ -32,6 +32,7 @@ const TOURNAMENT_ID = 'seed-open';
 const PLAYER_COUNT = 10;
 const DRAW_SIZE = 16;
 const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap
+const NATIONALITIES = ['BR', 'US', 'FR', 'JP', 'AU', 'DE', 'AR', 'GB', 'ES', 'SE'];
 
 async function main(): Promise<void> {
   const db = createDb(connectionString);
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
     await deps.hirePlayer.execute({
       playerId: PlayerId(playerId),
       name: `Seed Player ${i}`,
+      nationality: NATIONALITIES[(i - 1) % NATIONALITIES.length],
       managerId: ManagerId(managerId),
       startingAgeInWeeks: (18 + (i % 10)) * 52,
     });

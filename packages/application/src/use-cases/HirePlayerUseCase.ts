@@ -14,6 +14,11 @@ export const PRO_ROSTER_CAP = 4;
 export interface HirePlayerCommand {
   playerId: PlayerId;
   name: string;
+  /** Display-only (a flag next to the player's name) — see
+   * Player.nationality's doc comment. Required here, unlike
+   * Player.hire()'s optional/defaulted parameter, since this is the
+   * real product entry point and every hired player should have one. */
+  nationality: string;
   managerId: ManagerId;
   startingAgeInWeeks: number;
 }
@@ -70,6 +75,7 @@ export class HirePlayerUseCase {
       command.startingAgeInWeeks,
       startingAttributes,
       command.managerId,
+      command.nationality,
     );
 
     await this.players.save(player);

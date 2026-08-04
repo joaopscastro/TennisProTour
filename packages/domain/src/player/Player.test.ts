@@ -129,4 +129,42 @@ describe('Player', () => {
 
     expect(player.managerId).toBeNull();
   });
+
+  it('hires with no standing training focus and an optional nationality', () => {
+    const withNationality = Player.hire(
+      PlayerId('p1'),
+      'João Silva',
+      18 * 52,
+      startingAttributes(),
+      ManagerId('m1'),
+      'BR',
+    );
+    const withoutNationality = Player.hire(PlayerId('p2'), 'Jane Doe', 18 * 52, startingAttributes(), ManagerId('m1'));
+
+    expect(withNationality.nationality).toBe('BR');
+    expect(withNationality.currentFocus).toBeNull();
+    expect(withoutNationality.nationality).toBe('XX');
+  });
+
+  it('setTrainingFocus records the standing focus without applying any attribute delta', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    const focus: TrainingFocus = { kind: 'surface', surface: 'grass' };
+
+    player.setTrainingFocus(focus);
+
+    expect(player.currentFocus).toEqual(focus);
+    expect(player.attributes.surfaceAffinities.get('grass')).toBe(20); // unchanged
+
+    player.setTrainingFocus(null);
+    expect(player.currentFocus).toBeNull();
+  });
+
+  it('throws when setting a training focus on a retired player', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 38 * 52, startingAttributes(), ManagerId('m1'));
+    player.advanceWeek(38 * 52 + 1, 'retired', startingAttributes());
+
+    expect(() => player.setTrainingFocus({ kind: 'surface', surface: 'clay' })).toThrow(
+      /Cannot set training focus for retired player/,
+    );
+  });
 });

@@ -85,6 +85,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
         await deps.hirePlayer.execute({
           playerId: PlayerId(`e2e-p${i}`),
           name: `E2E Player ${i}`,
+          nationality: 'BR',
           managerId: ManagerId(`e2e-m${Math.ceil(i / 2)}`), // 2/manager: within the free-tier cap
           startingAgeInWeeks: 20 * 52,
         });

@@ -115,6 +115,47 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     return toTournamentDto(tournament);
   });
 
+  // Lists tournaments still accepting entrants (bracket not yet
+  // started) — what a roster row's "Enter" action needs to offer a
+  // manager a tournament to register into. Only ?status=open is
+  // supported for now; a general tournament listing/filtering
+  // endpoint is a separate concern this doesn't try to solve.
+  app.get<{ Querystring: { status?: string } }>('/tournaments', async (request, reply) => {
+    if (request.query.status !== 'open') {
+      return reply.code(400).send({ error: 'GET /tournaments requires ?status=open' });
+    }
+    const open = await deps.tournaments.findOpenForRegistration();
+    return open.map(toTournamentDto);
+  });
+
+  app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null } }>(
+    '/tournaments/:id/entrants',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['playerId'],
+          properties: {
+            playerId: { type: 'string', minLength: 1 },
+            seed: { type: ['integer', 'null'], minimum: 1 },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const tournamentId = TournamentId(request.params.id);
+      await deps.registerEntrant.execute({
+        tournamentId,
+        playerId: PlayerId(request.body.playerId),
+        seed: request.body.seed ?? null,
+      });
+
+      const tournament = await deps.tournaments.findById(tournamentId);
+      return reply.code(201).send(toTournamentDto(tournament!));
+    },
+  );
+
   app.post<{ Params: SimulateParams }>(
     '/tournaments/:id/matches/:round/:index/simulate',
     {

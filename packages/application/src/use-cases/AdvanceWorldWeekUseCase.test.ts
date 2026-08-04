@@ -11,11 +11,24 @@ import {
   PlayerLifecycleStage,
   Skill,
   StandardAgingPolicy,
+  StandardTrainingPolicy,
   SurfaceAffinities,
+  TrainingPolicy,
   WorldId,
 } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
 import { AdvanceWorldWeekUseCase } from './AdvanceWorldWeekUseCase';
+
+/** Deterministic stand-in so training-application tests assert on a
+ * known delta rather than StandardTrainingPolicy's real balance
+ * numbers (same pattern as the aging tests' visibleDeclineBase). */
+class FixedTrainingPolicy implements TrainingPolicy {
+  constructor(private readonly delta: number) {}
+
+  computeDelta(): number {
+    return this.delta;
+  }
+}
 
 class FakeBillingPort implements BillingPort {
   constructor(private readonly proManagers: Set<string> = new Set()) {}
@@ -93,7 +106,15 @@ async function setup(playerCount: number) {
   }
   players.saveCount = 0;
   const standardAging = new PlayerAgingService(new StandardAgingPolicy());
-  const useCase = new AdvanceWorldWeekUseCase(worlds, players, new FakeBillingPort(), standardAging, standardAging, events);
+  const useCase = new AdvanceWorldWeekUseCase(
+    worlds,
+    players,
+    new FakeBillingPort(),
+    standardAging,
+    standardAging,
+    events,
+    new StandardTrainingPolicy(),
+  );
   return { worlds, players, events, worldId, useCase };
 }
 
@@ -149,6 +170,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       standardAging,
       new RecordingEventPublisher(),
+      new StandardTrainingPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -166,7 +188,15 @@ describe('AdvanceWorldWeekUseCase', () => {
     player.pullDomainEvents();
     await players.save(player);
     const standardAging = new PlayerAgingService(new StandardAgingPolicy());
-    const useCase = new AdvanceWorldWeekUseCase(worlds, players, new FakeBillingPort(), standardAging, standardAging, events);
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      events,
+      new StandardTrainingPolicy(),
+    );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
 
@@ -204,6 +234,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       proAging,
       new RecordingEventPublisher(),
+      new StandardTrainingPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -211,5 +242,77 @@ describe('AdvanceWorldWeekUseCase', () => {
     // Both started at serve 30. Free: -2 -> 28. Pro: -2 * 2 -> 26.
     expect((await players.findById(PlayerId('free-p')))!.attributes.technical.serve.value).toBe(28);
     expect((await players.findById(PlayerId('pro-p')))!.attributes.technical.serve.value).toBe(26);
+  });
+
+  it('applies no training delta for a player with no standing focus', async () => {
+    const { worlds, players, worldId, useCase } = await setup(1);
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    const player = await players.findById(PlayerId('p1'));
+    expect(player!.currentFocus).toBeNull();
+    expect(player!.attributes.surfaceAffinities.get('clay')).toBe(20); // untouched
+  });
+
+  it('applies the standing training focus automatically on tick, with no separate use-case call', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
+    player.setTrainingFocus({ kind: 'surface', surface: 'grass' });
+    player.pullDomainEvents();
+    await players.save(player);
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(6),
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    const trained = await players.findById(PlayerId('p1'));
+    expect(trained!.attributes.surfaceAffinities.get('grass')).toBe(26); // 20 + 6
+    expect(trained!.attributes.surfaceAffinities.get('clay')).toBe(20); // untouched
+
+    // Changing the focus AFTER a tick has already run must not
+    // retroactively affect that tick — only a future tick sees it.
+    trained!.setTrainingFocus({ kind: 'surface', surface: 'clay' });
+    await players.save(trained!);
+    expect((await players.findById(PlayerId('p1')))!.attributes.surfaceAffinities.get('clay')).toBe(20);
+  });
+
+  it('does not double-apply training when the same tick is re-run (idempotent, like aging)', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
+    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
+    player.pullDomainEvents();
+    await players.save(player);
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(3),
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+    const second = await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    expect(second).toEqual({ advanced: false, playersAged: 0 });
+    expect((await players.findById(PlayerId('p1')))!.attributes.mental.clutch.value).toBe(33); // 30 + 3, not +6
   });
 });

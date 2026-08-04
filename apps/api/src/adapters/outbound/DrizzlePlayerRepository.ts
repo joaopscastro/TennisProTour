@@ -4,7 +4,10 @@ import { Player, PlayerLifecycleStage } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
   Skill,
+  SkillCluster,
+  Surface,
   SurfaceAffinities,
+  TrainingFocus,
 } from '@tennis-manager/domain';
 import { PlayerRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
@@ -49,14 +52,35 @@ export class DrizzlePlayerRepository implements PlayerRepository {
   }
 }
 
+/** Reassembles the discriminated TrainingFocus union from its two
+ * nullable flat columns — the inverse of focusColumns() below. */
+function toDomainFocus(row: PlayerRow): TrainingFocus | null {
+  if (row.trainingFocusKind === 'surface' && row.trainingFocusSurface) {
+    return { kind: 'surface', surface: row.trainingFocusSurface as Surface };
+  }
+  if (row.trainingFocusKind === 'skill' && row.trainingFocusCluster) {
+    return { kind: 'skill', cluster: row.trainingFocusCluster as SkillCluster };
+  }
+  return null;
+}
+
+function focusColumns(focus: TrainingFocus | null) {
+  if (!focus) return { trainingFocusKind: null, trainingFocusSurface: null, trainingFocusCluster: null };
+  return focus.kind === 'surface'
+    ? { trainingFocusKind: 'surface' as const, trainingFocusSurface: focus.surface, trainingFocusCluster: null }
+    : { trainingFocusKind: 'skill' as const, trainingFocusSurface: null, trainingFocusCluster: focus.cluster };
+}
+
 function toDomain(row: PlayerRow): Player {
   return Player.reconstitute({
     id: PlayerId(row.id),
     name: row.name,
+    nationality: row.nationality,
     managerId: row.managerId === null ? null : ManagerId(row.managerId),
     ageInWeeks: row.ageInWeeks,
     stage: row.stage as PlayerLifecycleStage,
     fatigue: row.fatigue,
+    currentFocus: toDomainFocus(row),
     attributes: new PlayerAttributes({
       technical: {
         serve: Skill.of(row.serve),
@@ -88,10 +112,12 @@ function toRow(player: Player): typeof players.$inferInsert {
   return {
     id: player.id,
     name: player.name,
+    nationality: player.nationality,
     managerId: player.managerId,
     ageInWeeks: player.ageInWeeks,
     stage: player.stage,
     fatigue: player.fatigue,
+    ...focusColumns(player.currentFocus),
     serve: technical.serve.value,
     forehand: technical.forehand.value,
     backhand: technical.backhand.value,

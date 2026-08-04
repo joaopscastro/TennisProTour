@@ -1,4 +1,4 @@
-import { ManagerId, PlayerAgingService, WorldId } from '@tennis-manager/domain';
+import { ManagerId, PlayerAgingService, TrainingPolicy, WorldId } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
 
 export interface AdvanceWorldWeekCommand {
@@ -28,6 +28,17 @@ export interface AdvanceWorldWeekResult {
  * free agents use the standard service. Pro status is looked up once
  * per manager per tick, not once per player.
  *
+ * Same tick also applies each player's standing training focus (see
+ * Player.currentFocus / SetTrainingFocusUseCase), same cadence as
+ * aging: a manager commits to a focus once, and it applies
+ * automatically every week until changed — there is no separate
+ * "train now" action. A player with no focus set gets no training
+ * delta that week; nothing is invented on their behalf. Idempotency
+ * for this, like aging, comes for free from the tickKey guard above —
+ * a re-run of an already-applied tick returns before this loop runs
+ * at all, so a focus changed *after* a tick has no way to retroactively
+ * affect it.
+ *
  * Honest limitation, deliberate for now: the per-player saves and the
  * final world save are not one atomic transaction, so a crash mid-run
  * can age some players and leave the tick unrecorded (a rerun would
@@ -43,6 +54,7 @@ export class AdvanceWorldWeekUseCase {
     private readonly standardAging: PlayerAgingService,
     private readonly proAging: PlayerAgingService,
     private readonly events: EventPublisherPort,
+    private readonly trainingPolicy: TrainingPolicy,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
@@ -67,6 +79,12 @@ export class AdvanceWorldWeekUseCase {
     for (const player of allPlayers) {
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
       agingService.advance(player);
+      // Aging can tip a player into retirement this same tick;
+      // applyTraining rejects retired players, so re-check after aging
+      // rather than trusting the focus was set against a live player.
+      if (player.currentFocus && !player.isRetired()) {
+        player.applyTraining(player.currentFocus, this.trainingPolicy);
+      }
       await this.players.save(player);
       await this.events.publish(player.pullDomainEvents());
     }

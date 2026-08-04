@@ -55,6 +55,7 @@ describe('HirePlayerUseCase', () => {
     await useCase.execute({
       playerId: PlayerId('p1'),
       name: 'João Silva',
+      nationality: 'BR',
       managerId,
       startingAgeInWeeks: 18 * 52,
     });
@@ -77,6 +78,7 @@ describe('HirePlayerUseCase', () => {
       await useCase.execute({
         playerId: PlayerId(`p${i}`),
         name: `Player ${i}`,
+        nationality: 'BR',
         managerId,
         startingAgeInWeeks: 18 * 52,
       });
@@ -86,6 +88,7 @@ describe('HirePlayerUseCase', () => {
       useCase.execute({
         playerId: PlayerId('p3'),
         name: 'One Too Many',
+        nationality: 'BR',
         managerId,
         startingAgeInWeeks: 18 * 52,
       }),
@@ -102,6 +105,7 @@ describe('HirePlayerUseCase', () => {
       await useCase.execute({
         playerId: PlayerId(`p${i}`),
         name: `Player ${i}`,
+        nationality: 'BR',
         managerId,
         startingAgeInWeeks: 18 * 52,
       });
@@ -112,6 +116,7 @@ describe('HirePlayerUseCase', () => {
       useCase.execute({
         playerId: PlayerId('p5'),
         name: 'One Too Many',
+        nationality: 'BR',
         managerId,
         startingAgeInWeeks: 18 * 52,
       }),
@@ -126,6 +131,7 @@ describe('HirePlayerUseCase', () => {
     await useCase.execute({
       playerId: PlayerId('p1'),
       name: 'João Silva',
+      nationality: 'BR',
       managerId: ManagerId('m1'),
       startingAgeInWeeks: 18 * 52,
     });

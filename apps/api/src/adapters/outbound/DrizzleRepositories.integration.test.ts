@@ -50,8 +50,9 @@ describe('DrizzlePlayerRepository', () => {
 
   it('round-trips a player through save and findById', async () => {
     const managerId = ManagerId('m1');
-    const original = Player.hire(PlayerId('p1'), 'João Silva', 19 * 52, attributes(30), managerId);
+    const original = Player.hire(PlayerId('p1'), 'João Silva', 19 * 52, attributes(30), managerId, 'BR');
     original.applyMatchFatigue(12);
+    original.setTrainingFocus({ kind: 'surface', surface: 'grass' });
     original.pullDomainEvents(); // adapter persists state, not events
 
     await repository.save(original);
@@ -60,10 +61,12 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.id).toBe('p1');
     expect(loaded!.name).toBe('João Silva');
+    expect(loaded!.nationality).toBe('BR');
     expect(loaded!.managerId).toBe(managerId);
     expect(loaded!.ageInWeeks).toBe(19 * 52);
     expect(loaded!.stage).toBe('youth');
     expect(loaded!.fatigue).toBe(12);
+    expect(loaded!.currentFocus).toEqual({ kind: 'surface', surface: 'grass' });
     expect(loaded!.attributes.technical.serve.value).toBe(30);
     expect(loaded!.attributes.technical.volley.value).toBe(33);
     expect(loaded!.attributes.physical.stamina.value).toBe(35);
@@ -72,6 +75,17 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded!.attributes.surfaceAffinities.get('grass')).toBe(20);
     // Reconstitution must not re-emit lifecycle events.
     expect(loaded!.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('round-trips a skill-cluster training focus and a null focus', async () => {
+    const player = Player.hire(PlayerId('p-focus'), 'Focus Test', 19 * 52, attributes(30), ManagerId('m1'));
+    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
+    await repository.save(player);
+    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toEqual({ kind: 'skill', cluster: 'mental' });
+
+    player.setTrainingFocus(null);
+    await repository.save(player);
+    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toBeNull();
   });
 
   it('updates in place on second save (upsert) and filters findByManager by manager', async () => {

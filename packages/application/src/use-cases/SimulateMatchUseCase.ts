@@ -3,10 +3,10 @@ import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
-import { ManagerRanking } from '@tennis-manager/domain';
+import { PlayerRanking } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
-  ManagerRankingRepository,
+  PlayerRankingRepository,
   MatchLogStorePort,
   PlayerRepository,
   TournamentRepository,
@@ -52,6 +52,12 @@ export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, 
  * exactly when the match just decided was the final (award them too,
  * including this round). A player who wins a non-final match gets
  * nothing yet — they're still alive, not eliminated or crowned.
+ *
+ * Points are awarded to the PLAYER, not their manager — see
+ * PlayerRanking's doc comment for why the original manager-cumulative
+ * model was wrong. A player earns points regardless of whether they
+ * currently have a manager (a released former champion keeps their
+ * ranking; it isn't the manager's to hold).
  */
 export class SimulateMatchUseCase {
   constructor(
@@ -62,7 +68,7 @@ export class SimulateMatchUseCase {
     private readonly events: EventPublisherPort,
     private readonly bracketGenerator: BracketGenerator,
     private readonly rankingPointsTable: RankingPointsTable,
-    private readonly managerRankings: ManagerRankingRepository,
+    private readonly playerRankings: PlayerRankingRepository,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -121,11 +127,11 @@ export class SimulateMatchUseCase {
   }
 
   private async awardRankingPoints(player: Player | null, roundsWon: number, tier: TournamentTier): Promise<void> {
-    if (!player || player.managerId === null) return;
+    if (!player) return;
     const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
-    const ranking = (await this.managerRankings.findById(player.managerId)) ?? ManagerRanking.empty(player.managerId);
+    const ranking = (await this.playerRankings.findById(player.id)) ?? PlayerRanking.empty(player.id);
     ranking.addPoints(points);
-    await this.managerRankings.save(ranking);
+    await this.playerRankings.save(ranking);
   }
 
   private async loadParticipant(playerId: PlayerId) {

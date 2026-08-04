@@ -37,7 +37,7 @@ beforeEach(async () => {
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
-  await db.delete(schema.managerRankings);
+  await db.delete(schema.playerRankings);
 });
 
 afterAll(async () => {
@@ -50,7 +50,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   const response = await app.inject({
     method: 'POST',
     url: '/players',
-    payload: { playerId: id, name: `Player ${id}`, managerId, startingAgeInWeeks: 20 * 52 },
+    payload: { playerId: id, name: `Player ${id}`, nationality: 'BR', managerId, startingAgeInWeeks: 20 * 52 },
   });
   return response.statusCode;
 }
@@ -161,11 +161,9 @@ describe('API', () => {
     expect(response.statusCode).toBe(404);
   });
 
-  it('awards ranking points through a full tournament, matching StandardRankingPointsTable per manager', async () => {
-    // 8 managers, 2 players each, so every manager's final total is the
-    // sum of exactly two pointsFor() awards (one per player, awarded
-    // whenever that player is eliminated or, for the eventual champion,
-    // crowned).
+  it('awards ranking points per PLAYER through a full tournament, matching StandardRankingPointsTable', async () => {
+    // 8 managers, 2 players each — irrelevant to ranking now (it's
+    // per-player), but kept so the roster caps stay realistic.
     const managerOf = (playerIndex: number) => `rm${Math.ceil(playerIndex / 2)}`;
     for (let i = 1; i <= 16; i++) {
       expect(await hirePlayer(`rp${i}`, managerOf(i))).toBe(201);
@@ -213,25 +211,52 @@ describe('API', () => {
     }
 
     const rankingPointsTable = new StandardRankingPointsTable();
-    for (let managerIndex = 1; managerIndex <= 8; managerIndex++) {
-      const managerId = `rm${managerIndex}`;
-      const playerIds = [`rp${managerIndex * 2 - 1}`, `rp${managerIndex * 2}`];
-      const expectedPoints = playerIds.reduce(
-        (sum, playerId) => sum + rankingPointsTable.pointsFor('challenger', roundsWonByPlayer.get(playerId) ?? 0),
-        0,
-      );
+    for (let i = 1; i <= 16; i++) {
+      const playerId = `rp${i}`;
+      const expectedPoints = rankingPointsTable.pointsFor('challenger', roundsWonByPlayer.get(playerId) ?? 0);
 
-      const rankingResponse = await app.inject({ method: 'GET', url: `/managers/${managerId}/ranking` });
+      const rankingResponse = await app.inject({ method: 'GET', url: `/players/${playerId}/ranking` });
       expect(rankingResponse.statusCode).toBe(200);
       const ranking = rankingResponse.json();
-      expect(ranking.managerId).toBe(managerId);
+      expect(ranking.playerId).toBe(playerId);
       expect(ranking.totalPoints).toBeCloseTo(expectedPoints, 6);
+    }
+
+    // Rank position is derived, not stored: the champion (4 rounds
+    // won) earns the most points of anyone in this single tournament,
+    // so they must be #1.
+    const championId = [...roundsWonByPlayer.entries()].find(([, rounds]) => rounds === 4)?.[0];
+    expect(championId).toBeDefined();
+    const championRanking = await app.inject({ method: 'GET', url: `/players/${championId}/ranking` });
+    expect(championRanking.json().rank).toBe(1);
+  });
+
+  it("defaults a player's ranking to unranked (rank: null, 0 points) when they haven't earned any yet", async () => {
+    const response = await app.inject({ method: 'GET', url: '/players/never-earned-anything/ranking' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ playerId: 'never-earned-anything', totalPoints: 0, rank: null });
+  });
+
+  it('serves the roster-dashboard read model with rank, overall, and surfaces per player', async () => {
+    await hirePlayer('dp1', 'dm1');
+    await hirePlayer('dp2', 'dm1');
+
+    const response = await app.inject({ method: 'GET', url: '/managers/dm1/roster-dashboard' });
+    expect(response.statusCode).toBe(200);
+    const entries = response.json();
+    expect(entries).toHaveLength(2);
+    expect(entries.map((e: { id: string }) => e.id).sort()).toEqual(['dp1', 'dp2']);
+    for (const entry of entries) {
+      expect(entry.rank).toBeNull(); // hasn't played a match yet
+      expect(entry.overall).toBe(30);
+      expect(entry.lastResult).toBeNull();
+      expect(entry.surfaceAffinities).toEqual({ clay: 20, grass: 20, hard: 20, indoor: 20 });
     }
   });
 
-  it("defaults a manager's ranking to zero points when they haven't earned any yet", async () => {
-    const response = await app.inject({ method: 'GET', url: '/managers/never-earned-anything/ranking' });
+  it("reports a manager's entitlement tier", async () => {
+    const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ managerId: 'never-earned-anything', totalPoints: 0 });
+    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free' });
   });
 });

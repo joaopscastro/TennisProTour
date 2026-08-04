@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, ManagerRanking } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, PlayerRanking } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -81,11 +81,18 @@ export interface BillingPort {
   createProCheckoutSession(managerId: ManagerId): Promise<{ url: string }>;
 }
 
-/** One row per manager who has ever earned ranking points. Absence of
- * a row (findById returns null) means zero, not "manager unknown" —
- * managers aren't a persisted entity of their own anywhere in this
- * system, just an id referenced by players. */
-export interface ManagerRankingRepository {
-  findById(managerId: ManagerId): Promise<ManagerRanking | null>;
-  save(ranking: ManagerRanking): Promise<void>;
+/** One row per player who has ever earned ranking points. Absence of a
+ * row (findById returns null) means "never earned any," i.e.
+ * unranked, not zero-and-ranked — same distinction real tennis draws
+ * between a low rank and no rank at all. */
+export interface PlayerRankingRepository {
+  findById(playerId: PlayerId): Promise<PlayerRanking | null>;
+  save(ranking: PlayerRanking): Promise<void>;
+  /** Every player who has earned at least one point, sorted by
+   * totalPoints descending. This is the read side a player's rank
+   * *position* (e.g. "#4") is derived from — 1-indexed position in
+   * this list — rather than stored as mutable state on each row,
+   * since a rank only ever means something relative to every other
+   * player's points. */
+  findAllSortedByPoints(): Promise<PlayerRanking[]>;
 }

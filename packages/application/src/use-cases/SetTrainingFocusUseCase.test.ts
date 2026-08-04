@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
-import { TrainingFocus, TrainingPolicy } from '@tennis-manager/domain';
+import { TrainingFocus } from '@tennis-manager/domain';
 import { PlayerRepository } from '../ports/ports';
-import { TrainPlayerUseCase } from './TrainPlayerUseCase';
+import { SetTrainingFocusUseCase } from './SetTrainingFocusUseCase';
 
 class InMemoryPlayerRepository implements PlayerRepository {
   private readonly store = new Map<PlayerId, Player>();
@@ -26,17 +26,6 @@ class InMemoryPlayerRepository implements PlayerRepository {
   }
 }
 
-/** Deterministic stand-in for StandardTrainingPolicy so the use case
- * test only has to verify orchestration (load, delegate, persist),
- * not real balance numbers. */
-class FixedTrainingPolicy implements TrainingPolicy {
-  constructor(private readonly delta: number) {}
-
-  computeDelta(): number {
-    return this.delta;
-  }
-}
-
 function startingAttributes(): PlayerAttributes {
   return new PlayerAttributes({
     technical: { serve: Skill.of(30), forehand: Skill.of(30), backhand: Skill.of(30), volley: Skill.of(30) },
@@ -46,40 +35,38 @@ function startingAttributes(): PlayerAttributes {
   });
 }
 
-describe('TrainPlayerUseCase', () => {
-  it('trains a surface focus and persists the updated player', async () => {
+describe('SetTrainingFocusUseCase', () => {
+  it('records the standing focus and persists it, without applying any attribute delta', async () => {
     const players = new InMemoryPlayerRepository();
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
     await players.save(player);
 
-    const useCase = new TrainPlayerUseCase(players, new FixedTrainingPolicy(5));
+    const useCase = new SetTrainingFocusUseCase(players);
     const focus: TrainingFocus = { kind: 'surface', surface: 'clay' };
 
     await useCase.execute({ playerId: PlayerId('p1'), focus });
 
     const saved = await players.findById(PlayerId('p1'));
-    expect(saved!.attributes.surfaceAffinities.get('clay')).toBe(25);
-    expect(saved!.attributes.surfaceAffinities.get('grass')).toBe(20);
+    expect(saved!.currentFocus).toEqual(focus);
+    // No delta applied — that's AdvanceWorldWeekUseCase's job on tick.
+    expect(saved!.attributes.surfaceAffinities.get('clay')).toBe(20);
   });
 
-  it('trains a skill-cluster focus and persists the updated player', async () => {
+  it('clears the standing focus when given null', async () => {
     const players = new InMemoryPlayerRepository();
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
     await players.save(player);
 
-    const useCase = new TrainPlayerUseCase(players, new FixedTrainingPolicy(4));
-    const focus: TrainingFocus = { kind: 'skill', cluster: 'mental' };
+    const useCase = new SetTrainingFocusUseCase(players);
+    await useCase.execute({ playerId: PlayerId('p1'), focus: null });
 
-    await useCase.execute({ playerId: PlayerId('p1'), focus });
-
-    const saved = await players.findById(PlayerId('p1'));
-    expect(saved!.attributes.mental.clutch.value).toBe(34);
-    expect(saved!.attributes.physical.speed.value).toBe(30);
+    expect((await players.findById(PlayerId('p1')))!.currentFocus).toBeNull();
   });
 
   it('throws when the player does not exist', async () => {
     const players = new InMemoryPlayerRepository();
-    const useCase = new TrainPlayerUseCase(players, new FixedTrainingPolicy(5));
+    const useCase = new SetTrainingFocusUseCase(players);
 
     await expect(
       useCase.execute({ playerId: PlayerId('ghost'), focus: { kind: 'surface', surface: 'clay' } }),
@@ -92,10 +79,10 @@ describe('TrainPlayerUseCase', () => {
     player.advanceWeek(38 * 52 + 1, 'retired', startingAttributes());
     await players.save(player);
 
-    const useCase = new TrainPlayerUseCase(players, new FixedTrainingPolicy(5));
+    const useCase = new SetTrainingFocusUseCase(players);
 
     await expect(
       useCase.execute({ playerId: PlayerId('p1'), focus: { kind: 'surface', surface: 'clay' } }),
-    ).rejects.toThrow(/Cannot train retired player/);
+    ).rejects.toThrow(/Cannot set training focus for retired player/);
   });
 });

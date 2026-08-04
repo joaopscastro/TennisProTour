@@ -19,6 +19,33 @@ export interface PlayerDto {
   };
 }
 
+export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
+export type SkillCluster = 'technical' | 'physical' | 'mental';
+export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
+export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'skill'; cluster: SkillCluster };
+
+/** The read model behind the Roster Dashboard screen — see
+ * DrizzleRosterDashboardQuery on the API side for how this is built. */
+export interface RosterDashboardEntryDto {
+  id: string;
+  name: string;
+  nationality: string;
+  ageInWeeks: number;
+  stage: PlayerLifecycleStage;
+  fatigue: number;
+  overall: number;
+  rank: number | null;
+  points: number;
+  lastResult: string | null;
+  trainingFocus: TrainingFocus | null;
+  surfaceAffinities: { clay: number; grass: number; hard: number; indoor: number };
+}
+
+export interface EntitlementDto {
+  managerId: string;
+  tier: 'free' | 'pro';
+}
+
 export interface MatchOutcomeDto {
   winner: string;
   loser: string;
@@ -75,8 +102,55 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
+async function sendJson<T>(method: 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const responseBody = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(responseBody?.error ?? `${response.status} ${response.statusText}`);
+  }
+  return response.json() as Promise<T>;
+}
+
 export function fetchRoster(managerId: string): Promise<PlayerDto[]> {
   return getJson(`/managers/${encodeURIComponent(managerId)}/players`);
+}
+
+export function fetchRosterDashboard(managerId: string): Promise<RosterDashboardEntryDto[]> {
+  return getJson(`/managers/${encodeURIComponent(managerId)}/roster-dashboard`);
+}
+
+export function fetchEntitlement(managerId: string): Promise<EntitlementDto> {
+  return getJson(`/managers/${encodeURIComponent(managerId)}/entitlement`);
+}
+
+export function hirePlayer(input: {
+  playerId: string;
+  name: string;
+  nationality: string;
+  managerId: string;
+  startingAgeInWeeks: number;
+}): Promise<PlayerDto> {
+  return sendJson('POST', '/players', input);
+}
+
+export function setTrainingFocus(playerId: string, focus: TrainingFocus | null): Promise<PlayerDto> {
+  return sendJson('PUT', `/players/${encodeURIComponent(playerId)}/training-focus`, { focus });
+}
+
+export function releasePlayer(playerId: string): Promise<PlayerDto> {
+  return sendJson('POST', `/players/${encodeURIComponent(playerId)}/release`);
+}
+
+export function fetchOpenTournaments(): Promise<TournamentDto[]> {
+  return getJson('/tournaments?status=open');
+}
+
+export function registerEntrant(tournamentId: string, playerId: string): Promise<TournamentDto> {
+  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId });
 }
 
 export function fetchTournament(id: string): Promise<TournamentDto> {

@@ -38,6 +38,14 @@ import { boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, 
 export const tournamentTier = pgEnum('tournament_tier', ['junior', 'futures', 'challenger', 'tour', 'major']);
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
+export const skillCluster = pgEnum('skill_cluster', ['technical', 'physical', 'mental']);
+/** Discriminant for a player's standing training focus (TrainingFocus
+ * union). Kept as a small enum plus two nullable "value" columns
+ * (below, on `players`) rather than a jsonb blob, matching this
+ * schema's existing convention (skills/affinities are flat columns,
+ * not json) — training focus is exactly one of a fixed small set of
+ * values, never freeform data. */
+export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'skill']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -64,12 +72,19 @@ export const managerEntitlements = pgTable('manager_entitlements', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** One row per manager who has ever earned ranking points (absence =
- * zero, see ManagerRankingRepository). totalPoints is a double, not an
+/** One row per PLAYER who has ever earned ranking points (absence =
+ * unranked, not zero — see PlayerRankingRepository). Was originally
+ * keyed by manager_id (a bug: it double-counted hires/releases and
+ * couldn't answer "what's this player's rank"); renamed and re-keyed
+ * to player_id, since ranking is a per-player concept both in real
+ * tennis and in what the roster dashboard actually displays ("#4"
+ * next to an individual player). totalPoints is a double, not an
  * integer: StandardRankingPointsTable's formula
  * (BASE_POINTS[tier] * 1.6^roundsWon) is fractional for most inputs. */
-export const managerRankings = pgTable('manager_rankings', {
-  managerId: text('manager_id').primaryKey(),
+export const playerRankings = pgTable('player_rankings', {
+  playerId: text('player_id')
+    .primaryKey()
+    .references(() => players.id),
   totalPoints: doublePrecision('total_points').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -77,11 +92,27 @@ export const managerRankings = pgTable('manager_rankings', {
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
+  /** Display-only (a flag next to the player's name) — no gameplay
+   * meaning, no validation against a country reference table. Free
+   * text rather than an enum since none exists elsewhere in this
+   * schema. */
+  nationality: text('nationality').notNull().default('XX'),
   /** Null = free agent (released or never hired). */
   managerId: text('manager_id'),
   ageInWeeks: integer('age_in_weeks').notNull(),
   stage: playerStage('stage').notNull(),
   fatigue: integer('fatigue').notNull().default(0),
+
+  /** The player's standing weekly training focus (Player.currentFocus
+   * / TrainingFocus union) — null kind means no focus set. Exactly one
+   * of trainingFocusSurface/trainingFocusCluster is populated when
+   * kind is non-null, matching the domain's discriminated union;
+   * enforced in the repository mapping layer, not by a DB constraint
+   * (same pattern as setScores being validated by the Tournament
+   * aggregate, not the schema). */
+  trainingFocusKind: trainingFocusKind('training_focus_kind'),
+  trainingFocusSurface: surface('training_focus_surface'),
+  trainingFocusCluster: skillCluster('training_focus_cluster'),
 
   // Technical
   serve: integer('serve').notNull(),
