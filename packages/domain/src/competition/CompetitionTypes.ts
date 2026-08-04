@@ -63,8 +63,44 @@ export interface MatchLogEntry {
   wonBy: 'A' | 'B';
 }
 
+/** A standard game's score reads '0'/'15'/'30'/'40', then 'Ad' once
+ * deuce (40-40) is broken by one point without the required 2-point
+ * margin. A tiebreak instead counts literally (0, 1, 2, ... 7, ...),
+ * so this also accepts a plain numeric string for that case — there's
+ * no shared vocabulary between the two scoring systems in real tennis
+ * either. */
+export type PointScoreLabel = '0' | '15' | '30' | '40' | 'Ad' | `${number}`;
+
+/**
+ * One point within one game — the detail MatchLogEntry deliberately
+ * doesn't carry (see its own doc comment: it's the game-level rollup
+ * used for the bracket/scrub-bar tick marks). pointScoreA/pointScoreB
+ * are the score *before* this point is decided (the stakes the point
+ * was played for), which is always a valid, in-progress tennis score;
+ * wonBy says who won it. A reader doesn't need a separate "Game" sentinel
+ * to know a game just ended — that's exactly when the next MatchLogEntry
+ * appears at the same offsetSeconds.
+ */
+export interface MatchPointEntry {
+  offsetSeconds: number;
+  setNumber: number;
+  /** 1-indexed within the set; a tiebreak is conventionally the set's
+   * 13th game (played after 12 games split 6-6). */
+  gameNumber: number;
+  pointScoreA: PointScoreLabel;
+  pointScoreB: PointScoreLabel;
+  wonBy: 'A' | 'B';
+}
+
 export interface MatchLog {
+  /** Game-completion rollup — unchanged shape, still what the
+   * bracket/scrub-bar tick marks and the game-by-game commentary
+   * line consume. */
   entries: ReadonlyArray<MatchLogEntry>;
+  /** Point-by-point detail alongside the rollup above, not merged
+   * into it — existing consumers of `entries` are unaffected by this
+   * addition. */
+  points: ReadonlyArray<MatchPointEntry>;
   totalDurationSeconds: number;
 }
 

@@ -48,6 +48,17 @@ export interface MatchLogDto {
     gamesForB: number;
     wonBy: 'A' | 'B';
   }>;
+  /** Point-by-point detail alongside `entries` — not yet consumed by
+   * MatchReplayPlayer, which still renders off the game-level rollup
+   * above, but typed here so a future point-level UI has it ready. */
+  points: Array<{
+    offsetSeconds: number;
+    setNumber: number;
+    gameNumber: number;
+    pointScoreA: string;
+    pointScoreB: string;
+    wonBy: 'A' | 'B';
+  }>;
   totalDurationSeconds: number;
 }
 

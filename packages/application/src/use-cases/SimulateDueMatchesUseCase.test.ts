@@ -97,7 +97,7 @@ class AlwaysAWinsSimulator implements MatchSimulator {
   simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
     return {
       outcome: { winner: playerA.playerId, loser: playerB.playerId, setScores: [{ winnerGames: 6, loserGames: 0 }] },
-      log: { entries: [], totalDurationSeconds: 0 },
+      log: { entries: [], points: [], totalDurationSeconds: 0 },
     };
   }
 }

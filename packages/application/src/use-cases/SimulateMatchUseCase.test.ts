@@ -93,7 +93,7 @@ class AlwaysAWinsSimulator implements MatchSimulator {
         loser: playerB.playerId,
         setScores: [{ winnerGames: 6, loserGames: 0 }],
       },
-      log: { entries: [], totalDurationSeconds: 0 },
+      log: { entries: [], points: [], totalDurationSeconds: 0 },
     };
   }
 }

@@ -69,7 +69,7 @@ describe('FilesystemMatchLogStore', () => {
 
   it('refuses to overwrite an existing log (write-once, like the future object-store adapter)', async () => {
     const store = new FilesystemMatchLogStore({ directory });
-    const log: MatchLog = { entries: [], totalDurationSeconds: 0 };
+    const log: MatchLog = { entries: [], points: [], totalDurationSeconds: 0 };
 
     await store.save(MatchId('match-2'), log);
     await expect(store.save(MatchId('match-2'), log)).rejects.toThrow();
@@ -77,7 +77,7 @@ describe('FilesystemMatchLogStore', () => {
 
   it('builds dev-server URLs when publicBaseUrl is configured', async () => {
     const store = new FilesystemMatchLogStore({ directory, publicBaseUrl: 'http://localhost:3001/match-logs/' });
-    const { url } = await store.save(MatchId('match-3'), { entries: [], totalDurationSeconds: 0 });
+    const { url } = await store.save(MatchId('match-3'), { entries: [], points: [], totalDurationSeconds: 0 });
 
     expect(url).toBe('http://localhost:3001/match-logs/match-3.json');
   });
