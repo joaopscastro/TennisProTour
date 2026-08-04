@@ -1,12 +1,12 @@
-import { TournamentId, PlayerId, MatchId, Player, TournamentTier } from '@tennis-manager/domain';
+import { TournamentId, PlayerId, MatchId, Player, TournamentTier, GameWeek } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
-import { PlayerRanking } from '@tennis-manager/domain';
+import { RankingLedgerEntry } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
-  PlayerRankingRepository,
+  RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
   TournamentRepository,
@@ -58,6 +58,12 @@ export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, 
  * model was wrong. A player earns points regardless of whether they
  * currently have a manager (a released former champion keeps their
  * ranking; it isn't the manager's to hold).
+ *
+ * Each result is appended to the player's RankingLedgerRepository as a
+ * dated entry rather than summed into a single running total — see
+ * RankingCalculationService for why: real ATP rankings are a rolling
+ * 52-week window with a best-18 cap, which is only possible to compute
+ * from a ledger of dated results, not a mutable cumulative counter.
  */
 export class SimulateMatchUseCase {
   constructor(
@@ -68,7 +74,7 @@ export class SimulateMatchUseCase {
     private readonly events: EventPublisherPort,
     private readonly bracketGenerator: BracketGenerator,
     private readonly rankingPointsTable: RankingPointsTable,
-    private readonly playerRankings: PlayerRankingRepository,
+    private readonly rankingLedger: RankingLedgerRepository,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -118,20 +124,37 @@ export class SimulateMatchUseCase {
 
     // Ranking points: the loser is eliminated the moment any match is
     // decided; the winner becomes champion only if this was the final.
-    await this.awardRankingPoints(loserPlayer, tournament.roundsWonBy(outcome.loser), tournament.tier);
+    await this.awardRankingPoints(
+      loserPlayer,
+      tournament.roundsWonBy(outcome.loser),
+      tournament.tier,
+      tournament.id,
+      tournament.weekScheduled,
+    );
     if (tournament.isFinalRound(command.roundNumber)) {
-      await this.awardRankingPoints(winnerPlayer, tournament.roundsWonBy(outcome.winner), tournament.tier);
+      await this.awardRankingPoints(
+        winnerPlayer,
+        tournament.roundsWonBy(outcome.winner),
+        tournament.tier,
+        tournament.id,
+        tournament.weekScheduled,
+      );
     }
 
     return { replayUrl: url };
   }
 
-  private async awardRankingPoints(player: Player | null, roundsWon: number, tier: TournamentTier): Promise<void> {
+  private async awardRankingPoints(
+    player: Player | null,
+    roundsWon: number,
+    tier: TournamentTier,
+    tournamentId: TournamentId,
+    weekEarned: GameWeek,
+  ): Promise<void> {
     if (!player) return;
     const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
-    const ranking = (await this.playerRankings.findById(player.id)) ?? PlayerRanking.empty(player.id);
-    ranking.addPoints(points);
-    await this.playerRankings.save(ranking);
+    const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, points, weekEarned };
+    await this.rankingLedger.append(entry);
   }
 
   private async loadParticipant(playerId: PlayerId) {

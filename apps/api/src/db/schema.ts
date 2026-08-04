@@ -89,6 +89,30 @@ export const playerRankings = pgTable('player_rankings', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * Append-only ledger of dated ranking results — one row per tournament
+ * result a player earns, never updated after insert. This is the
+ * source of truth RankingCalculationService reads from to compute a
+ * player's rolling 52-week/best-18-cap total; player_rankings above
+ * (a single mutable totalPoints) predates this and is being phased out
+ * in favor of computing the total on read instead of storing it.
+ */
+export const rankingLedger = pgTable('ranking_ledger', {
+  id: text('id').primaryKey(),
+  playerId: text('player_id')
+    .notNull()
+    .references(() => players.id),
+  tournamentId: text('tournament_id')
+    .notNull()
+    .references(() => tournaments.id),
+  tier: tournamentTier('tier').notNull(),
+  points: doublePrecision('points').notNull(),
+  /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
+  seasonEarned: integer('season_earned').notNull(),
+  weekEarned: integer('week_earned').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

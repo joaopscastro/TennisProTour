@@ -36,6 +36,13 @@
       "when": 1785624000000,
       "tag": "0004_lively_paladin",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785857236221,
+      "tag": "0005_sharp_puff_adder",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, PlayerRanking } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, PlayerRanking, RankingLedgerEntry } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -95,4 +95,17 @@ export interface PlayerRankingRepository {
    * since a rank only ever means something relative to every other
    * player's points. */
   findAllSortedByPoints(): Promise<PlayerRanking[]>;
+}
+
+/**
+ * Append-only store for RankingLedgerEntry rows — the real ATP-style
+ * ranking mechanism's source of truth (see RankingCalculationService).
+ * Deliberately write-only from this port's perspective plus a
+ * per-player read: nothing ever updates or deletes a ledger entry,
+ * since expiry/capping is computed at read time, not applied to the
+ * stored rows themselves.
+ */
+export interface RankingLedgerRepository {
+  append(entry: RankingLedgerEntry): Promise<void>;
+  findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]>;
 }

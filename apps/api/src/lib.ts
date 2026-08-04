@@ -13,6 +13,7 @@ export { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerReposi
 export { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 export { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
 export { DrizzlePlayerRankingRepository } from './adapters/outbound/DrizzlePlayerRankingRepository';
+export { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
 export { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 export { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 export { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';

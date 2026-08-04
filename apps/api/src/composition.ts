@@ -17,6 +17,7 @@ import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerReposi
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
 import { DrizzlePlayerRankingRepository } from './adapters/outbound/DrizzlePlayerRankingRepository';
+import { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
@@ -46,6 +47,7 @@ export interface Dependencies {
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
   playerRankings: DrizzlePlayerRankingRepository;
+  rankingLedger: DrizzleRankingLedgerRepository;
   rosterDashboard: DrizzleRosterDashboardQuery;
   billing: StripeBillingAdapter;
   hirePlayer: HirePlayerUseCase;
@@ -90,6 +92,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
 
   const worlds = new DrizzleGameWorldRepository(options.db);
   const playerRankings = new DrizzlePlayerRankingRepository(options.db);
+  const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
   // A fresh StandardAgingPolicy instance, independent of the one wired
   // into standardAging below — it's stateless, and the roster
   // dashboard's stage-transition estimate is always against the BASE
@@ -105,7 +108,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     events,
     bracketGenerator,
     rankingPointsTable,
-    playerRankings,
+    rankingLedger,
   );
 
   const standardAgingPolicy = new StandardAgingPolicy();
@@ -118,6 +121,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     tournaments,
     worlds,
     playerRankings,
+    rankingLedger,
     rosterDashboard,
     billing,
     hirePlayer: new HirePlayerUseCase(players, events, billing),

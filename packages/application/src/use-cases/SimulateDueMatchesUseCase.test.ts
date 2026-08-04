@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BracketGenerator,
   ManagerId,
-  PlayerRanking,
+  RankingLedgerEntry,
   MatchId,
   MatchLog,
   MatchParticipant,
@@ -20,7 +20,7 @@ import {
 } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
-  PlayerRankingRepository,
+  RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
   TournamentRepository,
@@ -81,19 +81,15 @@ class NullEventPublisher implements EventPublisherPort {
   async publish(): Promise<void> {}
 }
 
-class InMemoryPlayerRankingRepository implements PlayerRankingRepository {
-  private readonly store = new Map<PlayerId, PlayerRanking>();
+class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
+  private readonly entries: RankingLedgerEntry[] = [];
 
-  async findById(playerId: PlayerId): Promise<PlayerRanking | null> {
-    return this.store.get(playerId) ?? null;
+  async append(entry: RankingLedgerEntry): Promise<void> {
+    this.entries.push(entry);
   }
 
-  async save(ranking: PlayerRanking): Promise<void> {
-    this.store.set(ranking.playerId, ranking);
-  }
-
-  async findAllSortedByPoints(): Promise<PlayerRanking[]> {
-    return [...this.store.values()].sort((a, b) => b.totalPoints - a.totalPoints);
+  async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
+    return this.entries.filter((e) => e.playerId === playerId);
   }
 }
 
@@ -146,7 +142,7 @@ async function setup() {
     new NullEventPublisher(),
     bracketGenerator,
     new StandardRankingPointsTable(),
-    new InMemoryPlayerRankingRepository(),
+    new InMemoryRankingLedgerRepository(),
   );
   const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch);
 
