@@ -3,22 +3,17 @@ import type { ReactNode } from 'react';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Tennis Manager',
-  description: 'Tennis manager RPG — dev frontend',
+  title: 'Grand Circuit',
+  description: 'Grand Circuit — a fair, browser-based tennis manager RPG',
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body style={{ fontFamily: 'system-ui, sans-serif', margin: 0, background: '#fafafa', color: '#1a1a1a' }}>
-        <nav style={{ padding: '0.75rem 1.5rem', borderBottom: '1px solid #ddd', background: '#fff' }}>
-          <a href="/" style={{ marginRight: '1.5rem', fontWeight: 600, textDecoration: 'none', color: 'inherit' }}>
-            Tennis Manager
-          </a>
-          <a href="/" style={{ marginRight: '1rem', color: '#555' }}>Roster</a>
-        </nav>
-        <main style={{ maxWidth: 960, margin: '0 auto', padding: '1.5rem' }}>{children}</main>
-      </body>
+      {/* No shared nav/main wrapper here — every route renders its own
+         full-bleed Sidebar + content layout (components/Sidebar.tsx),
+         so a second top nav bar here would just duplicate it. */}
+      <body style={{ margin: 0 }}>{children}</body>
     </html>
   );
 }

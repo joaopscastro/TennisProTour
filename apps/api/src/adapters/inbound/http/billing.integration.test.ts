@@ -47,6 +47,8 @@ beforeEach(async () => {
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
+  // player_rankings has an FK to players — must go before it.
+  await db.delete(schema.playerRankings);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
 });
@@ -61,7 +63,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   const response = await app.inject({
     method: 'POST',
     url: '/players',
-    payload: { playerId: id, name: `Player ${id}`, managerId, startingAgeInWeeks: 20 * 52 },
+    payload: { playerId: id, name: `Player ${id}`, nationality: 'BR', managerId, startingAgeInWeeks: 20 * 52 },
   });
   return response.statusCode;
 }

@@ -330,7 +330,7 @@ export default function TournamentBracketPage() {
               Pending / TBD
             </div>
             <div className="flex items-center gap-[6px]" style={{ color: 'oklch(45% 0.12 240)' }}>
-              Decided cards link to match replay &rarr;
+              Decided cards link to match replay →
             </div>
           </div>
         </div>
@@ -360,7 +360,7 @@ export default function TournamentBracketPage() {
               const statusBg = allDecided ? 'oklch(20% 0.006 75)' : noneDecided ? 'transparent' : 'oklch(90% 0.03 60)';
               const statusFg = allDecided ? 'white' : noneDecided ? 'oklch(50% 0.006 75)' : 'oklch(38% 0.08 60)';
               const subtitle = !round.generated
-                ? `${round.matches.length} matches scheduled`
+                ? `${round.matches.length} match${round.matches.length === 1 ? '' : 'es'} scheduled`
                 : `${decidedCount} of ${round.matches.length} played`;
 
               const collapsed = allDecided;

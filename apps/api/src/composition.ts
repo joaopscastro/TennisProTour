@@ -6,6 +6,7 @@ import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
 import { HirePlayerUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
+import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
 import { SetTrainingFocusUseCase } from '@tennis-manager/application';
@@ -49,6 +50,7 @@ export interface Dependencies {
   billing: StripeBillingAdapter;
   hirePlayer: HirePlayerUseCase;
   openTournament: OpenTournamentUseCase;
+  openRegistration: OpenRegistrationUseCase;
   registerEntrant: RegisterEntrantUseCase;
   simulateMatch: SimulateMatchUseCase;
   advanceWorldWeek: AdvanceWorldWeekUseCase;
@@ -88,7 +90,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
 
   const worlds = new DrizzleGameWorldRepository(options.db);
   const playerRankings = new DrizzlePlayerRankingRepository(options.db);
-  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db);
+  // A fresh StandardAgingPolicy instance, independent of the one wired
+  // into standardAging below — it's stateless, and the roster
+  // dashboard's stage-transition estimate is always against the BASE
+  // policy regardless of Pro status anyway (see formatStageNote's doc
+  // comment), so there's no reason to share the aging services' instance.
+  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy());
   const rankingPointsTable = new StandardRankingPointsTable();
   const simulateMatch = new SimulateMatchUseCase(
     tournaments,
@@ -115,7 +122,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     billing,
     hirePlayer: new HirePlayerUseCase(players, events, billing),
     openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),
-    registerEntrant: new RegisterEntrantUseCase(tournaments),
+    openRegistration: new OpenRegistrationUseCase(tournaments),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),

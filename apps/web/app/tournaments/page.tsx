@@ -35,7 +35,7 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
         </div>
       </div>
       <div className="text-[12.5px] font-semibold" style={{ color: 'oklch(45% 0.12 240)' }}>
-        {cta} &rarr;
+        {cta} →
       </div>
     </Link>
   );

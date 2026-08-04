@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '../shared/ids';
 import { Player, PlayerLifecycleStage } from './Player';
 import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
-import { AcceleratedDeclinePolicy, AgingPolicy, PlayerAgingService, StandardAgingPolicy } from './PlayerAgingService';
+import { AcceleratedDeclinePolicy, AgingPolicy, PlayerAgingService, StandardAgingPolicy, weeksUntilNextStage } from './PlayerAgingService';
 
 describe('AcceleratedDeclinePolicy', () => {
   const base: AgingPolicy = {
@@ -145,5 +145,30 @@ describe('PlayerAgingService', () => {
 
     expect(player.stage).toBe('decline');
     expect(player.attributes.technical.serve.value).toBe(before);
+  });
+});
+
+describe('weeksUntilNextStage', () => {
+  const policy = new StandardAgingPolicy();
+
+  it('returns null for a retired player — there is no next stage', () => {
+    expect(weeksUntilNextStage(38 * 52, 'retired', policy)).toBeNull();
+  });
+
+  it('returns exact weeks remaining to prime, decline, and retirement respectively', () => {
+    expect(weeksUntilNextStage(20 * 52 - 10, 'youth', policy)).toBe(10);
+    expect(weeksUntilNextStage(30 * 52 - 3, 'prime', policy)).toBe(3);
+    expect(weeksUntilNextStage(38 * 52 - 1, 'decline', policy)).toBe(1);
+  });
+
+  it('returns 0 exactly on the threshold week (already transitioning)', () => {
+    expect(weeksUntilNextStage(20 * 52, 'youth', policy)).toBe(0);
+  });
+
+  it('works against any AgingPolicy, not just StandardAgingPolicy (e.g. AcceleratedDeclinePolicy, which leaves thresholds untouched)', () => {
+    const proPolicy = new AcceleratedDeclinePolicy(policy, 1.5);
+    // Thresholds are untouched by the decline multiplier, so this must
+    // match the base policy exactly.
+    expect(weeksUntilNextStage(20 * 52 - 10, 'youth', proPolicy)).toBe(10);
   });
 });

@@ -6,17 +6,15 @@ import {
   PlayerLifecycleStage,
   RosterDashboardEntryDto,
   Surface,
-  TournamentDto,
   TrainingFocus,
   fetchEntitlement,
-  fetchOpenTournaments,
   fetchRosterDashboard,
-  hirePlayer,
-  registerEntrant,
   releasePlayer,
   setTrainingFocus,
 } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
+import { EnterTournamentModal } from '../components/EnterTournamentModal';
+import { HirePlayerModal } from '../components/HirePlayerModal';
 import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -51,29 +49,13 @@ const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus
 ];
 
 // Mirrors StandardAgingPolicy's thresholds (packages/domain) — those
-// values are illustrative/not-yet-balanced per CLAUDE.md and aren't
-// exposed via API yet, so they're duplicated here only for this
-// "seasons until next stage" hint text, not for any real game logic.
-const PRIME_START_WEEK = 20 * WEEKS_PER_SEASON;
-const DECLINE_START_WEEK = 30 * WEEKS_PER_SEASON;
-const RETIREMENT_WEEK = 38 * WEEKS_PER_SEASON;
+// values are illustrative/not-yet-balanced per CLAUDE.md — the actual
+// "seasons until next stage" hint text comes from the API
+// (RosterDashboardEntryDto.stageNote), computed server-side against
+// the real StandardAgingPolicy, not duplicated here.
 
 function stageLabel(stage: PlayerLifecycleStage): string {
   return stage[0].toUpperCase() + stage.slice(1);
-}
-
-function stageNote(stage: PlayerLifecycleStage, ageInWeeks: number): string {
-  if (stage === 'retired') return 'Retired';
-  if (stage === 'youth') {
-    const seasons = Math.max(1, Math.ceil((PRIME_START_WEEK - ageInWeeks) / WEEKS_PER_SEASON));
-    return `Prime in ~${seasons} season${seasons === 1 ? '' : 's'}`;
-  }
-  if (stage === 'prime') {
-    const seasons = Math.max(1, Math.ceil((DECLINE_START_WEEK - ageInWeeks) / WEEKS_PER_SEASON));
-    return `Decline in ~${seasons} season${seasons === 1 ? '' : 's'}`;
-  }
-  const seasons = Math.max(1, Math.ceil((RETIREMENT_WEEK - ageInWeeks) / WEEKS_PER_SEASON));
-  return seasons <= 1 ? 'Retires in 1 season' : `Retires in ~${seasons} seasons`;
 }
 
 function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
@@ -186,46 +168,14 @@ export default function RosterDashboardPage() {
     [load, managerId],
   );
 
-  const handleEnter = useCallback(
-    async (playerId: string) => {
-      setBusyPlayerId(playerId);
-      try {
-        const open: TournamentDto[] = await fetchOpenTournaments();
-        const candidate = open.find(
-          (t) => t.entrants.length < t.drawSize && !t.entrants.some((e) => e.playerId === playerId),
-        );
-        if (!candidate) {
-          window.alert('No open tournaments have room for this player right now.');
-          return;
-        }
-        await registerEntrant(candidate.id, playerId);
-        window.alert(`Entered ${candidate.tier} (${candidate.surface}).`);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setBusyPlayerId(null);
-      }
-    },
-    [],
-  );
+  const [enterModalPlayer, setEnterModalPlayer] = useState<{ id: string; name: string } | null>(null);
+  const [hireModalOpen, setHireModalOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const handleHire = useCallback(async () => {
-    const name = window.prompt('New player name:');
-    if (!name) return;
-    const nationality = (window.prompt('Nationality (2-letter code, e.g. BR):', 'BR') || 'XX').slice(0, 2).toUpperCase();
-    try {
-      await hirePlayer({
-        playerId: `p-${Date.now()}`,
-        name,
-        nationality,
-        managerId,
-        startingAgeInWeeks: 18 * WEEKS_PER_SEASON,
-      });
-      await load(managerId);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [load, managerId]);
+  function showNotice(text: string) {
+    setNotice(text);
+    setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
+  }
 
   return (
     <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
@@ -262,7 +212,7 @@ export default function RosterDashboardPage() {
           <div />
           <div className="flex flex-col items-end gap-[6px]">
             <button
-              onClick={handleHire}
+              onClick={() => setHireModalOpen(true)}
               className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90"
               style={{ background: 'oklch(20% 0.006 75)' }}
             >
@@ -399,7 +349,7 @@ export default function RosterDashboardPage() {
                         {stageLabel(p.stage)}
                       </div>
                       <div className="text-[11px]" style={{ color: stg.noteColor }}>
-                        {stageNote(p.stage, p.ageInWeeks)}
+                        {p.stageNote}
                       </div>
                     </div>
 
@@ -467,7 +417,7 @@ export default function RosterDashboardPage() {
                                   {opt.label}
                                   {focusEquals(p.trainingFocus, opt.focus) && (
                                     <span className="font-bold" style={{ color: 'oklch(55% 0.13 240)' }}>
-                                      &check;
+                                      ✓
                                     </span>
                                   )}
                                 </div>
@@ -481,7 +431,7 @@ export default function RosterDashboardPage() {
                     {/* Actions */}
                     <div className="flex flex-col gap-[5px] relative">
                       <button
-                        onClick={() => handleEnter(p.id)}
+                        onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })}
                         disabled={busy || p.stage === 'retired'}
                         className="w-full text-white border-none px-2 py-[6px] rounded-[6px] text-[11px] font-semibold cursor-pointer leading-[1.25] hover:opacity-90 disabled:cursor-not-allowed"
                         style={{ background: 'oklch(20% 0.006 75)' }}
@@ -517,11 +467,11 @@ export default function RosterDashboardPage() {
 
               {showOpenSlot && (
                 <div
-                  onClick={handleHire}
+                  onClick={() => setHireModalOpen(true)}
                   className="flex items-center justify-center gap-2 rounded-[8px] p-4 text-[13px] font-semibold cursor-pointer hover:bg-[oklch(97%_0.003_75)]"
                   style={{ border: '1.5px dashed oklch(85% 0.006 75)', color: 'oklch(50% 0.006 75)' }}
                 >
-                  + Open roster slot &mdash; Hire a player
+                  + Open roster slot — Hire a player
                 </div>
               )}
             </div>
@@ -547,7 +497,7 @@ export default function RosterDashboardPage() {
               {slotCount === 1 ? '' : 's'} available.
             </div>
             <button
-              onClick={handleHire}
+              onClick={() => setHireModalOpen(true)}
               className="mt-[6px] text-white border-none px-[22px] py-[11px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90"
               style={{ background: 'oklch(20% 0.006 75)' }}
             >
@@ -562,6 +512,39 @@ export default function RosterDashboardPage() {
           </div>
         )}
       </div>
+
+      {notice && (
+        <div
+          className="fixed bottom-6 right-6 z-40 text-white text-[13px] font-semibold px-4 py-3 rounded-[8px]"
+          style={{ background: 'oklch(20% 0.006 75)', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }}
+        >
+          {notice}
+        </div>
+      )}
+
+      {enterModalPlayer && (
+        <EnterTournamentModal
+          playerId={enterModalPlayer.id}
+          playerName={enterModalPlayer.name}
+          onClose={() => setEnterModalPlayer(null)}
+          onEntered={(tournament) => {
+            setEnterModalPlayer(null);
+            showNotice(`Entered ${tournament.id} (${tournament.tier}, ${tournament.surface}).`);
+          }}
+        />
+      )}
+
+      {hireModalOpen && (
+        <HirePlayerModal
+          managerId={managerId}
+          onClose={() => setHireModalOpen(false)}
+          onHired={(player) => {
+            setHireModalOpen(false);
+            showNotice(`Hired ${player.name}.`);
+            void load(managerId);
+          }}
+        />
+      )}
     </div>
   );
 }

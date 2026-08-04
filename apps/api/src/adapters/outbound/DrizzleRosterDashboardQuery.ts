@@ -1,9 +1,28 @@
 import { and, desc, eq, isNotNull, or } from 'drizzle-orm';
-import { ManagerId, PlayerId, PlayerLifecycleStage, TrainingFocus } from '@tennis-manager/domain';
+import { AgingPolicy, ManagerId, PlayerId, PlayerLifecycleStage, TrainingFocus, weeksUntilNextStage } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
 import { tournamentMatches } from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePlayerRankingRepository } from './DrizzlePlayerRankingRepository';
+
+const WEEKS_PER_SEASON = 52;
+
+/** "Prime in ~2 seasons" / "Decline in ~4 seasons" / "Retires in 1
+ * season" / "Retired" — the real StandardAgingPolicy thresholds
+ * (via weeksUntilNextStage), not duplicated week constants. Always
+ * computed against the BASE policy regardless of a player's Manager
+ * Pro status: AcceleratedDeclinePolicy only steepens the weekly decay
+ * rate, stage-transition timing itself is untouched (see its doc
+ * comment) — a Pro player's stage-transition estimate is identical to
+ * a free player's at the same age. */
+function formatStageNote(stage: PlayerLifecycleStage, ageInWeeks: number, policy: AgingPolicy): string {
+  const weeksRemaining = weeksUntilNextStage(ageInWeeks, stage, policy);
+  if (weeksRemaining === null) return 'Retired';
+  const seasons = Math.max(1, Math.ceil(weeksRemaining / WEEKS_PER_SEASON));
+  if (stage === 'youth') return `Prime in ~${seasons} season${seasons === 1 ? '' : 's'}`;
+  if (stage === 'prime') return `Decline in ~${seasons} season${seasons === 1 ? '' : 's'}`;
+  return seasons <= 1 ? 'Retires in 1 season' : `Retires in ~${seasons} seasons`;
+}
 
 export interface RosterDashboardEntry {
   id: PlayerId;
@@ -11,6 +30,11 @@ export interface RosterDashboardEntry {
   nationality: string;
   ageInWeeks: number;
   stage: PlayerLifecycleStage;
+  /** "Prime in ~2 seasons" / "Decline in ~4 seasons" / "Retires in 1
+   * season" / "Retired" — how far this player is from their next
+   * lifecycle-stage transition, the signal that drives "I need to
+   * scout a replacement soon." */
+  stageNote: string;
   fatigue: number;
   /** 0-100, rounded — PlayerAttributes.overallRating() averaged over
    * the nine underlying skills, same number the roster mockup showed
@@ -50,7 +74,10 @@ export class DrizzleRosterDashboardQuery {
   private readonly players: DrizzlePlayerRepository;
   private readonly playerRankings: DrizzlePlayerRankingRepository;
 
-  constructor(private readonly db: Db) {
+  constructor(
+    private readonly db: Db,
+    private readonly agingPolicy: AgingPolicy,
+  ) {
     this.players = new DrizzlePlayerRepository(db);
     this.playerRankings = new DrizzlePlayerRankingRepository(db);
   }
@@ -73,6 +100,7 @@ export class DrizzleRosterDashboardQuery {
         nationality: player.nationality,
         ageInWeeks: player.ageInWeeks,
         stage: player.stage,
+        stageNote: formatStageNote(player.stage, player.ageInWeeks, this.agingPolicy),
         fatigue: player.fatigue,
         overall: Math.round(player.attributes.overallRating()),
         rank: rankByPlayerId.get(player.id) ?? null,

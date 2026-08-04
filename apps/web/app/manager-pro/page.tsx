@@ -121,7 +121,7 @@ export default function ManagerProPage() {
             <div className="h-px my-4" style={{ background: 'oklch(93% 0.005 75)' }} />
             <div className="text-[13px] flex items-center gap-2" style={{ color: 'oklch(30% 0.006 75)' }}>
               <span className="font-bold" style={{ color: 'oklch(52% 0.12 142)' }}>
-                &check;
+                ✓
               </span>
               2 roster slots, full decay rate
             </div>

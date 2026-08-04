@@ -100,13 +100,13 @@ export default function ReplayPage() {
       <div className="flex-1 p-8 max-w-[1040px] min-w-0">
         <div className="flex items-center gap-2 text-[13px] mb-[14px]" style={{ color: 'oklch(48% 0.006 75)' }}>
           <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'oklch(45% 0.12 240)' }}>
-            &larr; Back to bracket
+            ← Back to bracket
           </Link>
           {context && (
             <>
-              <span>&middot;</span>
+              <span>·</span>
               <span>{context.tournament.id}</span>
-              <span>&middot;</span>
+              <span>·</span>
               <span>{matchRoundLabel(context.tournament.drawSize / 2 ** context.roundNumber)}</span>
               <div
                 className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"

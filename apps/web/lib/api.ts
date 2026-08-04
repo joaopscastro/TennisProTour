@@ -34,6 +34,10 @@ export interface RosterDashboardEntryDto {
   nationality: string;
   ageInWeeks: number;
   stage: PlayerLifecycleStage;
+  /** "Prime in ~2 seasons" / "Decline in ~4 seasons" / "Retires in 1
+   * season" / "Retired" — computed server-side against the real
+   * StandardAgingPolicy thresholds (see DrizzleRosterDashboardQuery). */
+  stageNote: string;
   fatigue: number;
   overall: number;
   rank: number | null;

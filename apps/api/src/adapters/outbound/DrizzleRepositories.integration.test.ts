@@ -34,10 +34,13 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  // Child tables first (FKs), then parents.
+  // Child tables first (FKs), then parents. player_rankings now has an
+  // FK to players (it didn't when this was manager-keyed), so it has
+  // to go before players too.
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
+  await db.delete(schema.playerRankings);
   await db.delete(schema.players);
 });
 

@@ -41,7 +41,7 @@ describe('RegisterEntrantUseCase', () => {
     const tournamentId = TournamentId('t1');
     await tournaments.save(openTournament(tournamentId));
 
-    const useCase = new RegisterEntrantUseCase(tournaments);
+    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
     await useCase.execute({ tournamentId, playerId: PlayerId('p1') });
 
     const saved = await tournaments.findById(tournamentId);
@@ -50,7 +50,7 @@ describe('RegisterEntrantUseCase', () => {
 
   it('throws when the tournament does not exist', async () => {
     const tournaments = new InMemoryTournamentRepository();
-    const useCase = new RegisterEntrantUseCase(tournaments);
+    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
 
     await expect(useCase.execute({ tournamentId: TournamentId('ghost'), playerId: PlayerId('p1') })).rejects.toThrow(
       /not found/,
@@ -68,7 +68,27 @@ describe('RegisterEntrantUseCase', () => {
     tournament.startWithBracket([round1]);
     await tournaments.save(tournament);
 
-    const useCase = new RegisterEntrantUseCase(tournaments);
+    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
     await expect(useCase.execute({ tournamentId, playerId: PlayerId('p17') })).rejects.toThrow(/already started/);
+  });
+
+  it('auto-starts the bracket the moment the last slot fills, and not before', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const tournamentId = TournamentId('t1');
+    await tournaments.save(openTournament(tournamentId));
+
+    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+    for (let i = 1; i <= 15; i++) {
+      await useCase.execute({ tournamentId, playerId: PlayerId(`p${i}`), seed: i });
+      expect((await tournaments.findById(tournamentId))!.hasStarted).toBe(false);
+    }
+
+    await useCase.execute({ tournamentId, playerId: PlayerId('p16'), seed: 16 });
+
+    const started = await tournaments.findById(tournamentId);
+    expect(started!.hasStarted).toBe(true);
+    expect(started!.entrants).toHaveLength(16);
+    expect(started!.getRounds()).toHaveLength(1);
+    expect(started!.getRounds()[0].matches).toHaveLength(8);
   });
 });

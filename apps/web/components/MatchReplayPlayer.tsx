@@ -371,7 +371,7 @@ export function MatchReplayPlayer({
             style={{ background: 'rgba(255,255,255,0.96)' }}
           >
             <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'oklch(52% 0.006 75)' }}>
-              Premieres at {premiereTime} &middot; Result already decided
+              Premieres at {premiereTime} · Result already decided
             </div>
             <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'oklch(35% 0.006 75)' }}>
               This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled
@@ -431,7 +431,7 @@ export function MatchReplayPlayer({
                 className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer"
                 style={{ border: '1px solid oklch(88% 0.006 75)', color: 'oklch(35% 0.006 75)' }}
               >
-                &larr; Prev moment
+                ← Prev moment
               </button>
               <button
                 onClick={nextMoment}
@@ -442,7 +442,7 @@ export function MatchReplayPlayer({
                   color: caughtUp ? 'oklch(78% 0.006 75)' : 'oklch(35% 0.006 75)',
                 }}
               >
-                Next moment &rarr;
+                Next moment →
               </button>
             </div>
             <div className="flex items-center gap-2">
@@ -499,7 +499,7 @@ export function MatchReplayPlayer({
             )}
             {nextReplayHref && nextRoundLabel && (
               <Link href={nextReplayHref} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'oklch(76% 0.19 122)' }}>
-                View {nextRoundLabel} &rarr;
+                View {nextRoundLabel} →
               </Link>
             )}
           </div>

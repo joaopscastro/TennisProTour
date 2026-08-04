@@ -42,6 +42,14 @@ interface OpenTournamentBody {
   entrants: Array<{ playerId: string; seed: number | null }>;
 }
 
+interface OpenRegistrationBody {
+  tournamentId: string;
+  tier: TournamentTier;
+  surface: Surface;
+  weekScheduled: { season: number; week: number };
+  drawSize: DrawSize;
+}
+
 interface SimulateParams {
   id: string;
   round: string;
@@ -100,6 +108,52 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           playerId: PlayerId(entrant.playerId),
           seed: entrant.seed ?? null,
         })),
+      });
+
+      const tournament = await deps.tournaments.findById(tournamentId);
+      return reply.code(201).send(toTournamentDto(tournament!));
+    },
+  );
+
+  // Opens a tournament for registration with no entrants yet — the
+  // genuine counterpart to a roster row's "Enter" action, distinct
+  // from POST /tournaments above (which opens AND starts immediately
+  // with a fixed entrant list). The draw auto-starts once
+  // POST /tournaments/:id/entrants fills the last slot.
+  app.post<{ Body: OpenRegistrationBody }>(
+    '/tournaments/open-registration',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['tournamentId', 'tier', 'surface', 'weekScheduled', 'drawSize'],
+          properties: {
+            tournamentId: { type: 'string', minLength: 1 },
+            tier: { type: 'string', enum: ['junior', 'futures', 'challenger', 'tour', 'major'] },
+            surface: { type: 'string', enum: ['clay', 'grass', 'hard', 'indoor'] },
+            weekScheduled: {
+              type: 'object',
+              required: ['season', 'week'],
+              properties: {
+                season: { type: 'integer', minimum: 0 },
+                week: { type: 'integer', minimum: 0 },
+              },
+              additionalProperties: false,
+            },
+            drawSize: { type: 'integer', enum: [16, 32, 64, 128] },
+          },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const tournamentId = TournamentId(request.body.tournamentId);
+      await deps.openRegistration.execute({
+        tournamentId,
+        tier: request.body.tier,
+        surface: request.body.surface,
+        weekScheduled: request.body.weekScheduled,
+        drawSize: request.body.drawSize,
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);

@@ -29,6 +29,7 @@ const matchLogDirectory = process.env.MATCH_LOG_DIR ?? './data/match-logs';
 const webBaseUrl = process.env.WEB_BASE_URL ?? 'http://localhost:3001';
 
 const TOURNAMENT_ID = 'seed-open';
+const REGISTRATION_TOURNAMENT_ID = 'seed-registration';
 const PLAYER_COUNT = 10;
 const DRAW_SIZE = 16;
 const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap
@@ -82,6 +83,27 @@ async function main(): Promise<void> {
     `Tournament started: round 1 has ${round1.matches.length} playable match(es); ` +
       `${byeCount} entrant(s) carry a bye straight into round 2.`,
   );
+  // A second tournament, genuinely open for registration (no entrants,
+  // not started) — what a roster row's "Enter" action needs something
+  // real to register into. seed-p1..seed-p4 (2 free-tier managers'
+  // full rosters) enter it via the same RegisterEntrantUseCase the
+  // "Enter" button calls, deliberately left short of the 16-draw so
+  // it's still open afterward for manual testing in the web app.
+  // eslint-disable-next-line no-console
+  console.log(`\nOpening "${REGISTRATION_TOURNAMENT_ID}" for registration (${DRAW_SIZE}-draw, hard, futures)...`);
+  await deps.openRegistration.execute({
+    tournamentId: TournamentId(REGISTRATION_TOURNAMENT_ID),
+    tier: 'futures',
+    surface: 'hard',
+    weekScheduled: { season: 1, week: 2 },
+    drawSize: DRAW_SIZE,
+  });
+  for (let i = 1; i <= 4; i++) {
+    await deps.registerEntrant.execute({ tournamentId: TournamentId(REGISTRATION_TOURNAMENT_ID), playerId: PlayerId(`seed-p${i}`) });
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  4 of ${DRAW_SIZE} slots filled — still open for entrants.`);
+
   // eslint-disable-next-line no-console
   console.log('\nDone! In the web app:');
   // eslint-disable-next-line no-console
@@ -90,6 +112,8 @@ async function main(): Promise<void> {
   console.log(`  Bracket  ${webBaseUrl}/tournaments/${TOURNAMENT_ID}`);
   // eslint-disable-next-line no-console
   console.log('  Click "Simulate" on a round-1 match, then "watch replay" for the fake-live playback.');
+  // eslint-disable-next-line no-console
+  console.log(`  "Enter" from the roster page has "${REGISTRATION_TOURNAMENT_ID}" available to register into.`);
 
   process.exit(0);
 }

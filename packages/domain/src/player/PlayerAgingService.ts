@@ -79,6 +79,39 @@ export class AcceleratedDeclinePolicy implements AgingPolicy {
   }
 }
 
+/**
+ * How many in-game weeks until a player at `ageInWeeks`/`stage`
+ * transitions to the next lifecycle stage, under the given policy —
+ * null if already retired (there is no next stage). Read-only: this
+ * never mutates a Player, it's purely what the roster dashboard's
+ * "Prime in ~2 seasons" / "Decline in ~4 seasons" hint needs, computed
+ * from the SAME policy `PlayerAgingService.advance()` actually runs on
+ * (previously duplicated as a set of raw week constants in the
+ * frontend — this is that logic's real home).
+ *
+ * Implemented as a binary search over `stageForAge`, not a lookup of
+ * policy-specific thresholds: `AgingPolicy` doesn't expose "when does
+ * stage X start," only "what stage is age N," so this works against
+ * any policy that satisfies the interface (including a future
+ * game-world-speed variant) without needing new interface surface.
+ * `stageForAge` is assumed non-decreasing in age, which every current
+ * and planned policy satisfies (aging only ever moves forward).
+ */
+export function weeksUntilNextStage(ageInWeeks: number, stage: PlayerLifecycleStage, policy: AgingPolicy): number | null {
+  if (stage === 'retired') return null;
+  let lo = ageInWeeks;
+  let hi = policy.retirementAgeInWeeks();
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (policy.stageForAge(mid) === stage) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo - ageInWeeks;
+}
+
 export class PlayerAgingService {
   constructor(private readonly policy: AgingPolicy) {}
 
