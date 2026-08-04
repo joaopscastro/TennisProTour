@@ -102,6 +102,23 @@ export interface MatchLog {
    * addition. */
   points: ReadonlyArray<MatchPointEntry>;
   totalDurationSeconds: number;
+  /**
+   * ISO 8601 timestamp of the real moment this match was actually
+   * simulated — the anchor the "wall-clock-synced Premiere" playback
+   * model (docs/ui-direction.md) is built on. Every viewer who opens
+   * the same match sees it capped to the same real-time position
+   * (`min((Date.now() - simulatedAt) / 1000, totalDurationSeconds)`
+   * in-game seconds, since pacing is calibrated so one in-game second
+   * of simulated match time approximates one real second of an actual
+   * broadcast), never a free on-demand replay from zero. Deliberately
+   * NOT produced by StatisticalMatchSimulator itself — the simulator
+   * stays pure/deterministic given a RandomSource, no real Date.now()
+   * dependency; this is stamped by the application layer at the
+   * moment the log is handed to MatchLogStorePort (see
+   * SimulateMatchUseCase), the same real-world-timestamp pattern
+   * already used for domain events' `occurredAt`.
+   */
+  simulatedAt: string;
 }
 
 export interface BracketRound {

@@ -56,8 +56,9 @@ describe('FilesystemMatchLogStore', () => {
     const simulator = new StatisticalMatchSimulator(
       new FixedSequenceRandomSource([0.1, 0.9, 0.3, 0.7, 0.5, 0.2, 0.8]),
     );
-    const { log } = simulator.simulate(participant('pA', 60), participant('pB', 55), 'clay');
-    expect(log.entries.length).toBeGreaterThan(0); // meaningful round-trip, not an empty blob
+    const { log: simulatedLog } = simulator.simulate(participant('pA', 60), participant('pB', 55), 'clay');
+    expect(simulatedLog.entries.length).toBeGreaterThan(0); // meaningful round-trip, not an empty blob
+    const log: MatchLog = { ...simulatedLog, simulatedAt: new Date().toISOString() };
 
     const store = new FilesystemMatchLogStore({ directory });
     const { url } = await store.save(MatchId('match-1'), log);
@@ -69,7 +70,7 @@ describe('FilesystemMatchLogStore', () => {
 
   it('refuses to overwrite an existing log (write-once, like the future object-store adapter)', async () => {
     const store = new FilesystemMatchLogStore({ directory });
-    const log: MatchLog = { entries: [], points: [], totalDurationSeconds: 0 };
+    const log: MatchLog = { entries: [], points: [], totalDurationSeconds: 0, simulatedAt: new Date().toISOString() };
 
     await store.save(MatchId('match-2'), log);
     await expect(store.save(MatchId('match-2'), log)).rejects.toThrow();
@@ -77,7 +78,12 @@ describe('FilesystemMatchLogStore', () => {
 
   it('builds dev-server URLs when publicBaseUrl is configured', async () => {
     const store = new FilesystemMatchLogStore({ directory, publicBaseUrl: 'http://localhost:3001/match-logs/' });
-    const { url } = await store.save(MatchId('match-3'), { entries: [], points: [], totalDurationSeconds: 0 });
+    const { url } = await store.save(MatchId('match-3'), {
+      entries: [],
+      points: [],
+      totalDurationSeconds: 0,
+      simulatedAt: new Date().toISOString(),
+    });
 
     expect(url).toBe('http://localhost:3001/match-logs/match-3.json');
   });

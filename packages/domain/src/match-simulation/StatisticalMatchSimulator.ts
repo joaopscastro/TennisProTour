@@ -87,7 +87,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
 
   private playBestOfThree(pointWinProbabilityA: number): {
     sets: Array<{ winnerIsA: boolean; gamesFor: number; gamesAgainst: number }>;
-    log: MatchLog;
+    log: Omit<MatchLog, 'simulatedAt'>;
   } {
     const sets: Array<{ winnerIsA: boolean; gamesFor: number; gamesAgainst: number }> = [];
     const entries: MatchLogEntry[] = [];

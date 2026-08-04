@@ -13,8 +13,14 @@ export interface SimulatedMatch {
   /** Full replay log for client-side fake-live playback. Kept
    * separate from `outcome` because callers that only care about the
    * result (e.g. updating rankings) shouldn't be forced to also carry
-   * the heavier log around. */
-  log: MatchLog;
+   * the heavier log around.
+   *
+   * Missing `simulatedAt` on purpose: the simulator is pure and
+   * deterministic given a RandomSource, with no real Date.now()
+   * dependency, so it cannot honestly produce a real-world timestamp.
+   * The caller (SimulateMatchUseCase) stamps that on before handing
+   * the log to MatchLogStorePort — see MatchLog's own doc comment. */
+  log: Omit<MatchLog, 'simulatedAt'>;
 }
 
 /**

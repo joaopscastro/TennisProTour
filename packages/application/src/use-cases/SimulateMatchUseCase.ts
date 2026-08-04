@@ -1,4 +1,5 @@
 import { TournamentId, PlayerId, MatchId, Player, TournamentTier } from '@tennis-manager/domain';
+import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
@@ -95,7 +96,11 @@ export class SimulateMatchUseCase {
     await this.tournaments.save(tournament);
     await this.events.publish(tournament.pullDomainEvents());
 
-    const { url } = await this.matchLogs.save(command.matchId, log);
+    // Stamped here, not by the simulator (which stays pure/deterministic
+    // given a RandomSource) — this is the real moment the "wall-clock-
+    // synced Premiere" playback model (docs/ui-direction.md) anchors to.
+    const timestampedLog: MatchLog = { ...log, simulatedAt: new Date().toISOString() };
+    const { url } = await this.matchLogs.save(command.matchId, timestampedLog);
 
     // Apply resulting fatigue to both players and persist.
     const winnerPlayer = await this.players.findById(outcome.winner);

@@ -60,6 +60,10 @@ export interface MatchLogDto {
     wonBy: 'A' | 'B';
   }>;
   totalDurationSeconds: number;
+  /** ISO 8601 timestamp of when this match was actually simulated —
+   * the anchor for the wall-clock-synced "Premiere" live-edge cap
+   * (see docs/ui-direction.md and MatchReplayPlayer). */
+  simulatedAt: string;
 }
 
 async function getJson<T>(path: string): Promise<T> {
