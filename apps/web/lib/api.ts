@@ -80,10 +80,17 @@ export interface MatchLogDto {
     gamesForA: number;
     gamesForB: number;
     wonBy: 'A' | 'B';
+    /** Who served this game — alternates every game, continuously
+     * across the whole match (see MatchLogEntry.server on the API
+     * side). The break-of-serve commentary moment is exactly
+     * `wonBy !== server`, except for a tiebreak-decided game (score
+     * 7-6/6-7), where "break" isn't a meaningful concept since
+     * service rotates every 2 points within a breaker. */
+    server: 'A' | 'B';
   }>;
   /** Point-by-point detail alongside `entries` — drives the replay
    * screen's "current game" point line (0/15/30/40/deuce/advantage)
-   * and the derived commentary feed (deuce/tiebreak/set/match
+   * and the derived commentary feed (break-of-serve/tiebreak/set/match
    * moments); `entries` remains the game-level rollup the set-score
    * columns and bracket/scrub-bar tick marks consume. */
   points: Array<{

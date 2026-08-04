@@ -44,21 +44,33 @@ function computeLiveEdgeSeconds(simulatedAt: string, totalDurationSeconds: numbe
 
 interface Moment {
   offsetSeconds: number;
-  type: 'deuce' | 'tiebreak' | 'set' | 'match';
+  type: 'break' | 'tiebreak' | 'set' | 'match';
   text: string;
 }
 
+/** A completed game is a break of serve exactly when its winner isn't
+ * who served it — mirrors the domain's isBreakOfServe
+ * (packages/domain/src/competition/CompetitionTypes.ts). The frontend
+ * can't import that directly (it talks HTTP only, never
+ * domain/application code — see lib/api.ts), but the predicate itself
+ * is a one-line comparison of two fields the API already ships, not a
+ * business rule worth re-deriving server-side. Excludes a
+ * tiebreak-decided game (score 7-6/6-7 — the simulator only ever
+ * reaches a tiebreak at 6-6, so that score uniquely identifies one):
+ * "break" isn't a meaningful concept there since service rotates
+ * every 2 points within a breaker. */
+function isNotableBreakOfServe(entry: MatchLogDto['entries'][number]): boolean {
+  const isTiebreakEntry = (entry.gamesForA === 7 && entry.gamesForB === 6) || (entry.gamesForA === 6 && entry.gamesForB === 7);
+  return !isTiebreakEntry && entry.wonBy !== entry.server;
+}
+
 /** Curated, sparse commentary — breaks/set-ends/tiebreaks/match point,
- * not a full point-by-point transcript (docs/ui-direction.md). Real
- * "break of serve" detection isn't possible: MatchLog carries no
- * server field, so "reached deuce" stands in as this replay's
- * tension-worthy sub-game moment instead. Set/match moments are
- * derived from `entries` (the game-level rollup, which the domain
- * guarantees ends exactly on the set/match-clinching game), tiebreak
- * and deuce moments from `points`. */
+ * not a full point-by-point transcript (docs/ui-direction.md). Break
+ * moments come from `entries` (the game-level rollup — break-of-serve
+ * is inherently a per-game concept, not per-point); set/match moments
+ * from the same rollup; tiebreak moments from `points`. */
 function deriveMoments(log: MatchLogDto, aName: string, bName: string): Moment[] {
   const moments: Moment[] = [];
-  const seenDeuce = new Set<string>();
   const seenTiebreak = new Set<string>();
 
   for (const pt of log.points) {
@@ -66,9 +78,17 @@ function deriveMoments(log: MatchLogDto, aName: string, bName: string): Moment[]
     if (pt.gameNumber === 13 && !seenTiebreak.has(key)) {
       seenTiebreak.add(key);
       moments.push({ offsetSeconds: pt.offsetSeconds, type: 'tiebreak', text: `Set ${pt.setNumber} heads to a tiebreak.` });
-    } else if (pt.pointScoreA === '40' && pt.pointScoreB === '40' && !seenDeuce.has(key)) {
-      seenDeuce.add(key);
-      moments.push({ offsetSeconds: pt.offsetSeconds, type: 'deuce', text: `Deuce, set ${pt.setNumber} game ${pt.gameNumber}.` });
+    }
+  }
+
+  for (const entry of log.entries) {
+    if (isNotableBreakOfServe(entry)) {
+      const winnerName = entry.wonBy === 'A' ? aName : bName;
+      moments.push({
+        offsetSeconds: entry.offsetSeconds,
+        type: 'break',
+        text: `BREAK. ${winnerName} breaks serve — ${entry.gamesForA}-${entry.gamesForB} in set ${entry.setNumber}.`,
+      });
     }
   }
 

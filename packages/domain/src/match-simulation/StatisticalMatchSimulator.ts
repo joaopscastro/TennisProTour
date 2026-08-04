@@ -95,12 +95,17 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     let setsA = 0;
     let setsB = 0;
     let elapsedSeconds = 0;
+    // Total games played so far across the whole match (a tiebreak
+    // counts as one), the basis for server alternation — continuous
+    // across sets, never reset (see MatchLogEntry.server's doc comment).
+    let gamesPlayedSoFar = 0;
 
     while (setsA < 2 && setsB < 2) {
       const setNumber = sets.length + 1;
-      const set = this.playSet(pointWinProbabilityA, setNumber, entries, points, elapsedSeconds);
+      const set = this.playSet(pointWinProbabilityA, setNumber, entries, points, elapsedSeconds, gamesPlayedSoFar);
       elapsedSeconds = set.elapsedSecondsAfter;
       sets.push(set.result);
+      gamesPlayedSoFar += set.result.gamesFor + set.result.gamesAgainst;
       if (set.result.winnerIsA) setsA++;
       else setsB++;
     }
@@ -114,6 +119,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     entriesOut: MatchLogEntry[],
     pointsOut: MatchPointEntry[],
     elapsedSecondsStart: number,
+    gamesPlayedBeforeSet: number,
   ): {
     result: { winnerIsA: boolean; gamesFor: number; gamesAgainst: number };
     elapsedSecondsAfter: number;
@@ -125,6 +131,9 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     while (true) {
       const gameNumber = gamesA + gamesB + 1;
       const tiebreak = gamesA === 6 && gamesB === 6;
+      // Alternates every game, continuously across the match (see
+      // MatchLogEntry.server) — A serves match-game index 0, 2, 4, ...
+      const server: 'A' | 'B' = (gamesPlayedBeforeSet + gamesA + gamesB) % 2 === 0 ? 'A' : 'B';
 
       const game = tiebreak
         ? this.playTiebreak(pointWinProbabilityA, setNumber, gameNumber, pointsOut, elapsedSeconds)
@@ -140,6 +149,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
         gamesForA: gamesA,
         gamesForB: gamesB,
         wonBy: game.aWinsGame ? 'A' : 'B',
+        server,
       });
 
       if (tiebreak) {

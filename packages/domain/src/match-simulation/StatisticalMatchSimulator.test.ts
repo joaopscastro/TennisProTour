@@ -3,7 +3,7 @@ import { StatisticalMatchSimulator } from './StatisticalMatchSimulator';
 import { MatchParticipant, RandomSource } from './MatchSimulator';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '../player/PlayerAttributes';
 import { PlayerId } from '../shared/ids';
-import { MatchPointEntry } from '../competition/CompetitionTypes';
+import { isBreakOfServe, MatchPointEntry } from '../competition/CompetitionTypes';
 
 /** Replays a fixed sequence of RandomSource values, cycling once
  * exhausted — matches the pattern used elsewhere in this codebase for
@@ -162,5 +162,45 @@ describe('StatisticalMatchSimulator', () => {
     // the tiebreak is the 13th and finishes the set 7-6.
     expect(log.entries[12]).toMatchObject({ setNumber: 1, gamesForA: 7, gamesForB: 6, wonBy: 'A' });
     expect(log.entries[12].offsetSeconds).toBe(tiebreak[tiebreak.length - 1].offsetSeconds);
+  });
+
+  it('alternates the server every game, continuously across the match, with isBreakOfServe flagging exactly the games the receiver won', () => {
+    // A repeating 4-game love-game cycle (A, A, B, B) — chosen so the
+    // set score is never tied at a 4-game cycle boundary once the
+    // leader can reach 6 with a 2-game margin, giving a fully
+    // deterministic, finite first set: A wins it 6-4 in 10 games.
+    // Server, by contrast, never depends on the scripted values at
+    // all — it's pure alternation by cumulative game count — so this
+    // same script also proves the two are independent: winner and
+    // server agree on some games (holds) and disagree on others
+    // (breaks), exactly where the arithmetic below predicts.
+    const loveGameFor = (winner: 'A' | 'B') => Array(4).fill(winner === 'A' ? A_WINS : B_WINS);
+    const cycle = [...loveGameFor('A'), ...loveGameFor('A'), ...loveGameFor('B'), ...loveGameFor('B')];
+    const random = new ScriptedRandomSource(cycle);
+    const simulator = new StatisticalMatchSimulator(random);
+
+    const { log } = simulator.simulate(equalParticipant('pA'), equalParticipant('pB'), 'hard');
+
+    const set1 = log.entries.filter((e) => e.setNumber === 1);
+    // Server alternates A/B/A/B/... purely by position — independent
+    // of who actually wins each game.
+    expect(set1.map((e) => e.server)).toEqual(['A', 'B', 'A', 'B', 'A', 'B', 'A', 'B', 'A', 'B']);
+    expect(set1.map((e) => e.wonBy)).toEqual(['A', 'A', 'B', 'B', 'A', 'A', 'B', 'B', 'A', 'A']);
+    expect(set1[set1.length - 1]).toMatchObject({ gamesForA: 6, gamesForB: 4 }); // set won 6-4
+
+    // isBreakOfServe agrees with a plain wonBy !== server check for
+    // every single game, not just the ones that happen to be holds.
+    const breaks = set1.map((e) => isBreakOfServe(e));
+    expect(breaks).toEqual([false, true, true, false, false, true, true, false, false, true]);
+    for (const entry of set1) {
+      expect(isBreakOfServe(entry)).toBe(entry.wonBy !== entry.server);
+    }
+
+    // Server carries over continuously into set 2 rather than
+    // resetting: set 1 used exactly 10 games (even), so set 2's first
+    // game continues the alternation at 'A', picking up exactly where
+    // set 1's 10th game (server 'B') left off.
+    const set2 = log.entries.filter((e) => e.setNumber === 2);
+    expect(set2[0].server).toBe('A');
   });
 });

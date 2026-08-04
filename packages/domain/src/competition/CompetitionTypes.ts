@@ -61,6 +61,43 @@ export interface MatchLogEntry {
   gamesForA: number;
   gamesForB: number;
   wonBy: 'A' | 'B';
+  /**
+   * Who served this game. Alternates every game — standard tennis
+   * convention — continuously across the WHOLE match, not reset per
+   * set: a tiebreak counts as exactly one unit of alternation, so the
+   * server sequence carries correctly into the next set (the real
+   * ATP rule: whoever received first in the tiebreak serves first in
+   * the next set). Player A is fixed as the match's first server;
+   * nothing in this domain models a coin-toss/service-choice, so this
+   * is a deliberate simplification, not an attempt at realism there.
+   *
+   * This is what makes real break-of-serve detection possible (a
+   * notable moment is exactly `wonBy !== server`) instead of the
+   * "reached deuce" stand-in used before this field existed — but
+   * "break" isn't a meaningful concept for a tiebreak-decided game
+   * (service rotates every 2 points within a breaker), so consumers
+   * should treat this field as informational-only for tiebreak
+   * entries, not feed it into break-of-serve commentary.
+   */
+  server: 'A' | 'B';
+}
+
+/**
+ * A completed game is a break of serve exactly when its winner isn't
+ * who served it — the real definition, now that MatchLogEntry.server
+ * exists, replacing the "reached deuce" stand-in the replay
+ * commentary previously used in its place. Deliberately doesn't
+ * exclude tiebreaks itself (a tiebreak's `server` is still a
+ * well-defined value, just not one "break" is a meaningful concept
+ * for, since service rotates every 2 points within a breaker) — that
+ * judgment call belongs to whoever is deciding what counts as
+ * notable commentary, not to this factual predicate. Callers that
+ * care can detect a tiebreak-decided entry from its score alone: this
+ * simulator only ever reaches a tiebreak at 6-6, so a final score of
+ * 7-6 (or 6-7) uniquely identifies one.
+ */
+export function isBreakOfServe(entry: Pick<MatchLogEntry, 'wonBy' | 'server'>): boolean {
+  return entry.wonBy !== entry.server;
 }
 
 /** A standard game's score reads '0'/'15'/'30'/'40', then 'Ad' once
