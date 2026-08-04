@@ -24,6 +24,13 @@ function weeksSince(earned: GameWeek, current: GameWeek): number {
  * GameWeek model. Deliberately a stateless domain service rather than
  * something Player or PlayerRanking computes internally: the ledger is
  * the source of truth, the total is always derived, never stored.
+ *
+ * Majors still occupy one of the 18 slots — they aren't extra slots on
+ * top of the cap — they just can't be displaced out of their slot by a
+ * higher-scoring non-major the way a non-major result can displace
+ * another non-major. This mirrors the real rule: a mandatory event
+ * always counts toward your ranking, but playing one still "uses up" a
+ * counted result the way any other tournament does.
  */
 export class RankingCalculationService {
   calculateTotal(ledger: ReadonlyArray<RankingLedgerEntry>, currentWeek: GameWeek): number {
@@ -35,7 +42,8 @@ export class RankingCalculationService {
     const majors = withinWindow.filter((entry) => entry.tier === 'major');
     const nonMajors = withinWindow.filter((entry) => entry.tier !== 'major');
 
-    const bestNonMajors = [...nonMajors].sort((a, b) => b.points - a.points).slice(0, BEST_RESULTS_CAP);
+    const remainingSlots = Math.max(0, BEST_RESULTS_CAP - majors.length);
+    const bestNonMajors = [...nonMajors].sort((a, b) => b.points - a.points).slice(0, remainingSlots);
 
     const majorPoints = majors.reduce((sum, entry) => sum + entry.points, 0);
     const nonMajorPoints = bestNonMajors.reduce((sum, entry) => sum + entry.points, 0);

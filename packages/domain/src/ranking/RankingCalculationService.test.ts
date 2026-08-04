@@ -56,7 +56,7 @@ describe('RankingCalculationService', () => {
     const currentWeek: GameWeek = { season: 1, week: 1 };
 
     // 18 challenger results all worth more than the major result,
-    // already filling the best-18 cap on their own.
+    // already filling the best-18 cap on their own by points.
     const strongNonMajors: RankingLedgerEntry[] = Array.from({ length: 18 }, (_, i) =>
       entry({ weekEarned: currentWeek, points: 2000, tournamentId: TournamentId(`t${i}`) }),
     );
@@ -64,9 +64,10 @@ describe('RankingCalculationService', () => {
 
     const total = service.calculateTotal([...strongNonMajors, weakMajor], currentWeek);
 
-    // Majors sit entirely outside the cap: all 18 non-majors count in
-    // full, plus the major, rather than the major having to displace
-    // one of the (much higher-scoring) non-major results to fit.
-    expect(total).toBe(18 * 2000 + 50);
+    // The major always counts, on points alone it would never make an
+    // 18-slot cut ranked purely by score — but it still occupies one of
+    // the 18 slots rather than sitting outside the cap entirely, so
+    // exactly one of the 18 (equally-ranked) non-majors is displaced.
+    expect(total).toBe(17 * 2000 + 50);
   });
 });
