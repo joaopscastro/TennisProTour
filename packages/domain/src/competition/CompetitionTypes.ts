@@ -13,17 +13,37 @@ export interface RankingPointsTable {
   pointsFor(tier: TournamentTier, roundsWon: number): number;
 }
 
+/**
+ * Real ATP ranking tables are published per round reached, not
+ * computed from a formula — a semifinalist earns roughly half of the
+ * champion's points, not an exponentially compounding fraction of it.
+ * These tables mirror that shape, scaled to this game's 5 tiers:
+ * champion points match real-world proportions exactly (major=2000,
+ * tour=500 i.e. an ATP 500 event, challenger=125, futures=25,
+ * junior=5), with the rounds below scaled down from real ATP/
+ * Challenger/ITF round breakdowns rather than an arbitrary curve.
+ *
+ * Indexed by roundsWon (0 = lost in the first round, up to 7 = won a
+ * 128-draw tournament without dropping a round). A tier/draw
+ * combination that can't reach index 7 (e.g. a 16-draw futures event)
+ * simply never looks up the higher indices — the table doesn't need to
+ * be draw-size-aware itself, Tournament already knows how many rounds
+ * a given draw has.
+ */
 export class StandardRankingPointsTable implements RankingPointsTable {
-  private static readonly BASE_POINTS: Record<TournamentTier, number> = {
-    junior: 5,
-    futures: 15,
-    challenger: 40,
-    tour: 100,
-    major: 400,
+  private static readonly POINTS_BY_ROUND: Record<TournamentTier, ReadonlyArray<number>> = {
+    // roundsWon:     0    1    2    3    4    5    6     7
+    major:           [10,  45,  90,  180, 360, 720, 1200, 2000],
+    tour:            [3,   11,  23,  45,  90,  180, 300,  500],
+    challenger:      [1,   3,   6,   11,  23,  45,  75,   125],
+    futures:         [1,   1,   2,   3,   5,   9,   15,   25],
+    junior:          [0,   0,   1,   1,   2,   3,   3,    5],
   };
 
   pointsFor(tier: TournamentTier, roundsWon: number): number {
-    return StandardRankingPointsTable.BASE_POINTS[tier] * Math.pow(1.6, roundsWon);
+    const table = StandardRankingPointsTable.POINTS_BY_ROUND[tier];
+    const index = Math.min(Math.max(roundsWon, 0), table.length - 1);
+    return table[index];
   }
 }
 
