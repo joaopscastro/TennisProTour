@@ -115,17 +115,19 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     return toTournamentDto(tournament);
   });
 
-  // Lists tournaments still accepting entrants (bracket not yet
-  // started) — what a roster row's "Enter" action needs to offer a
-  // manager a tournament to register into. Only ?status=open is
-  // supported for now; a general tournament listing/filtering
-  // endpoint is a separate concern this doesn't try to solve.
+  // Lists tournaments by status: 'open' (still accepting entrants —
+  // what a roster row's "Enter" action needs) or 'started' (bracket
+  // exists — what the Tournaments nav index links to for brackets to
+  // browse/watch). No unfiltered "list everything" mode on purpose:
+  // every real caller so far wants one or the other, never both.
   app.get<{ Querystring: { status?: string } }>('/tournaments', async (request, reply) => {
-    if (request.query.status !== 'open') {
-      return reply.code(400).send({ error: 'GET /tournaments requires ?status=open' });
+    if (request.query.status === 'open') {
+      return (await deps.tournaments.findOpenForRegistration()).map(toTournamentDto);
     }
-    const open = await deps.tournaments.findOpenForRegistration();
-    return open.map(toTournamentDto);
+    if (request.query.status === 'started') {
+      return (await deps.tournaments.findStarted()).map(toTournamentDto);
+    }
+    return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });
 
   app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null } }>(

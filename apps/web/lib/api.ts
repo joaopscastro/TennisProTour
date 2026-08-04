@@ -7,10 +7,12 @@ export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:300
 export interface PlayerDto {
   id: string;
   name: string;
+  nationality: string;
   managerId: string | null;
   ageInWeeks: number;
   stage: 'youth' | 'prime' | 'decline' | 'retired';
   fatigue: number;
+  currentFocus: TrainingFocus | null;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -75,9 +77,11 @@ export interface MatchLogDto {
     gamesForB: number;
     wonBy: 'A' | 'B';
   }>;
-  /** Point-by-point detail alongside `entries` — not yet consumed by
-   * MatchReplayPlayer, which still renders off the game-level rollup
-   * above, but typed here so a future point-level UI has it ready. */
+  /** Point-by-point detail alongside `entries` — drives the replay
+   * screen's "current game" point line (0/15/30/40/deuce/advantage)
+   * and the derived commentary feed (deuce/tiebreak/set/match
+   * moments); `entries` remains the game-level rollup the set-score
+   * columns and bracket/scrub-bar tick marks consume. */
   points: Array<{
     offsetSeconds: number;
     setNumber: number;
@@ -149,6 +153,10 @@ export function fetchOpenTournaments(): Promise<TournamentDto[]> {
   return getJson('/tournaments?status=open');
 }
 
+export function fetchStartedTournaments(): Promise<TournamentDto[]> {
+  return getJson('/tournaments?status=started');
+}
+
 export function registerEntrant(tournamentId: string, playerId: string): Promise<TournamentDto> {
   return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId });
 }
@@ -181,4 +189,37 @@ export async function simulateMatch(
  * matchIdForSlot in the application layer). */
 export function matchIdForSlot(tournamentId: string, roundNumber: number, matchIndex: number): string {
   return `${tournamentId}-r${roundNumber}-m${matchIndex}`;
+}
+
+/** Inverse of matchIdForSlot — the replay screen is reached with only
+ * a matchId in the URL, so this is how it recovers which tournament
+ * and bracket slot to look up player names / next-round links from.
+ * Relies on tournamentId never itself containing "-rN-mM"; every
+ * tournamentId in this codebase (seed script, demo data) is a plain
+ * slug, so this holds in practice even though it isn't structurally
+ * guaranteed by the id's type. */
+export function parseMatchId(matchId: string): { tournamentId: string; roundNumber: number; matchIndex: number } | null {
+  const m = /^(.+)-r(\d+)-m(\d+)$/.exec(matchId);
+  if (!m) return null;
+  return { tournamentId: m[1], roundNumber: Number(m[2]), matchIndex: Number(m[3]) };
+}
+
+export function fetchPlayer(id: string): Promise<PlayerDto> {
+  return getJson(`/players/${encodeURIComponent(id)}`);
+}
+
+/** Deduped, parallel fetch for however many distinct players a bracket
+ * or replay screen needs names/flags for — there's no batch-read
+ * endpoint, so this is N parallel GETs to the existing single-player
+ * route rather than a new backend read model, which is enough at the
+ * roster-cap-driven scale (a few dozen players per tournament) this
+ * game runs at. */
+export async function fetchPlayersByIds(ids: Iterable<string>): Promise<Map<string, PlayerDto>> {
+  const unique = [...new Set(ids)];
+  const players = await Promise.all(unique.map((id) => fetchPlayer(id)));
+  return new Map(unique.map((id, i) => [id, players[i]]));
+}
+
+export function createProCheckoutSession(managerId: string): Promise<{ url: string }> {
+  return sendJson('POST', '/billing/checkout', { managerId });
 }

@@ -16,6 +16,8 @@ import {
   releasePlayer,
   setTrainingFocus,
 } from '../lib/api';
+import { Sidebar } from '../components/Sidebar';
+import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
 
 // ---------------------------------------------------------------------------
 // Static reference data — mirrors the surface-color system and training-focus
@@ -48,49 +50,10 @@ const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus
   },
 ];
 
-/** Deterministic per-player avatar tint, cycling through the same
- * surface-accent palette used everywhere else — avatar color is
- * presentation only, so it's derived here rather than stored on the
- * backend (see RosterDashboardEntry's doc comment). */
-const AVATAR_COLORS = [
-  'oklch(58% 0.14 45)',
-  'oklch(55% 0.13 240)',
-  'oklch(48% 0.05 300)',
-  'oklch(52% 0.12 142)',
-  'oklch(62% 0.13 75)',
-  'oklch(55% 0.16 25)',
-];
-
-function avatarColorFor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? parts[0]?.[1] ?? '')).toUpperCase();
-}
-
-/** A flat flag glyph from any 2-letter nationality code — no per-country
- * palette to hand-maintain, unlike the original mockup's hardcoded
- * per-seed-player flat-CSS swatches, since real hired players can carry
- * any nationality string, not a fixed curated set. */
-function flagFor(nationality: string): string {
-  if (!/^[A-Za-z]{2}$/.test(nationality)) return '\u{1F3F3}\u{FE0F}';
-  const base = 0x1f1e6;
-  return nationality
-    .toUpperCase()
-    .split('')
-    .map((c) => String.fromCodePoint(base + c.charCodeAt(0) - 65))
-    .join('');
-}
-
 // Mirrors StandardAgingPolicy's thresholds (packages/domain) — those
 // values are illustrative/not-yet-balanced per CLAUDE.md and aren't
 // exposed via API yet, so they're duplicated here only for this
 // "seasons until next stage" hint text, not for any real game logic.
-const WEEKS_PER_SEASON = 52;
 const PRIME_START_WEEK = 20 * WEEKS_PER_SEASON;
 const DECLINE_START_WEEK = 30 * WEEKS_PER_SEASON;
 const RETIREMENT_WEEK = 38 * WEEKS_PER_SEASON;
@@ -266,92 +229,37 @@ export default function RosterDashboardPage() {
 
   return (
     <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
-      {/* SIDEBAR NAV SHELL */}
-      <div className="w-[232px] flex-none flex flex-col p-[22px_16px] text-[oklch(96%_0.004_75)]" style={{ background: 'oklch(18% 0.006 75)' }}>
-        <div className="flex items-center gap-[10px] px-2 pt-1 pb-[26px]">
-          <div className="w-7 h-7 rounded-[5px] flex-none flex items-center justify-center" style={{ background: 'oklch(24% 0.008 75)' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24">
-              <circle cx="12" cy="12" r="9.5" fill="oklch(76% 0.19 122)" />
-              <path d="M5.2 3.6c3 3.4 3 13.4 0 16.8" fill="none" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
-              <path d="M18.8 3.6c-3 3.4-3 13.4 0 16.8" fill="none" stroke="white" strokeWidth="1.6" strokeLinecap="round" />
-            </svg>
-          </div>
-          <div className="font-bold text-[15px] tracking-[0.2px]">Grand Circuit</div>
-        </div>
-
-        <div className="flex flex-col gap-[2px]">
-          <div className="flex items-center gap-[10px] px-3 py-[10px] rounded-[6px] font-semibold text-[13.5px]" style={{ background: 'oklch(28% 0.008 75)' }}>
-            <div className="w-[6px] h-[6px] rounded-full" style={{ background: 'oklch(72% 0.14 45)' }} />
-            Roster
-          </div>
-          <div className="flex items-center gap-[10px] px-3 py-[10px] rounded-[6px] text-[13.5px]" style={{ color: 'oklch(80% 0.005 75)' }}>
-            <div className="w-[6px] h-[6px] rounded-full bg-transparent" />
-            Tournaments
-          </div>
-          <div className="flex items-center gap-[10px] px-3 py-[10px] rounded-[6px] text-[13.5px]" style={{ color: 'oklch(80% 0.005 75)' }}>
-            <div className="w-[6px] h-[6px] rounded-full bg-transparent" />
-            Manager Pro
-          </div>
-          <div className="flex items-center justify-between px-3 py-[10px] rounded-[6px] text-[13.5px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-            <div className="flex items-center gap-[10px]">
-              <div className="w-[6px] h-[6px] rounded-full bg-transparent" />
-              Scouting
-            </div>
-            <div className="text-[10px] font-semibold tracking-[0.4px] px-[6px] py-[2px] rounded-[4px]" style={{ background: 'oklch(28% 0.008 75)', color: 'oklch(65% 0.006 75)' }}>
-              SOON
-            </div>
-          </div>
-          <div className="flex items-center justify-between px-3 py-[10px] rounded-[6px] text-[13.5px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-            <div className="flex items-center gap-[10px]">
-              <div className="w-[6px] h-[6px] rounded-full bg-transparent" />
-              Social
-            </div>
-            <div className="text-[10px] font-semibold tracking-[0.4px] px-[6px] py-[2px] rounded-[4px]" style={{ background: 'oklch(28% 0.008 75)', color: 'oklch(65% 0.006 75)' }}>
-              SOON
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-auto p-3 rounded-[8px] flex flex-col gap-[6px]" style={{ background: 'oklch(24% 0.008 75)' }}>
-          <div className="flex items-center gap-[6px] mb-1">
-            <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
-            <div className="w-px h-2" style={{ background: 'rgba(255,255,255,0.85)' }} />
-            <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
-          </div>
-          <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>
-            {tier === 'pro' ? 'Manager Pro' : 'Free Tier'}
-          </div>
-          <div className="text-[12px] leading-[1.4]" style={{ color: 'oklch(78% 0.005 75)' }}>
-            {tier === 'pro' ? '4 roster slots · faster point decay applies' : '2 roster slots · upgrade for more room'}
-          </div>
-          <label className="mt-2 flex flex-col gap-1 text-[11px]" style={{ color: 'oklch(65% 0.006 75)' }}>
-            Manager ID (dev)
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                setManagerId(managerIdInput.trim() || managerId);
-              }}
-            >
-              <input
-                value={managerIdInput}
-                onChange={(e) => setManagerIdInput(e.target.value)}
-                className="w-full rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
-                style={{ background: 'white' }}
-              />
-            </form>
-          </label>
-        </div>
-      </div>
+      <Sidebar active="roster" tier={tier} />
 
       {/* MAIN CONTENT */}
       <div className="flex-1 p-8 max-w-[1180px] min-w-0">
-        <div className="flex items-start justify-between mb-7">
+        <div className="flex items-start justify-between mb-3">
           <div>
             <div className="text-[23px] font-bold tracking-[-0.2px]">Roster</div>
             <div className="text-[13.5px] mt-[3px]" style={{ color: 'oklch(48% 0.006 75)' }}>
               Manage your players, training focus, and tournament entries.
             </div>
           </div>
+          <form
+            className="flex items-center gap-[6px] text-[11.5px]"
+            style={{ color: 'oklch(52% 0.006 75)' }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              setManagerId(managerIdInput.trim() || managerId);
+            }}
+          >
+            Manager ID (dev)
+            <input
+              value={managerIdInput}
+              onChange={(e) => setManagerIdInput(e.target.value)}
+              className="rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
+              style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
+            />
+          </form>
+        </div>
+
+        <div className="flex items-start justify-between mb-7">
+          <div />
           <div className="flex flex-col items-end gap-[6px]">
             <button
               onClick={handleHire}
