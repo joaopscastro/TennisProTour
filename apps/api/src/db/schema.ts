@@ -72,23 +72,6 @@ export const managerEntitlements = pgTable('manager_entitlements', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
-/** One row per PLAYER who has ever earned ranking points (absence =
- * unranked, not zero — see PlayerRankingRepository). Was originally
- * keyed by manager_id (a bug: it double-counted hires/releases and
- * couldn't answer "what's this player's rank"); renamed and re-keyed
- * to player_id, since ranking is a per-player concept both in real
- * tennis and in what the roster dashboard actually displays ("#4"
- * next to an individual player). totalPoints is a double, not an
- * integer: StandardRankingPointsTable's formula
- * (BASE_POINTS[tier] * 1.6^roundsWon) is fractional for most inputs. */
-export const playerRankings = pgTable('player_rankings', {
-  playerId: text('player_id')
-    .primaryKey()
-    .references(() => players.id),
-  totalPoints: doublePrecision('total_points').notNull().default(0),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
-
 /**
  * Append-only ledger of dated ranking results — one row per tournament
  * result a player earns, never updated after insert. This is the

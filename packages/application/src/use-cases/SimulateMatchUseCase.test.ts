@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, PlayerRanking, MatchId, PlayerId, TournamentId, RankingLedgerEntry } from '@tennis-manager/domain';
+import { ManagerId, MatchId, PlayerId, TournamentId, RankingLedgerEntry } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
@@ -10,7 +10,6 @@ import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
-  PlayerRankingRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
@@ -72,22 +71,6 @@ class RecordingEventPublisher implements EventPublisherPort {
   }
 }
 
-class InMemoryPlayerRankingRepository implements PlayerRankingRepository {
-  private readonly store = new Map<PlayerId, PlayerRanking>();
-
-  async findById(playerId: PlayerId): Promise<PlayerRanking | null> {
-    return this.store.get(playerId) ?? null;
-  }
-
-  async save(ranking: PlayerRanking): Promise<void> {
-    this.store.set(ranking.playerId, ranking);
-  }
-
-  async findAllSortedByPoints(): Promise<PlayerRanking[]> {
-    return [...this.store.values()].sort((a, b) => b.totalPoints - a.totalPoints);
-  }
-}
-
 class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
   private readonly entries: RankingLedgerEntry[] = [];
 
@@ -97,6 +80,10 @@ class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
 
   async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
     return this.entries.filter((e) => e.playerId === playerId);
+  }
+
+  async findAll(): Promise<RankingLedgerEntry[]> {
+    return [...this.entries];
   }
 }
 
@@ -432,21 +419,5 @@ describe('SimulateMatchUseCase', () => {
       expect(championEntries[0].points).toBe(rankingPointsTable.pointsFor('challenger', 4));
     });
 
-    it('findAllSortedByPoints ranks players by points descending — the source of rank position', async () => {
-      const playerRankings = new InMemoryPlayerRankingRepository();
-      const low = PlayerRanking.empty(PlayerId('low'));
-      low.addPoints(10);
-      const high = PlayerRanking.empty(PlayerId('high'));
-      high.addPoints(90);
-      const mid = PlayerRanking.empty(PlayerId('mid'));
-      mid.addPoints(50);
-      await playerRankings.save(low);
-      await playerRankings.save(high);
-      await playerRankings.save(mid);
-
-      const sorted = await playerRankings.findAllSortedByPoints();
-
-      expect(sorted.map((r) => r.playerId)).toEqual([PlayerId('high'), PlayerId('mid'), PlayerId('low')]);
-    });
   });
 });

@@ -146,17 +146,13 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
   });
 
   // A player's rank is their 1-indexed position among every player
-  // who has ever earned ranking points, sorted by points descending —
-  // null means unranked (never earned a point), not rank 0.
+  // who has ever earned a ranking-ledger entry, sorted by their
+  // currently-computed rolling total descending — null means unranked
+  // (never earned a point), not rank 0. See RankPositionQuery.
   app.get<{ Params: { id: string } }>('/players/:id/ranking', async (request) => {
     const playerId = PlayerId(request.params.id);
-    const ranked = await deps.playerRankings.findAllSortedByPoints();
-    const index = ranked.findIndex((r) => r.playerId === playerId);
-    return {
-      playerId,
-      totalPoints: index === -1 ? 0 : ranked[index].totalPoints,
-      rank: index === -1 ? null : index + 1,
-    };
+    const { totalPoints, rank } = await deps.rankPosition.rankFor(playerId);
+    return { playerId, totalPoints, rank };
   });
 
   // Roster read for the dashboard. An empty roster is a 200 with [],

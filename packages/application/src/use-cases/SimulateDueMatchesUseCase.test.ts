@@ -91,6 +91,10 @@ class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
   async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
     return this.entries.filter((e) => e.playerId === playerId);
   }
+
+  async findAll(): Promise<RankingLedgerEntry[]> {
+    return [...this.entries];
+  }
 }
 
 class AlwaysAWinsSimulator implements MatchSimulator {

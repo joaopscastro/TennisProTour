@@ -21,6 +21,12 @@ let matchLogDirectory: string;
 
 beforeAll(async () => {
   await migrate(db, { migrationsFolder: './drizzle' });
+  // RankPositionQuery reads the "main" world's current week to decide
+  // which ranking-ledger entries fall inside the rolling 52-week
+  // window (see composition.ts's WORLD_ID default). Seeded comfortably
+  // past every test tournament's weekScheduled so freshly-earned
+  // points always land inside the window, not before it.
+  await db.insert(schema.gameWorlds).values({ id: 'main', season: 1, week: 52 }).onConflictDoNothing();
   matchLogDirectory = await mkdtemp(join(tmpdir(), 'api-match-logs-'));
   const deps = buildDependencies({
     db,
@@ -38,8 +44,6 @@ beforeEach(async () => {
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
-  // player_rankings has an FK to players — must go before it.
-  await db.delete(schema.playerRankings);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
 });

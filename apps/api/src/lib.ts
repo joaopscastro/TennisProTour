@@ -12,7 +12,6 @@ export { buildApp, AppOptions } from './app';
 export { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 export { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 export { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
-export { DrizzlePlayerRankingRepository } from './adapters/outbound/DrizzlePlayerRankingRepository';
 export { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
 export { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 export { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';

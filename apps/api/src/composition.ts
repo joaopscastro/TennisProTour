@@ -3,6 +3,7 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
 import { AcceleratedDeclinePolicy, PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
 import { StandardRankingPointsTable } from '@tennis-manager/domain';
+import { WorldId } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
 import { HirePlayerUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
@@ -12,11 +13,11 @@ import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-mana
 import { SetTrainingFocusUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
+import { RankPositionQuery } from '@tennis-manager/application';
 import { Db } from './db/client';
 import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
-import { DrizzlePlayerRankingRepository } from './adapters/outbound/DrizzlePlayerRankingRepository';
 import { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
@@ -42,12 +43,18 @@ export interface CompositionOptions {
  * to be tuned with the rest of the aging curve before launch. */
 export const PRO_DECLINE_MULTIPLIER = 1.5;
 
+/** Single implicit game-world at MVP — same env var and 'main' default
+ * apps/worker uses to create/advance the one GameWorld row, so ranking
+ * reads and the weekly tick agree on which world's clock they're
+ * reading. Becomes per-request/per-manager once multi-world arrives. */
+const WORLD_ID = WorldId(process.env.WORLD_ID ?? 'main');
+
 export interface Dependencies {
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
-  playerRankings: DrizzlePlayerRankingRepository;
   rankingLedger: DrizzleRankingLedgerRepository;
+  rankPosition: RankPositionQuery;
   rosterDashboard: DrizzleRosterDashboardQuery;
   billing: StripeBillingAdapter;
   hirePlayer: HirePlayerUseCase;
@@ -91,14 +98,14 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const billing = new StripeBillingAdapter(options.db, new Stripe(stripeSettings.secretKey), stripeSettings.config);
 
   const worlds = new DrizzleGameWorldRepository(options.db);
-  const playerRankings = new DrizzlePlayerRankingRepository(options.db);
   const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
+  const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID);
   // A fresh StandardAgingPolicy instance, independent of the one wired
   // into standardAging below — it's stateless, and the roster
   // dashboard's stage-transition estimate is always against the BASE
   // policy regardless of Pro status anyway (see formatStageNote's doc
   // comment), so there's no reason to share the aging services' instance.
-  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy());
+  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy(), rankPosition);
   const rankingPointsTable = new StandardRankingPointsTable();
   const simulateMatch = new SimulateMatchUseCase(
     tournaments,
@@ -120,8 +127,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     players,
     tournaments,
     worlds,
-    playerRankings,
     rankingLedger,
+    rankPosition,
     rosterDashboard,
     billing,
     hirePlayer: new HirePlayerUseCase(players, events, billing),

@@ -22,12 +22,21 @@ export class DrizzleRankingLedgerRepository implements RankingLedgerRepository {
 
   async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
     const rows = await this.db.select().from(rankingLedger).where(eq(rankingLedger.playerId, playerId));
-    return rows.map((row) => ({
-      playerId: PlayerId(row.playerId),
-      tournamentId: TournamentId(row.tournamentId),
-      tier: row.tier,
-      points: row.points,
-      weekEarned: { season: row.seasonEarned, week: row.weekEarned },
-    }));
+    return rows.map(toRankingLedgerEntry);
   }
+
+  async findAll(): Promise<RankingLedgerEntry[]> {
+    const rows = await this.db.select().from(rankingLedger);
+    return rows.map(toRankingLedgerEntry);
+  }
+}
+
+function toRankingLedgerEntry(row: typeof rankingLedger.$inferSelect): RankingLedgerEntry {
+  return {
+    playerId: PlayerId(row.playerId),
+    tournamentId: TournamentId(row.tournamentId),
+    tier: row.tier,
+    points: row.points,
+    weekEarned: { season: row.seasonEarned, week: row.weekEarned },
+  };
 }

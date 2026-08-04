@@ -43,6 +43,13 @@
       "when": 1785857236221,
       "tag": "0005_sharp_puff_adder",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785858558551,
+      "tag": "0006_wild_snowbird",
+      "breakpoints": true
     }
   ]
 }

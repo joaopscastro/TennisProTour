@@ -1,9 +1,9 @@
 import { and, desc, eq, isNotNull, or } from 'drizzle-orm';
 import { AgingPolicy, ManagerId, PlayerId, PlayerLifecycleStage, TrainingFocus, weeksUntilNextStage } from '@tennis-manager/domain';
+import { RankPositionQuery } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentMatches } from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
-import { DrizzlePlayerRankingRepository } from './DrizzlePlayerRankingRepository';
 
 const WEEKS_PER_SEASON = 52;
 
@@ -40,9 +40,10 @@ export interface RosterDashboardEntry {
    * the nine underlying skills, same number the roster mockup showed
    * as "OVR." */
   overall: number;
-  /** 1-indexed position among every player who has ever earned
-   * ranking points, sorted by points descending. null = unranked
-   * (never earned a point), not rank 0 — see PlayerRankingRepository. */
+  /** 1-indexed position among every player who has ever earned a
+   * ranking-ledger entry, sorted by their currently-computed rolling
+   * total descending. null = unranked (never earned a point), not
+   * rank 0 — see RankPositionQuery/RankingCalculationService. */
   rank: number | null;
   points: number;
   /** Tennis scoreline notation from THIS player's perspective, e.g.
@@ -58,7 +59,7 @@ export interface RosterDashboardEntry {
  * overall, fatigue, last result, training focus, nationality,
  * surfaces), rather than the frontend stitching together
  * /managers/:id/players + a ranking lookup + a match-history query
- * itself. Reuses DrizzlePlayerRepository/DrizzlePlayerRankingRepository
+ * itself. Reuses DrizzlePlayerRepository/RankPositionQuery
  * for the parts that need real domain reconstruction (a Player
  * aggregate's overallRating(), a ranking's position), but goes
  * straight to the tournament_matches table for "last result" via a
@@ -72,14 +73,13 @@ export interface RosterDashboardEntry {
  */
 export class DrizzleRosterDashboardQuery {
   private readonly players: DrizzlePlayerRepository;
-  private readonly playerRankings: DrizzlePlayerRankingRepository;
 
   constructor(
     private readonly db: Db,
     private readonly agingPolicy: AgingPolicy,
+    private readonly rankPositionQuery: RankPositionQuery,
   ) {
     this.players = new DrizzlePlayerRepository(db);
-    this.playerRankings = new DrizzlePlayerRankingRepository(db);
   }
 
   async forManager(managerId: ManagerId): Promise<RosterDashboardEntry[]> {
@@ -89,7 +89,7 @@ export class DrizzleRosterDashboardQuery {
     // One sorted-rankings read for the whole roster, not one per
     // player — a manager has at most 4 players (roster cap), so this
     // stays cheap even as the league-wide rankings table grows.
-    const ranked = await this.playerRankings.findAllSortedByPoints();
+    const ranked = await this.rankPositionQuery.sortedRankings();
     const rankByPlayerId = new Map(ranked.map((r, i) => [r.playerId, i + 1]));
     const pointsByPlayerId = new Map(ranked.map((r) => [r.playerId, r.totalPoints]));
 
