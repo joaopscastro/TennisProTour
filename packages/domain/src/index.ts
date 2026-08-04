@@ -11,3 +11,5 @@ export * from './competition/BracketGenerator';
 export * from './match-simulation/MatchSimulator';
 export * from './match-simulation/StatisticalMatchSimulator';
 export * from './world/GameWorld';
+export * from './ranking/RankingLedgerEntry';
+export * from './ranking/RankingCalculationService';
