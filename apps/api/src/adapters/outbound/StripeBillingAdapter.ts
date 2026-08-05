@@ -1,5 +1,5 @@
 import Stripe from 'stripe';
-import { eq } from 'drizzle-orm';
+import { and, eq, gt, sql } from 'drizzle-orm';
 import { ManagerId } from '@tennis-manager/domain';
 import { BillingPort } from '@tennis-manager/application';
 import { Db } from '../../db/client';
@@ -42,6 +42,24 @@ export class StripeBillingAdapter implements BillingPort {
     return rows.length > 0 && rows[0].status === 'active';
   }
 
+  async customPlayerCreditBalance(managerId: ManagerId): Promise<number> {
+    const rows = await this.db
+      .select()
+      .from(managerEntitlements)
+      .where(eq(managerEntitlements.managerId, managerId))
+      .limit(1);
+    return rows.length > 0 ? rows[0].customPlayerCredits : 0;
+  }
+
+  async consumeCustomPlayerCredit(managerId: ManagerId): Promise<boolean> {
+    const rows = await this.db
+      .update(managerEntitlements)
+      .set({ customPlayerCredits: sql`${managerEntitlements.customPlayerCredits} - 1`, updatedAt: new Date() })
+      .where(and(eq(managerEntitlements.managerId, managerId), gt(managerEntitlements.customPlayerCredits, 0)))
+      .returning();
+    return rows.length > 0;
+  }
+
   async createProCheckoutSession(managerId: ManagerId): Promise<{ url: string }> {
     const session = await this.stripe.checkout.sessions.create({
       mode: 'subscription',
@@ -82,5 +100,24 @@ export class StripeBillingAdapter implements BillingPort {
       .update(managerEntitlements)
       .set({ status: 'canceled', updatedAt: new Date() })
       .where(eq(managerEntitlements.stripeSubscriptionId, stripeSubscriptionId));
+  }
+
+  /** +1 custom-player credit for the manager owning this Stripe
+   * customer — called only from the invoice.paid webhook handler when
+   * billing_reason is subscription_cycle (a genuine renewal, not the
+   * initial subscription-creation invoice, which checkout.session.completed
+   * already handles via activatePro). Keyed by stripeCustomerId, same
+   * pattern as deactivateBySubscription being keyed by subscription id
+   * — the webhook payload gives us Stripe's id, not our managerId, and
+   * this table is the join between the two. A customer with no
+   * matching row (shouldn't happen: a renewal implies they already
+   * checked out once) is a silent no-op, matching this method's
+   * "nothing to update" semantics rather than throwing on a payload
+   * this adapter can't fully trust the shape of. */
+  async grantCustomPlayerCredit(stripeCustomerId: string): Promise<void> {
+    await this.db
+      .update(managerEntitlements)
+      .set({ customPlayerCredits: sql`${managerEntitlements.customPlayerCredits} + 1`, updatedAt: new Date() })
+      .where(eq(managerEntitlements.stripeCustomerId, stripeCustomerId));
   }
 }

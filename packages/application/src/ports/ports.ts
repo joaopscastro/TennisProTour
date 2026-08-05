@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, RankingLedgerEntry } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -79,6 +79,59 @@ export interface BillingPort {
    * flips only when the provider's webhook confirms completion —
    * never optimistically at session creation. */
   createProCheckoutSession(managerId: ManagerId): Promise<{ url: string }>;
+  /** Current custom-player-creation credit balance — earned one at a
+   * time on each confirmed Stripe subscription *renewal* (not the
+   * initial signup, and not an invented in-game clock — see the
+   * billing webhook's handling of invoice.paid/subscription_cycle),
+   * spent one at a time by CreateCustomPlayerUseCase. 0 for a manager
+   * who has never earned any, same "absence means zero" convention as
+   * every other entitlement read here. */
+  customPlayerCreditBalance(managerId: ManagerId): Promise<number>;
+  /** Atomically spends one credit if the balance is currently > 0 — a
+   * single conditional UPDATE, not a separate read-then-write, so two
+   * concurrent custom-player creations can never both spend the same
+   * last credit. Returns whether it succeeded. */
+  consumeCustomPlayerCredit(managerId: ManagerId): Promise<boolean>;
+}
+
+/**
+ * A generated player sitting unowned in the talent pool. One narrow
+ * repository per aggregate (ISP), same as every other repository port
+ * here — findAvailable()/save() cover ordinary reads/writes (browsing
+ * the pool, expiring old candidates on the weekly sweep), while
+ * claimIfAvailable() is a SEPARATE method specifically because it must
+ * be one atomic, DB-level conditional operation, not composed from
+ * findById() + save(): two managers racing to claim the same candidate
+ * must never both succeed, and a read-then-write composed from this
+ * port's other methods could never guarantee that (see
+ * DrizzleTalentPoolCandidateRepository for the actual conditional
+ * UPDATE this compiles down to).
+ */
+export interface TalentPoolCandidateRepository {
+  findById(id: TalentPoolCandidateId): Promise<TalentPoolCandidate | null>;
+  /** Every candidate still sitting unclaimed and unexpired — what the
+   * pool browse screen shows, and what the weekly expiry sweep reads
+   * to find candidates to age out. */
+  findAvailable(): Promise<TalentPoolCandidate[]>;
+  save(candidate: TalentPoolCandidate): Promise<void>;
+  /** Atomically claims a candidate for a manager: succeeds (returns
+   * the now-claimed candidate) only if it was still 'available' at
+   * claim time, via a single conditional UPDATE ... WHERE
+   * status = 'available' RETURNING *. Returns null if the candidate
+   * doesn't exist, or was already claimed/expired by the time this
+   * ran — the caller (ClaimTalentPoolCandidateUseCase) treats null as
+   * "no longer available," not an error to retry. */
+  claimIfAvailable(id: TalentPoolCandidateId, managerId: ManagerId): Promise<TalentPoolCandidate | null>;
+}
+
+/** Generates opaque unique ids for aggregates the application layer
+ * creates (not the domain — domain/ stays framework-free, and even
+ * Node's crypto module is infrastructure). Kept as a one-method port
+ * rather than importing node:crypto directly into a use case, so
+ * tests can inject predictable ids instead of asserting against
+ * whatever a real UUID happens to be. */
+export interface IdGeneratorPort {
+  generate(): string;
 }
 
 /**

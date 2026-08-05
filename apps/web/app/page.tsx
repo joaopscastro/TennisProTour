@@ -14,7 +14,8 @@ import {
 } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
-import { HirePlayerModal } from '../components/HirePlayerModal';
+import { TalentPoolModal } from '../components/TalentPoolModal';
+import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -169,8 +170,12 @@ export default function RosterDashboardPage() {
   );
 
   const [enterModalPlayer, setEnterModalPlayer] = useState<{ id: string; name: string } | null>(null);
-  const [hireModalOpen, setHireModalOpen] = useState(false);
+  const [talentPoolModalOpen, setTalentPoolModalOpen] = useState(false);
+  const [customPlayerModalOpen, setCustomPlayerModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+
+  const customPlayerCredits = entitlement?.customPlayerCredits ?? 0;
+  const canCreateCustomPlayer = tier === 'pro' && customPlayerCredits > 0;
 
   function showNotice(text: string) {
     setNotice(text);
@@ -211,13 +216,24 @@ export default function RosterDashboardPage() {
         <div className="flex items-start justify-between mb-7">
           <div />
           <div className="flex flex-col items-end gap-[6px]">
-            <button
-              onClick={() => setHireModalOpen(true)}
-              className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90"
-              style={{ background: 'oklch(20% 0.006 75)' }}
-            >
-              Hire player
-            </button>
+            <div className="flex items-center gap-2">
+              {canCreateCustomPlayer && (
+                <button
+                  onClick={() => setCustomPlayerModalOpen(true)}
+                  className="px-[16px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
+                  style={{ border: '1px solid oklch(85% 0.006 75)', color: 'oklch(28% 0.006 75)' }}
+                >
+                  Create custom player ({customPlayerCredits})
+                </button>
+              )}
+              <button
+                onClick={() => setTalentPoolModalOpen(true)}
+                className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90"
+                style={{ background: 'oklch(20% 0.006 75)' }}
+              >
+                Browse talent pool
+              </button>
+            </div>
             <div className="text-[11.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
               {tier === 'pro'
                 ? `Roster ${usedSlots} of ${slotCount} slots used`
@@ -467,11 +483,11 @@ export default function RosterDashboardPage() {
 
               {showOpenSlot && (
                 <div
-                  onClick={() => setHireModalOpen(true)}
+                  onClick={() => setTalentPoolModalOpen(true)}
                   className="flex items-center justify-center gap-2 rounded-[8px] p-4 text-[13px] font-semibold cursor-pointer hover:bg-[oklch(97%_0.003_75)]"
                   style={{ border: '1.5px dashed oklch(85% 0.006 75)', color: 'oklch(50% 0.006 75)' }}
                 >
-                  + Open roster slot — Hire a player
+                  + Open roster slot — Browse talent pool
                 </div>
               )}
             </div>
@@ -493,15 +509,15 @@ export default function RosterDashboardPage() {
               Your roster is empty
             </div>
             <div className="text-[13.5px] max-w-[340px] leading-[1.5]" style={{ color: 'oklch(50% 0.006 75)' }}>
-              Hire your first player to start entering tournaments. You have {slotCount} roster slot
-              {slotCount === 1 ? '' : 's'} available.
+              Claim your first player from the talent pool to start entering tournaments. You have {slotCount} roster
+              slot{slotCount === 1 ? '' : 's'} available.
             </div>
             <button
-              onClick={() => setHireModalOpen(true)}
+              onClick={() => setTalentPoolModalOpen(true)}
               className="mt-[6px] text-white border-none px-[22px] py-[11px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90"
               style={{ background: 'oklch(20% 0.006 75)' }}
             >
-              Hire your first player
+              Browse talent pool
             </button>
           </div>
         )}
@@ -534,13 +550,26 @@ export default function RosterDashboardPage() {
         />
       )}
 
-      {hireModalOpen && (
-        <HirePlayerModal
+      {talentPoolModalOpen && (
+        <TalentPoolModal
           managerId={managerId}
-          onClose={() => setHireModalOpen(false)}
-          onHired={(player) => {
-            setHireModalOpen(false);
-            showNotice(`Hired ${player.name}.`);
+          onClose={() => setTalentPoolModalOpen(false)}
+          onClaimed={(player) => {
+            setTalentPoolModalOpen(false);
+            showNotice(`Claimed ${player.name}.`);
+            void load(managerId);
+          }}
+        />
+      )}
+
+      {customPlayerModalOpen && (
+        <CreateCustomPlayerModal
+          managerId={managerId}
+          creditsRemaining={customPlayerCredits}
+          onClose={() => setCustomPlayerModalOpen(false)}
+          onCreated={(player) => {
+            setCustomPlayerModalOpen(false);
+            showNotice(`Created ${player.name}.`);
             void load(managerId);
           }}
         />

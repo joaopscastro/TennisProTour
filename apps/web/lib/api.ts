@@ -50,6 +50,29 @@ export interface RosterDashboardEntryDto {
 export interface EntitlementDto {
   managerId: string;
   tier: 'free' | 'pro';
+  /** Custom-player-creation credits: +1 per confirmed Stripe
+   * subscription renewal, spent one at a time by createCustomPlayer(). */
+  customPlayerCredits: number;
+}
+
+export type PlayerRarityTier = 'common' | 'strong' | 'exceptional';
+
+/** A generated player sitting unowned in the talent pool — see
+ * DrizzleTalentPoolCandidateRepository on the API side. Hiring is
+ * pool-based now: a manager browses/claims one of these instead of
+ * hiring an arbitrary player on demand (see docs/CLAUDE.md). */
+export interface TalentPoolCandidateDto {
+  id: string;
+  name: string;
+  nationality: string;
+  tier: PlayerRarityTier;
+  generatedAtWeek: { season: number; week: number };
+  attributes: {
+    technical: { serve: number; forehand: number; backhand: number; volley: number };
+    physical: { speed: number; stamina: number; strength: number };
+    mental: { consistency: number; clutch: number };
+    surfaceAffinities: { clay: number; grass: number; hard: number; indoor: number };
+  };
 }
 
 export interface MatchOutcomeDto {
@@ -142,14 +165,21 @@ export function fetchEntitlement(managerId: string): Promise<EntitlementDto> {
   return getJson(`/managers/${encodeURIComponent(managerId)}/entitlement`);
 }
 
-export function hirePlayer(input: {
-  playerId: string;
-  name: string;
-  nationality: string;
-  managerId: string;
-  startingAgeInWeeks: number;
-}): Promise<PlayerDto> {
-  return sendJson('POST', '/players', input);
+export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
+  return getJson('/talent-pool');
+}
+
+export function claimTalentPoolCandidate(candidateId: string, managerId: string): Promise<PlayerDto> {
+  return sendJson('POST', `/talent-pool/${encodeURIComponent(candidateId)}/claim`, { managerId });
+}
+
+/** Pro-only, credit-gated: bypasses the talent pool (choose your own
+ * name/nationality) but NOT the same generation policy — attributes
+ * are still rolled the same way any pool candidate's are, only the
+ * name/nationality are the manager's choice. See
+ * CreateCustomPlayerUseCase's doc comment on the API side. */
+export function createCustomPlayer(input: { managerId: string; name: string; nationality: string }): Promise<PlayerDto> {
+  return sendJson('POST', '/players/custom', input);
 }
 
 export function setTrainingFocus(playerId: string, focus: TrainingFocus | null): Promise<PlayerDto> {

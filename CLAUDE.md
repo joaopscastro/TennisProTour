@@ -72,6 +72,59 @@ long-unmaintained browser games with active but underserved players.
      add a proper public accessor method on the aggregate instead
      (e.g. `Tournament.getScheduledMatch()`).
 
+## Player acquisition: the talent pool (hiring is scarce, not on-demand)
+
+**This reverses an earlier, simpler version of this document/build,
+same as the live-scoring approach did — don't re-derive "just let a
+manager hire whoever they type in" from first principles.** Hiring
+used to be instant and on-demand: a manager typed a name/nationality
+and got a player immediately, with fixed baseline attributes. That's
+gone. As of the talent-pool feature, acquiring a player works like
+this:
+
+- **A shared talent pool, not a hire button.** `PlayerGenerationPolicy`
+  (a swappable policy, same pattern as `AgingPolicy`/`TrainingPolicy`)
+  generates full players — name, nationality, and a complete
+  `PlayerAttributes` snapshot — from a rarity-skewed distribution: most
+  generated players are mediocre, a small share are strong, and a
+  genuinely rare share are exceptional. A weekly worker job
+  (`RefreshTalentPoolUseCase`, riding the same tick as aging) tops the
+  pool up with a fresh batch and expires any candidate that's sat
+  unclaimed for more than ~2 weeks.
+- **Every manager sees the same pool and races for it.**
+  `TalentPoolCandidate` rows are visible to all managers until claimed
+  or expired. Claiming is genuinely race-safe: two managers hitting
+  "claim" on the same candidate within milliseconds of each other
+  cannot both succeed — `TalentPoolCandidateRepository.claimIfAvailable()`
+  is a single atomic conditional `UPDATE ... WHERE status = 'available'`,
+  not a read-then-write, so Postgres itself (not application-level
+  locking) guarantees exactly one winner. This is proven by a real
+  integration test that fires concurrent claims at actual Postgres, not
+  just an in-memory fake.
+- **Manager Pro can bypass the pool, never beat it on stats.**
+  `CreateCustomPlayerUseCase` lets a Pro manager name their own player
+  instead of waiting for a matching candidate — but it calls the exact
+  same `PlayerGenerationPolicy` every pool candidate uses. Paying only
+  buys skipping the queue, never better odds or better stats — this is
+  principle #1 applied directly to this feature, and it's worth
+  restating here because it's an easy line to blur by accident: if a
+  future change gives custom players their own rarity curve "since
+  they paid," that is the pay-to-win pattern this project exists to
+  avoid. One custom-player credit is earned per confirmed Stripe
+  subscription **renewal** (not the initial signup, and not an
+  invented in-game clock — real `invoice.paid` webhook events with
+  `billing_reason: subscription_cycle`), spent one at a time.
+- **Where this lives, and why it's pragmatic, not dogmatic:** the
+  talent pool is really the first real slice of bounded context #4
+  (Manager & Progression)'s "scouting" idea below — but
+  `PlayerGenerationPolicy`/`TalentPoolCandidate` live in
+  `domain/player/`, not a separate context folder, because they're
+  fundamentally about generating *Player*-shaped things, and the
+  surface area is small enough that a dedicated bounded context would
+  be premature (contrast with ranking, which got its own `domain/ranking/`
+  folder because it was large enough to justify one). Revisit this
+  placement if scouting grows real scope beyond "generate + claim."
+
 ## Committed stack (with rationale — see full plan doc for the "why not X" reasoning)
 
 | Layer | Choice |
@@ -103,7 +156,7 @@ tennis-manager/
 1. **Player & Roster** — player entities, stats, aging, training. ✅ domain skeleton built.
 2. **Competition** — tournaments, brackets, rankings, match scheduling. ✅ domain skeleton built.
 3. **Match Simulation Engine** — deterministic sim, pure domain logic, no I/O. ✅ domain skeleton built.
-4. **Manager & Progression** — manager XP, staff, scouting. ⬜ not started (only a stubbed seam via `maxRosterSizeFor` in `HirePlayerUseCase`).
+4. **Manager & Progression** — manager XP, staff, scouting. 🟡 scouting's first real slice exists (the talent pool — see "Player acquisition" above); manager XP/staff still not started. `maxRosterSizeFor` (roster-cap policy) has moved to `packages/application/src/use-cases/rosterCap.ts`, shared by `ClaimTalentPoolCandidateUseCase` and `CreateCustomPlayerUseCase`.
 5. **Billing** — Stripe subscriptions/one-offs, entitlements. ⬜ not started (`BillingPort` referenced but not yet defined).
 6. **Notifications** — push/email digest, decoupled via events. ⬜ not started.
 7. **Social** — guilds/academies, chat, leaderboards. ⬜ not started.

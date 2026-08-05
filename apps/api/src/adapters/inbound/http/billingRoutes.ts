@@ -68,6 +68,25 @@ export function registerBillingRoutes(app: FastifyInstance, deps: Dependencies):
           request.log.info({ subscriptionId: subscription.id }, 'manager pro deactivated');
           break;
         }
+        case 'invoice.paid': {
+          const invoice = event.data.object;
+          // billing_reason distinguishes a genuine renewal
+          // ('subscription_cycle') from the initial subscription's own
+          // first invoice ('subscription_create', already handled by
+          // checkout.session.completed above) — only a real renewal
+          // earns a custom-player credit, per the "not an invented
+          // in-game clock" requirement this feature was built against.
+          if (invoice.billing_reason === 'subscription_cycle') {
+            const customerId = typeof invoice.customer === 'string' ? invoice.customer : (invoice.customer?.id ?? null);
+            if (customerId) {
+              await deps.billing.grantCustomPlayerCredit(customerId);
+              request.log.info({ customerId }, 'custom player credit granted on renewal');
+            } else {
+              request.log.warn({ invoiceId: invoice.id }, 'invoice.paid renewal without a customer id');
+            }
+          }
+          break;
+        }
         default:
           // Unhandled event types are acknowledged, not errored —
           // Stripe retries non-2xx responses.

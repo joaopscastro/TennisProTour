@@ -6,9 +6,16 @@ import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
-import { StandardRankingPointsTable } from '@tennis-manager/domain';
+import {
+  PlayerAttributes,
+  Skill,
+  StandardRankingPointsTable,
+  SurfaceAffinities,
+  TalentPoolCandidate,
+  TalentPoolCandidateId,
+} from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
-import { buildDependencies } from '../../../composition';
+import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
@@ -17,6 +24,7 @@ const pool = new Pool({ connectionString });
 const db = drizzle(pool, { schema });
 
 let app: FastifyInstance;
+let deps: Dependencies;
 let matchLogDirectory: string;
 
 beforeAll(async () => {
@@ -28,7 +36,7 @@ beforeAll(async () => {
   // points always land inside the window, not before it.
   await db.insert(schema.gameWorlds).values({ id: 'main', season: 1, week: 52 }).onConflictDoNothing();
   matchLogDirectory = await mkdtemp(join(tmpdir(), 'api-match-logs-'));
-  const deps = buildDependencies({
+  deps = buildDependencies({
     db,
     matchLogDirectory,
     logEvent: () => {},
@@ -45,6 +53,7 @@ beforeEach(async () => {
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
+  await db.delete(schema.talentPoolCandidates);
   await db.delete(schema.managerEntitlements);
 });
 
@@ -54,11 +63,39 @@ afterAll(async () => {
   await pool.end();
 });
 
+/** Fixed baseline attributes (no rarity roll) — the pool/claim HTTP
+ * path is exercised for real via app.inject(), but generation itself
+ * is bypassed here (a candidate is seeded directly at a known
+ * attribute baseline) so downstream assertions can check exact,
+ * predictable values instead of asserting against whatever
+ * StandardPlayerGenerationPolicy happens to roll. Real generation is
+ * covered by PlayerGenerationPolicy's own test suite. */
+function fixedAttributes(base: number): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(base), forehand: Skill.of(base), backhand: Skill.of(base), volley: Skill.of(base) },
+    physical: { speed: Skill.of(base), stamina: Skill.of(base), strength: Skill.of(base) },
+    mental: { consistency: Skill.of(base), clutch: Skill.of(base) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
+/** Seeds a talent pool candidate at a fixed id/attribute baseline,
+ * then claims it through the real HTTP endpoint
+ * (POST /talent-pool/:id/claim) — the candidate's id becomes the
+ * resulting player's id, so callers can keep using the same `p1`-style
+ * ids the old direct-hire helper used. */
 async function hirePlayer(id: string, managerId: string): Promise<number> {
+  await deps.talentPoolCandidates.save(
+    TalentPoolCandidate.generate(
+      TalentPoolCandidateId(id),
+      { name: `Player ${id}`, nationality: 'BR', tier: 'common', attributes: fixedAttributes(30) },
+      { season: 1, week: 1 },
+    ),
+  );
   const response = await app.inject({
     method: 'POST',
-    url: '/players',
-    payload: { playerId: id, name: `Player ${id}`, nationality: 'BR', managerId, startingAgeInWeeks: 20 * 52 },
+    url: `/talent-pool/${id}/claim`,
+    payload: { managerId },
   });
   return response.statusCode;
 }
@@ -89,15 +126,31 @@ describe('API', () => {
     expect(await hirePlayer('p3', 'm1')).toBe(409);
   });
 
-  it('404s on a missing player and rejects an invalid hire body', async () => {
+  it('404s on a missing player, and rejects an invalid claim/custom-player body before touching any use case', async () => {
     expect((await app.inject({ method: 'GET', url: '/players/nope' })).statusCode).toBe(404);
 
-    const invalid = await app.inject({
+    const invalidClaim = await app.inject({
       method: 'POST',
-      url: '/players',
-      payload: { playerId: 'p1', name: 'X' }, // managerId + age missing
+      url: '/talent-pool/does-not-matter/claim',
+      payload: {}, // managerId missing
     });
-    expect(invalid.statusCode).toBe(400);
+    expect(invalidClaim.statusCode).toBe(400);
+
+    const invalidCustom = await app.inject({
+      method: 'POST',
+      url: '/players/custom',
+      payload: { managerId: 'm1', name: 'X' }, // nationality missing
+    });
+    expect(invalidCustom.statusCode).toBe(400);
+  });
+
+  it('claiming a talent pool candidate that does not exist is a 409, not a 404 (it is a conflict over availability, not a missing resource)', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/talent-pool/does-not-exist/claim',
+      payload: { managerId: 'm1' },
+    });
+    expect(response.statusCode).toBe(409);
   });
 
   it('opens a tournament, simulates a match, and exposes the outcome and replay URL', async () => {
@@ -265,6 +318,83 @@ describe('API', () => {
   it("reports a manager's entitlement tier", async () => {
     const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free' });
+    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0 });
+  });
+
+  it('lists available talent pool candidates and excludes one once claimed', async () => {
+    await deps.talentPoolCandidates.save(
+      TalentPoolCandidate.generate(
+        TalentPoolCandidateId('tp1'),
+        { name: 'Pool Player', nationality: 'ES', tier: 'strong', attributes: fixedAttributes(50) },
+        { season: 1, week: 1 },
+      ),
+    );
+
+    const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
+    expect(listed.statusCode).toBe(200);
+    const candidates = listed.json();
+    expect(candidates).toHaveLength(1);
+    expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', tier: 'strong' });
+    expect(candidates[0].attributes.technical.serve).toBe(50);
+
+    const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm1' } });
+    expect(claimed.statusCode).toBe(201);
+    expect(claimed.json().name).toBe('Pool Player');
+
+    expect((await app.inject({ method: 'GET', url: '/talent-pool' })).json()).toEqual([]);
+
+    // A second claim attempt on the now-claimed candidate is a conflict.
+    const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm2' } });
+    expect(secondClaim.statusCode).toBe(409);
+  });
+
+  it('rejects creating a custom player for a non-Pro manager', async () => {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/players/custom',
+      payload: { managerId: 'free-manager', name: 'Custom Kid', nationality: 'FR' },
+    });
+    expect(response.statusCode).toBe(409);
+  });
+
+  it('creates a custom player for a Pro manager with credits, spending exactly one, using generated (not manager-chosen) attributes', async () => {
+    await db
+      .insert(schema.managerEntitlements)
+      .values({ managerId: 'pro-manager', status: 'active', customPlayerCredits: 2 });
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/players/custom',
+      payload: { managerId: 'pro-manager', name: 'Custom Kid', nationality: 'FR' },
+    });
+    expect(created.statusCode).toBe(201);
+    const dto = created.json();
+    expect(dto.name).toBe('Custom Kid');
+    expect(dto.nationality).toBe('FR');
+    expect(dto.managerId).toBe('pro-manager');
+    // Real StandardPlayerGenerationPolicy rolled these — not the fixed
+    // 30 baseline the talent-pool test helper above uses, and not
+    // caller-supplied — just asserting they're valid rolled skills.
+    expect(dto.attributes.technical.serve).toBeGreaterThanOrEqual(0);
+    expect(dto.attributes.technical.serve).toBeLessThanOrEqual(100);
+
+    const entitlement = await app.inject({ method: 'GET', url: '/managers/pro-manager/entitlement' });
+    expect(entitlement.json().customPlayerCredits).toBe(1); // spent exactly one of the two granted
+
+    // A second and third create: the second still has a credit, the
+    // third has none left.
+    const second = await app.inject({
+      method: 'POST',
+      url: '/players/custom',
+      payload: { managerId: 'pro-manager', name: 'Second Kid', nationality: 'FR' },
+    });
+    expect(second.statusCode).toBe(201);
+
+    const third = await app.inject({
+      method: 'POST',
+      url: '/players/custom',
+      payload: { managerId: 'pro-manager', name: 'Third Kid', nationality: 'FR' },
+    });
+    expect(third.statusCode).toBe(409);
   });
 });

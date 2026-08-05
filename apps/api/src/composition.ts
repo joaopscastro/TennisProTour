@@ -3,9 +3,12 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
 import { AcceleratedDeclinePolicy, PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
 import { StandardRankingPointsTable } from '@tennis-manager/domain';
+import { StandardPlayerGenerationPolicy } from '@tennis-manager/domain';
 import { WorldId } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
-import { HirePlayerUseCase } from '@tennis-manager/application';
+import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
+import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
+import { RefreshTalentPoolUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -19,11 +22,13 @@ import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerReposi
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
 import { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
+import { DrizzleTalentPoolCandidateRepository } from './adapters/outbound/DrizzleTalentPoolCandidateRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
 import { LoggingEventPublisher } from './adapters/outbound/LoggingEventPublisher';
 import { MathRandomSource } from './adapters/outbound/MathRandomSource';
+import { CryptoIdGenerator } from './adapters/outbound/CryptoIdGenerator';
 
 export interface CompositionOptions {
   db: Db;
@@ -55,9 +60,13 @@ export interface Dependencies {
   worlds: DrizzleGameWorldRepository;
   rankingLedger: DrizzleRankingLedgerRepository;
   rankPosition: RankPositionQuery;
+  talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   rosterDashboard: DrizzleRosterDashboardQuery;
   billing: StripeBillingAdapter;
-  hirePlayer: HirePlayerUseCase;
+  idGenerator: CryptoIdGenerator;
+  claimTalentPoolCandidate: ClaimTalentPoolCandidateUseCase;
+  createCustomPlayer: CreateCustomPlayerUseCase;
+  refreshTalentPool: RefreshTalentPoolUseCase;
   openTournament: OpenTournamentUseCase;
   openRegistration: OpenRegistrationUseCase;
   registerEntrant: RegisterEntrantUseCase;
@@ -100,6 +109,14 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const worlds = new DrizzleGameWorldRepository(options.db);
   const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID);
+  const talentPoolCandidates = new DrizzleTalentPoolCandidateRepository(options.db);
+  const idGenerator = new CryptoIdGenerator();
+  // A separate RandomSource instance from the match simulator's — both
+  // just wrap Math.random() statelessly, so sharing wouldn't be wrong,
+  // but keeping them distinct avoids implying any ordering coupling
+  // between match simulation and player generation.
+  const generationPolicy = new StandardPlayerGenerationPolicy();
+  const generationRandom = new MathRandomSource();
   // A fresh StandardAgingPolicy instance, independent of the one wired
   // into standardAging below — it's stateless, and the roster
   // dashboard's stage-transition estimate is always against the BASE
@@ -129,9 +146,13 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     worlds,
     rankingLedger,
     rankPosition,
+    talentPoolCandidates,
     rosterDashboard,
     billing,
-    hirePlayer: new HirePlayerUseCase(players, events, billing),
+    idGenerator,
+    claimTalentPoolCandidate: new ClaimTalentPoolCandidateUseCase(talentPoolCandidates, players, events, billing),
+    createCustomPlayer: new CreateCustomPlayerUseCase(players, events, billing, generationPolicy, generationRandom),
+    refreshTalentPool: new RefreshTalentPoolUseCase(talentPoolCandidates, worlds, generationPolicy, generationRandom, idGenerator),
     openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),
     openRegistration: new OpenRegistrationUseCase(tournaments),
     registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),

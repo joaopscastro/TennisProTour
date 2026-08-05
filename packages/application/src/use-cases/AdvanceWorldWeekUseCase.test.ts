@@ -40,6 +40,14 @@ class FakeBillingPort implements BillingPort {
   async createProCheckoutSession(): Promise<{ url: string }> {
     return { url: 'https://checkout.test/session' };
   }
+
+  async customPlayerCreditBalance(): Promise<number> {
+    return 0;
+  }
+
+  async consumeCustomPlayerCredit(): Promise<boolean> {
+    return false;
+  }
 }
 
 class InMemoryGameWorldRepository implements GameWorldRepository {

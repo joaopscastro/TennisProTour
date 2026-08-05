@@ -1,6 +1,7 @@
-import { ManagerId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { GameWorld, ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId, WorldId } from '@tennis-manager/domain';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
+import { MathRandomSource } from '../adapters/outbound/MathRandomSource';
 
 /**
  * Dev seed script: populates the docker-compose Postgres with enough
@@ -45,22 +46,42 @@ async function main(): Promise<void> {
     logEvent: (message, payload) => console.log(JSON.stringify({ msg: message, ...payload })),
   });
 
+  // Hiring is pool-based now (see docs/CLAUDE.md) — there's no more
+  // "hire any player on demand" use case. This script still needs
+  // predictable ids for the demo instructions below (bracket URLs,
+  // "manager id seed-m1"), so it seeds talent pool candidates directly
+  // with fixed ids rather than going through RefreshTalentPoolUseCase's
+  // random batch/random-id generation, then claims each one through
+  // the REAL ClaimTalentPoolCandidateUseCase — the actual
+  // ownership-transfer step this script cares about demonstrating.
+  const worldId = WorldId(process.env.WORLD_ID ?? 'main');
+  if (!(await deps.worlds.findById(worldId))) {
+    await deps.worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+  }
+  const generationPolicy = new StandardPlayerGenerationPolicy();
+  const random = new MathRandomSource();
+
   // eslint-disable-next-line no-console
-  console.log(`Hiring ${PLAYER_COUNT} players...`);
+  console.log(`Seeding and claiming ${PLAYER_COUNT} talent pool candidates...`);
   const entrants: Array<{ playerId: string; seed: number; managerId: string }> = [];
   for (let i = 1; i <= PLAYER_COUNT; i++) {
     const playerId = `seed-p${i}`;
     const managerId = `seed-m${Math.ceil(i / PLAYERS_PER_MANAGER)}`;
-    await deps.hirePlayer.execute({
-      playerId: PlayerId(playerId),
-      name: `Seed Player ${i}`,
-      nationality: NATIONALITIES[(i - 1) % NATIONALITIES.length],
+    const generated = generationPolicy.generate(random);
+    await deps.talentPoolCandidates.save(
+      TalentPoolCandidate.generate(
+        TalentPoolCandidateId(playerId),
+        { ...generated, name: `Seed Player ${i}`, nationality: NATIONALITIES[(i - 1) % NATIONALITIES.length] },
+        { season: 1, week: 1 },
+      ),
+    );
+    await deps.claimTalentPoolCandidate.execute({
+      candidateId: TalentPoolCandidateId(playerId),
       managerId: ManagerId(managerId),
-      startingAgeInWeeks: (18 + (i % 10)) * 52,
     });
     entrants.push({ playerId, seed: i, managerId });
     // eslint-disable-next-line no-console
-    console.log(`  hired ${playerId} (manager ${managerId})`);
+    console.log(`  claimed ${playerId} (manager ${managerId}, tier: ${generated.tier})`);
   }
 
   // eslint-disable-next-line no-console

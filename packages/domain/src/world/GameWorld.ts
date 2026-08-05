@@ -2,6 +2,18 @@ import { GameWeek, WorldId } from '../shared/ids';
 
 export const WEEKS_PER_SEASON = 52;
 
+/** Signed number of in-game weeks from `earlier` to `later` (negative
+ * if `later` is actually the earlier of the two) — plain integer
+ * arithmetic over each GameWeek's absolute week index
+ * (season * WEEKS_PER_SEASON + week), so callers never hand-roll
+ * season/week carry logic themselves. Shared by anything that needs a
+ * rolling-window comparison against GameWeek (ranking's 52-week
+ * window, the talent pool's 2-week expiry). */
+export function weeksBetween(earlier: GameWeek, later: GameWeek): number {
+  const absolute = (week: GameWeek) => week.season * WEEKS_PER_SEASON + week.week;
+  return absolute(later) - absolute(earlier);
+}
+
 export interface GameWorldProps {
   id: WorldId;
   currentWeek: GameWeek;

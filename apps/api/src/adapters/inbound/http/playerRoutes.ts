@@ -1,52 +1,13 @@
 import { FastifyInstance } from 'fastify';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
-import { Player, SkillCluster, Surface, TrainingFocus } from '@tennis-manager/domain';
+import { SkillCluster, Surface, TrainingFocus } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
+import { toPlayerDto } from './playerDto';
 
-/** Thin serialization only — no domain rules here. */
-function toPlayerDto(player: Player) {
-  const { technical, physical, mental, surfaceAffinities } = player.attributes;
-  return {
-    id: player.id,
-    name: player.name,
-    nationality: player.nationality,
-    managerId: player.managerId,
-    ageInWeeks: player.ageInWeeks,
-    stage: player.stage,
-    fatigue: player.fatigue,
-    currentFocus: player.currentFocus,
-    attributes: {
-      technical: {
-        serve: technical.serve.value,
-        forehand: technical.forehand.value,
-        backhand: technical.backhand.value,
-        volley: technical.volley.value,
-      },
-      physical: {
-        speed: physical.speed.value,
-        stamina: physical.stamina.value,
-        strength: physical.strength.value,
-      },
-      mental: {
-        consistency: mental.consistency.value,
-        clutch: mental.clutch.value,
-      },
-      surfaceAffinities: {
-        clay: surfaceAffinities.get('clay'),
-        grass: surfaceAffinities.get('grass'),
-        hard: surfaceAffinities.get('hard'),
-        indoor: surfaceAffinities.get('indoor'),
-      },
-    },
-  };
-}
-
-interface HirePlayerBody {
-  playerId: string;
+interface CreateCustomPlayerBody {
+  managerId: string;
   name: string;
   nationality: string;
-  managerId: string;
-  startingAgeInWeeks: number;
 }
 
 interface TrainingFocusBody {
@@ -79,35 +40,37 @@ const trainingFocusSchema = {
 } as const;
 
 export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): void {
-  app.post<{ Body: HirePlayerBody }>(
-    '/players',
+  // Pro-only, credit-gated: bypasses the talent pool entirely (choose
+  // your own name/nationality instead of claiming a generated
+  // candidate) but NOT the same generation policy — see
+  // CreateCustomPlayerUseCase's doc comment on why that's a hard
+  // fairness constraint, not a simplification. The id is minted here
+  // (never client-supplied) via the same IdGeneratorPort the talent
+  // pool's own candidates use.
+  app.post<{ Body: CreateCustomPlayerBody }>(
+    '/players/custom',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['playerId', 'name', 'nationality', 'managerId', 'startingAgeInWeeks'],
+          required: ['managerId', 'name', 'nationality'],
           properties: {
-            playerId: { type: 'string', minLength: 1 },
+            managerId: { type: 'string', minLength: 1 },
             name: { type: 'string', minLength: 1 },
             nationality: { type: 'string', minLength: 1 },
-            managerId: { type: 'string', minLength: 1 },
-            startingAgeInWeeks: { type: 'integer', minimum: 0 },
           },
           additionalProperties: false,
         },
       },
     },
     async (request, reply) => {
-      await deps.hirePlayer.execute({
-        playerId: PlayerId(request.body.playerId),
+      const player = await deps.createCustomPlayer.execute({
+        playerId: PlayerId(deps.idGenerator.generate()),
+        managerId: ManagerId(request.body.managerId),
         name: request.body.name,
         nationality: request.body.nationality,
-        managerId: ManagerId(request.body.managerId),
-        startingAgeInWeeks: request.body.startingAgeInWeeks,
       });
-
-      const player = await deps.players.findById(PlayerId(request.body.playerId));
-      return reply.code(201).send(toPlayerDto(player!));
+      return reply.code(201).send(toPlayerDto(player));
     },
   );
 
@@ -174,11 +137,15 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
 
   // Lets the frontend know whether a manager is on Manager Pro (4 roster
   // slots) or the free tier (2), without exposing any other billing
-  // detail — just the one bit of entitlement state the roster screen
-  // needs to render its slot indicator and upsell copy correctly.
+  // detail — just the bits of entitlement state the roster screen
+  // needs to render its slot indicator, upsell copy, and "Create
+  // custom player" credit count correctly.
   app.get<{ Params: { id: string } }>('/managers/:id/entitlement', async (request) => {
     const managerId = ManagerId(request.params.id);
-    const isPro = await deps.billing.isProSubscriber(managerId);
-    return { managerId, tier: isPro ? 'pro' : 'free' };
+    const [isPro, customPlayerCredits] = await Promise.all([
+      deps.billing.isProSubscriber(managerId),
+      deps.billing.customPlayerCreditBalance(managerId),
+    ]);
+    return { managerId, tier: isPro ? 'pro' : 'free', customPlayerCredits };
   });
 }

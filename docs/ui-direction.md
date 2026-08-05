@@ -44,8 +44,23 @@ CLAUDE.md.
   no drill-in required. Release/cut a player requires drilling in.
 - Sort options include fatigue and stage/age, not just alphabetical.
 - Real empty state for a brand-new manager: "Your roster is empty,"
-  one-line explanation, "Hire Your First Player" CTA — not a blank
-  table.
+  one-line explanation, "Browse Talent Pool" CTA — not a blank table.
+- **Acquiring a player is pool-based and scarce, not instant/on-demand
+  — this superseded an earlier direct "Hire Player" form design, don't
+  reintroduce it.** "Browse talent pool" opens a list of
+  already-generated, unclaimed candidates (name, flag, rarity tier
+  badge — Common/Strong/Exceptional — and OVR), shared by every
+  manager, refreshed weekly. Claiming one is a real race against other
+  managers: a candidate can disappear (already claimed) between
+  opening the list and clicking claim, and that failure is shown
+  inline, not silently retried or hidden. A Manager Pro manager with at
+  least one custom-player credit additionally sees a "Create custom
+  player (N)" button next to it — a name/nationality-only form (no
+  attribute input at all) that shows the remaining credit count and
+  spends one per use. Never show it to a free-tier manager, and never
+  show it to a Pro manager with 0 credits (matching the "state the
+  tradeoff/cost explicitly" convention above, not a bare disabled
+  button with no explanation).
 
 ## Tournament bracket
 - Single-elimination bracket, coded by the tournament's surface.

@@ -6,6 +6,7 @@ import { Dependencies } from './composition';
 import { registerPlayerRoutes } from './adapters/inbound/http/playerRoutes';
 import { registerTournamentRoutes } from './adapters/inbound/http/tournamentRoutes';
 import { registerBillingRoutes } from './adapters/inbound/http/billingRoutes';
+import { registerTalentPoolRoutes } from './adapters/inbound/http/talentPoolRoutes';
 
 export interface AppOptions {
   deps: Dependencies;
@@ -59,6 +60,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerPlayerRoutes(app, options.deps);
   registerTournamentRoutes(app, options.deps);
   registerBillingRoutes(app, options.deps);
+  registerTalentPoolRoutes(app, options.deps);
 
   app.setErrorHandler<Error & { statusCode?: number }>((error, request, reply) => {
     // Fastify schema-validation errors arrive with a statusCode; keep it.

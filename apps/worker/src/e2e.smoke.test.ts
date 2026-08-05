@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import IORedis from 'ioredis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { ManagerId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId } from '@tennis-manager/domain';
 import { buildDependencies, createDb, Dependencies, schema } from '@tennis-manager/api';
 import { makeSimulateDueMatchesHandler } from './jobs/handlers';
 
@@ -54,6 +54,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
     await db.delete(schema.tournamentEntries);
     await db.delete(schema.tournaments);
     await db.delete(schema.players);
+    await db.delete(schema.talentPoolCandidates);
 
     matchLogDirectory = await mkdtemp(join(tmpdir(), 'e2e-smoke-'));
     deps = buildDependencies({ db, matchLogDirectory, logEvent: () => {} });
@@ -80,14 +81,29 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
   it(
     'drives the full path end to end',
     async () => {
-      // 1. Hire players — via the same use case the HTTP layer calls.
+      // 1. Populate the talent pool with fixed-id candidates, then
+      // claim each one — via the same use case the HTTP layer calls
+      // (ClaimTalentPoolCandidateUseCase). Hiring is pool-based now
+      // (see docs/CLAUDE.md), so there's no more direct "hire any
+      // player" use case; seeding fixed candidate ids directly (rather
+      // than a real RefreshTalentPoolUseCase random batch) keeps this
+      // test's downstream ids predictable, exactly like apps/api's own
+      // seed script does for the same reason.
+      const generationPolicy = new StandardPlayerGenerationPolicy();
+      const random = { next: () => Math.random() };
       for (let i = 1; i <= PLAYER_COUNT; i++) {
-        await deps.hirePlayer.execute({
-          playerId: PlayerId(`e2e-p${i}`),
-          name: `E2E Player ${i}`,
-          nationality: 'BR',
+        const candidateId = TalentPoolCandidateId(`e2e-p${i}`);
+        const generated = generationPolicy.generate(random);
+        await deps.talentPoolCandidates.save(
+          TalentPoolCandidate.generate(
+            candidateId,
+            { ...generated, name: `E2E Player ${i}`, nationality: 'BR' },
+            { season: 1, week: 1 },
+          ),
+        );
+        await deps.claimTalentPoolCandidate.execute({
+          candidateId,
           managerId: ManagerId(`e2e-m${Math.ceil(i / 2)}`), // 2/manager: within the free-tier cap
-          startingAgeInWeeks: 20 * 52,
         });
       }
       const hired = await deps.players.findById(PlayerId('e2e-p1'));

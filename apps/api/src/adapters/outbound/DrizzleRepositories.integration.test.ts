@@ -11,9 +11,11 @@ import {
 } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
+import { GeneratedPlayer, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
+import { DrizzleTalentPoolCandidateRepository } from './DrizzleTalentPoolCandidateRepository';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 
@@ -41,7 +43,18 @@ beforeEach(async () => {
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
+  await db.delete(schema.talentPoolCandidates); // no FKs, order doesn't matter
 });
+
+function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPlayer {
+  return {
+    name: 'Marta Silva',
+    nationality: 'BR',
+    tier: 'common',
+    attributes: attributes(30),
+    ...overrides,
+  };
+}
 
 afterAll(async () => {
   await pool.end();
@@ -195,4 +208,86 @@ describe('DrizzleTournamentRepository', () => {
     await tournamentRepository.save(original);
     expect(await tournamentRepository.findOpenForRegistration()).toHaveLength(0);
   });
+});
+
+describe('DrizzleTalentPoolCandidateRepository', () => {
+  const repository = new DrizzleTalentPoolCandidateRepository(db);
+
+  it('round-trips a generated candidate, including tier and attributes', async () => {
+    const candidate = TalentPoolCandidate.generate(
+      TalentPoolCandidateId('tp1'),
+      generatedPlayer({ tier: 'exceptional' }),
+      { season: 2, week: 7 },
+    );
+    await repository.save(candidate);
+
+    const loaded = await repository.findById(TalentPoolCandidateId('tp1'));
+    expect(loaded).not.toBeNull();
+    expect(loaded!.name).toBe('Marta Silva');
+    expect(loaded!.nationality).toBe('BR');
+    expect(loaded!.tier).toBe('exceptional');
+    expect(loaded!.generatedAtWeek).toEqual({ season: 2, week: 7 });
+    expect(loaded!.status).toBe('available');
+    expect(loaded!.attributes.technical.serve.value).toBe(30);
+
+    expect(await repository.findAvailable()).toHaveLength(1);
+  });
+
+  it('findAvailable excludes claimed and expired candidates', async () => {
+    const available = TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 });
+    const claimed = TalentPoolCandidate.generate(TalentPoolCandidateId('tp2'), generatedPlayer(), { season: 1, week: 1 });
+    claimed.markClaimed(ManagerId('m1'));
+    const expired = TalentPoolCandidate.generate(TalentPoolCandidateId('tp3'), generatedPlayer(), { season: 1, week: 1 });
+    expired.markExpired();
+    await Promise.all([repository.save(available), repository.save(claimed), repository.save(expired)]);
+
+    const result = await repository.findAvailable();
+    expect(result.map((c) => c.id)).toEqual(['tp1']);
+  });
+
+  it('claimIfAvailable atomically transitions an available candidate to claimed, and refuses a second claim', async () => {
+    await repository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 }));
+
+    const firstClaim = await repository.claimIfAvailable(TalentPoolCandidateId('tp1'), ManagerId('m1'));
+    expect(firstClaim).not.toBeNull();
+    expect(firstClaim!.status).toBe('claimed');
+    expect(firstClaim!.claimedByManagerId).toBe(ManagerId('m1'));
+
+    const secondClaim = await repository.claimIfAvailable(TalentPoolCandidateId('tp1'), ManagerId('m2'));
+    expect(secondClaim).toBeNull();
+
+    // The row itself still shows the FIRST manager as the claimant —
+    // the second (failed) attempt didn't overwrite anything.
+    const reloaded = await repository.findById(TalentPoolCandidateId('tp1'));
+    expect(reloaded!.claimedByManagerId).toBe(ManagerId('m1'));
+  });
+
+  it('claimIfAvailable returns null for a candidate id that does not exist', async () => {
+    const result = await repository.claimIfAvailable(TalentPoolCandidateId('does-not-exist'), ManagerId('m1'));
+    expect(result).toBeNull();
+  });
+
+  it(
+    'under real concurrent claim attempts against actual Postgres, exactly one of many simultaneous claims succeeds',
+    async () => {
+      await repository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 }));
+
+      // 10 "managers" all fire claimIfAvailable at the same candidate
+      // at once, via 10 genuinely separate connections from the pool —
+      // this is the real thing the in-memory fake in
+      // ClaimTalentPoolCandidateUseCase.test.ts can't actually prove:
+      // that Postgres's own atomic conditional UPDATE (not JS's
+      // single-threadedness) is what prevents a double claim.
+      const attempts = await Promise.all(
+        Array.from({ length: 10 }, (_, i) => repository.claimIfAvailable(TalentPoolCandidateId('tp1'), ManagerId(`m${i}`))),
+      );
+
+      const successes = attempts.filter((result) => result !== null);
+      expect(successes).toHaveLength(1);
+
+      const reloaded = await repository.findById(TalentPoolCandidateId('tp1'));
+      expect(reloaded!.status).toBe('claimed');
+      expect(reloaded!.claimedByManagerId).toBe(successes[0]!.claimedByManagerId);
+    },
+  );
 });

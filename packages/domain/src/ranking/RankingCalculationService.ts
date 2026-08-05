@@ -1,21 +1,9 @@
 import { GameWeek } from '../shared/ids';
-import { WEEKS_PER_SEASON } from '../world/GameWorld';
+import { weeksBetween } from '../world/GameWorld';
 import { RankingLedgerEntry } from './RankingLedgerEntry';
 
 const RANKING_WINDOW_WEEKS = 52;
 const BEST_RESULTS_CAP = 18;
-
-/** Converts a GameWeek to a single ever-increasing integer, so "weeks
- * between two GameWeeks" is plain subtraction instead of season/week
- * carry arithmetic. Only meaningful as a relative distance — the
- * absolute value has no calendar meaning. */
-function absoluteWeekIndex(week: GameWeek): number {
-  return week.season * WEEKS_PER_SEASON + week.week;
-}
-
-function weeksSince(earned: GameWeek, current: GameWeek): number {
-  return absoluteWeekIndex(current) - absoluteWeekIndex(earned);
-}
 
 /**
  * Computes a player's current ranking total from their full ledger —
@@ -35,7 +23,7 @@ function weeksSince(earned: GameWeek, current: GameWeek): number {
 export class RankingCalculationService {
   calculateTotal(ledger: ReadonlyArray<RankingLedgerEntry>, currentWeek: GameWeek): number {
     const withinWindow = ledger.filter((entry) => {
-      const age = weeksSince(entry.weekEarned, currentWeek);
+      const age = weeksBetween(entry.weekEarned, currentWeek);
       return age >= 0 && age <= RANKING_WINDOW_WEEKS;
     });
 

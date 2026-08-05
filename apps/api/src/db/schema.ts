@@ -46,6 +46,10 @@ export const skillCluster = pgEnum('skill_cluster', ['technical', 'physical', 'm
  * not json) — training focus is exactly one of a fixed small set of
  * values, never freeform data. */
 export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'skill']);
+/** How rare a generated player's skill band is — see
+ * PlayerGenerationPolicy.PlayerRarityTier. */
+export const playerRarityTier = pgEnum('player_rarity_tier', ['common', 'strong', 'exceptional']);
+export const talentPoolCandidateStatus = pgEnum('talent_pool_candidate_status', ['available', 'claimed', 'expired']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -69,6 +73,12 @@ export const managerEntitlements = pgTable('manager_entitlements', {
   stripeCustomerId: text('stripe_customer_id'),
   stripeSubscriptionId: text('stripe_subscription_id'),
   status: text('status', { enum: ['active', 'canceled'] }).notNull(),
+  /** Custom-player-creation credit balance — +1 on each confirmed
+   * Stripe subscription *renewal* (StripeBillingAdapter.
+   * grantCustomPlayerCredit, fired from the invoice.paid webhook when
+   * billing_reason is subscription_cycle, never on the initial
+   * signup), -1 each time CreateCustomPlayerUseCase spends one. */
+  customPlayerCredits: integer('custom_player_credits').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -139,6 +149,55 @@ export const players = pgTable('players', {
   affinityGrass: integer('affinity_grass').notNull(),
   affinityHard: integer('affinity_hard').notNull(),
   affinityIndoor: integer('affinity_indoor').notNull(),
+
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Generated players sitting unowned, visible to every manager, until
+ * claimed or expired (see TalentPoolCandidate). Attribute columns
+ * mirror `players` 1:1 (same flat-column convention, same reasoning),
+ * since a claimed candidate's attributes become a real player's
+ * attributes verbatim.
+ *
+ * `status` plus the conditional UPDATE in
+ * DrizzleTalentPoolCandidateRepository.claimIfAvailable() (`WHERE
+ * status = 'available'`) is the entire race-safety mechanism for
+ * claiming — no row-level locking or SELECT ... FOR UPDATE needed,
+ * since a single UPDATE's WHERE clause is itself atomic in Postgres.
+ */
+export const talentPoolCandidates = pgTable('talent_pool_candidates', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  nationality: text('nationality').notNull(),
+  tier: playerRarityTier('tier').notNull(),
+
+  serve: integer('serve').notNull(),
+  forehand: integer('forehand').notNull(),
+  backhand: integer('backhand').notNull(),
+  volley: integer('volley').notNull(),
+  speed: integer('speed').notNull(),
+  stamina: integer('stamina').notNull(),
+  strength: integer('strength').notNull(),
+  consistency: integer('consistency').notNull(),
+  clutch: integer('clutch').notNull(),
+  affinityClay: integer('affinity_clay').notNull(),
+  affinityGrass: integer('affinity_grass').notNull(),
+  affinityHard: integer('affinity_hard').notNull(),
+  affinityIndoor: integer('affinity_indoor').notNull(),
+
+  /** GameWeek value object flattened, same convention as elsewhere in
+   * this schema — when this candidate was generated, the anchor the
+   * 2-week expiry sweep compares against. */
+  seasonGenerated: integer('season_generated').notNull(),
+  weekGenerated: integer('week_generated').notNull(),
+
+  status: talentPoolCandidateStatus('status').notNull().default('available'),
+  /** No FK: managers aren't a stored aggregate anywhere in this schema
+   * (manager_entitlements.manager_id is likewise a plain opaque id),
+   * same convention as players.manager_id. */
+  claimedByManagerId: text('claimed_by_manager_id'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

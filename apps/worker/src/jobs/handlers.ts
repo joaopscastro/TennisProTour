@@ -20,7 +20,17 @@ export interface AdvanceWorldJobData {
 export function makeAdvanceWorldHandler(deps: Dependencies) {
   return async (data: AdvanceWorldJobData) => {
     const tickKey = data.tickKey ?? isoWeekTickKey(new Date());
-    return deps.advanceWorldWeek.execute({ worldId: WorldId(data.worldId), tickKey });
+    const worldId = WorldId(data.worldId);
+    const result = await deps.advanceWorldWeek.execute({ worldId, tickKey });
+    // Talent pool refresh piggybacks on the SAME weekly tick as aging,
+    // gated on `advanced` rather than carrying its own idempotency
+    // key — a duplicate/retried tick that didn't actually move the
+    // world clock forward shouldn't refresh the pool either. See
+    // RefreshTalentPoolUseCase's doc comment.
+    if (result.advanced) {
+      await deps.refreshTalentPool.execute({ worldId });
+    }
+    return result;
   };
 }
 

@@ -50,6 +50,13 @@
       "when": 1785858558551,
       "tag": "0006_wild_snowbird",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785922972632,
+      "tag": "0007_nifty_revanche",
+      "breakpoints": true
     }
   ]
 }

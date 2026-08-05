@@ -1,24 +1,25 @@
 'use client';
 
 import { useState } from 'react';
-import { PlayerDto, hirePlayer } from '../lib/api';
-import { WEEKS_PER_SEASON } from '../lib/format';
+import { PlayerDto, createCustomPlayer } from '../lib/api';
 
 interface Props {
   managerId: string;
+  creditsRemaining: number;
   onClose: () => void;
-  onHired: (player: PlayerDto) => void;
+  onCreated: (player: PlayerDto) => void;
 }
 
 /**
- * Real hire form for the roster dashboard's "Hire player" action —
- * replaces the earlier window.prompt()-based flow. Deliberately
- * minimal: the actual scouting system (discovery, imperfect
- * information) isn't built yet (see the original design brief), so
- * this stays a direct "name your player" action rather than
- * over-promising a scouting mechanic that doesn't exist.
+ * Pro-only, credit-gated alternative to the talent pool: choose your
+ * own name/nationality instead of claiming a generated candidate.
+ * Deliberately does NOT let the manager touch attributes at all — they
+ * come from the exact same generation policy any pool candidate uses
+ * (see CreateCustomPlayerUseCase's doc comment on the API side). This
+ * modal only ever renders for a Pro manager with creditsRemaining > 0
+ * (see page.tsx) — the button that opens it is hidden otherwise.
  */
-export function HirePlayerModal({ managerId, onClose, onHired }: Props) {
+export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [nationality, setNationality] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -33,14 +34,8 @@ export function HirePlayerModal({ managerId, onClose, onHired }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      const player = await hirePlayer({
-        playerId: `p-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-        name: name.trim(),
-        nationality: nationality.toUpperCase(),
-        managerId,
-        startingAgeInWeeks: 18 * WEEKS_PER_SEASON,
-      });
-      onHired(player);
+      const player = await createCustomPlayer({ managerId, name: name.trim(), nationality: nationality.toUpperCase() });
+      onCreated(player);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
@@ -59,10 +54,17 @@ export function HirePlayerModal({ managerId, onClose, onHired }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[16px] font-bold" style={{ color: 'oklch(20% 0.006 75)' }}>
-          Hire a player
+          Create a custom player
         </div>
         <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'oklch(50% 0.006 75)' }}>
-          A direct hire, not scouted — a full scouting system is on the roadmap.
+          Skip the talent pool and name your own player — attributes are still randomly generated the same way a pool
+          candidate&apos;s are, no stat advantage.
+        </div>
+        <div
+          className="mb-4 text-[12px] font-semibold rounded-[6px] px-3 py-2 inline-block"
+          style={{ background: 'oklch(93% 0.03 75)', color: 'oklch(38% 0.1 60)' }}
+        >
+          {creditsRemaining} custom player credit{creditsRemaining === 1 ? '' : 's'} remaining
         </div>
 
         {error && (
@@ -119,7 +121,7 @@ export function HirePlayerModal({ managerId, onClose, onHired }: Props) {
             className="px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: 'oklch(20% 0.006 75)' }}
           >
-            {submitting ? 'Hiring…' : 'Hire player'}
+            {submitting ? 'Creating…' : 'Create player (1 credit)'}
           </button>
         </div>
       </form>
