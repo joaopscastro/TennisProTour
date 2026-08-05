@@ -1,5 +1,5 @@
 import { PlayerAttributes } from './PlayerAttributes';
-import { GeneratedPlayer, PlayerRarityTier } from './PlayerGenerationPolicy';
+import { GeneratedPlayer, PlayerRarityTier, PotentialTier } from './PlayerGenerationPolicy';
 import { GameWeek, ManagerId, TalentPoolCandidateId } from '../shared/ids';
 import { weeksBetween } from '../world/GameWorld';
 
@@ -15,6 +15,16 @@ export interface TalentPoolCandidateProps {
   nationality: string;
   tier: PlayerRarityTier;
   attributes: PlayerAttributes;
+  /** The real, hidden ceiling — see GeneratedPlayer.potentialCeiling's
+   * doc comment. Carried on the candidate so it transfers unchanged
+   * into the resulting Player once claimed (ClaimTalentPoolCandidateUseCase
+   * reads it off `claimed.potentialCeiling`), but MUST NEVER be
+   * serialized by any adapter that turns a candidate into an API
+   * response — only `potentialTier` below is for that. */
+  potentialCeiling: number;
+  /** The noisy, coarse signal scouting actually exposes — see
+   * GeneratedPlayer.potentialTier's doc comment. */
+  potentialTier: PotentialTier;
   generatedAtWeek: GameWeek;
   status: TalentPoolCandidateStatus;
   claimedByManagerId: ManagerId | null;
@@ -54,6 +64,8 @@ export class TalentPoolCandidate {
       nationality: generated.nationality,
       tier: generated.tier,
       attributes: generated.attributes,
+      potentialCeiling: generated.potentialCeiling,
+      potentialTier: generated.potentialTier,
       generatedAtWeek,
       status: 'available',
       claimedByManagerId: null,
@@ -83,6 +95,17 @@ export class TalentPoolCandidate {
 
   get attributes(): PlayerAttributes {
     return this.props.attributes;
+  }
+
+  /** Hidden — see TalentPoolCandidateProps.potentialCeiling's doc
+   * comment. Callers converting a claimed candidate into a Player need
+   * this; HTTP-facing DTO mappers must never call it. */
+  get potentialCeiling(): number {
+    return this.props.potentialCeiling;
+  }
+
+  get potentialTier(): PotentialTier {
+    return this.props.potentialTier;
   }
 
   get generatedAtWeek(): GameWeek {

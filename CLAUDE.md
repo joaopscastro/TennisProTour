@@ -101,6 +101,37 @@ this:
   locking) guarantees exactly one winner. This is proven by a real
   integration test that fires concurrent claims at actual Postgres, not
   just an in-memory fake.
+- **Scouting is a real page (`/scouting`, fulfilling the sidebar item
+  that used to say "SOON"), and it has a real hidden/observable split —
+  read this before touching `PlayerGenerationPolicy` again.** Every
+  generated player also gets a `potentialCeiling`: a hidden number
+  (skill-scale, anchored to the rarity tier's own band so a player's
+  ceiling is never below what they can already do, with genuinely
+  independent headroom on top) capping how far training can grow their
+  skill clusters — see `TrainingPolicy.applyPotentialDiminishingReturns`
+  and `Player.applyTraining`, which taper a training session's delta
+  linearly to zero as a skill cluster's current average nears the
+  ceiling. Surface affinity is deliberately NOT gated by this at all
+  (same "surface is an unrelated axis from rarity" simplification the
+  generation policy already makes). The API/scouting screen expose
+  current attributes/OVR **precisely** (they're observable — a manager
+  scouting a candidate can just look), but potential is exposed ONLY as
+  a coarse `PotentialTier` (Limited/Promising/High/Elite), computed
+  from the hidden ceiling with intentional noise (~70% exact, ~15%
+  each direction off-by-one, baked in once at generation time so it's
+  stable per-candidate, not recomputed per-request) — the real ceiling
+  number is never serialized anywhere; grep `potentialCeiling` in any
+  new DTO/route code and it should only ever appear in adapter-internal
+  mapping functions, never in a response body. **There is deliberately
+  no per-manager scouting-skill/accuracy system** — every manager sees
+  the exact same noisy tier on the exact same candidate, full stop.
+  This is a conscious scope decision, not a placeholder for "add
+  scouting skill later": a differentiated-accuracy system (better
+  scouts see truer potential) is a legitimate, understood idea that was
+  deliberately left out to keep this feature's surface area matched to
+  what it needed to prove, the same "avoid systems for their own sake"
+  discipline `docs/tennis-rules-gap-analysis.md` applied elsewhere in
+  this codebase — revisit only with a real reason, not by default.
 - **Manager Pro can bypass the pool, never beat it on stats.**
   `CreateCustomPlayerUseCase` lets a Pro manager name their own player
   instead of waiting for a matching candidate — but it calls the exact

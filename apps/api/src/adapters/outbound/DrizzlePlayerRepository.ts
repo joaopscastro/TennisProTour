@@ -81,6 +81,7 @@ function toDomain(row: PlayerRow): Player {
     stage: row.stage as PlayerLifecycleStage,
     fatigue: row.fatigue,
     currentFocus: toDomainFocus(row),
+    potentialCeiling: row.potentialCeiling,
     attributes: new PlayerAttributes({
       technical: {
         serve: Skill.of(row.serve),
@@ -117,6 +118,7 @@ function toRow(player: Player): typeof players.$inferInsert {
     ageInWeeks: player.ageInWeeks,
     stage: player.stage,
     fatigue: player.fatigue,
+    potentialCeiling: player.potentialCeiling,
     ...focusColumns(player.currentFocus),
     serve: technical.serve.value,
     forehand: technical.forehand.value,

@@ -56,3 +56,37 @@ export class StandardTrainingPolicy implements TrainingPolicy {
     return focus.kind === 'surface' ? base * 2 : base;
   }
 }
+
+/** How close to a player's hidden potentialCeiling (see
+ * PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling) training
+ * gains start tapering off, in skill points. Full-rate training up
+ * until this close to the ceiling, then a linear falloff to zero
+ * exactly at it — a player physically cannot be trained past what
+ * they're capable of. */
+const DIMINISHING_RETURNS_RANGE = 15;
+
+/**
+ * Scales a base training delta down as `current` approaches `ceiling`
+ * — the mechanical form of "a hidden ceiling on how much a player's
+ * attributes can grow via training." Deliberately a standalone
+ * function, not a TrainingPolicy method: TrainingPolicy answers "how
+ * much is a session worth in a vacuum" (stage/focus only, unrelated to
+ * any specific player's ceiling), while this answers "how much of that
+ * actually lands given how close this particular player already is to
+ * their cap" — two different concerns that would otherwise force every
+ * TrainingPolicy implementation to know about ceilings even if a
+ * future game-world variant wanted to ignore them.
+ *
+ * Only ever called for skill-cluster training in practice
+ * (Player.applyTraining) — surface affinity training is deliberately
+ * NOT gated by potentialCeiling at all: a skill ceiling and a surface
+ * specialization are treated as unrelated axes here, matching
+ * PlayerGenerationPolicy's own "surface affinities are rolled
+ * independently of rarity tier" simplification.
+ */
+export function applyPotentialDiminishingReturns(baseDelta: number, current: number, ceiling: number): number {
+  if (baseDelta <= 0) return baseDelta; // only growth is gated, never decay
+  const headroom = Math.max(0, ceiling - current);
+  const factor = Math.min(1, headroom / DIMINISHING_RETURNS_RANGE);
+  return baseDelta * factor;
+}

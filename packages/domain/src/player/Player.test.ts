@@ -92,6 +92,45 @@ describe('Player', () => {
     expect(player.attributes.technical.serve.value).toBe(30); // untouched
   });
 
+  it('gates skill-cluster training by the hidden potentialCeiling: full delta far below it, tapering as the cluster average approaches it', () => {
+    // Starting cluster average is 30; ceiling 40 means only 10 points
+    // of headroom, inside the 15-point taper range from the start.
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'), 'XX', 40);
+    const focus: TrainingFocus = { kind: 'skill', cluster: 'technical' };
+
+    player.applyTraining(focus, new FixedTrainingPolicy(3));
+
+    // headroom 10/15 of the taper range -> factor 10/15, delta = 3 * 10/15 = 2.
+    expect(player.attributes.technical.serve.value).toBe(32); // 30 + 2, not 30 + 3
+  });
+
+  it('lets skill-cluster training taper all the way to zero once the cluster average reaches its ceiling', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'), 'XX', 30);
+    const focus: TrainingFocus = { kind: 'skill', cluster: 'mental' };
+
+    player.applyTraining(focus, new FixedTrainingPolicy(5));
+
+    expect(player.attributes.mental.clutch.value).toBe(30); // already AT the ceiling — no growth at all
+  });
+
+  it('does NOT gate surface-affinity training by potentialCeiling, even with a very low ceiling', () => {
+    // A ceiling of 25 sits below the starting surface affinity (20) by
+    // only 5 — if surface training were gated the same way skill
+    // training is, this would taper hard. It should train at full rate
+    // regardless, since potentialCeiling only governs skill clusters.
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'), 'XX', 25);
+    const focus: TrainingFocus = { kind: 'surface', surface: 'clay' };
+
+    player.applyTraining(focus, new FixedTrainingPolicy(5));
+
+    expect(player.attributes.surfaceAffinities.get('clay')).toBe(25); // full, ungated delta: 20 + 5
+  });
+
+  it('defaults potentialCeiling to 100 (no meaningful ceiling) when not explicitly provided, so pre-existing call sites train at full rate', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    expect(player.potentialCeiling).toBe(100);
+  });
+
   it('throws when training a retired player', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 38 * 52, startingAttributes(), ManagerId('m1'));
     player.advanceWeek(38 * 52 + 1, 'retired', startingAttributes());

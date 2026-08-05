@@ -63,6 +63,7 @@ export class ClaimTalentPoolCandidateUseCase {
       claimed.attributes,
       command.managerId,
       claimed.nationality,
+      claimed.potentialCeiling,
     );
     await this.players.save(player);
     await this.events.publish(player.pullDomainEvents());

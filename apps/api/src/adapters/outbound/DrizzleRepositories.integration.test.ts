@@ -52,6 +52,8 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
     nationality: 'BR',
     tier: 'common',
     attributes: attributes(30),
+    potentialCeiling: 55,
+    potentialTier: 'promising',
     ...overrides,
   };
 }
@@ -90,6 +92,16 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded!.attributes.surfaceAffinities.get('grass')).toBe(20);
     // Reconstitution must not re-emit lifecycle events.
     expect(loaded!.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('round-trips potentialCeiling (hidden training-growth cap), defaulting to 100 when not explicitly set', async () => {
+    const withCeiling = Player.hire(PlayerId('p-ceiling'), 'Ceiling Test', 19 * 52, attributes(30), ManagerId('m1'), 'XX', 62);
+    await repository.save(withCeiling);
+    expect((await repository.findById(PlayerId('p-ceiling')))!.potentialCeiling).toBe(62);
+
+    const withoutCeiling = Player.hire(PlayerId('p-default'), 'Default Test', 19 * 52, attributes(30), ManagerId('m1'));
+    await repository.save(withoutCeiling);
+    expect((await repository.findById(PlayerId('p-default')))!.potentialCeiling).toBe(100);
   });
 
   it('round-trips a skill-cluster training focus and a null focus', async () => {
@@ -229,6 +241,9 @@ describe('DrizzleTalentPoolCandidateRepository', () => {
     expect(loaded!.generatedAtWeek).toEqual({ season: 2, week: 7 });
     expect(loaded!.status).toBe('available');
     expect(loaded!.attributes.technical.serve.value).toBe(30);
+    // Both the hidden real ceiling and the noisy displayed tier round-trip.
+    expect(loaded!.potentialCeiling).toBe(55);
+    expect(loaded!.potentialTier).toBe('promising');
 
     expect(await repository.findAvailable()).toHaveLength(1);
   });

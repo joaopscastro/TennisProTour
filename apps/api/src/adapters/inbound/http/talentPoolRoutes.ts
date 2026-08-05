@@ -3,7 +3,18 @@ import { ManagerId, TalentPoolCandidateId } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 
-/** Thin serialization only — no domain rules here. */
+/**
+ * Thin serialization only — no domain rules here — EXCEPT for one
+ * deliberate omission: `candidate.potentialCeiling` is never read
+ * here. Current attributes/OVR are exposed fairly precisely (real
+ * numbers, not fuzzed) because those are meant to be "observable" —
+ * what a manager can actually see about a player right now. Potential
+ * is different: only the coarse, already-noisy `potentialTier` goes
+ * out, never the real hidden ceiling behind it. If you're extending
+ * this DTO, do not add a ceiling/potential number field here — that
+ * would defeat the entire scouting mechanic (see
+ * PlayerGenerationPolicy.GeneratedPlayer.potentialTier's doc comment).
+ */
 function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').TalentPoolCandidate) {
   const { technical, physical, mental, surfaceAffinities } = candidate.attributes;
   return {
@@ -11,6 +22,7 @@ function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').Ta
     name: candidate.name,
     nationality: candidate.nationality,
     tier: candidate.tier,
+    potentialTier: candidate.potentialTier,
     generatedAtWeek: candidate.generatedAtWeek,
     attributes: {
       technical: {

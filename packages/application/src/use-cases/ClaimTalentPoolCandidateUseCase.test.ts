@@ -100,6 +100,8 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
       mental: { consistency: Skill.of(35), clutch: Skill.of(35) },
       surfaceAffinities: SurfaceAffinities.initial(),
     }),
+    potentialCeiling: 60,
+    potentialTier: 'promising',
     ...overrides,
   };
 }
@@ -129,6 +131,10 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     expect(player.managerId).toBe(ManagerId('m1'));
     expect(player.attributes.technical.serve.value).toBe(35);
     expect(player.stage).toBe('youth');
+    // The candidate's hidden potentialCeiling transfers unchanged onto
+    // the resulting Player — required for training's diminishing
+    // returns to actually mean anything post-claim.
+    expect(player.potentialCeiling).toBe(60);
     expect((await players.findByManager(ManagerId('m1')))).toHaveLength(1);
     expect(events.published.some((e) => e.type === 'PlayerHired')).toBe(true);
 

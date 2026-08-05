@@ -57,15 +57,25 @@ export interface EntitlementDto {
 
 export type PlayerRarityTier = 'common' | 'strong' | 'exceptional';
 
+/** A coarse, deliberately imperfect read on a candidate's hidden
+ * potential ceiling — the real number is never sent to the client at
+ * all (see talentPoolRoutes.ts on the API side). Every manager sees
+ * the exact same noisy tier on the exact same candidate; there is no
+ * per-manager scouting-accuracy system (see docs/CLAUDE.md). */
+export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';
+
 /** A generated player sitting unowned in the talent pool — see
  * DrizzleTalentPoolCandidateRepository on the API side. Hiring is
  * pool-based now: a manager browses/claims one of these instead of
- * hiring an arbitrary player on demand (see docs/CLAUDE.md). */
+ * hiring an arbitrary player on demand (see docs/CLAUDE.md). Current
+ * attributes are exposed precisely (they're "observable"); potential
+ * is deliberately only the coarse `potentialTier`, never a number. */
 export interface TalentPoolCandidateDto {
   id: string;
   name: string;
   nationality: string;
   tier: PlayerRarityTier;
+  potentialTier: PotentialTier;
   generatedAtWeek: { season: number; week: number };
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };

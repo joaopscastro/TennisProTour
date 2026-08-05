@@ -1,7 +1,7 @@
 import { PlayerId, ManagerId } from '../shared/ids';
 import { PlayerAttributes } from './PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
-import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
+import { TrainingFocus, TrainingPolicy, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
@@ -27,6 +27,12 @@ export interface PlayerProps {
    * focus; this field only records the *standing selection* that
    * AdvanceWorldWeekUseCase reads each week. */
   currentFocus: TrainingFocus | null;
+  /** Hidden ceiling on skill-cluster training growth — set once at
+   * generation time (see PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling),
+   * carried unchanged from whatever talent-pool candidate or custom
+   * player this Player originated from. NEVER exposed via any DTO —
+   * see playerDto.ts, which deliberately does not read this field. */
+  potentialCeiling: number;
 }
 
 /** Aggregate root for the Player & Roster bounded context.
@@ -53,6 +59,15 @@ export class Player {
      * about nationality) don't all need updating — HirePlayerUseCase,
      * the real product entry point, always passes a real value. */
     nationality = 'XX',
+    /** Same "optional trailing param, real entry points always pass a
+     * real value" convention as `nationality` above — see this field's
+     * doc comment on PlayerProps. Defaults to 100 (skill max), i.e. "no
+     * meaningful ceiling," so every pre-existing call site that never
+     * heard of potential ceilings keeps training at full, unthrottled
+     * rate exactly as before this feature existed. Real entry points
+     * (ClaimTalentPoolCandidateUseCase, CreateCustomPlayerUseCase)
+     * always pass the real generated value. */
+    potentialCeiling = 100,
   ): Player {
     const player = new Player({
       id,
@@ -64,6 +79,7 @@ export class Player {
       stage: 'youth',
       fatigue: 0,
       currentFocus: null,
+      potentialCeiling,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -116,24 +132,42 @@ export class Player {
     return this.props.fatigue;
   }
 
+  /** Hidden — see PlayerProps.potentialCeiling's doc comment. Read by
+   * applyTraining() and by repository adapters that need to persist
+   * it; never by anything building an HTTP-facing DTO. */
+  get potentialCeiling() {
+    return this.props.potentialCeiling;
+  }
+
   isRetired(): boolean {
     return this.props.stage === 'retired';
   }
 
   /** Applies a single training session for one focus (surface XOR
-   * skill cluster — see TrainingFocus). The delta itself is computed
-   * by the injected policy, never by Player: this method's job is
-   * only to apply whatever delta it's given to the right part of
-   * PlayerAttributes, not to decide how much training is worth. */
+   * skill cluster — see TrainingFocus). The BASE delta is computed by
+   * the injected policy, never by Player: this method's job is only to
+   * apply whatever delta it's given, not to decide how much a session
+   * is worth in a vacuum. What Player DOES own is the one further
+   * adjustment that's intrinsic to this specific player rather than a
+   * swappable policy concern — scaling that base delta down as this
+   * player's own hidden potentialCeiling approaches (see
+   * applyPotentialDiminishingReturns), since a ceiling is a property
+   * of the player, not of the training policy. Surface affinity
+   * training is deliberately NOT run through the ceiling at all — see
+   * applyPotentialDiminishingReturns's doc comment for why. */
   applyTraining(focus: TrainingFocus, policy: TrainingPolicy): void {
     if (this.isRetired()) {
       throw new Error(`Cannot train retired player ${this.props.id}`);
     }
-    const delta = policy.computeDelta(focus, this.props.stage);
-    const updatedAttributes =
-      focus.kind === 'surface'
-        ? this.props.attributes.trainedOnSurface(focus.surface, delta)
-        : this.props.attributes.trainedOnCluster(focus.cluster, delta);
+    const baseDelta = policy.computeDelta(focus, this.props.stage);
+    if (focus.kind === 'surface') {
+      const updatedAttributes = this.props.attributes.trainedOnSurface(focus.surface, baseDelta);
+      this.props = { ...this.props, attributes: updatedAttributes };
+      return;
+    }
+    const currentClusterAverage = this.props.attributes.clusterAverage(focus.cluster);
+    const delta = applyPotentialDiminishingReturns(baseDelta, currentClusterAverage, this.props.potentialCeiling);
+    const updatedAttributes = this.props.attributes.trainedOnCluster(focus.cluster, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
   }
 

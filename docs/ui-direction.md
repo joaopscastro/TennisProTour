@@ -47,20 +47,45 @@ CLAUDE.md.
   one-line explanation, "Browse Talent Pool" CTA — not a blank table.
 - **Acquiring a player is pool-based and scarce, not instant/on-demand
   — this superseded an earlier direct "Hire Player" form design, don't
-  reintroduce it.** "Browse talent pool" opens a list of
-  already-generated, unclaimed candidates (name, flag, rarity tier
-  badge — Common/Strong/Exceptional — and OVR), shared by every
-  manager, refreshed weekly. Claiming one is a real race against other
-  managers: a candidate can disappear (already claimed) between
-  opening the list and clicking claim, and that failure is shown
-  inline, not silently retried or hidden. A Manager Pro manager with at
-  least one custom-player credit additionally sees a "Create custom
-  player (N)" button next to it — a name/nationality-only form (no
-  attribute input at all) that shows the remaining credit count and
-  spends one per use. Never show it to a free-tier manager, and never
-  show it to a Pro manager with 0 credits (matching the "state the
-  tradeoff/cost explicitly" convention above, not a bare disabled
+  reintroduce it.** "Browse talent pool" is a link to the dedicated
+  `/scouting` page (see below), not a modal — claiming a candidate is
+  substantial enough a decision (and the scouting screen full enough
+  of its own information) to deserve a real page, matching the sidebar
+  nav item it fulfills rather than living tucked inside Roster. A
+  Manager Pro manager with at least one custom-player credit
+  additionally sees a "Create custom player (N)" button on the Roster
+  page itself — a name/nationality-only form (no attribute input at
+  all) that shows the remaining credit count and spends one per use;
+  this one stays a modal since it's a quick, self-contained action, not
+  a browsing experience. Never show it to a free-tier manager, and
+  never show it to a Pro manager with 0 credits (matching the "state
+  the tradeoff/cost explicitly" convention above, not a bare disabled
   button with no explanation).
+
+## Scouting
+- The talent pool's real home — fulfills the sidebar nav item that
+  used to read "Scouting / SOON."
+- One row per candidate: flag + name, current OVR (precise, not
+  fuzzed), a rarity tier badge (Common/Strong/Exceptional — how good
+  this player already is), a **separate** potential tier badge
+  (Limited/Promising/High/Elite — how good scouts think they could
+  become), and a Claim button.
+- Rarity and potential get visually distinct badge colors, on purpose
+  — they're answering two different questions (current ability vs.
+  scouted upside) and reusing one color language for both would blur
+  that a "Common" player can still show "Elite" potential (the
+  diamond-in-the-rough case scouting exists to sometimes find).
+- A short, explicit disclaimer near the top of the screen that current
+  attributes are precise but potential is a deliberately imperfect
+  read, not a promise — this is a direct, load-bearing gameplay fact
+  (see CLAUDE.md's "Player acquisition" note on the noise built into
+  potentialTier), not incidental copy; don't cut it for space.
+- Claiming is a real race against other managers: a candidate can
+  disappear (already claimed) between loading the list and clicking
+  claim, and that failure is shown inline (plus the list refreshes),
+  never silently retried or hidden.
+- Same manager-id dev-mode input pattern as Roster/Manager Pro — no
+  shared cross-page identity yet, each screen asks independently.
 
 ## Tournament bracket
 - Single-elimination bracket, coded by the tournament's surface.

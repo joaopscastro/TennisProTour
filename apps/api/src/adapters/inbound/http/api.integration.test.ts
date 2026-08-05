@@ -88,7 +88,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
     TalentPoolCandidate.generate(
       TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', attributes: fixedAttributes(30) },
+      { name: `Player ${id}`, nationality: 'BR', tier: 'common', attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising' },
       { season: 1, week: 1 },
     ),
   );
@@ -321,11 +321,18 @@ describe('API', () => {
     expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0 });
   });
 
-  it('lists available talent pool candidates and excludes one once claimed', async () => {
+  it('lists available talent pool candidates with a coarse potentialTier, and NEVER leaks the hidden potentialCeiling', async () => {
     await deps.talentPoolCandidates.save(
       TalentPoolCandidate.generate(
         TalentPoolCandidateId('tp1'),
-        { name: 'Pool Player', nationality: 'ES', tier: 'strong', attributes: fixedAttributes(50) },
+        {
+          name: 'Pool Player',
+          nationality: 'ES',
+          tier: 'strong',
+          attributes: fixedAttributes(50),
+          potentialCeiling: 91, // the real hidden number — must never appear in any response below
+          potentialTier: 'elite',
+        },
         { season: 1, week: 1 },
       ),
     );
@@ -334,12 +341,16 @@ describe('API', () => {
     expect(listed.statusCode).toBe(200);
     const candidates = listed.json();
     expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', tier: 'strong' });
-    expect(candidates[0].attributes.technical.serve).toBe(50);
+    expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', tier: 'strong', potentialTier: 'elite' });
+    expect(candidates[0].attributes.technical.serve).toBe(50); // current attributes stay precise, unfuzzed
+    expect(listed.body).not.toContain('potentialCeiling');
+    expect(listed.body).not.toContain('91'); // the real ceiling value itself, nowhere in the payload
 
     const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm1' } });
     expect(claimed.statusCode).toBe(201);
     expect(claimed.json().name).toBe('Pool Player');
+    expect(claimed.body).not.toContain('potentialCeiling'); // claiming hands back a player DTO — same rule applies
+    expect(claimed.body).not.toContain('91');
 
     expect((await app.inject({ method: 'GET', url: '/talent-pool' })).json()).toEqual([]);
 

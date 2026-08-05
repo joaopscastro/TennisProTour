@@ -86,7 +86,14 @@ class RecordingGenerationPolicy {
   calls = 0;
   generate(): GeneratedPlayer {
     this.calls += 1;
-    return { name: 'ignored — command.name wins', nationality: 'ignored', tier: 'common', attributes: fixedAttributes() };
+    return {
+      name: 'ignored — command.name wins',
+      nationality: 'ignored',
+      tier: 'common',
+      attributes: fixedAttributes(),
+      potentialCeiling: 72,
+      potentialTier: 'high',
+    };
   }
 }
 
@@ -115,6 +122,7 @@ describe('CreateCustomPlayerUseCase', () => {
     expect(player.name).toBe('Custom Name'); // the manager's chosen name, not the policy's
     expect(player.nationality).toBe('FR');
     expect(player.attributes.technical.serve.value).toBe(55); // came from the generation policy
+    expect(player.potentialCeiling).toBe(72); // also came from the SAME generation policy call
     expect(generationPolicy.calls).toBe(1);
     expect(billing.credits).toBe(2); // exactly one credit spent
     expect(events.published.some((e) => e.type === 'PlayerHired')).toBe(true);

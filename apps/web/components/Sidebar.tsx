@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 
-export type NavKey = 'roster' | 'tournaments' | 'manager-pro';
+export type NavKey = 'roster' | 'scouting' | 'tournaments' | 'manager-pro';
 
 const NAV_ITEMS: Array<{ key: NavKey; label: string; href: string }> = [
   { key: 'roster', label: 'Roster', href: '/' },
+  { key: 'scouting', label: 'Scouting', href: '/scouting' },
   { key: 'tournaments', label: 'Tournaments', href: '/tournaments' },
   { key: 'manager-pro', label: 'Manager Pro', href: '/manager-pro' },
 ];
@@ -63,21 +64,6 @@ export function Sidebar({ active, tier }: Props) {
             {item.label}
           </Link>
         ))}
-        <div
-          className="flex items-center justify-between px-3 py-[10px] rounded-[6px] text-[13.5px]"
-          style={{ color: 'oklch(52% 0.006 75)' }}
-        >
-          <div className="flex items-center gap-[10px]">
-            <div className="w-[6px] h-[6px] rounded-full bg-transparent" />
-            Scouting
-          </div>
-          <div
-            className="text-[10px] font-semibold tracking-[0.4px] px-[6px] py-[2px] rounded-[4px]"
-            style={{ background: 'oklch(28% 0.008 75)', color: 'oklch(65% 0.006 75)' }}
-          >
-            SOON
-          </div>
-        </div>
         <div
           className="flex items-center justify-between px-3 py-[10px] rounded-[6px] text-[13.5px]"
           style={{ color: 'oklch(52% 0.006 75)' }}

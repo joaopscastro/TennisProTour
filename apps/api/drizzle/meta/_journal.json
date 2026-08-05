@@ -57,6 +57,13 @@
       "when": 1785922972632,
       "tag": "0007_nifty_revanche",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785926224236,
+      "tag": "0008_dapper_maelstrom",
+      "breakpoints": true
     }
   ]
 }

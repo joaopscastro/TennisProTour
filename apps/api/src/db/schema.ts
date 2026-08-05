@@ -50,6 +50,9 @@ export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'skil
  * PlayerGenerationPolicy.PlayerRarityTier. */
 export const playerRarityTier = pgEnum('player_rarity_tier', ['common', 'strong', 'exceptional']);
 export const talentPoolCandidateStatus = pgEnum('talent_pool_candidate_status', ['available', 'claimed', 'expired']);
+/** The coarse, noisy signal scouting exposes for a hidden
+ * potentialCeiling — see PlayerGenerationPolicy.PotentialTier. */
+export const playerPotentialTier = pgEnum('player_potential_tier', ['limited', 'promising', 'high', 'elite']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -119,6 +122,12 @@ export const players = pgTable('players', {
   ageInWeeks: integer('age_in_weeks').notNull(),
   stage: playerStage('stage').notNull(),
   fatigue: integer('fatigue').notNull().default(0),
+  /** Hidden ceiling on skill-cluster training growth (see
+   * Player.potentialCeiling) — NEVER read by playerDto.ts or any other
+   * HTTP-facing mapper. Defaults to 100 (no meaningful ceiling),
+   * matching Player.hire()'s own default, for any row that predates
+   * this column. */
+  potentialCeiling: integer('potential_ceiling').notNull().default(100),
 
   /** The player's standing weekly training focus (Player.currentFocus
    * / TrainingFocus union) — null kind means no focus set. Exactly one
@@ -186,6 +195,16 @@ export const talentPoolCandidates = pgTable('talent_pool_candidates', {
   affinityGrass: integer('affinity_grass').notNull(),
   affinityHard: integer('affinity_hard').notNull(),
   affinityIndoor: integer('affinity_indoor').notNull(),
+
+  /** Hidden — the real ceiling behind potentialTier below. Read by
+   * DrizzleTalentPoolCandidateRepository so it can transfer onto the
+   * resulting Player once claimed; MUST NEVER be read by
+   * talentPoolRoutes.ts's DTO mapper. */
+  potentialCeiling: integer('potential_ceiling').notNull(),
+  /** The noisy, coarse tier scouting actually exposes — computed once
+   * at generation time (see PlayerGenerationPolicy), not recomputed
+   * per-request, so the same candidate always shows the same tier. */
+  potentialTier: playerPotentialTier('potential_tier').notNull(),
 
   /** GameWeek value object flattened, same convention as elsewhere in
    * this schema — when this candidate was generated, the anchor the

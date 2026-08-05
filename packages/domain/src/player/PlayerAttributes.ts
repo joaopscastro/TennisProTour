@@ -118,6 +118,22 @@ export class PlayerAttributes {
     return all.reduce((sum, s) => sum + s.value, 0) / all.length;
   }
 
+  /** Average current value across one skill cluster — used by
+   * Player.applyTraining as the "how close to the ceiling is this
+   * cluster already" input to the potential-ceiling diminishing-
+   * returns calculation (see TrainingPolicy.applyPotentialDiminishingReturns).
+   * A cluster average rather than per-skill deltas is a deliberate
+   * simplification: trainedOnCluster() already applies one uniform
+   * delta to every skill in a cluster, so gating that single delta by
+   * the cluster's average proximity to the ceiling keeps the
+   * ceiling mechanic consistent with the existing "one delta per
+   * cluster" training model instead of requiring per-skill ceiling
+   * tracking. */
+  clusterAverage(cluster: SkillCluster): number {
+    const values = Object.values(this.props[cluster]) as Skill[];
+    return values.reduce((sum, s) => sum + s.value, 0) / values.length;
+  }
+
   /** Surface-focused training: bumps one surface affinity, leaves
    * every skill cluster untouched. */
   trainedOnSurface(surface: Surface, gain: number): PlayerAttributes {

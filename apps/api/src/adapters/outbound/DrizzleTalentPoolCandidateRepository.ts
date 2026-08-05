@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { ManagerId, PlayerAttributes, PlayerRarityTier, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { ManagerId, PlayerAttributes, PlayerRarityTier, PotentialTier, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
 import { TalentPoolCandidateRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { talentPoolCandidates } from '../../db/schema';
@@ -55,6 +55,8 @@ function toDomain(row: TalentPoolCandidateRow): TalentPoolCandidate {
     name: row.name,
     nationality: row.nationality,
     tier: row.tier as PlayerRarityTier,
+    potentialCeiling: row.potentialCeiling,
+    potentialTier: row.potentialTier as PotentialTier,
     generatedAtWeek: { season: row.seasonGenerated, week: row.weekGenerated },
     status: row.status,
     claimedByManagerId: row.claimedByManagerId === null ? null : ManagerId(row.claimedByManagerId),
@@ -91,6 +93,8 @@ function toRow(candidate: TalentPoolCandidate): typeof talentPoolCandidates.$inf
     name: candidate.name,
     nationality: candidate.nationality,
     tier: candidate.tier,
+    potentialCeiling: candidate.potentialCeiling,
+    potentialTier: candidate.potentialTier,
     seasonGenerated: candidate.generatedAtWeek.season,
     weekGenerated: candidate.generatedAtWeek.week,
     status: candidate.status,

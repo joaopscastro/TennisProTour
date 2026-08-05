@@ -15,6 +15,8 @@ function generatedPlayer(): GeneratedPlayer {
       mental: { consistency: Skill.of(30), clutch: Skill.of(30) },
       surfaceAffinities: SurfaceAffinities.initial(),
     }),
+    potentialCeiling: 65,
+    potentialTier: 'promising',
   };
 }
 

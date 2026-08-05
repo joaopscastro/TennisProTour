@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import {
   EntitlementDto,
   PlayerLifecycleStage,
@@ -14,7 +15,6 @@ import {
 } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
-import { TalentPoolModal } from '../components/TalentPoolModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
 
@@ -170,7 +170,6 @@ export default function RosterDashboardPage() {
   );
 
   const [enterModalPlayer, setEnterModalPlayer] = useState<{ id: string; name: string } | null>(null);
-  const [talentPoolModalOpen, setTalentPoolModalOpen] = useState(false);
   const [customPlayerModalOpen, setCustomPlayerModalOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -226,13 +225,13 @@ export default function RosterDashboardPage() {
                   Create custom player ({customPlayerCredits})
                 </button>
               )}
-              <button
-                onClick={() => setTalentPoolModalOpen(true)}
-                className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90"
+              <Link
+                href="/scouting"
+                className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90 no-underline"
                 style={{ background: 'oklch(20% 0.006 75)' }}
               >
                 Browse talent pool
-              </button>
+              </Link>
             </div>
             <div className="text-[11.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
               {tier === 'pro'
@@ -482,13 +481,13 @@ export default function RosterDashboardPage() {
               })}
 
               {showOpenSlot && (
-                <div
-                  onClick={() => setTalentPoolModalOpen(true)}
-                  className="flex items-center justify-center gap-2 rounded-[8px] p-4 text-[13px] font-semibold cursor-pointer hover:bg-[oklch(97%_0.003_75)]"
+                <Link
+                  href="/scouting"
+                  className="flex items-center justify-center gap-2 rounded-[8px] p-4 text-[13px] font-semibold cursor-pointer hover:bg-[oklch(97%_0.003_75)] no-underline"
                   style={{ border: '1.5px dashed oklch(85% 0.006 75)', color: 'oklch(50% 0.006 75)' }}
                 >
                   + Open roster slot — Browse talent pool
-                </div>
+                </Link>
               )}
             </div>
           </div>
@@ -512,13 +511,13 @@ export default function RosterDashboardPage() {
               Claim your first player from the talent pool to start entering tournaments. You have {slotCount} roster
               slot{slotCount === 1 ? '' : 's'} available.
             </div>
-            <button
-              onClick={() => setTalentPoolModalOpen(true)}
-              className="mt-[6px] text-white border-none px-[22px] py-[11px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90"
+            <Link
+              href="/scouting"
+              className="mt-[6px] text-white border-none px-[22px] py-[11px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90 no-underline"
               style={{ background: 'oklch(20% 0.006 75)' }}
             >
               Browse talent pool
-            </button>
+            </Link>
           </div>
         )}
 
@@ -546,18 +545,6 @@ export default function RosterDashboardPage() {
           onEntered={(tournament) => {
             setEnterModalPlayer(null);
             showNotice(`Entered ${tournament.id} (${tournament.tier}, ${tournament.surface}).`);
-          }}
-        />
-      )}
-
-      {talentPoolModalOpen && (
-        <TalentPoolModal
-          managerId={managerId}
-          onClose={() => setTalentPoolModalOpen(false)}
-          onClaimed={(player) => {
-            setTalentPoolModalOpen(false);
-            showNotice(`Claimed ${player.name}.`);
-            void load(managerId);
           }}
         />
       )}
