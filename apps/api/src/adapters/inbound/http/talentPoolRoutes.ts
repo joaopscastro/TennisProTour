@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ManagerId, TalentPoolCandidateId } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
+import { requireManager } from './auth';
 
 /**
  * Thin serialization only — no domain rules here — EXCEPT for one
@@ -77,9 +78,11 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
       },
     },
     async (request, reply) => {
+      const manager = await requireManager(request, reply, deps);
+      if (!manager) return;
       const player = await deps.claimTalentPoolCandidate.execute({
         candidateId: TalentPoolCandidateId(request.params.id),
-        managerId: ManagerId(request.body.managerId),
+        managerId: manager.id,
       });
       return reply.code(201).send(toPlayerDto(player));
     },

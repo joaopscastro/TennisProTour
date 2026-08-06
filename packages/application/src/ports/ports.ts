@@ -3,6 +3,25 @@ import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId, CoachId } from '@tennis-manager/domain';
 import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate, Coach } from '@tennis-manager/domain';
 
+export interface ManagerAccount {
+  id: ManagerId;
+  authSubject: string;
+  displayName: string;
+  publicHandle: string;
+  status: 'active' | 'suspended';
+}
+
+export interface ManagerAccountRepository {
+  findByAuthSubject(authSubject: string): Promise<ManagerAccount | null>;
+  save(account: ManagerAccount): Promise<void>;
+}
+
+/** Provider-neutral verification boundary. The API adapter extracts the
+ * bearer token; this port only receives a token and returns verified claims. */
+export interface AuthPort {
+  verifyAccessToken(accessToken: string): Promise<{ subject: string; displayName?: string } | null>;
+}
+
 /**
  * Interface Segregation in practice: one narrow repository interface
  * per aggregate, not a single "GameRepository" god-interface. A use

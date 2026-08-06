@@ -20,6 +20,7 @@ import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
+process.env.INTERNAL_ADMIN_TOKEN ??= 'test-admin';
 
 const pool = new Pool({ connectionString });
 const db = drizzle(pool, { schema });
@@ -107,6 +108,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   const response = await app.inject({
     method: 'POST',
     url: `/talent-pool/${id}/claim`,
+    headers: { 'x-dev-manager-id': managerId },
     payload: { managerId },
   });
   return response.statusCode;
@@ -117,6 +119,26 @@ describe('API', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('requires authenticated manager identity and isolates manager-owned actions', async () => {
+    expect((await app.inject({ method: 'GET', url: '/me/players' })).statusCode).toBe(401);
+    expect(await hirePlayer('owned-p1', 'm1')).toBe(201);
+
+    const crossManagerRead = await app.inject({ method: 'GET', url: '/managers/m1/players', headers: { 'x-dev-manager-id': 'm2' } });
+    expect(crossManagerRead.statusCode).toBe(404);
+
+    const crossManagerMutation = await app.inject({
+      method: 'PUT',
+      url: '/players/owned-p1/training-focus',
+      headers: { 'x-dev-manager-id': 'm2' },
+      payload: { focus: { kind: 'skill', cluster: 'technical' } },
+    });
+    expect(crossManagerMutation.statusCode).toBe(404);
+
+    const ownManagerRead = await app.inject({ method: 'GET', url: '/me/players', headers: { 'x-dev-manager-id': 'm1' } });
+    expect(ownManagerRead.statusCode).toBe(200);
+    expect(ownManagerRead.json().map((player: { id: string }) => player.id)).toEqual(['owned-p1']);
   });
 
   it('hires a player and reads it back', async () => {
@@ -160,6 +182,7 @@ describe('API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/talent-pool/does-not-exist/claim',
+      headers: { 'x-dev-manager-id': 'm1' },
       payload: { managerId: 'm1' },
     });
     expect(response.statusCode).toBe(409);
@@ -174,6 +197,7 @@ describe('API', () => {
     const opened = await app.inject({
       method: 'POST',
       url: '/tournaments',
+      headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' },
       payload: {
         tournamentId: 't1',
         tier: 'challenger',
@@ -189,7 +213,7 @@ describe('API', () => {
     expect(openedDto.rounds).toHaveLength(1);
     expect(openedDto.rounds[0].matches).toHaveLength(8);
 
-    const simulated = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate' });
+    const simulated = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
     expect(simulated.statusCode).toBe(200);
     const { matchId, replayUrl } = simulated.json();
     expect(matchId).toBe('t1-r1-m0');
@@ -203,7 +227,7 @@ describe('API', () => {
     expect([match.entrantA, match.entrantB]).toContain(match.outcome.winner);
 
     // Re-simulating the same slot must fail (already-decided match), not overwrite.
-    const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate' });
+    const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
     expect(again.statusCode).toBe(409);
 
     // The replay blob is served by the dev match-log route, immutable-cached.
@@ -216,13 +240,13 @@ describe('API', () => {
   });
 
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {
-    expect((await app.inject({ method: 'GET', url: '/managers/m9/players' })).json()).toEqual([]);
+    expect((await app.inject({ method: 'GET', url: '/managers/m9/players', headers: { 'x-dev-manager-id': 'm9' } })).json()).toEqual([]);
 
     await hirePlayer('p1', 'm1');
     await hirePlayer('p2', 'm1');
     await hirePlayer('p3', 'm2');
 
-    const roster = (await app.inject({ method: 'GET', url: '/managers/m1/players' })).json();
+    const roster = (await app.inject({ method: 'GET', url: '/managers/m1/players', headers: { 'x-dev-manager-id': 'm1' } })).json();
     expect(roster).toHaveLength(2);
     expect(roster.map((p: { id: string }) => p.id).sort()).toEqual(['p1', 'p2']);
 
@@ -230,7 +254,7 @@ describe('API', () => {
   });
 
   it('404s when simulating a match in a missing tournament', async () => {
-    const response = await app.inject({ method: 'POST', url: '/tournaments/ghost/matches/1/0/simulate' });
+    const response = await app.inject({ method: 'POST', url: '/tournaments/ghost/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
     expect(response.statusCode).toBe(404);
   });
 
@@ -245,6 +269,7 @@ describe('API', () => {
     const opened = await app.inject({
       method: 'POST',
       url: '/tournaments',
+      headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' },
       payload: {
         tournamentId: 'rt1',
         tier: 'challenger',
@@ -266,6 +291,7 @@ describe('API', () => {
         const response = await app.inject({
           method: 'POST',
           url: `/tournaments/rt1/matches/${roundNumber}/${matchIndex}/simulate`,
+          headers: { 'x-dev-manager-id': 'rm1' },
         });
         expect(response.statusCode).toBe(200);
       }
@@ -314,7 +340,7 @@ describe('API', () => {
     await hirePlayer('dp1', 'dm1');
     await hirePlayer('dp2', 'dm1');
 
-    const response = await app.inject({ method: 'GET', url: '/managers/dm1/roster-dashboard' });
+    const response = await app.inject({ method: 'GET', url: '/managers/dm1/roster-dashboard', headers: { 'x-dev-manager-id': 'dm1' } });
     expect(response.statusCode).toBe(200);
     const entries = response.json();
     expect(entries).toHaveLength(2);
@@ -328,7 +354,7 @@ describe('API', () => {
   });
 
   it("reports a manager's entitlement tier", async () => {
-    const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement' });
+    const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement', headers: { 'x-dev-manager-id': 'some-free-manager' } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0 });
   });
@@ -359,7 +385,7 @@ describe('API', () => {
     expect(listed.body).not.toContain('91'); // the real ceiling value itself, nowhere in the payload
 
     await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
-    const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm1' } });
+    const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', headers: { 'x-dev-manager-id': 'm1' }, payload: { managerId: 'm1' } });
     expect(claimed.statusCode).toBe(201);
     expect(claimed.json().name).toBe('Pool Player');
     expect(claimed.body).not.toContain('potentialCeiling'); // claiming hands back a player DTO — same rule applies
@@ -372,7 +398,7 @@ describe('API', () => {
     // already claimed" path rather than incidentally masking it behind
     // an unrelated "insufficient XP" rejection.
     await deps.managerXp.credit(ManagerId('m2'), AMPLE_XP_FOR_TESTS);
-    const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm2' } });
+    const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', headers: { 'x-dev-manager-id': 'm2' }, payload: { managerId: 'm2' } });
     expect(secondClaim.statusCode).toBe(409);
   });
 
@@ -380,6 +406,7 @@ describe('API', () => {
     const response = await app.inject({
       method: 'POST',
       url: '/players/custom',
+      headers: { 'x-dev-manager-id': 'free-manager' },
       payload: { managerId: 'free-manager', name: 'Custom Kid', nationality: 'FR' },
     });
     expect(response.statusCode).toBe(409);
@@ -393,6 +420,7 @@ describe('API', () => {
     const created = await app.inject({
       method: 'POST',
       url: '/players/custom',
+      headers: { 'x-dev-manager-id': 'pro-manager' },
       payload: { managerId: 'pro-manager', name: 'Custom Kid', nationality: 'FR' },
     });
     expect(created.statusCode).toBe(201);
@@ -406,7 +434,7 @@ describe('API', () => {
     expect(dto.attributes.technical.serve).toBeGreaterThanOrEqual(0);
     expect(dto.attributes.technical.serve).toBeLessThanOrEqual(100);
 
-    const entitlement = await app.inject({ method: 'GET', url: '/managers/pro-manager/entitlement' });
+    const entitlement = await app.inject({ method: 'GET', url: '/managers/pro-manager/entitlement', headers: { 'x-dev-manager-id': 'pro-manager' } });
     expect(entitlement.json().customPlayerCredits).toBe(1); // spent exactly one of the two granted
 
     // A second and third create: the second still has a credit, the
@@ -414,6 +442,7 @@ describe('API', () => {
     const second = await app.inject({
       method: 'POST',
       url: '/players/custom',
+      headers: { 'x-dev-manager-id': 'pro-manager' },
       payload: { managerId: 'pro-manager', name: 'Second Kid', nationality: 'FR' },
     });
     expect(second.statusCode).toBe(201);
@@ -421,6 +450,7 @@ describe('API', () => {
     const third = await app.inject({
       method: 'POST',
       url: '/players/custom',
+      headers: { 'x-dev-manager-id': 'pro-manager' },
       payload: { managerId: 'pro-manager', name: 'Third Kid', nationality: 'FR' },
     });
     expect(third.statusCode).toBe(409);

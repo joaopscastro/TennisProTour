@@ -2,11 +2,14 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
+import rateLimit from '@fastify/rate-limit';
 import { Dependencies } from './composition';
 import { registerPlayerRoutes } from './adapters/inbound/http/playerRoutes';
 import { registerTournamentRoutes } from './adapters/inbound/http/tournamentRoutes';
 import { registerBillingRoutes } from './adapters/inbound/http/billingRoutes';
 import { registerTalentPoolRoutes } from './adapters/inbound/http/talentPoolRoutes';
+import { registerAuthRoutes } from './adapters/inbound/http/authRoutes';
 
 export interface AppOptions {
   deps: Dependencies;
@@ -29,9 +32,13 @@ export function buildApp(options: AppOptions): FastifyInstance {
     logger: options.logger ?? true,
   });
 
-  // Dev CORS: the Next.js frontend runs on another port. Tighten to a
-  // configured origin allowlist before anything public.
-  app.register(cors, { origin: true });
+  const allowedOrigins = (process.env.CORS_ORIGINS ?? 'http://localhost:3001')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  app.register(cors, { origin: allowedOrigins, credentials: true });
+  app.register(helmet);
+  app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
   app.get('/health', async () => ({ status: 'ok' }));
 
@@ -61,6 +68,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerTournamentRoutes(app, options.deps);
   registerBillingRoutes(app, options.deps);
   registerTalentPoolRoutes(app, options.deps);
+  registerAuthRoutes(app, options.deps);
 
   app.setErrorHandler<Error & { statusCode?: number }>((error, request, reply) => {
     // Fastify schema-validation errors arrive with a statusCode; keep it.

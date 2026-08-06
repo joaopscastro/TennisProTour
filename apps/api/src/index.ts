@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { createDb } from './db/client';
 import { buildDependencies } from './composition';
 import { buildApp } from './app';

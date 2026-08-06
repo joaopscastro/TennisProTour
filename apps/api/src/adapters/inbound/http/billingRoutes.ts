@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import Stripe from 'stripe';
 import { ManagerId } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
+import { requireManager } from './auth';
 
 /**
  * Billing inbound adapters: checkout entry point + the Stripe webhook
@@ -22,7 +23,11 @@ export function registerBillingRoutes(app: FastifyInstance, deps: Dependencies):
         },
       },
     },
-    async (request) => deps.billing.createProCheckoutSession(ManagerId(request.body.managerId)),
+    async (request, reply) => {
+      const manager = await requireManager(request, reply, deps);
+      if (!manager) return;
+      return deps.billing.createProCheckoutSession(manager.id);
+    },
   );
 
   // Webhook lives in its own scope: Stripe signature verification

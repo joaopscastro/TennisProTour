@@ -12,4 +12,5 @@ export * from './use-cases/RegisterEntrantUseCase';
 export * from './use-cases/AdvanceWorldWeekUseCase';
 export * from './use-cases/SimulateDueMatchesUseCase';
 export * from './use-cases/ConvertPlayerToCoachUseCase';
+export * from './use-cases/EnsureManagerAccountUseCase';
 export * from './queries/RankPositionQuery';

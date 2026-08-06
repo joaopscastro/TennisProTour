@@ -36,6 +36,9 @@ import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogS
 import { LoggingEventPublisher } from './adapters/outbound/LoggingEventPublisher';
 import { MathRandomSource } from './adapters/outbound/MathRandomSource';
 import { CryptoIdGenerator } from './adapters/outbound/CryptoIdGenerator';
+import { ClerkAuthAdapter, DevelopmentAuthAdapter } from './adapters/outbound/ClerkAuthAdapter';
+import { DrizzleManagerAccountRepository } from './adapters/outbound/DrizzleManagerAccountRepository';
+import { EnsureManagerAccountUseCase } from '@tennis-manager/application';
 
 export interface CompositionOptions {
   db: Db;
@@ -62,6 +65,10 @@ export const PRO_DECLINE_MULTIPLIER = 1.5;
 const WORLD_ID = WorldId(process.env.WORLD_ID ?? 'main');
 
 export interface Dependencies {
+  managers: DrizzleManagerAccountRepository;
+  auth: ClerkAuthAdapter | DevelopmentAuthAdapter;
+  ensureManagerAccount: EnsureManagerAccountUseCase;
+  authMode: 'clerk' | 'development';
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
@@ -95,6 +102,17 @@ export interface Dependencies {
  * to bottom, and the compiler checks it.
  */
 export function buildDependencies(options: CompositionOptions): Dependencies {
+  const authMode = process.env.AUTH_MODE ?? (process.env.NODE_ENV === 'production' ? 'clerk' : 'development');
+  if (authMode !== 'clerk' && authMode !== 'development') throw new Error('AUTH_MODE must be clerk or development');
+  if (authMode === 'clerk' && !process.env.CLERK_SECRET_KEY) throw new Error('CLERK_SECRET_KEY is required when AUTH_MODE=clerk');
+  if (authMode === 'clerk' && process.env.NODE_ENV === 'production' && !process.env.CLERK_AUTHORIZED_PARTIES) {
+    throw new Error('CLERK_AUTHORIZED_PARTIES is required in production');
+  }
+
+  const managers = new DrizzleManagerAccountRepository(options.db);
+  const auth = authMode === 'clerk'
+    ? new ClerkAuthAdapter(process.env.CLERK_SECRET_KEY!, (process.env.CLERK_AUTHORIZED_PARTIES ?? '').split(',').map((value) => value.trim()).filter(Boolean))
+    : new DevelopmentAuthAdapter();
   const players = new DrizzlePlayerRepository(options.db);
   const tournaments = new DrizzleTournamentRepository(options.db);
   const matchLogs = new FilesystemMatchLogStore({
@@ -127,6 +145,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const coaches = new DrizzleCoachRepository(options.db);
   const coachConversionPolicy = new StandardCoachConversionPolicy();
   const idGenerator = new CryptoIdGenerator();
+  const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator);
   // A separate RandomSource instance from the match simulator's — both
   // just wrap Math.random() statelessly, so sharing wouldn't be wrong,
   // but keeping them distinct avoids implying any ordering coupling
@@ -159,6 +178,10 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const trainingPolicy = new StandardTrainingPolicy();
 
   return {
+    managers,
+    auth,
+    ensureManagerAccount,
+    authMode,
     players,
     tournaments,
     worlds,

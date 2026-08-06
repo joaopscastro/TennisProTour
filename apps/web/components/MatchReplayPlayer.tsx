@@ -151,11 +151,11 @@ function formatMatchScoreline(log: MatchLogDto, matchWinner: 'A' | 'B'): string 
     .join(', ');
 }
 
-function pointLabel(a: string, b: string, aName: string, bName: string): { label: string; tense: boolean } {
-  if (a === '40' && b === '40') return { label: `40–40 · Deuce`, tense: true };
-  if (a === 'Ad') return { label: `Advantage · ${aName}`, tense: true };
-  if (b === 'Ad') return { label: `Advantage · ${bName}`, tense: true };
-  return { label: `${a}–${b}`, tense: false };
+function pointLabel(a: string, b: string, aName: string, bName: string): { label: string; state: 'normal' | 'deuce' | 'advantage' } {
+  if (a === '40' && b === '40') return { label: `40–40 · Deuce`, state: 'deuce' };
+  if (a === 'Ad') return { label: `Advantage · ${aName}`, state: 'advantage' };
+  if (b === 'Ad') return { label: `Advantage · ${bName}`, state: 'advantage' };
+  return { label: `${a}–${b}`, state: 'normal' };
 }
 
 interface Props {
@@ -167,6 +167,7 @@ interface Props {
   surfaceColor?: string;
   backToBracketHref?: string;
   nextReplayHref?: string;
+  nextRoundHref?: string;
   nextRoundLabel?: string;
 }
 
@@ -179,6 +180,7 @@ export function MatchReplayPlayer({
   surfaceColor = ACCENT,
   backToBracketHref,
   nextReplayHref,
+  nextRoundHref,
   nextRoundLabel,
 }: Props) {
   const [started, setStarted] = useState(false);
@@ -205,7 +207,7 @@ export function MatchReplayPlayer({
   const moments = useMemo(() => deriveMoments(log, playerAName, playerBName), [log, playerAName, playerBName]);
   const visibleMoments = useMemo(() => moments.filter((m) => m.offsetSeconds <= elapsed).slice().reverse(), [moments, elapsed]);
 
-  const setNumbers = useMemo(() => [...new Set(log.entries.map((e) => e.setNumber))].sort((a, b) => a - b), [log.entries]);
+  const setNumbers = [1, 2, 3];
   const visibleEntries = useMemo(() => log.entries.filter((e) => e.offsetSeconds <= elapsed), [log.entries, elapsed]);
 
   const setCells = setNumbers.map((setNumber) => {
@@ -287,6 +289,7 @@ export function MatchReplayPlayer({
           <div
             className="flex items-center gap-[7px] text-[12.5px] font-semibold px-[10px] py-[5px] rounded-full"
             style={{ background: statusBg, color: statusFg }}
+            data-testid="replay-status"
           >
             {statusDotColor && (
               <div
@@ -301,7 +304,7 @@ export function MatchReplayPlayer({
           </div>
         </div>
 
-        <div className="grid gap-[10px_16px] items-center" style={{ gridTemplateColumns: '1fr auto' }}>
+        <div className="grid gap-[10px_16px] items-center" style={{ gridTemplateColumns: '1fr auto' }} data-testid="set-scoreboard">
           <div className="flex items-center gap-[10px]">
             {playerAFlag && <span>{playerAFlag}</span>}
             <div className="text-[15px]" style={{ fontWeight: finished && aLeading ? 700 : 600, color: 'oklch(22% 0.006 75)' }}>
@@ -373,10 +376,21 @@ export function MatchReplayPlayer({
                 <div
                   className="inline-flex items-center gap-[6px] text-[12.5px] px-[10px] py-1 rounded-[5px]"
                   style={{
-                    fontWeight: pl.tense ? 700 : 600,
-                    background: pl.tense ? 'oklch(90% 0.05 60)' : 'oklch(96% 0.003 75)',
-                    color: pl.tense ? 'oklch(40% 0.12 45)' : 'oklch(45% 0.006 75)',
+                    fontWeight: pl.state === 'normal' ? 600 : 700,
+                    background:
+                      pl.state === 'deuce'
+                        ? 'oklch(91% 0.04 240)'
+                        : pl.state === 'advantage'
+                          ? 'oklch(90% 0.05 60)'
+                          : 'oklch(96% 0.003 75)',
+                    color:
+                      pl.state === 'deuce'
+                        ? 'oklch(38% 0.1 240)'
+                        : pl.state === 'advantage'
+                          ? 'oklch(40% 0.12 45)'
+                          : 'oklch(45% 0.006 75)',
                   }}
+                  data-testid="current-point"
                 >
                   {pl.label}
                 </div>
@@ -417,7 +431,7 @@ export function MatchReplayPlayer({
       {/* PLAYBACK CONTROLS */}
       {started && (
         <div className="mt-4 bg-white rounded-[10px] p-[16px_20px]" style={{ border: '1px solid oklch(90% 0.005 75)' }}>
-          <div className="relative h-5 mb-[6px]">
+          <div className="relative h-5 mb-[6px]" data-testid="scrub-bar">
             <input
               type="range"
               min={0}
@@ -433,6 +447,7 @@ export function MatchReplayPlayer({
                 key={i}
                 className="absolute top-0 w-[2px] h-2"
                 style={{ left: `${(m.offsetSeconds / log.totalDurationSeconds) * 100}%`, background: 'oklch(65% 0.006 75)', transform: 'translateX(-1px)' }}
+                data-testid="scrub-tick"
               />
             ))}
           </div>
@@ -502,7 +517,7 @@ export function MatchReplayPlayer({
 
       {/* MATCH COMPLETE BANNER */}
       {finished && (
-        <div className="mt-4 text-white rounded-[10px] p-[18px_22px] flex items-center justify-between flex-wrap gap-3" style={{ background: DARK }}>
+        <div className="mt-4 text-white rounded-[10px] p-[18px_22px] flex items-center justify-between flex-wrap gap-3" style={{ background: DARK }} data-testid="completion-banner">
           <div>
             <div className="text-[13px] font-bold tracking-[0.3px]">
               {overallWinnerSide === 'A' ? playerAName : playerBName} wins {formatMatchScoreline(log, overallWinnerSide ?? 'A')}
@@ -517,8 +532,8 @@ export function MatchReplayPlayer({
                 Back to bracket
               </Link>
             )}
-            {nextReplayHref && nextRoundLabel && (
-              <Link href={nextReplayHref} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'oklch(76% 0.19 122)' }}>
+            {(nextReplayHref || nextRoundHref) && nextRoundLabel && (
+              <Link href={nextReplayHref ?? nextRoundHref!} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'oklch(76% 0.19 122)' }}>
                 View {nextRoundLabel} →
               </Link>
             )}
@@ -527,7 +542,7 @@ export function MatchReplayPlayer({
       )}
 
       {/* COMMENTARY FEED */}
-      <div className="mt-4">
+      <div className="mt-4" data-testid="commentary-feed">
         <div className="text-[13px] font-bold mb-2">Commentary</div>
         <div className="flex flex-col gap-2 overflow-y-auto pr-1" style={{ maxHeight: 360 }}>
           {visibleMoments.map((m, i) => {
@@ -549,7 +564,7 @@ export function MatchReplayPlayer({
           })}
           {visibleMoments.length === 0 && (
             <div className="text-[13px] py-[10px]" style={{ color: 'oklch(55% 0.006 75)' }}>
-              {started ? 'Nothing notable yet — keep watching.' : 'Commentary will appear here once you press play.'}
+              {started ? 'Nothing notable yet — keep watching' : 'Commentary will appear here once you press play.'}
             </div>
           )}
         </div>

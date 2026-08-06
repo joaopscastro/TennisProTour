@@ -9,6 +9,8 @@ See `docs/` for the fuller business, game-design, and brand/marketing
 plans this project is built from:
 - `docs/business-plan.md`
 - `docs/brand-marketing-plan.md`
+- `docs/implementation-roadmap.md`
+- `docs/security-and-identity.md`
 
 ## Layout
 
@@ -33,7 +35,7 @@ Requires Docker (for Postgres + Redis) and Node 22+.
 
 ```
 npm install
-npm run setup   # one-time: build domain/application, start docker-compose, migrate, seed dev data
+npm run setup   # build domain/application, start docker-compose, migrate, seed dev data
 npm run dev     # every time: docker-compose (waits for real readiness) + migrate + api/worker/web together
 ```
 
@@ -72,8 +74,13 @@ npm run typecheck               # strict tsc --build across every package/app
 docker compose up -d            # Postgres 16 (port 5432) + Redis 7 (port 6379)
 npm run db:migrate -w apps/api  # apply Drizzle migrations
 npm run db:generate -w apps/api # regenerate migrations after editing the schema
-npm run seed -w apps/api        # populate dev data (idempotent-ish, see the script's own doc comment)
+npm run seed -w apps/api        # populate dev data (safe to repeat, see the script's own doc comment)
 npm run start -w apps/api       # Fastify API on :3000
 npm run start -w apps/worker    # BullMQ worker: weekly world tick + due-match sweep
 npm run dev -w apps/web         # Next.js on :3001
+npm run test:e2e -w apps/web    # Playwright browser acceptance tests
 ```
+
+For Clerk configuration and the production security checklist, see
+`docs/security-and-identity.md` and `.env.example`. Local development uses an
+explicit development identity header; production must use `AUTH_MODE=clerk`.
