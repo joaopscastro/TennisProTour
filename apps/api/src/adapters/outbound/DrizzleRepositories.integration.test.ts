@@ -16,6 +16,7 @@ import { Coach, CoachId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
+import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleTalentPoolCandidateRepository } from './DrizzleTalentPoolCandidateRepository';
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
@@ -252,6 +253,61 @@ describe('DrizzleTournamentRepository', () => {
     original.startWithBracket(new BracketGenerator().generate(original.entrants, 16));
     await tournamentRepository.save(original);
     expect(await tournamentRepository.findOpenForRegistration()).toHaveLength(0);
+  });
+});
+
+describe('DrizzleRankingLedgerRepository', () => {
+  const ledgerRepository = new DrizzleRankingLedgerRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+
+  it("round-trips a junior entry's ageBand and a senior entry's null ageBand", async () => {
+    await playerRepository.save(Player.hire(PlayerId('p1'), 'Junior Player', 14 * 52, attributes(30), ManagerId('m1')));
+
+    const juniorTournament = Tournament.open({
+      id: TournamentId('t-junior-ledger'),
+      tier: 'j100',
+      ageBand: 'u14',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(juniorTournament);
+
+    const seniorTournament = Tournament.open({
+      id: TournamentId('t-senior-ledger'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(seniorTournament);
+
+    await ledgerRepository.append({
+      playerId: PlayerId('p1'),
+      tournamentId: TournamentId('t-junior-ledger'),
+      tier: 'j100',
+      ageBand: 'u14',
+      points: 18,
+      weekEarned: { season: 1, week: 1 },
+    });
+    await ledgerRepository.append({
+      playerId: PlayerId('p1'),
+      tournamentId: TournamentId('t-senior-ledger'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 11,
+      weekEarned: { season: 1, week: 1 },
+    });
+
+    const entries = await ledgerRepository.findByPlayer(PlayerId('p1'));
+    expect(entries).toHaveLength(2);
+
+    const juniorEntry = entries.find((e) => e.tournamentId === TournamentId('t-junior-ledger'));
+    expect(juniorEntry?.ageBand).toBe('u14');
+
+    const seniorEntry = entries.find((e) => e.tournamentId === TournamentId('t-senior-ledger'));
+    expect(seniorEntry?.ageBand).toBeNull();
   });
 });
 

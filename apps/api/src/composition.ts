@@ -73,7 +73,15 @@ export interface Dependencies {
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
   rankingLedger: DrizzleRankingLedgerRepository;
+  /** The senior tour's rank-position query (band: 'senior') — what the
+   * roster dashboard's rank column reads today. The two junior bands
+   * (rankPositionU14/rankPositionU16) are wired below for the same
+   * reason coach conversion shipped with no HTTP route yet (see
+   * CLAUDE.md's Manager & Progression status): the domain/query layer
+   * is real and tested ahead of any UI consuming it. */
   rankPosition: RankPositionQuery;
+  rankPositionU14: RankPositionQuery;
+  rankPositionU16: RankPositionQuery;
   talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   managerXp: DrizzleManagerXpRepository;
   coaches: DrizzleCoachRepository;
@@ -136,7 +144,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
 
   const worlds = new DrizzleGameWorldRepository(options.db);
   const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
-  const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID);
+  const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'senior');
+  const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u14');
+  const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u16');
   const talentPoolCandidates = new DrizzleTalentPoolCandidateRepository(options.db);
   const managerXp = new DrizzleManagerXpRepository(options.db);
   const managerXpPolicy = new StandardManagerXpPolicy();
@@ -187,6 +197,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     worlds,
     rankingLedger,
     rankPosition,
+    rankPositionU14,
+    rankPositionU16,
     talentPoolCandidates,
     managerXp,
     coaches,

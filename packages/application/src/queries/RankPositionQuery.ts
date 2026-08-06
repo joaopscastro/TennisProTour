@@ -1,4 +1,12 @@
-import { PlayerId, RankingCalculationService, RankingLedgerEntry, WorldId } from '@tennis-manager/domain';
+import {
+  bestResultsCapFor,
+  matchesRankingBand,
+  PlayerId,
+  RankingBand,
+  RankingCalculationService,
+  RankingLedgerEntry,
+  WorldId,
+} from '@tennis-manager/domain';
 import { GameWorldRepository, RankingLedgerRepository } from '../ports/ports';
 
 export interface RankedPlayer {
@@ -17,24 +25,41 @@ export interface RankedPlayer {
  * use case in this package already uses, unlike the Drizzle-specific
  * read models under apps/api that go straight to raw SQL.
  *
- * Groups the full ranking_ledger by player and runs each group through
+ * One instance is scoped to exactly one `RankingBand` ('senior', 'u14',
+ * or 'u16') — a player's U14 results never feed their U16 total or the
+ * senior total, and vice versa, because this query only ever sees the
+ * ledger slice `matchesRankingBand` lets through before anything is
+ * grouped or summed. `calculator` defaults to the real best-N rule for
+ * that band (18 for senior, 6 for either junior band — see
+ * `bestResultsCapFor`), so a caller only has to override it in tests
+ * that want to assert on the cap explicitly.
+ *
+ * Groups that ledger slice by player and runs each group through
  * RankingCalculationService against the game-world's current week, so
- * "rank #4" always reflects the live 52-week/best-18 computation,
- * never a stale stored total.
+ * "rank #4" always reflects the live rolling computation, never a
+ * stale stored total.
  */
 export class RankPositionQuery {
   constructor(
     private readonly rankingLedger: RankingLedgerRepository,
     private readonly worlds: GameWorldRepository,
     private readonly worldId: WorldId,
-    private readonly calculator: RankingCalculationService = new RankingCalculationService(),
+    private readonly band: RankingBand,
+    private readonly calculator: RankingCalculationService = new RankingCalculationService(bestResultsCapFor(band)),
   ) {}
 
-  /** Every player who has ever earned a ledger entry, sorted by their
-   * currently-computed ranking total descending. A player with no
-   * ledger entries at all doesn't appear here — that's "unranked,"
-   * distinct from a player whose entries have all aged out of the
-   * 52-week window (they appear, with 0 points). */
+  /** Every player who currently has at least one qualifying result in
+   * this band — a ledger entry within the rolling window that actually
+   * contributes positive points — sorted by their currently-computed
+   * ranking total descending. A ranking must be earned, not granted:
+   * a player who has only ever lost in the first round (0 points every
+   * time — see StandardRankingPointsTable), whose only results have
+   * aged out of the rolling window, or who has never played a
+   * tournament in this band at all, is genuinely unranked ("NR") and
+   * does not appear here — never sorted to the bottom at an implicit
+   * 0. Since no tier's non-zero-roundsWon points value is ever 0,
+   * "totalPoints > 0" and "has at least one qualifying result" are the
+   * same condition. */
   async sortedRankings(): Promise<RankedPlayer[]> {
     const world = await this.worlds.findById(this.worldId);
     // Falls back to week 1 of season 1 if the world clock hasn't been
@@ -45,23 +70,28 @@ export class RankPositionQuery {
     const currentWeek = world?.currentWeek ?? { season: 1, week: 1 };
 
     const entries = await this.rankingLedger.findAll();
+    const bandEntries = entries.filter((entry) => matchesRankingBand(entry.ageBand, this.band));
+
     const entriesByPlayer = new Map<PlayerId, RankingLedgerEntry[]>();
-    for (const entry of entries) {
+    for (const entry of bandEntries) {
       const existing = entriesByPlayer.get(entry.playerId);
       if (existing) existing.push(entry);
       else entriesByPlayer.set(entry.playerId, [entry]);
     }
 
-    const ranked: RankedPlayer[] = [...entriesByPlayer.entries()].map(([playerId, playerEntries]) => ({
-      playerId,
-      totalPoints: this.calculator.calculateTotal(playerEntries, currentWeek),
-    }));
+    const ranked: RankedPlayer[] = [...entriesByPlayer.entries()]
+      .map(([playerId, playerEntries]) => ({
+        playerId,
+        totalPoints: this.calculator.calculateTotal(playerEntries, currentWeek),
+      }))
+      .filter((r) => r.totalPoints > 0);
 
     return ranked.sort((a, b) => b.totalPoints - a.totalPoints);
   }
 
-  /** 1-indexed rank position and current total for one player; null
-   * rank means unranked (no ledger entries at all), not rank 0. */
+  /** 1-indexed rank position and current total for one player in this
+   * band; null rank means unranked ("NR" — no qualifying result in
+   * this band), not rank 0. */
   async rankFor(playerId: PlayerId): Promise<{ totalPoints: number; rank: number | null }> {
     const sorted = await this.sortedRankings();
     const index = sorted.findIndex((r) => r.playerId === playerId);

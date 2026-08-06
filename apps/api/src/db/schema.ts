@@ -136,6 +136,10 @@ export const rankingLedger = pgTable('ranking_ledger', {
     .notNull()
     .references(() => tournaments.id),
   tier: tournamentTier('tier').notNull(),
+  /** Mirrors the earning tournament's age_band — null for a senior
+   * result, u14/u16 for a junior one. Scopes this entry to exactly one
+   * of a player's independent rankings — see RankingBand (domain). */
+  ageBand: ageBand('age_band'),
   points: doublePrecision('points').notNull(),
   /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
   seasonEarned: integer('season_earned').notNull(),

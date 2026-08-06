@@ -10,6 +10,7 @@ function entry(overrides: Partial<RankingLedgerEntry> & { weekEarned: GameWeek; 
     playerId: player,
     tournamentId: TournamentId('t'),
     tier: 'challenger',
+    ageBand: null,
     ...overrides,
   };
 }
@@ -69,5 +70,46 @@ describe('RankingCalculationService', () => {
     // the 18 slots rather than sitting outside the cap entirely, so
     // exactly one of the 18 (equally-ranked) non-majors is displaced.
     expect(total).toBe(17 * 2000 + 50);
+  });
+
+  it('accepts bestResultsCap as a constructor parameter — the real ITF best-6 junior rule is this same service reused, not a second implementation', () => {
+    const juniorService = new RankingCalculationService(6);
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+
+    // 7 results, each worth 100, 99, ... down to 94 — the same shape as
+    // the best-18 test above, just with a smaller N.
+    const entries: RankingLedgerEntry[] = Array.from({ length: 7 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 100 - i, tournamentId: TournamentId(`t${i}`) }),
+    );
+
+    const total = juniorService.calculateTotal(entries, currentWeek);
+    const expectedTotal = entries
+      .map((e) => e.points)
+      .sort((a, b) => b - a)
+      .slice(0, 6)
+      .reduce((sum, p) => sum + p, 0);
+
+    expect(total).toBe(expectedTotal);
+    // The worst (7th, 94 points) result is excluded from the sum.
+    expect(total).not.toBe(expectedTotal + 94);
+  });
+
+  it('defaults to the senior tour best-18 cap when constructed with no argument', () => {
+    const service = new RankingCalculationService();
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+    const entries: RankingLedgerEntry[] = Array.from({ length: 19 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 100 - i, tournamentId: TournamentId(`t${i}`) }),
+    );
+
+    // Same as "caps non-major results at the best 18" above, asserted
+    // here specifically as a default-parameter regression guard.
+    const total = service.calculateTotal(entries, currentWeek);
+    expect(total).toBe(
+      entries
+        .map((e) => e.points)
+        .sort((a, b) => b - a)
+        .slice(0, 18)
+        .reduce((sum, p) => sum + p, 0),
+    );
   });
 });

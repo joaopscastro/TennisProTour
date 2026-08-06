@@ -1,4 +1,4 @@
-import { TournamentId, PlayerId, MatchId, Player, TournamentTier, GameWeek } from '@tennis-manager/domain';
+import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
@@ -143,6 +143,7 @@ export class SimulateMatchUseCase {
       loserPlayer,
       tournament.roundsWonBy(outcome.loser),
       tournament.tier,
+      tournament.ageBand,
       tournament.id,
       tournament.weekScheduled,
     );
@@ -152,6 +153,7 @@ export class SimulateMatchUseCase {
         winnerPlayer,
         tournament.roundsWonBy(outcome.winner),
         tournament.tier,
+        tournament.ageBand,
         tournament.id,
         tournament.weekScheduled,
       );
@@ -165,12 +167,13 @@ export class SimulateMatchUseCase {
     player: Player | null,
     roundsWon: number,
     tier: TournamentTier,
+    ageBand: AgeBand | null,
     tournamentId: TournamentId,
     weekEarned: GameWeek,
   ): Promise<void> {
     if (!player) return;
     const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
-    const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, points, weekEarned };
+    const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, ageBand, points, weekEarned };
     await this.rankingLedger.append(entry);
   }
 

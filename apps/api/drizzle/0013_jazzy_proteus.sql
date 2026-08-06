@@ -1,0 +1,1 @@
+ALTER TABLE "ranking_ledger" ADD COLUMN "age_band" "age_band";
