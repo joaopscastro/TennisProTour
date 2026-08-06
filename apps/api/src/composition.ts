@@ -17,6 +17,7 @@ import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
+import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingFocusUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
@@ -96,6 +97,11 @@ export interface Dependencies {
   registerEntrant: RegisterEntrantUseCase;
   simulateMatch: SimulateMatchUseCase;
   advanceWorldWeek: AdvanceWorldWeekUseCase;
+  /** Weekly junior-ladder content generation — see its own doc comment
+   * for why this exists at all: before it, nothing ever created a
+   * junior tournament automatically. Run from the same worker handler
+   * as advanceWorldWeek, gated on that use case's `advanced` result. */
+  generateJuniorTournaments: GenerateJuniorTournamentsUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingFocus: SetTrainingFocusUseCase;
   releasePlayer: ReleasePlayerUseCase;
@@ -187,6 +193,13 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const proAging = new PlayerAgingService(new AcceleratedDeclinePolicy(standardAgingPolicy, PRO_DECLINE_MULTIPLIER));
   const trainingPolicy = new StandardTrainingPolicy();
 
+  const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator);
+  const openRegistration = new OpenRegistrationUseCase(tournaments);
+  const generateJuniorTournaments = new GenerateJuniorTournamentsUseCase(worlds, openRegistration, openTournament, {
+    u14: rankPositionU14,
+    u16: rankPositionU16,
+  }, idGenerator);
+
   return {
     managers,
     auth,
@@ -215,11 +228,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ),
     createCustomPlayer: new CreateCustomPlayerUseCase(players, events, billing, generationPolicy, generationRandom),
     refreshTalentPool: new RefreshTalentPoolUseCase(talentPoolCandidates, worlds, generationPolicy, generationRandom, idGenerator),
-    openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),
-    openRegistration: new OpenRegistrationUseCase(tournaments),
+    openTournament,
+    openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger),
+    generateJuniorTournaments,
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
     setTrainingFocus: new SetTrainingFocusUseCase(players),
     releasePlayer: new ReleasePlayerUseCase(players),

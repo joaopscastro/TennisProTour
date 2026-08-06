@@ -29,6 +29,12 @@ export function makeAdvanceWorldHandler(deps: Dependencies) {
     // RefreshTalentPoolUseCase's doc comment.
     if (result.advanced) {
       await deps.refreshTalentPool.execute({ worldId });
+      // Weekly junior-tournament generation piggybacks on the same
+      // tick/gate as the talent pool refresh above, for the same
+      // reason: a duplicate/retried tick that didn't actually move
+      // the world clock forward shouldn't generate a fresh batch of
+      // tournaments either. See GenerateJuniorTournamentsUseCase.
+      await deps.generateJuniorTournaments.execute({ worldId });
     }
     return result;
   };
