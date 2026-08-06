@@ -5,6 +5,7 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
 import { RankingLedgerEntry } from '@tennis-manager/domain';
 import { ManagerXpPolicy } from '@tennis-manager/domain';
+import { applyGraduationCarryover, RankingBand } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
   RankingLedgerRepository,
@@ -172,7 +173,22 @@ export class SimulateMatchUseCase {
     weekEarned: GameWeek,
   ): Promise<void> {
     if (!player) return;
-    const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
+    const rawPoints = this.rankingPointsTable.pointsFor(tier, roundsWon);
+
+    // A dormant graduation-carryover bonus (see
+    // domain/ranking/GraduationCarryover.ts) only ever amplifies a
+    // real result — it never fires on a 0-point entry (a first-round
+    // exit isn't "actually winning" in the new band), and only once:
+    // applyGraduationCarryover tells us whether this was the
+    // qualifying moment, so we clear it on the player right here
+    // rather than leaving it to fire again on a later result.
+    const entryBand: RankingBand = ageBand ?? 'senior';
+    const { points, consumed } = applyGraduationCarryover(rawPoints, entryBand, player.dormantCarryoverBonus);
+    if (consumed) {
+      player.setDormantCarryoverBonus(null);
+      await this.players.save(player);
+    }
+
     const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, ageBand, points, weekEarned };
     await this.rankingLedger.append(entry);
   }

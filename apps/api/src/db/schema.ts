@@ -56,6 +56,12 @@ export const tournamentTier = pgEnum('tournament_tier', [
  * Tournament.ageBand's doc comment. U12 is deliberately out of scope
  * (real ITF/Tennis Europe U12 play is unranked and unseeded). */
 export const ageBand = pgEnum('age_band', ['u14', 'u16']);
+/** The three independent rankings a player can hold — see
+ * packages/domain/src/ranking/RankingBand.ts. Distinct from `ageBand`
+ * above only in that it also has a 'senior' value (a tournament's
+ * ageBand is null for senior tiers; a ranking band is never null, it's
+ * explicitly 'senior' instead) — used on `players.dormant_carryover_target_band`. */
+export const rankingBand = pgEnum('ranking_band', ['senior', 'u14', 'u16']);
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
 export const skillCluster = pgEnum('skill_cluster', ['technical', 'physical', 'mental']);
@@ -213,6 +219,16 @@ export const players = pgTable('players', {
   trainingFocusKind: trainingFocusKind('training_focus_kind'),
   trainingFocusSurface: surface('training_focus_surface'),
   trainingFocusCluster: skillCluster('training_focus_cluster'),
+
+  /** A dormant graduation-carryover bonus (see
+   * packages/domain/src/ranking/GraduationCarryover.ts) — null target
+   * band means no pending bonus. Same "flat nullable columns for a
+   * small optional structured field" convention as trainingFocus
+   * above, not jsonb (see this table's top-level doc comment on
+   * setScores for why jsonb is reserved for write-once/read-whole
+   * blobs, which this isn't — it's mutated in place). */
+  dormantCarryoverTargetBand: rankingBand('dormant_carryover_target_band'),
+  dormantCarryoverBonusPoints: doublePrecision('dormant_carryover_bonus_points'),
 
   // Technical
   serve: integer('serve').notNull(),

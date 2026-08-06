@@ -129,6 +129,22 @@ describe('DrizzlePlayerRepository', () => {
     expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toBeNull();
   });
 
+  it('round-trips a dormant graduation-carryover bonus, and its absence (null)', async () => {
+    const player = Player.hire(PlayerId('p-carryover'), 'Carryover Test', 14 * 52, attributes(30), ManagerId('m1'));
+    expect(player.dormantCarryoverBonus).toBeNull(); // default, before any save
+
+    player.setDormantCarryoverBonus({ targetBand: 'u16', bonusPoints: 37.5 });
+    await repository.save(player);
+    expect((await repository.findById(PlayerId('p-carryover')))!.dormantCarryoverBonus).toEqual({
+      targetBand: 'u16',
+      bonusPoints: 37.5,
+    });
+
+    player.setDormantCarryoverBonus(null);
+    await repository.save(player);
+    expect((await repository.findById(PlayerId('p-carryover')))!.dormantCarryoverBonus).toBeNull();
+  });
+
   it('updates in place on second save (upsert) and filters findByManager by manager', async () => {
     const m1 = ManagerId('m1');
     const m2 = ManagerId('m2');

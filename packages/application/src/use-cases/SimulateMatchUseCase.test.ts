@@ -645,4 +645,223 @@ describe('SimulateMatchUseCase', () => {
       expect(await managerXp.balanceFor(MANAGER)).toBe(0);
     });
   });
+
+  describe('graduation carryover', () => {
+    /** A junior tournament in the given band, cascaded far enough for
+     * one player (entrantA at every round, per AlwaysAWinsSimulator)
+     * to accumulate real wins before eventually losing — a win-then-
+     * lose player gets a ledger entry with roundsWon >= 1 (points >
+     * 0) the moment they lose, without needing to cascade all the way
+     * to a champion. */
+    function openJuniorTournament(id: TournamentId, ageBand: 'u14' | 'u16' = 'u16'): { tournament: Tournament; bracketGenerator: BracketGenerator } {
+      const bracketGenerator = new BracketGenerator();
+      const tournament = Tournament.open({
+        id,
+        tier: 'j100',
+        ageBand,
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 1 },
+        drawSize: 16,
+      });
+      for (let i = 1; i <= 16; i++) {
+        tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+      }
+      const [round1] = bracketGenerator.generate(tournament.entrants, 16);
+      tournament.startWithBracket([round1]);
+      return { tournament, bracketGenerator };
+    }
+
+    function buildUseCase(
+      tournaments: InMemoryTournamentRepository,
+      players: InMemoryPlayerRepository,
+      rankingLedger: InMemoryRankingLedgerRepository,
+      bracketGenerator: BracketGenerator,
+    ): SimulateMatchUseCase {
+      return new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        rankingLedger,
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+      );
+    }
+
+    /** Plays out every match of every round in order, so seed 1 (always
+     * entrantA, per AlwaysAWinsSimulator) ends up the outright
+     * champion — the simplest way to get them a real, points > 0
+     * ranking-ledger entry, since a winner is only awarded points the
+     * moment they win the FINAL (see SimulateMatchUseCase's doc
+     * comment). Round N+1 only exists once every match of round N is
+     * decided, so this has to complete a round in full before reading
+     * the next one back off the repository. */
+    async function cascadeToChampion(
+      useCase: SimulateMatchUseCase,
+      tournaments: InMemoryTournamentRepository,
+      tournamentId: TournamentId,
+      totalRounds: number,
+    ): Promise<void> {
+      for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber++) {
+        const tournament = (await tournaments.findById(tournamentId))!;
+        const matchCount = tournament.getRounds()[roundNumber - 1].matches.length;
+        for (let matchIndex = 0; matchIndex < matchCount; matchIndex++) {
+          await useCase.execute({
+            matchId: MatchId(`${tournamentId}-r${roundNumber}-m${matchIndex}`),
+            tournamentId,
+            roundNumber,
+            matchIndex,
+          });
+        }
+      }
+    }
+
+    it("does NOT consume the dormant bonus (or boost anything) on a 0-point first-round loss in the target band — a ranking must be earned, not just entered", async () => {
+      const tournamentId = TournamentId('t-loss');
+      const { tournament, bracketGenerator } = openJuniorTournament(tournamentId, 'u16');
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+
+      const loser = (await players.findById(PlayerId('p16')))!; // entrantB of round-1 match 0 (seed1 vs seed16)
+      const dormant = { targetBand: 'u16' as const, bonusPoints: 999 };
+      loser.setDormantCarryoverBonus(dormant);
+      await players.save(loser);
+
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const useCase = buildUseCase(tournaments, players, rankingLedger, bracketGenerator);
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const entries = await rankingLedger.findByPlayer(PlayerId('p16'));
+      expect(entries).toHaveLength(1);
+      expect(entries[0].points).toBe(0); // no manufactured ranking
+
+      const reloaded = await players.findById(PlayerId('p16'));
+      expect(reloaded!.dormantCarryoverBonus).toEqual(dormant); // still dormant, untouched
+    });
+
+    it("boosts a player's first real (points > 0) result in the target band by the dormant bonus, then clears it", async () => {
+      const tournamentId = TournamentId('t-win');
+      const { tournament, bracketGenerator } = openJuniorTournament(tournamentId, 'u16');
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+
+      const p1 = (await players.findById(PlayerId('p1')))!; // seed 1 — always entrantA, so always the AlwaysAWinsSimulator winner
+      const dormant = { targetBand: 'u16' as const, bonusPoints: 50 };
+      p1.setDormantCarryoverBonus(dormant);
+      await players.save(p1);
+
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const useCase = buildUseCase(tournaments, players, rankingLedger, bracketGenerator);
+
+      // p1 wins every round of this 16-draw (4 rounds), becoming
+      // champion — their ranking-ledger entry is awarded the instant
+      // they win the final, with roundsWon = 4.
+      await cascadeToChampion(useCase, tournaments, tournamentId, 4);
+
+      const rawPoints = new StandardRankingPointsTable().pointsFor('j100', 4);
+      expect(rawPoints).toBeGreaterThan(0);
+      const entries = await rankingLedger.findByPlayer(PlayerId('p1'));
+      expect(entries).toHaveLength(1);
+      expect(entries[0].points).toBe(rawPoints + dormant.bonusPoints);
+
+      const reloaded = await players.findById(PlayerId('p1'));
+      expect(reloaded!.dormantCarryoverBonus).toBeNull(); // consumed
+    });
+
+    it('does NOT apply the bonus to a second qualifying result — only the first one consumes it', async () => {
+      const players = new InMemoryPlayerRepository();
+      await players.save(makePlayer(PlayerId('p1')));
+      const p1 = (await players.findById(PlayerId('p1')))!;
+      const dormant = { targetBand: 'u16' as const, bonusPoints: 50 };
+      p1.setDormantCarryoverBonus(dormant);
+      await players.save(p1);
+
+      const tournaments = new InMemoryTournamentRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+
+      // Two separate junior tournaments, same player (seed 1, always
+      // champion under AlwaysAWinsSimulator), same target band.
+      for (const tid of ['t-a', 't-b']) {
+        const bracketGenerator = new BracketGenerator();
+        const tournament = Tournament.open({
+          id: TournamentId(tid),
+          tier: 'j100',
+          ageBand: 'u16',
+          surface: 'hard',
+          weekScheduled: { season: 1, week: 1 },
+          drawSize: 16,
+        });
+        tournament.registerEntrant({ playerId: PlayerId('p1'), seed: 1 });
+        for (let i = 2; i <= 16; i++) {
+          tournament.registerEntrant({ playerId: PlayerId(`${tid}-p${i}`), seed: i });
+          await players.save(makePlayer(PlayerId(`${tid}-p${i}`)));
+        }
+        const [round1] = bracketGenerator.generate(tournament.entrants, 16);
+        tournament.startWithBracket([round1]);
+        await tournaments.save(tournament);
+
+        const useCase = buildUseCase(tournaments, players, rankingLedger, bracketGenerator);
+        await cascadeToChampion(useCase, tournaments, TournamentId(tid), 4);
+      }
+
+      const rawPoints = new StandardRankingPointsTable().pointsFor('j100', 4);
+      const entries = await rankingLedger.findByPlayer(PlayerId('p1'));
+      expect(entries).toHaveLength(2);
+      const [first, second] = entries;
+      expect(first.points).toBe(rawPoints + dormant.bonusPoints); // boosted — first qualifying result
+      expect(second.points).toBe(rawPoints); // NOT boosted — bonus already consumed by the first
+    });
+
+    it('does NOT apply a dormant bonus to a real (points > 0) result in a different band than the one it targets', async () => {
+      const tournamentId = TournamentId('t-senior');
+      const bracketGenerator = new BracketGenerator();
+      const tournament = Tournament.open({
+        id: tournamentId,
+        tier: 'challenger', // senior tier -> ageBand null -> band 'senior'
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 1 },
+        drawSize: 16,
+      });
+      for (let i = 1; i <= 16; i++) tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+      const [round1] = bracketGenerator.generate(tournament.entrants, 16);
+      tournament.startWithBracket([round1]);
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+
+      // p1 wins the whole senior draw — a real (points > 0) senior-band
+      // entry — while holding a dormant bonus that targets 'u16', not
+      // 'senior'.
+      const p1 = (await players.findById(PlayerId('p1')))!;
+      const dormant = { targetBand: 'u16' as const, bonusPoints: 999 };
+      p1.setDormantCarryoverBonus(dormant);
+      await players.save(p1);
+
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const useCase = buildUseCase(tournaments, players, rankingLedger, bracketGenerator);
+
+      await cascadeToChampion(useCase, tournaments, tournamentId, 4);
+
+      const rawPoints = new StandardRankingPointsTable().pointsFor('challenger', 4);
+      expect(rawPoints).toBeGreaterThan(0);
+      const entries = await rankingLedger.findByPlayer(PlayerId('p1'));
+      expect(entries).toHaveLength(1);
+      expect(entries[0].points).toBe(rawPoints); // NOT boosted — wrong band
+
+      const reloaded = await players.findById(PlayerId('p1'));
+      expect(reloaded!.dormantCarryoverBonus).toEqual(dormant); // untouched, still dormant
+    });
+  });
 });

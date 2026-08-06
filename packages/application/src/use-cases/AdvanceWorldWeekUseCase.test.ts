@@ -5,21 +5,48 @@ import {
   Coach,
   CoachId,
   GameWorld,
+  GRADUATION_CARRYOVER_FRACTION,
   ManagerId,
   Player,
   PlayerAgingService,
   PlayerAttributes,
   PlayerId,
   PlayerLifecycleStage,
+  RankingLedgerEntry,
   Skill,
   StandardAgingPolicy,
   StandardTrainingPolicy,
   SurfaceAffinities,
+  TournamentId,
   TrainingPolicy,
   WorldId,
 } from '@tennis-manager/domain';
-import { BillingPort, CoachRepository, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
+import {
+  BillingPort,
+  CoachRepository,
+  EventPublisherPort,
+  GameWorldRepository,
+  PlayerRepository,
+  RankingLedgerRepository,
+} from '../ports/ports';
+import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { AdvanceWorldWeekUseCase } from './AdvanceWorldWeekUseCase';
+
+class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
+  private readonly entries: RankingLedgerEntry[] = [];
+
+  async append(entry: RankingLedgerEntry): Promise<void> {
+    this.entries.push(entry);
+  }
+
+  async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
+    return this.entries.filter((e) => e.playerId === playerId);
+  }
+
+  async findAll(): Promise<RankingLedgerEntry[]> {
+    return [...this.entries];
+  }
+}
 
 /** Deterministic stand-in so training-application tests assert on a
  * known delta rather than StandardTrainingPolicy's real balance
@@ -138,6 +165,7 @@ async function setup(playerCount: number) {
     events,
     new StandardTrainingPolicy(),
     coaches,
+    new InMemoryRankingLedgerRepository(),
   );
   return { worlds, players, events, worldId, useCase, coaches };
 }
@@ -196,6 +224,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new RecordingEventPublisher(),
       new StandardTrainingPolicy(),
       new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -222,6 +251,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       events,
       new StandardTrainingPolicy(),
       new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -262,6 +292,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new RecordingEventPublisher(),
       new StandardTrainingPolicy(),
       new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -301,6 +332,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new RecordingEventPublisher(),
       new FixedTrainingPolicy(6),
       new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -336,6 +368,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new RecordingEventPublisher(),
       new FixedTrainingPolicy(3),
       new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -375,6 +408,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new RecordingEventPublisher(),
       new FixedTrainingPolicy(10),
       coaches,
+      new InMemoryRankingLedgerRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -383,5 +417,158 @@ describe('AdvanceWorldWeekUseCase', () => {
     const uncoachedResult = (await players.findById(PlayerId('uncoached-p')))!.attributes.surfaceAffinities.get('grass');
     expect(coachedResult).toBeGreaterThan(uncoachedResult); // same base delta, coach pushes one higher
     expect(uncoachedResult).toBe(30); // 20 + 10, exactly the uncoached base delta
+  });
+
+  describe('junior graduation carryover', () => {
+    function entry(playerId: PlayerId, points: number, ageBand: 'u14' | 'u16' | null): RankingLedgerEntry {
+      return {
+        playerId,
+        tournamentId: TournamentId('t'),
+        tier: ageBand ? 'j100' : 'challenger',
+        ageBand,
+        points,
+        weekEarned: { season: 1, week: 1 },
+      };
+    }
+
+    it('records a dormant bonus sized as GRADUATION_CARRYOVER_FRACTION of the old band total the exact week a player crosses U14 -> U16', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+      await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+      const aged = await players.findById(PlayerId('p1'));
+      expect(aged!.ageInWeeks).toBe(14 * 52); // exactly crossed into U16 eligibility
+      expect(aged!.dormantCarryoverBonus).toEqual({
+        targetBand: 'u16',
+        bonusPoints: 100 * GRADUATION_CARRYOVER_FRACTION,
+      });
+
+      // The dormant bonus is recorded WITHOUT ever writing a
+      // ranking-ledger entry — aging alone never manufactures a
+      // ranking.
+      expect(await rankingLedger.findAll()).toHaveLength(1); // still just the original U14 entry
+    });
+
+    it('records nothing when the player has no ranking at all in the band they are leaving', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository(); // empty
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+      const aged = await players.findById(PlayerId('p1'));
+      expect(aged!.ageInWeeks).toBe(14 * 52);
+      expect(aged!.dormantCarryoverBonus).toBeNull();
+    });
+
+    it('does not touch dormantCarryoverBonus for a player who does not cross a band boundary this tick', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+      // Comfortably mid-U14, nowhere near the 14-year boundary.
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 10 * 52, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+      await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+      expect((await players.findById(PlayerId('p1')))!.dormantCarryoverBonus).toBeNull();
+    });
+
+    it('a player who crosses a band boundary but never plays/wins in the new band has NO ranking there at all — the dormant bonus never manufactures one', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+      await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' }); // crosses U14 -> U16, records a dormant bonus
+
+      const aged = await players.findById(PlayerId('p1'));
+      expect(aged!.dormantCarryoverBonus).not.toBeNull(); // bonus WAS recorded...
+
+      // ...but the player never plays a U16 match, so a U16
+      // rank-position query must show them as genuinely unranked
+      // (NR), not ranked at some phantom score.
+      const u16Rankings = new RankPositionQuery(rankingLedger, worlds, worldId, 'u16');
+      expect(await u16Rankings.rankFor(PlayerId('p1'))).toEqual({ totalPoints: 0, rank: null });
+      expect(await u16Rankings.sortedRankings()).toEqual([]);
+    });
   });
 });

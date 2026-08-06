@@ -3,6 +3,26 @@ import { PlayerAttributes } from './PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
+/**
+ * A dormant graduation-carryover bonus parked on this player at an
+ * age-band crossing, waiting to be consumed by their first real result
+ * in the new band. Named distinctly from (rather than importing) the
+ * Competition/Ranking bounded context's own
+ * `GraduationCarryover.DormantCarryoverBonus` — per CLAUDE.md principle
+ * #5, `domain/player` doesn't import from `domain/ranking` (a
+ * different bounded context); the two types are structurally
+ * identical on purpose, so the application layer (which already spans
+ * both contexts, e.g. SimulateMatchUseCase) can pass a value straight
+ * through without any explicit mapping. Player itself has zero opinion
+ * about what a "band" means or how the bonus is computed/consumed —
+ * see GraduationCarryover.ts for that; Player only stores and clears
+ * this one field.
+ */
+export interface PlayerDormantCarryoverBonus {
+  readonly targetBand: 'senior' | 'u14' | 'u16';
+  readonly bonusPoints: number;
+}
+
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
 export interface PlayerProps {
@@ -33,6 +53,14 @@ export interface PlayerProps {
    * player this Player originated from. NEVER exposed via any DTO —
    * see playerDto.ts, which deliberately does not read this field. */
   potentialCeiling: number;
+  /** null = no pending graduation-carryover bonus. Set by
+   * AdvanceWorldWeekUseCase the week this player crosses a junior
+   * age-band boundary; cleared by SimulateMatchUseCase the moment it's
+   * consumed by this player's first real (points > 0) ranking-ledger
+   * entry in the target band. See PlayerDormantCarryoverBonus's doc
+   * comment above and domain/ranking/GraduationCarryover.ts for the
+   * mechanism. */
+  dormantCarryoverBonus: PlayerDormantCarryoverBonus | null;
 }
 
 /** Aggregate root for the Player & Roster bounded context.
@@ -80,6 +108,7 @@ export class Player {
       fatigue: 0,
       currentFocus: null,
       potentialCeiling,
+      dormantCarryoverBonus: null,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -137,6 +166,10 @@ export class Player {
    * it; never by anything building an HTTP-facing DTO. */
   get potentialCeiling() {
     return this.props.potentialCeiling;
+  }
+
+  get dormantCarryoverBonus() {
+    return this.props.dormantCarryoverBonus;
   }
 
   isRetired(): boolean {
@@ -232,6 +265,19 @@ export class Player {
 
   releaseFromManager(): void {
     this.props = { ...this.props, managerId: null };
+  }
+
+  /** Records a fresh dormant graduation-carryover bonus (called by
+   * AdvanceWorldWeekUseCase at a band crossing) or clears one after
+   * it's been consumed (called by SimulateMatchUseCase) — same setter
+   * either way, since "record a new one" and "clear the old one"
+   * aren't different operations from Player's point of view, just
+   * different values. Silently overwrites any bonus already sitting
+   * here: see PlayerDormantCarryoverBonus's doc comment on why an
+   * unconsumed bonus becoming moot at the next crossing is correct,
+   * not a bug. */
+  setDormantCarryoverBonus(bonus: PlayerDormantCarryoverBonus | null): void {
+    this.props = { ...this.props, dormantCarryoverBonus: bonus };
   }
 
   pullDomainEvents(): DomainEvent[] {

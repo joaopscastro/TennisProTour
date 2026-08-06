@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
-import { Player, PlayerLifecycleStage } from '@tennis-manager/domain';
+import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
   Skill,
@@ -71,6 +71,25 @@ function focusColumns(focus: TrainingFocus | null) {
     : { trainingFocusKind: 'skill' as const, trainingFocusSurface: null, trainingFocusCluster: focus.cluster };
 }
 
+/** Reassembles the small dormant-bonus value from its two nullable
+ * flat columns — same "flat columns for a small optional structured
+ * field" convention as trainingFocus above, not jsonb (see
+ * schema.ts's players table comment). */
+function toDomainDormantCarryoverBonus(row: PlayerRow): PlayerDormantCarryoverBonus | null {
+  if (row.dormantCarryoverTargetBand === null || row.dormantCarryoverBonusPoints === null) return null;
+  return {
+    targetBand: row.dormantCarryoverTargetBand as PlayerDormantCarryoverBonus['targetBand'],
+    bonusPoints: row.dormantCarryoverBonusPoints,
+  };
+}
+
+function dormantCarryoverBonusColumns(bonus: PlayerDormantCarryoverBonus | null) {
+  return {
+    dormantCarryoverTargetBand: bonus?.targetBand ?? null,
+    dormantCarryoverBonusPoints: bonus?.bonusPoints ?? null,
+  };
+}
+
 function toDomain(row: PlayerRow): Player {
   return Player.reconstitute({
     id: PlayerId(row.id),
@@ -82,6 +101,7 @@ function toDomain(row: PlayerRow): Player {
     fatigue: row.fatigue,
     currentFocus: toDomainFocus(row),
     potentialCeiling: row.potentialCeiling,
+    dormantCarryoverBonus: toDomainDormantCarryoverBonus(row),
     attributes: new PlayerAttributes({
       technical: {
         serve: Skill.of(row.serve),
@@ -120,6 +140,7 @@ function toRow(player: Player): typeof players.$inferInsert {
     fatigue: player.fatigue,
     potentialCeiling: player.potentialCeiling,
     ...focusColumns(player.currentFocus),
+    ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
     serve: technical.serve.value,
     forehand: technical.forehand.value,
     backhand: technical.backhand.value,

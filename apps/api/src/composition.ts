@@ -219,7 +219,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     openRegistration: new OpenRegistrationUseCase(tournaments),
     registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
     setTrainingFocus: new SetTrainingFocusUseCase(players),
     releasePlayer: new ReleasePlayerUseCase(players),

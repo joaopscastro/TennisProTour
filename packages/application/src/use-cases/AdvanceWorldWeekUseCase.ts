@@ -1,5 +1,22 @@
-import { ManagerId, PlayerAgingService, TrainingPolicy, WorldId } from '@tennis-manager/domain';
-import { BillingPort, CoachRepository, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
+import {
+  bestResultsCapFor,
+  computeGraduationCarryover,
+  juniorEligibilityForAge,
+  matchesRankingBand,
+  ManagerId,
+  PlayerAgingService,
+  RankingCalculationService,
+  TrainingPolicy,
+  WorldId,
+} from '@tennis-manager/domain';
+import {
+  BillingPort,
+  CoachRepository,
+  EventPublisherPort,
+  GameWorldRepository,
+  PlayerRepository,
+  RankingLedgerRepository,
+} from '../ports/ports';
 
 export interface AdvanceWorldWeekCommand {
   worldId: WorldId;
@@ -53,6 +70,19 @@ export interface AdvanceWorldWeekResult {
  * re-age those). The guard protects against the routine failure mode
  * (scheduler double-fire); crash-consistency needs a unit-of-work
  * port and can be added without changing this use case's callers.
+ *
+ * Same tick is also where a junior graduation carryover gets recorded
+ * (see domain/ranking/GraduationCarryover.ts): a player ages by
+ * exactly one week per tick, and the U14/U16 boundaries are 104 weeks
+ * apart, so comparing `juniorEligibilityForAge(ageInWeeks)` before and
+ * after `agingService.advance()` is sufficient to detect a crossing —
+ * a single tick can never skip past a boundary unnoticed. This only
+ * ever RECORDS a dormant bonus on the player (their current total in
+ * the band they're leaving, times GRADUATION_CARRYOVER_FRACTION) — it
+ * never writes a ranking-ledger entry itself; see that module's doc
+ * comment for why (a ranking must be earned, never granted from aging
+ * alone). Consuming the bonus happens later, in SimulateMatchUseCase,
+ * the only place real ranking-ledger entries are ever written.
  */
 export class AdvanceWorldWeekUseCase {
   constructor(
@@ -64,6 +94,7 @@ export class AdvanceWorldWeekUseCase {
     private readonly events: EventPublisherPort,
     private readonly trainingPolicy: TrainingPolicy,
     private readonly coaches: CoachRepository,
+    private readonly rankingLedger: RankingLedgerRepository,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
@@ -98,7 +129,17 @@ export class AdvanceWorldWeekUseCase {
     const allPlayers = await this.players.findAll();
     for (const player of allPlayers) {
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
+      const bandBeforeAging = juniorEligibilityForAge(player.ageInWeeks);
       agingService.advance(player);
+      const bandAfterAging = juniorEligibilityForAge(player.ageInWeeks);
+      if (bandBeforeAging !== bandAfterAging) {
+        const oldBandEntries = (await this.rankingLedger.findByPlayer(player.id)).filter((entry) =>
+          matchesRankingBand(entry.ageBand, bandBeforeAging),
+        );
+        const oldBandCalculator = new RankingCalculationService(bestResultsCapFor(bandBeforeAging));
+        const oldBandTotal = oldBandCalculator.calculateTotal(oldBandEntries, world.currentWeek);
+        player.setDormantCarryoverBonus(computeGraduationCarryover(bandAfterAging, oldBandTotal));
+      }
       // Aging can tip a player into retirement this same tick;
       // applyTraining rejects retired players, so re-check after aging
       // rather than trusting the focus was set against a live player.
