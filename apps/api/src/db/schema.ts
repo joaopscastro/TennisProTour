@@ -53,6 +53,7 @@ export const talentPoolCandidateStatus = pgEnum('talent_pool_candidate_status', 
 /** The coarse, noisy signal scouting exposes for a hidden
  * potentialCeiling — see PlayerGenerationPolicy.PotentialTier. */
 export const playerPotentialTier = pgEnum('player_potential_tier', ['limited', 'promising', 'high', 'elite']);
+export const managerStatus = pgEnum('manager_status', ['active', 'suspended']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -82,6 +83,19 @@ export const managerEntitlements = pgTable('manager_entitlements', {
    * billing_reason is subscription_cycle, never on the initial
    * signup), -1 each time CreateCustomPlayerUseCase spends one. */
   customPlayerCredits: integer('custom_player_credits').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Application-owned manager profile linked to an external auth subject.
+ * Community profile data belongs here; provider tokens and passwords never
+ * do. Public features should use publicHandle, not authSubject or id. */
+export const managers = pgTable('managers', {
+  id: text('id').primaryKey(),
+  authSubject: text('auth_subject').notNull().unique(),
+  displayName: text('display_name').notNull(),
+  publicHandle: text('public_handle').notNull().unique(),
+  status: managerStatus('status').notNull().default('active'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

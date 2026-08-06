@@ -141,7 +141,7 @@ export default function RosterDashboardPage() {
       setOpenFocusMenu(null);
       setBusyPlayerId(playerId);
       try {
-        await setTrainingFocus(playerId, focus);
+        await setTrainingFocus(playerId, focus, managerId);
         await load(managerId);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -158,7 +158,7 @@ export default function RosterDashboardPage() {
       if (!window.confirm(`Release ${name}? This frees their roster slot but can't be undone.`)) return;
       setBusyPlayerId(playerId);
       try {
-        await releasePlayer(playerId);
+        await releasePlayer(playerId, managerId);
         await load(managerId);
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
@@ -194,7 +194,7 @@ export default function RosterDashboardPage() {
               Manage your players, training focus, and tournament entries.
             </div>
           </div>
-          <form
+          {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <form
             className="flex items-center gap-[6px] text-[11.5px]"
             style={{ color: 'oklch(52% 0.006 75)' }}
             onSubmit={(e) => {
@@ -209,7 +209,7 @@ export default function RosterDashboardPage() {
               className="rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
               style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
             />
-          </form>
+          </form>}
         </div>
 
         <div className="flex items-start justify-between mb-7">

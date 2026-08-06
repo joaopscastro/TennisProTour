@@ -33,6 +33,7 @@ interface MatchContext {
   playerA: PlayerDto | null;
   playerB: PlayerDto | null;
   nextReplayHref: string | null;
+  nextRoundHref: string | null;
   nextRoundLabel: string | null;
 }
 
@@ -62,13 +63,18 @@ export default function ReplayPage() {
         const players = await fetchPlayersByIds([match.entrantA, match.entrantB]);
 
         let nextReplayHref: string | null = null;
+        let nextRoundHref: string | null = null;
         let nextRoundLabel: string | null = null;
-        const nextRound = tournament.rounds.find((r) => r.roundNumber === roundNumber + 1);
+        const nextRoundNumber = roundNumber + 1;
+        if (nextRoundNumber <= Math.log2(tournament.drawSize)) {
+          nextRoundHref = `/tournaments/${tournamentId}#round-${nextRoundNumber}`;
+          nextRoundLabel = matchRoundLabel(tournament.drawSize / 2 ** nextRoundNumber);
+        }
+        const nextRound = tournament.rounds.find((r) => r.roundNumber === nextRoundNumber);
         if (nextRound) {
           const nextMatch = nextRound.matches[Math.floor(matchIndex / 2)];
           if (nextMatch?.outcome) {
-            nextReplayHref = `/replay/${matchIdForSlot(tournamentId, roundNumber + 1, Math.floor(matchIndex / 2))}`;
-            nextRoundLabel = matchRoundLabel(tournament.drawSize / 2 ** (roundNumber + 1));
+            nextReplayHref = `/replay/${matchIdForSlot(tournamentId, nextRoundNumber, Math.floor(matchIndex / 2))}`;
           }
         }
 
@@ -81,6 +87,7 @@ export default function ReplayPage() {
           playerA: players.get(match.entrantA) ?? null,
           playerB: players.get(match.entrantB) ?? null,
           nextReplayHref,
+          nextRoundHref,
           nextRoundLabel,
         });
       })
@@ -139,6 +146,7 @@ export default function ReplayPage() {
             surfaceColor={accent}
             backToBracketHref={context ? `/tournaments/${context.tournament.id}` : undefined}
             nextReplayHref={context?.nextReplayHref ?? undefined}
+            nextRoundHref={context?.nextRoundHref ?? undefined}
             nextRoundLabel={context?.nextRoundLabel ?? undefined}
           />
         )}

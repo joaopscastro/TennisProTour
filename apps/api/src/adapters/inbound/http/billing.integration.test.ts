@@ -94,7 +94,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
     ),
   );
   await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
-  const response = await app.inject({ method: 'POST', url: `/talent-pool/${id}/claim`, payload: { managerId } });
+  const response = await app.inject({ method: 'POST', url: `/talent-pool/${id}/claim`, headers: { 'x-dev-manager-id': managerId }, payload: { managerId } });
   return response.statusCode;
 }
 
@@ -201,19 +201,19 @@ describe('Stripe billing', () => {
   it('grants exactly one custom-player credit per invoice.paid renewal (subscription_cycle), never on the initial subscription_create invoice', async () => {
     await postWebhook(checkoutCompletedEvent('m1', 'sub_123')); // sets stripeCustomerId = cus_1, credits = 0
 
-    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement' })).json().customPlayerCredits).toBe(0);
+    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement', headers: { 'x-dev-manager-id': 'm1' } })).json().customPlayerCredits).toBe(0);
 
     // The initial invoice for the subscription itself must NOT grant a credit.
     expect(await postWebhook(invoicePaidEvent('cus_1', 'subscription_create', 'evt_initial'))).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement' })).json().customPlayerCredits).toBe(0);
+    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement', headers: { 'x-dev-manager-id': 'm1' } })).json().customPlayerCredits).toBe(0);
 
     // A real renewal grants exactly one.
     expect(await postWebhook(invoicePaidEvent('cus_1', 'subscription_cycle', 'evt_renewal_1'))).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement' })).json().customPlayerCredits).toBe(1);
+    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement', headers: { 'x-dev-manager-id': 'm1' } })).json().customPlayerCredits).toBe(1);
 
     // A second renewal stacks another one (2 total), not resets/replaces.
     expect(await postWebhook(invoicePaidEvent('cus_1', 'subscription_cycle', 'evt_renewal_2'))).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement' })).json().customPlayerCredits).toBe(2);
+    expect((await app.inject({ method: 'GET', url: '/managers/m1/entitlement', headers: { 'x-dev-manager-id': 'm1' } })).json().customPlayerCredits).toBe(2);
   });
 
   it('rejects a webhook missing the signature header', async () => {

@@ -5,6 +5,7 @@ import { DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { matchIdForSlot } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
+import { requireInternalAdmin, requireManager } from './auth';
 
 /** Thin serialization only — no domain rules here. */
 function toTournamentDto(tournament: Tournament) {
@@ -97,6 +98,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       },
     },
     async (request, reply) => {
+      if (!(await requireInternalAdmin(request, reply))) return;
       const tournamentId = TournamentId(request.body.tournamentId);
       await deps.openTournament.execute({
         tournamentId,
@@ -147,6 +149,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       },
     },
     async (request, reply) => {
+      if (!(await requireInternalAdmin(request, reply))) return;
       const tournamentId = TournamentId(request.body.tournamentId);
       await deps.openRegistration.execute({
         tournamentId,
@@ -200,7 +203,11 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       },
     },
     async (request, reply) => {
+      const manager = await requireManager(request, reply, deps);
+      if (!manager) return;
       const tournamentId = TournamentId(request.params.id);
+      const player = await deps.players.findById(PlayerId(request.body.playerId));
+      if (!player || player.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found in your roster' });
       await deps.registerEntrant.execute({
         tournamentId,
         playerId: PlayerId(request.body.playerId),
@@ -227,7 +234,9 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
+      const manager = await requireManager(request, reply, deps);
+      if (!manager) return;
       const roundNumber = Number(request.params.round);
       const matchIndex = Number(request.params.index);
       const matchId = matchIdForSlot(TournamentId(request.params.id), roundNumber, matchIndex);

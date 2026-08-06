@@ -78,6 +78,13 @@
       "when": 1786010487178,
       "tag": "0010_dashing_malcolm_colcord",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786018351369,
+      "tag": "0011_chubby_sprite",
+      "breakpoints": true
     }
   ]
 }

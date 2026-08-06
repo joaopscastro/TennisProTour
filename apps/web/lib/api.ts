@@ -3,6 +3,12 @@
  * monorepo layout note on apps/web). */
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
+const CLERK_ENABLED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+let authTokenProvider: (() => Promise<string | null>) | null = null;
+
+export function setAuthTokenProvider(provider: (() => Promise<string | null>) | null): void {
+  authTokenProvider = provider;
+}
 
 export interface PlayerDto {
   id: string;
@@ -141,8 +147,20 @@ export interface MatchLogDto {
   simulatedAt: string;
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`);
+async function requestHeaders(managerId?: string): Promise<Record<string, string>> {
+  const headers: Record<string, string> = {};
+  const token = await authTokenProvider?.();
+  if (token) headers.authorization = `Bearer ${token}`;
+  else if (!CLERK_ENABLED) headers['x-dev-manager-id'] = managerId ?? process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1';
+  return headers;
+}
+
+function managerPath(managerId: string, resource: 'players' | 'roster-dashboard' | 'entitlement'): string {
+  return CLERK_ENABLED ? `/me/${resource}` : `/managers/${encodeURIComponent(managerId)}/${resource}`;
+}
+
+async function getJson<T>(path: string, managerId?: string): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, { headers: await requestHeaders(managerId), credentials: 'include' });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(body?.error ?? `${response.status} ${response.statusText}`);
@@ -150,11 +168,12 @@ async function getJson<T>(path: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function sendJson<T>(method: 'POST' | 'PUT', path: string, body?: unknown): Promise<T> {
+async function sendJson<T>(method: 'POST' | 'PUT', path: string, body?: unknown, managerId?: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     method,
-    headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+    headers: { ...(body === undefined ? {} : { 'content-type': 'application/json' }), ...(await requestHeaders(managerId)) },
     body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: 'include',
   });
   if (!response.ok) {
     const responseBody = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -164,15 +183,15 @@ async function sendJson<T>(method: 'POST' | 'PUT', path: string, body?: unknown)
 }
 
 export function fetchRoster(managerId: string): Promise<PlayerDto[]> {
-  return getJson(`/managers/${encodeURIComponent(managerId)}/players`);
+  return getJson(managerPath(managerId, 'players'), managerId);
 }
 
 export function fetchRosterDashboard(managerId: string): Promise<RosterDashboardEntryDto[]> {
-  return getJson(`/managers/${encodeURIComponent(managerId)}/roster-dashboard`);
+  return getJson(managerPath(managerId, 'roster-dashboard'), managerId);
 }
 
 export function fetchEntitlement(managerId: string): Promise<EntitlementDto> {
-  return getJson(`/managers/${encodeURIComponent(managerId)}/entitlement`);
+  return getJson(managerPath(managerId, 'entitlement'), managerId);
 }
 
 export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
@@ -180,7 +199,7 @@ export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
 }
 
 export function claimTalentPoolCandidate(candidateId: string, managerId: string): Promise<PlayerDto> {
-  return sendJson('POST', `/talent-pool/${encodeURIComponent(candidateId)}/claim`, { managerId });
+  return sendJson('POST', `/talent-pool/${encodeURIComponent(candidateId)}/claim`, { managerId }, managerId);
 }
 
 /** Pro-only, credit-gated: bypasses the talent pool (choose your own
@@ -189,15 +208,15 @@ export function claimTalentPoolCandidate(candidateId: string, managerId: string)
  * name/nationality are the manager's choice. See
  * CreateCustomPlayerUseCase's doc comment on the API side. */
 export function createCustomPlayer(input: { managerId: string; name: string; nationality: string }): Promise<PlayerDto> {
-  return sendJson('POST', '/players/custom', input);
+  return sendJson('POST', '/players/custom', input, input.managerId);
 }
 
-export function setTrainingFocus(playerId: string, focus: TrainingFocus | null): Promise<PlayerDto> {
-  return sendJson('PUT', `/players/${encodeURIComponent(playerId)}/training-focus`, { focus });
+export function setTrainingFocus(playerId: string, focus: TrainingFocus | null, managerId?: string): Promise<PlayerDto> {
+  return sendJson('PUT', `/players/${encodeURIComponent(playerId)}/training-focus`, { focus }, managerId);
 }
 
-export function releasePlayer(playerId: string): Promise<PlayerDto> {
-  return sendJson('POST', `/players/${encodeURIComponent(playerId)}/release`);
+export function releasePlayer(playerId: string, managerId?: string): Promise<PlayerDto> {
+  return sendJson('POST', `/players/${encodeURIComponent(playerId)}/release`, undefined, managerId);
 }
 
 export function fetchOpenTournaments(): Promise<TournamentDto[]> {
@@ -227,7 +246,7 @@ export async function simulateMatch(
 ): Promise<{ matchId: string; replayUrl: string }> {
   const response = await fetch(
     `${API_BASE}/tournaments/${encodeURIComponent(tournamentId)}/matches/${roundNumber}/${matchIndex}/simulate`,
-    { method: 'POST' },
+    { method: 'POST', headers: await requestHeaders(), credentials: 'include' },
   );
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -272,5 +291,5 @@ export async function fetchPlayersByIds(ids: Iterable<string>): Promise<Map<stri
 }
 
 export function createProCheckoutSession(managerId: string): Promise<{ url: string }> {
-  return sendJson('POST', '/billing/checkout', { managerId });
+  return sendJson('POST', '/billing/checkout', { managerId }, managerId);
 }

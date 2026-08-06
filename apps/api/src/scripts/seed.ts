@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { GameWorld, ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId, WorldId } from '@tennis-manager/domain';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';

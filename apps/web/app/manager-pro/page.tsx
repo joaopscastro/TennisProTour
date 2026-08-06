@@ -72,7 +72,7 @@ export default function ManagerProPage() {
               it with. The one perk that carries a real tradeoff cost is spelled out below too, not in fine print.
             </div>
           </div>
-          <form
+          {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <form
             className="flex items-center gap-[6px] text-[11.5px] flex-none"
             style={{ color: 'oklch(52% 0.006 75)' }}
             onSubmit={(e) => {
@@ -87,7 +87,7 @@ export default function ManagerProPage() {
               className="rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
               style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
             />
-          </form>
+          </form>}
         </div>
 
         {error && (

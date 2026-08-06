@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { ClerkAuthControls } from './ClerkAuthControls';
 
 export type NavKey = 'roster' | 'scouting' | 'tournaments' | 'manager-pro';
 
@@ -94,6 +95,7 @@ export function Sidebar({ active, tier }: Props) {
           {tier === 'pro' ? '4 roster slots · faster point decay applies' : '2 roster slots · upgrade for more room'}
         </div>
       </div>
+      {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <ClerkAuthControls />}
     </div>
   );
 }
