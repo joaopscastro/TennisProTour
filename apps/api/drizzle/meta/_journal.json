@@ -85,6 +85,13 @@
       "when": 1786018351369,
       "tag": "0011_chubby_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786028076006,
+      "tag": "0012_nasty_oracle",
+      "breakpoints": true
     }
   ]
 }

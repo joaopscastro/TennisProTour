@@ -1,7 +1,7 @@
 import { GameWeek, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { DrawSize, TournamentEntrant, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, DrawSize, TournamentEntrant, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
@@ -12,6 +12,9 @@ export interface OpenTournamentCommand {
   weekScheduled: GameWeek;
   drawSize: DrawSize;
   entrants: TournamentEntrant[];
+  /** Required for junior tiers, forbidden for senior tiers — see
+   * Tournament.open()'s validation. */
+  ageBand?: AgeBand | null;
 }
 
 /**
@@ -36,6 +39,7 @@ export class OpenTournamentUseCase {
       surface: command.surface,
       weekScheduled: command.weekScheduled,
       drawSize: command.drawSize,
+      ageBand: command.ageBand,
     });
 
     for (const entrant of command.entrants) {

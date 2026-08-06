@@ -35,7 +35,27 @@ import { boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, 
  * players") without json-path indexing gymnastics.
  */
 
-export const tournamentTier = pgEnum('tournament_tier', ['junior', 'futures', 'challenger', 'tour', 'major']);
+export const tournamentTier = pgEnum('tournament_tier', [
+  'futures',
+  'challenger',
+  'tour',
+  'major',
+  // The combined junior ladder — see JuniorTier's doc comment in
+  // packages/domain/src/competition/CompetitionTypes.ts. Age band
+  // (u14/u16) is NOT part of the tier; it's the separate ageBand
+  // column on `tournaments` below.
+  'j30',
+  'j60',
+  'j100',
+  'j200',
+  'j300',
+  'j500',
+  'juniorMasters',
+]);
+/** Only set (non-null) for junior-tier tournaments — see
+ * Tournament.ageBand's doc comment. U12 is deliberately out of scope
+ * (real ITF/Tennis Europe U12 play is unranked and unseeded). */
+export const ageBand = pgEnum('age_band', ['u14', 'u16']);
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
 export const skillCluster = pgEnum('skill_cluster', ['technical', 'physical', 'mental']);
@@ -275,6 +295,9 @@ export const talentPoolCandidates = pgTable('talent_pool_candidates', {
 export const tournaments = pgTable('tournaments', {
   id: text('id').primaryKey(),
   tier: tournamentTier('tier').notNull(),
+  /** Null for senior tiers, required for junior tiers — see
+   * Tournament.ageBand's doc comment. */
+  ageBand: ageBand('age_band'),
   surface: surface('surface').notNull(),
   /** GameWeek value object flattened to its two components. */
   seasonScheduled: integer('season_scheduled').notNull(),

@@ -1,8 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { DrawSize, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
+
+const TOURNAMENT_TIERS = ['futures', 'challenger', 'tour', 'major', 'j30', 'j60', 'j100', 'j200', 'j300', 'j500', 'juniorMasters'];
 import { matchIdForSlot } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { requireInternalAdmin, requireManager } from './auth';
@@ -12,6 +14,7 @@ function toTournamentDto(tournament: Tournament) {
   return {
     id: tournament.id,
     tier: tournament.tier,
+    ageBand: tournament.ageBand,
     surface: tournament.surface,
     weekScheduled: tournament.weekScheduled,
     drawSize: tournament.drawSize,
@@ -37,6 +40,7 @@ function toTournamentDto(tournament: Tournament) {
 interface OpenTournamentBody {
   tournamentId: string;
   tier: TournamentTier;
+  ageBand?: AgeBand | null;
   surface: Surface;
   weekScheduled: { season: number; week: number };
   drawSize: DrawSize;
@@ -46,6 +50,7 @@ interface OpenTournamentBody {
 interface OpenRegistrationBody {
   tournamentId: string;
   tier: TournamentTier;
+  ageBand?: AgeBand | null;
   surface: Surface;
   weekScheduled: { season: number; week: number };
   drawSize: DrawSize;
@@ -67,7 +72,8 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           required: ['tournamentId', 'tier', 'surface', 'weekScheduled', 'drawSize', 'entrants'],
           properties: {
             tournamentId: { type: 'string', minLength: 1 },
-            tier: { type: 'string', enum: ['junior', 'futures', 'challenger', 'tour', 'major'] },
+            tier: { type: 'string', enum: TOURNAMENT_TIERS },
+            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', null] },
             surface: { type: 'string', enum: ['clay', 'grass', 'hard', 'indoor'] },
             weekScheduled: {
               type: 'object',
@@ -103,6 +109,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       await deps.openTournament.execute({
         tournamentId,
         tier: request.body.tier,
+        ageBand: request.body.ageBand ?? null,
         surface: request.body.surface,
         weekScheduled: request.body.weekScheduled,
         drawSize: request.body.drawSize,
@@ -131,7 +138,8 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           required: ['tournamentId', 'tier', 'surface', 'weekScheduled', 'drawSize'],
           properties: {
             tournamentId: { type: 'string', minLength: 1 },
-            tier: { type: 'string', enum: ['junior', 'futures', 'challenger', 'tour', 'major'] },
+            tier: { type: 'string', enum: TOURNAMENT_TIERS },
+            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', null] },
             surface: { type: 'string', enum: ['clay', 'grass', 'hard', 'indoor'] },
             weekScheduled: {
               type: 'object',
@@ -154,6 +162,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       await deps.openRegistration.execute({
         tournamentId,
         tier: request.body.tier,
+        ageBand: request.body.ageBand ?? null,
         surface: request.body.surface,
         weekScheduled: request.body.weekScheduled,
         drawSize: request.body.drawSize,

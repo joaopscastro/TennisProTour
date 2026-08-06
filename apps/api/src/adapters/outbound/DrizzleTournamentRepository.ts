@@ -2,6 +2,7 @@ import { asc, eq } from 'drizzle-orm';
 import { PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
+  AgeBand,
   BracketRound,
   DrawSize,
   MatchOutcome,
@@ -49,6 +50,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     const tournamentRow: typeof tournaments.$inferInsert = {
       id: tournament.id,
       tier: tournament.tier,
+      ageBand: tournament.ageBand,
       surface: tournament.surface,
       seasonScheduled: tournament.weekScheduled.season,
       weekScheduled: tournament.weekScheduled.week,
@@ -112,6 +114,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     return Tournament.reconstitute({
       id: TournamentId(row.id),
       tier: row.tier as TournamentTier,
+      ageBand: row.ageBand as AgeBand | null,
       surface: row.surface as Surface,
       weekScheduled: { season: row.seasonScheduled, week: row.weekScheduled },
       drawSize: row.drawSize as DrawSize,

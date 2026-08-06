@@ -197,6 +197,33 @@ describe('DrizzleTournamentRepository', () => {
     ).toThrow();
   });
 
+  it('round-trips a junior tournament with its ageBand, and a senior tournament with a null ageBand', async () => {
+    const junior = Tournament.open({
+      id: TournamentId('t-junior'),
+      tier: 'j100',
+      ageBand: 'u14',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 3 },
+      drawSize: 32,
+    });
+    await tournamentRepository.save(junior);
+    const loadedJunior = await tournamentRepository.findById(TournamentId('t-junior'));
+    expect(loadedJunior!.tier).toBe('j100');
+    expect(loadedJunior!.ageBand).toBe('u14');
+
+    const senior = Tournament.open({
+      id: TournamentId('t-senior'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 3 },
+      drawSize: 32,
+    });
+    await tournamentRepository.save(senior);
+    const loadedSenior = await tournamentRepository.findById(TournamentId('t-senior'));
+    expect(loadedSenior!.tier).toBe('challenger');
+    expect(loadedSenior!.ageBand).toBeNull();
+  });
+
   it('round-trips an unstarted tournament and lists it via findOpenForRegistration', async () => {
     await savePlayers(10);
 

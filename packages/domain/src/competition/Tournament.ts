@@ -1,7 +1,7 @@
 import { TournamentId, GameWeek, PlayerId } from '../shared/ids';
 import { Surface } from '../player/PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
-import { BracketRound, DrawSize, MatchOutcome, TournamentEntrant, TournamentTier } from './CompetitionTypes';
+import { AgeBand, BracketRound, DrawSize, MatchOutcome, TournamentEntrant, TournamentTier, isJuniorTier } from './CompetitionTypes';
 
 export interface TournamentOpenProps {
   id: TournamentId;
@@ -9,6 +9,12 @@ export interface TournamentOpenProps {
   surface: Surface;
   weekScheduled: GameWeek;
   drawSize: DrawSize;
+  /** Required for junior tiers (J30-J500, JuniorMasters), forbidden for
+   * senior tiers — validated in open()/reconstitute(). Lives on the
+   * tournament instance, not folded into the tier name, so the same
+   * six J-grades work identically for u14 and u16 (see JuniorTier's
+   * doc comment in CompetitionTypes.ts). */
+  ageBand?: AgeBand | null;
 }
 
 /**
@@ -32,10 +38,25 @@ export class Tournament {
     readonly surface: Surface,
     readonly weekScheduled: GameWeek,
     readonly drawSize: DrawSize,
+    readonly ageBand: AgeBand | null,
   ) {}
 
+  /** Junior tiers must carry an ageBand; senior tiers must not — a
+   * `u16` age band on a `challenger` tournament, or a bandless `j100`,
+   * are both invalid states this aggregate refuses to construct. */
+  private static validateAgeBand(tier: TournamentTier, ageBand: AgeBand | null): void {
+    if (isJuniorTier(tier) && ageBand === null) {
+      throw new Error(`Tournament tier '${tier}' requires an ageBand`);
+    }
+    if (!isJuniorTier(tier) && ageBand !== null) {
+      throw new Error(`Tournament tier '${tier}' must not have an ageBand`);
+    }
+  }
+
   static open(props: TournamentOpenProps): Tournament {
-    return new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize);
+    const ageBand = props.ageBand ?? null;
+    Tournament.validateAgeBand(props.tier, ageBand);
+    return new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
   }
 
   /** Rehydrates a persisted tournament (repository adapters only).
@@ -45,7 +66,9 @@ export class Tournament {
   static reconstitute(
     props: TournamentOpenProps & { entrants: TournamentEntrant[]; rounds: BracketRound[] },
   ): Tournament {
-    const tournament = new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize);
+    const ageBand = props.ageBand ?? null;
+    Tournament.validateAgeBand(props.tier, ageBand);
+    const tournament = new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
     tournament._entrants = [...props.entrants];
     tournament.rounds = [...props.rounds];
     return tournament;

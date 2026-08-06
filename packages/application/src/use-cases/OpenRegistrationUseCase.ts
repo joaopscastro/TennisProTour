@@ -1,6 +1,6 @@
 import { GameWeek, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { DrawSize, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
@@ -10,6 +10,9 @@ export interface OpenRegistrationCommand {
   surface: Surface;
   weekScheduled: GameWeek;
   drawSize: DrawSize;
+  /** Required for junior tiers, forbidden for senior tiers — see
+   * Tournament.open()'s validation. */
+  ageBand?: AgeBand | null;
 }
 
 /**
@@ -41,6 +44,7 @@ export class OpenRegistrationUseCase {
       surface: command.surface,
       weekScheduled: command.weekScheduled,
       drawSize: command.drawSize,
+      ageBand: command.ageBand,
     });
 
     await this.tournaments.save(tournament);

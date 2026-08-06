@@ -1,7 +1,51 @@
 import { Surface } from '../player/PlayerAttributes';
 import { PlayerId } from '../shared/ids';
 
-export type TournamentTier = 'junior' | 'futures' | 'challenger' | 'tour' | 'major';
+export type SeniorTier = 'futures' | 'challenger' | 'tour' | 'major';
+
+/**
+ * The combined junior ladder — one continuous six-rung ITF-sourced
+ * grade progression (J30 through J500, the post-2023-rebrand names
+ * that state the singles champion's points directly) plus a
+ * season-ending capstone above J500. Deliberately NOT split into
+ * separate per-federation tiers (ITF vs. Tennis Europe) — see
+ * docs/junior-circuit-research-and-proposal.md's "Finalized design"
+ * section for why those were merged into one ladder. Age (`u14` vs.
+ * `u16`) is intentionally NOT baked into these tier names — it lives
+ * on the tournament instance instead (`Tournament.ageBand`), so the
+ * same six grades work identically for both bands rather than needing
+ * twelve near-duplicate tier values.
+ */
+export type JuniorTier = 'j30' | 'j60' | 'j100' | 'j200' | 'j300' | 'j500' | 'juniorMasters';
+
+export type TournamentTier = SeniorTier | JuniorTier;
+
+/** The two junior age bands this game models (U12 is deliberately out
+ * of scope — see the research doc: real ITF/Tennis Europe under-12
+ * play is unranked and unseeded, so there'd be no ranking-ledger
+ * behavior to build for it). Lives on `Tournament`, not on
+ * `TournamentTier` — see `JuniorTier`'s doc comment. */
+export type AgeBand = 'u14' | 'u16';
+
+export const SENIOR_TIER_VALUES: ReadonlyArray<SeniorTier> = ['futures', 'challenger', 'tour', 'major'];
+
+export const JUNIOR_TIER_VALUES: ReadonlyArray<JuniorTier> = [
+  'j30',
+  'j60',
+  'j100',
+  'j200',
+  'j300',
+  'j500',
+  'juniorMasters',
+];
+
+export const ALL_TOURNAMENT_TIERS: ReadonlyArray<TournamentTier> = [...SENIOR_TIER_VALUES, ...JUNIOR_TIER_VALUES];
+
+const JUNIOR_TIER_SET: ReadonlySet<TournamentTier> = new Set<JuniorTier>(JUNIOR_TIER_VALUES);
+
+export function isJuniorTier(tier: TournamentTier): tier is JuniorTier {
+  return JUNIOR_TIER_SET.has(tier);
+}
 
 /** Single-elimination draw sizes the game supports. */
 export type DrawSize = 16 | 32 | 64 | 128;
@@ -17,11 +61,7 @@ export interface RankingPointsTable {
  * Real ATP ranking tables are published per round reached, not
  * computed from a formula — a semifinalist earns roughly half of the
  * champion's points, not an exponentially compounding fraction of it.
- * These tables mirror that shape, scaled to this game's 5 tiers:
- * champion points match real-world proportions exactly (major=2000,
- * tour=500 i.e. an ATP 500 event, challenger=125, futures=25,
- * junior=5), with the rounds below scaled down from real ATP/
- * Challenger/ITF round breakdowns rather than an arbitrary curve.
+ * These tables mirror that shape.
  *
  * Indexed by roundsWon (0 = lost in the first round, up to 7 = won a
  * 128-draw tournament without dropping a round). A tier/draw
@@ -29,15 +69,61 @@ export interface RankingPointsTable {
  * simply never looks up the higher indices — the table doesn't need to
  * be draw-size-aware itself, Tournament already knows how many rounds
  * a given draw has.
+ *
+ * roundsWon = 0 (a first-round loss) is 0 points at every tier, full
+ * stop — a ranking must be *earned* by winning at least one match, not
+ * granted for mere participation (see the "Correction" section of
+ * docs/junior-circuit-research-and-proposal.md). This used to be
+ * wrong: the old formula was `basePoints * 1.6^roundsWon`, which at
+ * roundsWon=0 collapses to `basePoints * 1.6^0 = basePoints` — a full
+ * base-tier award for losing your very first match. That bug predates
+ * the junior work and applied to every tier that existed before it
+ * (major/tour/challenger/futures); it's fixed here for all of them,
+ * not just the new junior tiers below.
+ *
+ * Senior tiers (major=2000, tour=500 i.e. an ATP 500 event,
+ * challenger=125, futures=25 at champion) are unchanged from before
+ * other than the index-0 fix above; the rounds below champion are
+ * scaled down from real ATP/Challenger round breakdowns rather than an
+ * arbitrary curve.
+ *
+ * The six junior tiers' champion (index 7) values are real, sourced
+ * ITF numbers — since the 2023 rebrand, a junior grade's name states
+ * the points its singles champion earns: J30=30, J60=60, J100=100,
+ * J200=200, J300=300, J500=500 (see the research doc's "exact ITF
+ * point ladder" section). The rounds below champion for these six are
+ * NOT independently sourced (the ITF doesn't publish a full per-round
+ * breakdown the way ATP does) — they're scaled down from champion
+ * using the same proportional shape as the senior tables above, same
+ * "illustrative, not balanced" caveat CLAUDE.md already applies to
+ * this whole table.
  */
 export class StandardRankingPointsTable implements RankingPointsTable {
   private static readonly POINTS_BY_ROUND: Record<TournamentTier, ReadonlyArray<number>> = {
     // roundsWon:     0    1    2    3    4    5    6     7
-    major:           [10,  45,  90,  180, 360, 720, 1200, 2000],
-    tour:            [3,   11,  23,  45,  90,  180, 300,  500],
-    challenger:      [1,   3,   6,   11,  23,  45,  75,   125],
-    futures:         [1,   1,   2,   3,   5,   9,   15,   25],
-    junior:          [0,   0,   1,   1,   2,   3,   3,    5],
+    major:           [0,   45,  90,  180, 360, 720, 1200, 2000],
+    tour:            [0,   11,  23,  45,  90,  180, 300,  500],
+    challenger:      [0,   3,   6,   11,  23,  45,  75,   125],
+    futures:         [0,   1,   2,   3,   5,   9,   15,   25],
+
+    // Real, sourced ITF champion values (index 7). Rounds 1-6 are an
+    // illustrative proportional scale-down, not independently sourced
+    // — see class doc comment above.
+    j30:             [0,   1,   2,   3,   5,   11,  18,   30],
+    j60:             [0,   1,   3,   5,   11,  22,  36,   60],
+    j100:            [0,   2,   5,   9,   18,  36,  60,   100],
+    j200:            [0,   5,   9,   18,  36,  72,  120,  200],
+    j300:            [0,   7,   14,  27,  54,  108, 180,  300],
+    j500:            [0,   11,  23,  45,  90,  180, 300,  500],
+
+    // PLACEHOLDER — UNSOURCED. Unlike the six J-grades above, no real
+    // published point value exists anywhere found for a Junior Masters
+    // capstone (see the research doc: "exact point value not published
+    // anywhere found — flag as an explicit placeholder"). 700 is an
+    // arbitrary placeholder chosen only to sit above J500's real 500,
+    // not a tuned or sourced number. Do not treat this row as equally
+    // authoritative to the six above it.
+    juniorMasters:   [0,   16,  32,  63,  126, 252, 420,  700],
   };
 
   pointsFor(tier: TournamentTier, roundsWon: number): number {
@@ -45,6 +131,21 @@ export class StandardRankingPointsTable implements RankingPointsTable {
     const index = Math.min(Math.max(roundsWon, 0), table.length - 1);
     return table[index];
   }
+}
+
+/**
+ * Tiers whose champion point value is an unsourced/untuned placeholder
+ * rather than a real published number — currently just
+ * `juniorMasters` (see its comment in `StandardRankingPointsTable`
+ * above). This is a real, checkable code-level flag rather than only a
+ * comment, precisely so `juniorMasters` is never accidentally
+ * presented (in a UI, a test, or elsewhere) as equally authoritative
+ * to the six real ITF-sourced J-grade values.
+ */
+const UNSOURCED_PLACEHOLDER_TIER_SET: ReadonlySet<TournamentTier> = new Set<TournamentTier>(['juniorMasters']);
+
+export function isUnsourcedPlaceholderTier(tier: TournamentTier): boolean {
+  return UNSOURCED_PLACEHOLDER_TIER_SET.has(tier);
 }
 
 export interface TournamentEntrant {
