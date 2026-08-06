@@ -65,6 +65,13 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
   };
 }
 
+/** Round-trip tests compare entrant sets, not array order — the
+ * domain never promises order is preserved (BracketGenerator seeds
+ * off `seed`, never array position). */
+function byPlayerId(a: { playerId: string }, b: { playerId: string }): number {
+  return a.playerId.localeCompare(b.playerId);
+}
+
 afterAll(async () => {
   await pool.end();
 });
@@ -184,7 +191,12 @@ describe('DrizzleTournamentRepository', () => {
     expect(loaded!.weekScheduled).toEqual({ season: 2, week: 17 });
     expect(loaded!.drawSize).toBe(16);
     expect(loaded!.hasStarted).toBe(true);
-    expect(loaded!.entrants).toEqual(original.entrants);
+    // Same set of entrants with the same seeds — not asserting on
+    // array order, which the domain never promises is preserved
+    // (BracketGenerator seeds off `seed`, never off array position;
+    // see DrizzleTournamentRepository.load()'s doc comment on why
+    // read order is deterministic but not necessarily insertion order).
+    expect([...loaded!.entrants].sort(byPlayerId)).toEqual([...original.entrants].sort(byPlayerId));
     // Deep bracket equality: same rounds, same match order, the one
     // recorded outcome intact with its set scores, the rest null.
     expect(loaded!.getRounds()).toEqual(original.getRounds());
@@ -225,6 +237,58 @@ describe('DrizzleTournamentRepository', () => {
     expect(loadedSenior!.ageBand).toBeNull();
   });
 
+  it("findByPlayerAndWeek returns only this player's tournaments scheduled exactly that week", async () => {
+    await savePlayers(3);
+
+    const sameWeek1 = Tournament.open({
+      id: TournamentId('t-fpw-1'),
+      tier: 'j100',
+      ageBand: 'u14',
+      surface: 'clay',
+      weekScheduled: { season: 2, week: 8 },
+      drawSize: 16,
+    });
+    sameWeek1.registerEntrant({ playerId: PlayerId('p1'), seed: null });
+    await tournamentRepository.save(sameWeek1);
+
+    const sameWeek2 = Tournament.open({
+      id: TournamentId('t-fpw-2'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 8 },
+      drawSize: 16,
+    });
+    sameWeek2.registerEntrant({ playerId: PlayerId('p1'), seed: null });
+    await tournamentRepository.save(sameWeek2);
+
+    // Different week — must be excluded.
+    const differentWeek = Tournament.open({
+      id: TournamentId('t-fpw-3'),
+      tier: 'j100',
+      ageBand: 'u14',
+      surface: 'clay',
+      weekScheduled: { season: 2, week: 9 },
+      drawSize: 16,
+    });
+    differentWeek.registerEntrant({ playerId: PlayerId('p1'), seed: null });
+    await tournamentRepository.save(differentWeek);
+
+    // Same week, but a different player — must be excluded.
+    const otherPlayerSameWeek = Tournament.open({
+      id: TournamentId('t-fpw-4'),
+      tier: 'j100',
+      ageBand: 'u14',
+      surface: 'clay',
+      weekScheduled: { season: 2, week: 8 },
+      drawSize: 16,
+    });
+    otherPlayerSameWeek.registerEntrant({ playerId: PlayerId('p2'), seed: null });
+    await tournamentRepository.save(otherPlayerSameWeek);
+
+    const results = await tournamentRepository.findByPlayerAndWeek(PlayerId('p1'), { season: 2, week: 8 });
+    expect(results.map((t) => t.id).sort()).toEqual(['t-fpw-1', 't-fpw-2']);
+  });
+
   it('round-trips an unstarted tournament and lists it via findOpenForRegistration', async () => {
     await savePlayers(10);
 
@@ -246,7 +310,9 @@ describe('DrizzleTournamentRepository', () => {
     expect(open).toHaveLength(1);
     expect(open[0].id).toBe('t2');
     expect(open[0].hasStarted).toBe(false);
-    expect(open[0].entrants).toEqual(original.entrants);
+    // Same set of entrants, not asserting on array order — see the
+    // other round-trip test's comment on why.
+    expect([...open[0].entrants].sort(byPlayerId)).toEqual([...original.entrants].sort(byPlayerId));
     expect(open[0].getRounds()).toHaveLength(0);
 
     // Saving again after it starts flips it out of the open list.

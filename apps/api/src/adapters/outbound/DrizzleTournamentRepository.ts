@@ -1,5 +1,5 @@
-import { asc, eq } from 'drizzle-orm';
-import { PlayerId, TournamentId } from '@tennis-manager/domain';
+import { and, asc, eq } from 'drizzle-orm';
+import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
   AgeBand,
@@ -44,6 +44,21 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   async findStarted(): Promise<Tournament[]> {
     const rows = await this.db.select().from(tournaments).where(eq(tournaments.hasStarted, true));
     return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    const rows = await this.db
+      .select({ tournament: tournaments })
+      .from(tournaments)
+      .innerJoin(tournamentEntries, eq(tournamentEntries.tournamentId, tournaments.id))
+      .where(
+        and(
+          eq(tournamentEntries.playerId, playerId),
+          eq(tournaments.seasonScheduled, week.season),
+          eq(tournaments.weekScheduled, week.week),
+        ),
+      );
+    return Promise.all(rows.map((row) => this.load(row.tournament)));
   }
 
   async save(tournament: Tournament): Promise<void> {
@@ -103,7 +118,22 @@ export class DrizzleTournamentRepository implements TournamentRepository {
         .select()
         .from(tournamentEntries)
         .where(eq(tournamentEntries.tournamentId, row.id))
-        .orderBy(asc(tournamentEntries.createdAt)),
+        // Secondary tiebreak on playerId, not just createdAt: save()
+        // bulk-inserts every entrant in one transaction, and Postgres's
+        // defaultNow() resolves once per transaction, not once per
+        // row — so a batch of entrants registered together (e.g. an
+        // OpenTournamentUseCase-seeded draw) all get an IDENTICAL
+        // createdAt, and ORDER BY on that alone is not deterministic
+        // (ties break on physical row layout, which can silently
+        // change between reads). This makes the read order stable and
+        // reproducible; it does NOT recover true chronological
+        // registration order for same-transaction ties — that would
+        // need an explicit sequence/insertion-order column, which
+        // doesn't exist yet. Only matters in practice for unseeded
+        // entrants (BracketGenerator.orderBySeed keeps null-seed
+        // entrants in their input array's relative order), so this is
+        // a determinism fix, not a fairness one.
+        .orderBy(asc(tournamentEntries.createdAt), asc(tournamentEntries.playerId)),
       this.db
         .select()
         .from(tournamentMatches)

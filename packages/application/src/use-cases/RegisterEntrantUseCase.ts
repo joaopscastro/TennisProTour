@@ -1,6 +1,7 @@
-import { PlayerId, TournamentId } from '@tennis-manager/domain';
+import { isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
+import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -27,6 +28,20 @@ export interface RegisterEntrantCommand {
  * moment the last slot fills, right here — not on a scheduled job,
  * since nothing else currently transitions a tournament out of "open
  * for registration."
+ *
+ * **Junior weekly entry cap**: if the tournament being entered is a
+ * junior tier, a player may not already be registered in
+ * `JUNIOR_WEEKLY_ENTRY_CAP` other tournaments the same GameWeek — the
+ * real ITF "up to three tournaments a week" rule (see
+ * juniorEntryCap.ts). Deliberately NOT applied to the senior tour:
+ * there's no real-world or design-doc precedent for a senior weekly
+ * entry limit (the junior cap exists specifically because real junior
+ * players choose a priority order among clashing weekly options, per
+ * the research doc's "Real scheduling constraints" section — nothing
+ * analogous was ever proposed for futures/challenger/tour/major). If a
+ * senior-side pacing problem shows up later, that's a decision to make
+ * deliberately then, not something to bundle into this junior-specific
+ * fix now.
  */
 export class RegisterEntrantUseCase {
   constructor(
@@ -38,6 +53,18 @@ export class RegisterEntrantUseCase {
     const tournament = await this.tournaments.findById(command.tournamentId);
     if (!tournament) {
       throw new Error(`Tournament ${command.tournamentId} not found`);
+    }
+
+    if (isJuniorTier(tournament.tier)) {
+      const sameWeekEntries = await this.tournaments.findByPlayerAndWeek(command.playerId, tournament.weekScheduled);
+      const juniorEntryCount = sameWeekEntries.filter((t) => isJuniorTier(t.tier)).length;
+      if (juniorEntryCount >= JUNIOR_WEEKLY_ENTRY_CAP) {
+        throw new Error(
+          `Player ${command.playerId} has already entered ${juniorEntryCount} junior tournaments in ` +
+            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+            `(cap: ${JUNIOR_WEEKLY_ENTRY_CAP})`,
+        );
+      }
     }
 
     tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null });

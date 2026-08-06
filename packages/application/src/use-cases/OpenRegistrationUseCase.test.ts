@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { TournamentId } from '@tennis-manager/domain';
+import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 import { OpenRegistrationUseCase } from './OpenRegistrationUseCase';
@@ -17,6 +17,15 @@ class InMemoryTournamentRepository implements TournamentRepository {
 
   async findStarted(): Promise<Tournament[]> {
     return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
+  async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return [...this.store.values()].filter(
+      (t) =>
+        t.weekScheduled.season === week.season &&
+        t.weekScheduled.week === week.week &&
+        t.entrants.some((e) => e.playerId === playerId),
+    );
   }
 
   async save(tournament: Tournament): Promise<void> {

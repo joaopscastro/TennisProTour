@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, MatchId, PlayerId, TournamentId, RankingLedgerEntry } from '@tennis-manager/domain';
+import { GameWeek, ManagerId, MatchId, PlayerId, TournamentId, RankingLedgerEntry } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
@@ -31,6 +31,15 @@ class InMemoryTournamentRepository implements TournamentRepository {
 
   async findStarted(): Promise<Tournament[]> {
     return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
+  async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return [...this.store.values()].filter(
+      (t) =>
+        t.weekScheduled.season === week.season &&
+        t.weekScheduled.week === week.week &&
+        t.entrants.some((e) => e.playerId === playerId),
+    );
   }
 
   async save(tournament: Tournament): Promise<void> {

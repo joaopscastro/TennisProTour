@@ -44,6 +44,11 @@ export interface TournamentRepository {
    * ones — callers that only want playable matches filter via the
    * aggregate's own round/final checks. */
   findStarted(): Promise<Tournament[]>;
+  /** Every tournament (open or started — a filled draw still "used" a
+   * registration slot for the week) this player is registered in for
+   * exactly this GameWeek, regardless of tier. What RegisterEntrantUseCase's
+   * junior weekly-entry cap counts against — see its own doc comment. */
+  findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]>;
   save(tournament: Tournament): Promise<void>;
 }
 
