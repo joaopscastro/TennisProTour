@@ -6,7 +6,11 @@ import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { StandardPlayerGenerationPolicy } from '@tennis-manager/domain';
 import { WorldId } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
+import { StandardManagerXpPolicy } from '@tennis-manager/domain';
+import { StandardTalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { StandardCoachConversionPolicy } from '@tennis-manager/domain';
 import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
+import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
 import { RefreshTalentPoolUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
@@ -23,6 +27,9 @@ import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTourname
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
 import { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
 import { DrizzleTalentPoolCandidateRepository } from './adapters/outbound/DrizzleTalentPoolCandidateRepository';
+import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
+import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClaimAdapter';
+import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
@@ -61,6 +68,8 @@ export interface Dependencies {
   rankingLedger: DrizzleRankingLedgerRepository;
   rankPosition: RankPositionQuery;
   talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
+  managerXp: DrizzleManagerXpRepository;
+  coaches: DrizzleCoachRepository;
   rosterDashboard: DrizzleRosterDashboardQuery;
   billing: StripeBillingAdapter;
   idGenerator: CryptoIdGenerator;
@@ -75,6 +84,7 @@ export interface Dependencies {
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingFocus: SetTrainingFocusUseCase;
   releasePlayer: ReleasePlayerUseCase;
+  convertPlayerToCoach: ConvertPlayerToCoachUseCase;
 }
 
 /**
@@ -110,6 +120,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID);
   const talentPoolCandidates = new DrizzleTalentPoolCandidateRepository(options.db);
+  const managerXp = new DrizzleManagerXpRepository(options.db);
+  const managerXpPolicy = new StandardManagerXpPolicy();
+  const talentClaim = new DrizzleTalentClaimAdapter(options.db);
+  const talentClaimPricingPolicy = new StandardTalentClaimPricingPolicy();
+  const coaches = new DrizzleCoachRepository(options.db);
+  const coachConversionPolicy = new StandardCoachConversionPolicy();
   const idGenerator = new CryptoIdGenerator();
   // A separate RandomSource instance from the match simulator's — both
   // just wrap Math.random() statelessly, so sharing wouldn't be wrong,
@@ -133,6 +149,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     bracketGenerator,
     rankingPointsTable,
     rankingLedger,
+    managerXpPolicy,
+    managerXp,
   );
 
   const standardAgingPolicy = new StandardAgingPolicy();
@@ -147,19 +165,29 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankingLedger,
     rankPosition,
     talentPoolCandidates,
+    managerXp,
+    coaches,
     rosterDashboard,
     billing,
     idGenerator,
-    claimTalentPoolCandidate: new ClaimTalentPoolCandidateUseCase(talentPoolCandidates, players, events, billing),
+    claimTalentPoolCandidate: new ClaimTalentPoolCandidateUseCase(
+      talentPoolCandidates,
+      players,
+      events,
+      billing,
+      talentClaim,
+      talentClaimPricingPolicy,
+    ),
     createCustomPlayer: new CreateCustomPlayerUseCase(players, events, billing, generationPolicy, generationRandom),
     refreshTalentPool: new RefreshTalentPoolUseCase(talentPoolCandidates, worlds, generationPolicy, generationRandom, idGenerator),
     openTournament: new OpenTournamentUseCase(tournaments, bracketGenerator),
     openRegistration: new OpenRegistrationUseCase(tournaments),
     registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
     setTrainingFocus: new SetTrainingFocusUseCase(players),
     releasePlayer: new ReleasePlayerUseCase(players),
+    convertPlayerToCoach: new ConvertPlayerToCoachUseCase(players, coaches, managerXp, coachConversionPolicy, idGenerator, events),
   };
 }

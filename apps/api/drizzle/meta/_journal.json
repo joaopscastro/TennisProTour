@@ -64,6 +64,20 @@
       "when": 1785926224236,
       "tag": "0008_dapper_maelstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786009391466,
+      "tag": "0009_curved_meteorite",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786010487178,
+      "tag": "0010_dashing_malcolm_colcord",
+      "breakpoints": true
     }
   ]
 }

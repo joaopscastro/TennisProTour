@@ -12,10 +12,14 @@ import {
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { GeneratedPlayer, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { Coach, CoachId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleTalentPoolCandidateRepository } from './DrizzleTalentPoolCandidateRepository';
+import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
+import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
+import { DrizzleCoachRepository } from './DrizzleCoachRepository';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 
@@ -44,6 +48,8 @@ beforeEach(async () => {
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
   await db.delete(schema.talentPoolCandidates); // no FKs, order doesn't matter
+  await db.delete(schema.managerProgression); // no FKs, order doesn't matter
+  await db.delete(schema.coaches); // no FKs, order doesn't matter
 });
 
 function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPlayer {
@@ -305,4 +311,165 @@ describe('DrizzleTalentPoolCandidateRepository', () => {
       expect(reloaded!.claimedByManagerId).toBe(successes[0]!.claimedByManagerId);
     },
   );
+});
+
+describe('DrizzleManagerXpRepository', () => {
+  const repository = new DrizzleManagerXpRepository(db);
+
+  it('balanceFor returns 0 for a manager who has never earned any XP', async () => {
+    expect(await repository.balanceFor(ManagerId('never-earned'))).toBe(0);
+  });
+
+  it('credit accumulates across multiple calls, creating the row on first use', async () => {
+    await repository.credit(ManagerId('m1'), 10);
+    await repository.credit(ManagerId('m1'), 25);
+    expect(await repository.balanceFor(ManagerId('m1'))).toBe(35);
+  });
+
+  it('spendXpIfSufficient deducts and succeeds when the balance covers the amount', async () => {
+    await repository.credit(ManagerId('m1'), 100);
+    const ok = await repository.spendXpIfSufficient(ManagerId('m1'), 40);
+    expect(ok).toBe(true);
+    expect(await repository.balanceFor(ManagerId('m1'))).toBe(60);
+  });
+
+  it('spendXpIfSufficient refuses and leaves the balance untouched when insufficient', async () => {
+    await repository.credit(ManagerId('m1'), 10);
+    const ok = await repository.spendXpIfSufficient(ManagerId('m1'), 999);
+    expect(ok).toBe(false);
+    expect(await repository.balanceFor(ManagerId('m1'))).toBe(10);
+  });
+
+  it('spendXpIfSufficient refuses for a manager with no balance row at all', async () => {
+    const ok = await repository.spendXpIfSufficient(ManagerId('never-earned'), 1);
+    expect(ok).toBe(false);
+  });
+
+  it(
+    'under real concurrent spends against actual Postgres, only as many succeed as the balance actually covers',
+    async () => {
+      await repository.credit(ManagerId('m1'), 100);
+
+      // 10 simultaneous spends of 30 each against a balance of 100 —
+      // only 3 can possibly succeed (90 spent, 10 left over), and this
+      // must hold under REAL concurrent connections, not just JS's
+      // single-threadedness, the same proof
+      // claimIfAvailable's concurrency test above establishes for the
+      // talent-pool claim guard.
+      const attempts = await Promise.all(
+        Array.from({ length: 10 }, () => repository.spendXpIfSufficient(ManagerId('m1'), 30)),
+      );
+
+      const successes = attempts.filter((ok) => ok === true);
+      expect(successes).toHaveLength(3);
+      expect(await repository.balanceFor(ManagerId('m1'))).toBe(10);
+    },
+  );
+});
+
+describe('DrizzleTalentClaimAdapter', () => {
+  const adapter = new DrizzleTalentClaimAdapter(db);
+  const candidateRepository = new DrizzleTalentPoolCandidateRepository(db);
+  const xpRepository = new DrizzleManagerXpRepository(db);
+
+  it('claims the candidate and debits XP together when the manager can afford it', async () => {
+    await candidateRepository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 }));
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(TalentPoolCandidateId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome.kind).toBe('claimed');
+    if (outcome.kind !== 'claimed') throw new Error('unreachable');
+    expect(outcome.candidate.claimedByManagerId).toBe(ManagerId('m1'));
+    expect(outcome.xpSpent).toBe(40);
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(60);
+
+    const reloaded = await candidateRepository.findById(TalentPoolCandidateId('tp1'));
+    expect(reloaded!.status).toBe('claimed');
+  });
+
+  it('refuses and spends nothing when the manager cannot afford the candidate', async () => {
+    await candidateRepository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 }));
+    await xpRepository.credit(ManagerId('m1'), 10);
+
+    const outcome = await adapter.claimAndCharge(TalentPoolCandidateId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome).toEqual({ kind: 'insufficient-xp', required: 40, balance: 10 });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(10);
+
+    // The candidate is untouched — still available for someone who CAN afford it.
+    const reloaded = await candidateRepository.findById(TalentPoolCandidateId('tp1'));
+    expect(reloaded!.status).toBe('available');
+  });
+
+  it('refuses when the candidate is already claimed, rolling back the XP debit (no partial spend)', async () => {
+    const candidate = TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 });
+    candidate.markClaimed(ManagerId('someone-else'));
+    await candidateRepository.save(candidate);
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(TalentPoolCandidateId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome).toEqual({ kind: 'candidate-unavailable' });
+    // The XP debit that happened INSIDE the transaction was rolled back
+    // along with everything else — this is the whole point of using a
+    // real transaction instead of two independent conditional UPDATEs.
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100);
+  });
+
+  it(
+    'under real concurrent claims for TWO DIFFERENT candidates that together exceed the balance, exactly one succeeds',
+    async () => {
+      // Isolates the cross-table XP race specifically (independent of
+      // the single-candidate claim race, which claimIfAvailable's own
+      // concurrency test above already covers): two distinct available
+      // candidates, each costing 60, against a shared balance of 100 —
+      // only one of the two claims can possibly be affordable, and this
+      // must hold under genuinely concurrent Postgres transactions, not
+      // just JS's single-threadedness.
+      await candidateRepository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp1'), generatedPlayer(), { season: 1, week: 1 }));
+      await candidateRepository.save(TalentPoolCandidate.generate(TalentPoolCandidateId('tp2'), generatedPlayer(), { season: 1, week: 1 }));
+      await xpRepository.credit(ManagerId('m1'), 100);
+
+      const [outcomeA, outcomeB] = await Promise.all([
+        adapter.claimAndCharge(TalentPoolCandidateId('tp1'), ManagerId('m1'), 60),
+        adapter.claimAndCharge(TalentPoolCandidateId('tp2'), ManagerId('m1'), 60),
+      ]);
+
+      const successes = [outcomeA, outcomeB].filter((o) => o.kind === 'claimed');
+      expect(successes).toHaveLength(1);
+
+      const finalBalance = await xpRepository.balanceFor(ManagerId('m1'));
+      expect(finalBalance).toBe(40); // exactly one 60-cost claim went through
+      expect(finalBalance).toBeGreaterThanOrEqual(0); // never went negative
+    },
+  );
+});
+
+describe('DrizzleCoachRepository', () => {
+  const repository = new DrizzleCoachRepository(db);
+
+  it('round-trips a converted coach', async () => {
+    const coach = Coach.convert(CoachId('coach1'), ManagerId('m1'), 72, PlayerId('p1'), 'Marta Silva');
+    await repository.save(coach);
+
+    const found = await repository.findByManager(ManagerId('m1'));
+    expect(found).toHaveLength(1);
+    expect(found[0].id).toBe(CoachId('coach1'));
+    expect(found[0].coachRating).toBe(72);
+    expect(found[0].sourcePlayerId).toBe(PlayerId('p1'));
+    expect(found[0].sourcePlayerName).toBe('Marta Silva');
+  });
+
+  it('findByManager returns an empty array for a manager with no coaches', async () => {
+    expect(await repository.findByManager(ManagerId('nobody'))).toEqual([]);
+  });
+
+  it('findByManager only returns coaches belonging to that manager', async () => {
+    await repository.save(Coach.convert(CoachId('coach1'), ManagerId('m1'), 50, PlayerId('p1'), 'A'));
+    await repository.save(Coach.convert(CoachId('coach2'), ManagerId('m2'), 60, PlayerId('p2'), 'B'));
+
+    expect((await repository.findByManager(ManagerId('m1'))).map((c) => c.id)).toEqual(['coach1']);
+    expect((await repository.findByManager(ManagerId('m2'))).map((c) => c.id)).toEqual(['coach2']);
+  });
 });

@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId, CoachId } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate, Coach } from '@tennis-manager/domain';
 
 /**
  * Interface Segregation in practice: one narrow repository interface
@@ -152,4 +152,87 @@ export interface RankingLedgerRepository {
    * to read in one call, same assumption RosterDashboardQuery already
    * makes about tournament_matches. */
   findAll(): Promise<RankingLedgerEntry[]>;
+}
+
+/**
+ * A manager's cumulative XP balance (Manager & Progression bounded
+ * context). Deliberately a simple stored balance, not an append-only
+ * ledger like RankingLedgerRepository above — XP is a spendable
+ * currency with no expiry/rolling-window concept, so there's nothing
+ * for a ledger's replay-at-read-time model to buy here that a plain
+ * running total doesn't already give more simply.
+ */
+export interface ManagerXpRepository {
+  /** Current balance, 0 if the manager has never earned any (same
+   * "absence means zero" convention as BillingPort's credit balance). */
+  balanceFor(managerId: ManagerId): Promise<number>;
+  /** Adds XP to a manager's balance, creating the balance row if this
+   * is their first-ever XP event. Not itself required to be atomic
+   * against concurrent credits the way spendXpIfSufficient is against
+   * concurrent spends — two credits racing can both safely add (a
+   * conditional UPDATE ... SET balance = balance + x is commutative),
+   * unlike a spend which must check-and-deduct as one step. */
+  credit(managerId: ManagerId, amount: number): Promise<void>;
+  /** Atomically checks-and-deducts in one DB-level conditional UPDATE
+   * (same "conditional UPDATE, not read-then-write" pattern as
+   * TalentPoolCandidateRepository.claimIfAvailable and
+   * BillingPort.consumeCustomPlayerCredit) — succeeds only if the
+   * balance was already >= amount, so two near-simultaneous spends can
+   * never both pass a balance check before either deducts. Returns
+   * whether the spend succeeded. */
+  spendXpIfSufficient(managerId: ManagerId, amount: number): Promise<boolean>;
+}
+
+/**
+ * Outcome of an atomic claim+charge attempt — a discriminated union
+ * rather than a boolean/null, since ClaimTalentPoolCandidateUseCase
+ * needs to distinguish two different, user-facing failure reasons (the
+ * candidate was already claimed by someone else vs. this manager
+ * simply can't afford it) instead of collapsing both into one generic
+ * "claim failed."
+ */
+export type TalentClaimOutcome =
+  | { kind: 'claimed'; candidate: TalentPoolCandidate; xpSpent: number }
+  | { kind: 'candidate-unavailable' }
+  | { kind: 'insufficient-xp'; required: number; balance: number };
+
+/**
+ * Cross-aggregate port for the one operation in this codebase that
+ * needs genuine multi-table atomicity: claiming a talent-pool candidate
+ * AND debiting the manager's XP balance must succeed or fail together,
+ * with no window where one has happened but not the other (see
+ * docs/manager-xp-and-coaching-system.md section 3 — a balance check
+ * and the deduction can't be two separate steps, or two near-
+ * simultaneous claims could both pass the check before either
+ * deducts). TalentPoolCandidateRepository.claimIfAvailable() and
+ * ManagerXpRepository.spendXpIfSufficient() each solve this within
+ * their OWN table via a single conditional UPDATE, but neither can
+ * reach across to the other's table — hence this separate port,
+ * deliberately NOT composed from calling both of those in sequence
+ * from application code (that would reopen exactly the race window
+ * this port exists to close). The real adapter wraps both conditional
+ * UPDATEs in one actual DB transaction (see DrizzleTalentClaimAdapter).
+ */
+export interface TalentClaimPort {
+  /** xpCost is computed by the caller (via TalentClaimPricingPolicy,
+   * reading the candidate's overallRating() BEFORE this call) since a
+   * candidate's attributes are immutable post-generation — only
+   * status/claimedBy ever change, so pricing off a pre-fetched read is
+   * safe even though the actual claim+charge happens atomically later. */
+  claimAndCharge(candidateId: TalentPoolCandidateId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome>;
+}
+
+/**
+ * One narrow repository per aggregate, same ISP convention as every
+ * other port here. findByManager returns at most one Coach today
+ * (COACH_CAP_PER_MANAGER = 1, see ConvertPlayerToCoachUseCase) —
+ * returning an array rather than a single nullable Coach anyway, since
+ * "how many coaches can a manager have" is exactly the kind of cap
+ * ConvertPlayerToCoachUseCase's own doc comment flags as an open
+ * monetization question, not something this port should bake in as a
+ * permanent 1:1 assumption.
+ */
+export interface CoachRepository {
+  findByManager(managerId: ManagerId): Promise<Coach[]>;
+  save(coach: Coach): Promise<void>;
 }

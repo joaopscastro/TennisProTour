@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StandardTrainingPolicy, TrainingFocus, applyPotentialDiminishingReturns } from './TrainingPolicy';
+import { StandardTrainingPolicy, TrainingFocus, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
 describe('StandardTrainingPolicy', () => {
   const policy = new StandardTrainingPolicy();
@@ -56,5 +56,27 @@ describe('applyPotentialDiminishingReturns', () => {
   it('never gates a non-positive (decay/zero) delta — only growth is throttled', () => {
     expect(applyPotentialDiminishingReturns(-0.05, 79, 80)).toBe(-0.05); // right at the ceiling, still decays normally
     expect(applyPotentialDiminishingReturns(0, 79, 80)).toBe(0);
+  });
+});
+
+describe('applyCoachBonus', () => {
+  it('passes the delta through unchanged when there is no coach (null)', () => {
+    expect(applyCoachBonus(1.0, null)).toBe(1.0);
+  });
+
+  it('boosts a positive delta, scaling with coachRating', () => {
+    const bonusAt50 = applyCoachBonus(1.0, 50) - 1.0;
+    const bonusAt100 = applyCoachBonus(1.0, 100) - 1.0;
+    expect(bonusAt50).toBeGreaterThan(0);
+    expect(bonusAt100).toBeGreaterThan(bonusAt50);
+  });
+
+  it('never boosts a non-positive (decay/zero) delta, even with a coach', () => {
+    expect(applyCoachBonus(-0.05, 80)).toBe(-0.05);
+    expect(applyCoachBonus(0, 80)).toBe(0);
+  });
+
+  it('a coachRating of 0 is a no-op (matches the null case)', () => {
+    expect(applyCoachBonus(1.0, 0)).toBe(1.0);
   });
 });

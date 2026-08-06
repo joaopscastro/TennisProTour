@@ -126,6 +126,31 @@ describe('Player', () => {
     expect(player.attributes.surfaceAffinities.get('clay')).toBe(25); // full, ungated delta: 20 + 5
   });
 
+  it('boosts surface training when a coachRating is passed, defaulting to no boost when omitted', () => {
+    const noCoach = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    noCoach.applyTraining({ kind: 'surface', surface: 'clay' }, new FixedTrainingPolicy(5));
+    expect(noCoach.attributes.surfaceAffinities.get('clay')).toBe(25); // 20 + 5, no boost
+
+    const withCoach = Player.hire(PlayerId('p2'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    withCoach.applyTraining({ kind: 'surface', surface: 'clay' }, new FixedTrainingPolicy(5), 80);
+    expect(withCoach.attributes.surfaceAffinities.get('clay')).toBeGreaterThan(25); // boosted above the uncoached result
+  });
+
+  it('boosts skill-cluster training when a coachRating is passed, applied AFTER the potentialCeiling taper', () => {
+    const withCoach = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'), 'XX', 40);
+    // Same setup as the potentialCeiling taper test above (headroom 10,
+    // taper range 15 -> factor 10/15, tapered delta = 3 * 10/15 = 2),
+    // now with a coach boosting that already-tapered 2 further upward.
+    withCoach.applyTraining({ kind: 'skill', cluster: 'technical' }, new FixedTrainingPolicy(3), 100);
+    expect(withCoach.attributes.technical.serve.value).toBeGreaterThan(32); // > the uncoached 30 + 2
+  });
+
+  it('a coach never revives a delta the potentialCeiling has tapered all the way to zero', () => {
+    const atCeiling = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'), 'XX', 30);
+    atCeiling.applyTraining({ kind: 'skill', cluster: 'mental' }, new FixedTrainingPolicy(5), 100);
+    expect(atCeiling.attributes.mental.clutch.value).toBe(30); // still zero growth — a coach boosts a delta, doesn't create one
+  });
+
   it('defaults potentialCeiling to 100 (no meaningful ceiling) when not explicitly provided, so pre-existing call sites train at full rate', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
     expect(player.potentialCeiling).toBe(100);

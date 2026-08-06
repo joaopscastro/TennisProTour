@@ -4,12 +4,13 @@ import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { DrawSize, MatchLog } from '@tennis-manager/domain';
+import { DrawSize, MatchLog, TournamentTier } from '@tennis-manager/domain';
 import { MatchParticipant, MatchSimulator, SimulatedMatch } from '@tennis-manager/domain';
-import { StandardRankingPointsTable } from '@tennis-manager/domain';
+import { StandardManagerXpPolicy, StandardRankingPointsTable } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
+  ManagerXpRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
@@ -87,6 +88,25 @@ class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
   }
 }
 
+class InMemoryManagerXpRepository implements ManagerXpRepository {
+  private readonly balances = new Map<ManagerId, number>();
+
+  async balanceFor(managerId: ManagerId): Promise<number> {
+    return this.balances.get(managerId) ?? 0;
+  }
+
+  async credit(managerId: ManagerId, amount: number): Promise<void> {
+    this.balances.set(managerId, (this.balances.get(managerId) ?? 0) + amount);
+  }
+
+  async spendXpIfSufficient(managerId: ManagerId, amount: number): Promise<boolean> {
+    const balance = this.balances.get(managerId) ?? 0;
+    if (balance < amount) return false;
+    this.balances.set(managerId, balance - amount);
+    return true;
+  }
+}
+
 /** Always declares entrantA (playerA) the winner, for deterministic
  * cascades through a bracket in these tests. */
 class AlwaysAWinsSimulator implements MatchSimulator {
@@ -119,11 +139,12 @@ function buildStartedTournament(
   tournamentId: TournamentId,
   entrantCount: number,
   drawSize: DrawSize,
+  tier: TournamentTier = 'challenger',
 ): { tournament: Tournament; bracketGenerator: BracketGenerator } {
   const bracketGenerator = new BracketGenerator();
   const tournament = Tournament.open({
     id: tournamentId,
-    tier: 'challenger',
+    tier,
     surface: 'hard',
     weekScheduled: { season: 1, week: 1 },
     drawSize,
@@ -161,6 +182,8 @@ describe('SimulateMatchUseCase', () => {
       bracketGenerator,
       new StandardRankingPointsTable(),
       new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
     );
 
     const round1MatchCount = tournament.getRounds()[0].matches.length; // 8
@@ -229,6 +252,8 @@ describe('SimulateMatchUseCase', () => {
       bracketGenerator,
       new StandardRankingPointsTable(),
       new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
     );
 
     await useCase.execute({ matchId: MatchId('final'), tournamentId, roundNumber: 4, matchIndex: 0 });
@@ -290,6 +315,8 @@ describe('SimulateMatchUseCase', () => {
         bracketGenerator,
         rankingPointsTable,
         rankingLedger,
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -332,6 +359,8 @@ describe('SimulateMatchUseCase', () => {
         bracketGenerator,
         rankingPointsTable,
         rankingLedger,
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -358,6 +387,8 @@ describe('SimulateMatchUseCase', () => {
 
       const rankingPointsTable = new StandardRankingPointsTable();
       const rankingLedger = new InMemoryRankingLedgerRepository();
+      const managerXpPolicy = new StandardManagerXpPolicy();
+      const managerXp = new InMemoryManagerXpRepository();
       const useCase = new SimulateMatchUseCase(
         tournaments,
         players,
@@ -367,6 +398,8 @@ describe('SimulateMatchUseCase', () => {
         bracketGenerator,
         rankingPointsTable,
         rankingLedger,
+        managerXpPolicy,
+        managerXp,
       );
 
       await cascadeToRound(useCase, tournaments, tournamentId, 4);
@@ -377,9 +410,12 @@ describe('SimulateMatchUseCase', () => {
       // the final is the eventual champion and entrantB the runner-up.
       return {
         tournaments,
+        players,
         useCase,
         rankingPointsTable,
         rankingLedger,
+        managerXpPolicy,
+        managerXp,
         champion: finalMatch.entrantA,
         finalist: finalMatch.entrantB,
       };
@@ -419,5 +455,185 @@ describe('SimulateMatchUseCase', () => {
       expect(championEntries[0].points).toBe(rankingPointsTable.pointsFor('challenger', 4));
     });
 
+  });
+
+  describe('manager XP', () => {
+    /** Every player in these fixtures shares the same manager (see
+     * makePlayer's default), so a single match execution's XP credit
+     * lands entirely on ManagerId('m1') — exactly what these
+     * assertions read back via managerXp.balanceFor. */
+    const MANAGER = ManagerId('m1');
+
+    it('awards more XP for a win than a loss, at the same tier', async () => {
+      const tournamentId = TournamentId('t-xp-win-vs-loss');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, 'challenger');
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+
+      const managerXpPolicy = new StandardManagerXpPolicy();
+      const managerXp = new InMemoryManagerXpRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        managerXpPolicy,
+        managerXp,
+      );
+
+      // A first-round match only ever awards the loser (see the ranking
+      // points describe block above) — so this isolates the loss XP.
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+      const lossXp = await managerXp.balanceFor(MANAGER);
+      expect(lossXp).toBe(managerXpPolicy.xpFor('loss', 'challenger'));
+
+      // Now isolate a win: fabricate rounds 1-3 directly on the domain
+      // aggregate (bypassing the use case, so no XP is awarded for
+      // them) and drive ONLY the final through SimulateMatchUseCase —
+      // same "isolate the final" pattern the top-level TournamentCompleted
+      // test above uses, needed here so the winner's credit isn't mixed
+      // in with three rounds' worth of eliminated-loser credits (every
+      // player in this fixture shares the same manager).
+      const winTournamentId = TournamentId('t-xp-win-only');
+      const { tournament: winTournament, bracketGenerator: winBracketGenerator } = buildStartedTournament(
+        winTournamentId,
+        16,
+        16,
+        'challenger',
+      );
+      for (let roundNumber = 1; roundNumber <= 3; roundNumber++) {
+        const round = winTournament.getRounds()[roundNumber - 1];
+        round.matches.forEach((m, matchIndex) => {
+          winTournament.recordMatchOutcome(roundNumber, matchIndex, {
+            winner: m.entrantA,
+            loser: m.entrantB,
+            setScores: [],
+          });
+        });
+        const nextRound = winBracketGenerator.generateNextRound(
+          winTournament.getRounds()[roundNumber - 1],
+          winTournament.entrants,
+          16,
+        );
+        winTournament.addRound(nextRound);
+      }
+      winTournament.pullDomainEvents();
+
+      const winTournaments = new InMemoryTournamentRepository();
+      await winTournaments.save(winTournament);
+      const winPlayers = new InMemoryPlayerRepository();
+      const finalMatch = winTournament.getRounds()[3].matches[0];
+      await winPlayers.save(makePlayer(finalMatch.entrantA, MANAGER));
+      await winPlayers.save(makePlayer(finalMatch.entrantB, MANAGER));
+
+      const winManagerXp = new InMemoryManagerXpRepository();
+      const winUseCase = new SimulateMatchUseCase(
+        winTournaments,
+        winPlayers,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        winBracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        managerXpPolicy,
+        winManagerXp,
+      );
+
+      await winUseCase.execute({ matchId: MatchId('final'), tournamentId: winTournamentId, roundNumber: 4, matchIndex: 0 });
+
+      // The final awards the loser (runner-up) AND the winner (champion)
+      // — both to the same shared manager here — so the total is
+      // win + loss XP, which must exceed a bare loss's worth by more
+      // than zero, confirming the win bonus actually applied.
+      const winPlusLossXp = await winManagerXp.balanceFor(MANAGER);
+      expect(winPlusLossXp).toBe(
+        managerXpPolicy.xpFor('win', 'challenger') + managerXpPolicy.xpFor('loss', 'challenger'),
+      );
+      expect(winPlusLossXp - lossXp).toBeGreaterThan(0);
+    });
+
+    it('credits the deciding match XP to the player\'s manager, not the player, and scales by tier', async () => {
+      const futuresId = TournamentId('t-xp-futures');
+      const majorId = TournamentId('t-xp-major');
+
+      async function lossXpAt(tournamentId: TournamentId, tier: TournamentTier): Promise<number> {
+        const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, tier);
+        const tournaments = new InMemoryTournamentRepository();
+        await tournaments.save(tournament);
+
+        const players = new InMemoryPlayerRepository();
+        for (let i = 1; i <= 16; i++) {
+          await players.save(makePlayer(PlayerId(`p${i}`)));
+        }
+
+        const managerXp = new InMemoryManagerXpRepository();
+        const useCase = new SimulateMatchUseCase(
+          tournaments,
+          players,
+          new AlwaysAWinsSimulator(),
+          new FakeMatchLogStore(),
+          new RecordingEventPublisher(),
+          bracketGenerator,
+          new StandardRankingPointsTable(),
+          new InMemoryRankingLedgerRepository(),
+          new StandardManagerXpPolicy(),
+          managerXp,
+        );
+
+        await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+        return managerXp.balanceFor(MANAGER);
+      }
+
+      const futuresXp = await lossXpAt(futuresId, 'futures');
+      const majorXp = await lossXpAt(majorId, 'major');
+
+      expect(majorXp).toBeGreaterThan(futuresXp);
+    });
+
+    it('awards no XP to anyone for a player who has been released (no manager)', async () => {
+      const tournamentId = TournamentId('t-xp-released');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, 'challenger');
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+      const firstMatch = tournament.getRounds()[0].matches[0];
+      const loser = (await players.findById(firstMatch.entrantB))!;
+      loser.releaseFromManager();
+      await players.save(loser);
+
+      const managerXp = new InMemoryManagerXpRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        new StandardManagerXpPolicy(),
+        managerXp,
+      );
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      expect(await managerXp.balanceFor(MANAGER)).toBe(0);
+    });
   });
 });

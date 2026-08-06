@@ -6,15 +6,23 @@ import {
   PlayerAttributes,
   PlayerId,
   Skill,
+  StandardTalentClaimPricingPolicy,
   SurfaceAffinities,
   TalentPoolCandidate,
   TalentPoolCandidateId,
 } from '@tennis-manager/domain';
-import { BillingPort, EventPublisherPort, PlayerRepository, TalentPoolCandidateRepository } from '../ports/ports';
+import {
+  BillingPort,
+  EventPublisherPort,
+  PlayerRepository,
+  TalentClaimOutcome,
+  TalentClaimPort,
+  TalentPoolCandidateRepository,
+} from '../ports/ports';
 import { ClaimTalentPoolCandidateUseCase } from './ClaimTalentPoolCandidateUseCase';
 
 class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateRepository {
-  private readonly store = new Map<TalentPoolCandidateId, TalentPoolCandidate>();
+  readonly store = new Map<TalentPoolCandidateId, TalentPoolCandidate>();
 
   async findById(id: TalentPoolCandidateId): Promise<TalentPoolCandidate | null> {
     return this.store.get(id) ?? null;
@@ -30,7 +38,7 @@ class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateReposi
 
   /** Deliberately no `await` between the availability check and the
    * mutation, so this fake actually behaves atomically under
-   * concurrent callers (see the concurrency test below) — the same
+   * concurrent callers (see the concurrency tests below) — the same
    * property the real Drizzle adapter gets from a single SQL
    * statement, here achieved by never yielding the event loop mid-check. */
   async claimIfAvailable(id: TalentPoolCandidateId, managerId: ManagerId): Promise<TalentPoolCandidate | null> {
@@ -38,6 +46,46 @@ class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateReposi
     if (!candidate || !candidate.isAvailable()) return null;
     candidate.markClaimed(managerId);
     return candidate;
+  }
+}
+
+/**
+ * Fakes TalentClaimPort.claimAndCharge() in memory. The whole method
+ * body deliberately contains NO `await` — despite its async
+ * signature, an async function with no internal await point runs
+ * synchronously to completion once invoked, so this correctly
+ * simulates the real Drizzle adapter's single-transaction atomicity
+ * across both the candidate claim AND the XP debit. A version that
+ * awaited between the balance check and the debit would NOT catch the
+ * exact bug this port exists to prevent — see 'two near-simultaneous
+ * claims race for a shared XP balance' below, which is specifically
+ * designed to fail against such a naive (non-atomic) implementation.
+ */
+class InMemoryTalentClaimPort implements TalentClaimPort {
+  private readonly balances = new Map<ManagerId, number>();
+
+  constructor(private readonly candidates: InMemoryTalentPoolCandidateRepository) {}
+
+  fundManager(managerId: ManagerId, amount: number): void {
+    this.balances.set(managerId, amount);
+  }
+
+  balanceFor(managerId: ManagerId): number {
+    return this.balances.get(managerId) ?? 0;
+  }
+
+  async claimAndCharge(candidateId: TalentPoolCandidateId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome> {
+    const balance = this.balances.get(managerId) ?? 0;
+    if (balance < xpCost) {
+      return { kind: 'insufficient-xp', required: xpCost, balance };
+    }
+    const candidate = this.candidates.store.get(candidateId);
+    if (!candidate || !candidate.isAvailable()) {
+      return { kind: 'candidate-unavailable' };
+    }
+    candidate.markClaimed(managerId);
+    this.balances.set(managerId, balance - xpCost);
+    return { kind: 'claimed', candidate, xpSpent: xpCost };
   }
 }
 
@@ -116,13 +164,37 @@ async function seedCandidate(
   );
 }
 
+/** Ample XP for every existing test below, which cares about roster
+ * caps / claim races / not-found handling, not pricing itself —
+ * pricing has its own dedicated tests further down. */
+const AMPLE_XP = 100_000;
+
+function makeUseCase(
+  candidates: InMemoryTalentPoolCandidateRepository,
+  players: InMemoryPlayerRepository,
+  events: EventPublisherPort,
+  billing: BillingPort,
+  talentClaim: InMemoryTalentClaimPort,
+): ClaimTalentPoolCandidateUseCase {
+  return new ClaimTalentPoolCandidateUseCase(
+    candidates,
+    players,
+    events,
+    billing,
+    talentClaim,
+    new StandardTalentClaimPricingPolicy(),
+  );
+}
+
 describe('ClaimTalentPoolCandidateUseCase', () => {
   it('claims an available candidate and converts it into an owned Player with the same name/nationality/attributes', async () => {
     const candidates = new InMemoryTalentPoolCandidateRepository();
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    talentClaim.fundManager(ManagerId('m1'), AMPLE_XP);
     await seedCandidate(candidates, 'c1');
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort());
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     const player = await useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId: ManagerId('m1') });
 
@@ -140,6 +212,9 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
 
     // The candidate is no longer available once claimed.
     expect((await candidates.findById(TalentPoolCandidateId('c1')))!.status).toBe('claimed');
+
+    // XP was actually spent, not just checked.
+    expect(talentClaim.balanceFor(ManagerId('m1'))).toBeLessThan(AMPLE_XP);
   });
 
   it('rejects a claim once the manager roster is full (free tier: 2)', async () => {
@@ -147,7 +222,9 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
     const managerId = ManagerId('m1');
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort());
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    talentClaim.fundManager(managerId, AMPLE_XP);
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     for (let i = 1; i <= 2; i++) {
       await seedCandidate(candidates, `c${i}`);
@@ -165,7 +242,9 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
     const managerId = ManagerId('pro-manager');
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort(new Set(['pro-manager'])));
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    talentClaim.fundManager(managerId, AMPLE_XP);
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(new Set(['pro-manager'])), talentClaim);
 
     for (let i = 1; i <= 4; i++) {
       await seedCandidate(candidates, `c${i}`);
@@ -181,8 +260,11 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const candidates = new InMemoryTalentPoolCandidateRepository();
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    talentClaim.fundManager(ManagerId('m1'), AMPLE_XP);
+    talentClaim.fundManager(ManagerId('m2'), AMPLE_XP);
     await seedCandidate(candidates, 'c1');
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort());
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     await useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId: ManagerId('m1') });
 
@@ -195,7 +277,8 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const candidates = new InMemoryTalentPoolCandidateRepository();
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort());
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     await expect(
       useCase.execute({ candidateId: TalentPoolCandidateId('does-not-exist'), managerId: ManagerId('m1') }),
@@ -206,8 +289,12 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const candidates = new InMemoryTalentPoolCandidateRepository();
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
+    const talentClaim = new InMemoryTalentClaimPort(candidates);
+    talentClaim.fundManager(ManagerId('m1'), AMPLE_XP);
+    talentClaim.fundManager(ManagerId('m2'), AMPLE_XP);
+    talentClaim.fundManager(ManagerId('m3'), AMPLE_XP);
     await seedCandidate(candidates, 'c1');
-    const useCase = new ClaimTalentPoolCandidateUseCase(candidates, players, events, new FakeBillingPort());
+    const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     const attempts = await Promise.allSettled([
       useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId: ManagerId('m1') }),
@@ -226,5 +313,99 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     // Only the one winning manager actually got a player out of it.
     const allPlayers = await players.findAll();
     expect(allPlayers).toHaveLength(1);
+  });
+
+  describe('XP pricing and balance', () => {
+    it('rejects a claim when the manager cannot afford the candidate, spending nothing', async () => {
+      const candidates = new InMemoryTalentPoolCandidateRepository();
+      const players = new InMemoryPlayerRepository();
+      const events = new RecordingEventPublisher();
+      const talentClaim = new InMemoryTalentClaimPort(candidates);
+      talentClaim.fundManager(ManagerId('m1'), 1); // nowhere near enough
+      await seedCandidate(candidates, 'c1');
+      const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
+
+      await expect(useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId: ManagerId('m1') })).rejects.toThrow(
+        /insufficient XP/,
+      );
+
+      // Nothing was spent, and the candidate is still available for
+      // someone who CAN afford it.
+      expect(talentClaim.balanceFor(ManagerId('m1'))).toBe(1);
+      expect((await candidates.findById(TalentPoolCandidateId('c1')))!.status).toBe('available');
+      expect(await players.findAll()).toHaveLength(0);
+    });
+
+    it('prices a stronger candidate strictly higher than a weaker one', async () => {
+      const candidates = new InMemoryTalentPoolCandidateRepository();
+      const players = new InMemoryPlayerRepository();
+      const events = new RecordingEventPublisher();
+      const talentClaim = new InMemoryTalentClaimPort(candidates);
+      talentClaim.fundManager(ManagerId('m1'), AMPLE_XP);
+      await seedCandidate(candidates, 'weak', {
+        attributes: new PlayerAttributes({
+          technical: { serve: Skill.of(20), forehand: Skill.of(20), backhand: Skill.of(20), volley: Skill.of(20) },
+          physical: { speed: Skill.of(20), stamina: Skill.of(20), strength: Skill.of(20) },
+          mental: { consistency: Skill.of(20), clutch: Skill.of(20) },
+          surfaceAffinities: SurfaceAffinities.initial(),
+        }),
+      });
+      await seedCandidate(candidates, 'strong', {
+        attributes: new PlayerAttributes({
+          technical: { serve: Skill.of(80), forehand: Skill.of(80), backhand: Skill.of(80), volley: Skill.of(80) },
+          physical: { speed: Skill.of(80), stamina: Skill.of(80), strength: Skill.of(80) },
+          mental: { consistency: Skill.of(80), clutch: Skill.of(80) },
+          surfaceAffinities: SurfaceAffinities.initial(),
+        }),
+      });
+      const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
+
+      await useCase.execute({ candidateId: TalentPoolCandidateId('weak'), managerId: ManagerId('m1') });
+      const balanceAfterWeak = talentClaim.balanceFor(ManagerId('m1'));
+      const weakCost = AMPLE_XP - balanceAfterWeak;
+
+      await useCase.execute({ candidateId: TalentPoolCandidateId('strong'), managerId: ManagerId('m1') });
+      const balanceAfterStrong = talentClaim.balanceFor(ManagerId('m1'));
+      const strongCost = balanceAfterWeak - balanceAfterStrong;
+
+      expect(strongCost).toBeGreaterThan(weakCost);
+    });
+
+    it('under two near-simultaneous claims that together exceed the balance but neither alone does, exactly one succeeds', async () => {
+      const candidates = new InMemoryTalentPoolCandidateRepository();
+      const players = new InMemoryPlayerRepository();
+      const events = new RecordingEventPublisher();
+      const talentClaim = new InMemoryTalentClaimPort(candidates);
+      const managerId = ManagerId('m1');
+
+      // Two DISTINCT candidates (so the single-candidate claim race
+      // above doesn't already protect this) each priced comfortably
+      // affordable alone, but not both together — this isolates the
+      // XP-balance race specifically, independent of the candidate-
+      // claim race: a naive "check balance, then separately debit"
+      // implementation would let both checks pass before either
+      // debits, since they're for different candidate rows.
+      await seedCandidate(candidates, 'c1');
+      await seedCandidate(candidates, 'c2');
+      const pricingPolicy = new StandardTalentClaimPricingPolicy();
+      const rating = generatedPlayer().attributes.overallRating();
+      const costPerCandidate = pricingPolicy.priceFor(rating);
+      talentClaim.fundManager(managerId, costPerCandidate + Math.floor(costPerCandidate / 2)); // covers 1, not 2
+
+      const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
+
+      const attempts = await Promise.allSettled([
+        useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId }),
+        useCase.execute({ candidateId: TalentPoolCandidateId('c2'), managerId }),
+      ]);
+
+      const succeeded = attempts.filter((a) => a.status === 'fulfilled');
+      expect(succeeded).toHaveLength(1);
+
+      // The balance never went negative — the hallmark of the race
+      // this port exists to prevent.
+      expect(talentClaim.balanceFor(managerId)).toBeGreaterThanOrEqual(0);
+      expect(await players.findAll()).toHaveLength(1);
+    });
   });
 });

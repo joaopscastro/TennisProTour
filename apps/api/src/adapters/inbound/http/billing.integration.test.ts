@@ -7,7 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import Stripe from 'stripe';
 import { FastifyInstance } from 'fastify';
-import { PlayerAttributes, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { ManagerId, PlayerAttributes, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
 import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
@@ -55,6 +55,7 @@ beforeEach(async () => {
   await db.delete(schema.players);
   await db.delete(schema.talentPoolCandidates);
   await db.delete(schema.managerEntitlements);
+  await db.delete(schema.managerProgression);
 });
 
 afterAll(async () => {
@@ -72,10 +73,17 @@ function fixedAttributes(base: number): PlayerAttributes {
   });
 }
 
-/** Seeds a talent pool candidate at a fixed id, then claims it via the
- * real HTTP endpoint — hiring is pool-based now (see docs/CLAUDE.md),
- * so this replaces the old direct POST /players helper while keeping
- * the same `hirePlayer(id, managerId)` call shape the roster-cap tests
+/** Ample XP for these HTTP-level billing/roster-cap tests, which care
+ * about entitlement-driven roster caps, not claim pricing itself (see
+ * ClaimTalentPoolCandidateUseCase.test.ts for pricing coverage). */
+const AMPLE_XP_FOR_TESTS = 100_000;
+
+/** Seeds a talent pool candidate at a fixed id, funds the claiming
+ * manager with ample XP (claiming costs XP now — see
+ * docs/manager-xp-and-coaching-system.md), then claims it via the real
+ * HTTP endpoint — hiring is pool-based now (see docs/CLAUDE.md), so
+ * this replaces the old direct POST /players helper while keeping the
+ * same `hirePlayer(id, managerId)` call shape the roster-cap tests
  * below rely on. */
 async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
@@ -85,6 +93,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
       { season: 1, week: 1 },
     ),
   );
+  await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
   const response = await app.inject({ method: 'POST', url: `/talent-pool/${id}/claim`, payload: { managerId } });
   return response.statusCode;
 }

@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   AcceleratedDeclinePolicy,
   AgingPolicy,
+  Coach,
+  CoachId,
   GameWorld,
   ManagerId,
   Player,
@@ -16,7 +18,7 @@ import {
   TrainingPolicy,
   WorldId,
 } from '@tennis-manager/domain';
-import { BillingPort, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
+import { BillingPort, CoachRepository, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
 import { AdvanceWorldWeekUseCase } from './AdvanceWorldWeekUseCase';
 
 /** Deterministic stand-in so training-application tests assert on a
@@ -84,6 +86,18 @@ class InMemoryPlayerRepository implements PlayerRepository {
   }
 }
 
+class InMemoryCoachRepository implements CoachRepository {
+  private readonly store: Coach[] = [];
+
+  async findByManager(managerId: ManagerId): Promise<Coach[]> {
+    return this.store.filter((c) => c.managerId === managerId);
+  }
+
+  async save(coach: Coach): Promise<void> {
+    this.store.push(coach);
+  }
+}
+
 class RecordingEventPublisher implements EventPublisherPort {
   readonly published: Array<{ type: string; payload: Record<string, unknown> }> = [];
 
@@ -114,6 +128,7 @@ async function setup(playerCount: number) {
   }
   players.saveCount = 0;
   const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+  const coaches = new InMemoryCoachRepository();
   const useCase = new AdvanceWorldWeekUseCase(
     worlds,
     players,
@@ -122,8 +137,9 @@ async function setup(playerCount: number) {
     standardAging,
     events,
     new StandardTrainingPolicy(),
+    coaches,
   );
-  return { worlds, players, events, worldId, useCase };
+  return { worlds, players, events, worldId, useCase, coaches };
 }
 
 describe('AdvanceWorldWeekUseCase', () => {
@@ -179,6 +195,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       new RecordingEventPublisher(),
       new StandardTrainingPolicy(),
+      new InMemoryCoachRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -204,6 +221,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       events,
       new StandardTrainingPolicy(),
+      new InMemoryCoachRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -243,6 +261,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       proAging,
       new RecordingEventPublisher(),
       new StandardTrainingPolicy(),
+      new InMemoryCoachRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -281,6 +300,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       new RecordingEventPublisher(),
       new FixedTrainingPolicy(6),
+      new InMemoryCoachRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -315,6 +335,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       standardAging,
       new RecordingEventPublisher(),
       new FixedTrainingPolicy(3),
+      new InMemoryCoachRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -322,5 +343,45 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     expect(second).toEqual({ advanced: false, playersAged: 0 });
     expect((await players.findById(PlayerId('p1')))!.attributes.mental.clutch.value).toBe(33); // 30 + 3, not +6
+  });
+
+  it("boosts a player's weekly training by their manager's coach, and leaves a coachless manager's players unboosted", async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+    const coachedManager = ManagerId('coached-m');
+    const uncoachedManager = ManagerId('uncoached-m');
+    const coachedPlayer = Player.hire(PlayerId('coached-p'), 'Coached', 25 * 52, startingAttributes(), coachedManager);
+    coachedPlayer.setTrainingFocus({ kind: 'surface', surface: 'grass' });
+    coachedPlayer.pullDomainEvents();
+    await players.save(coachedPlayer);
+    const uncoachedPlayer = Player.hire(PlayerId('uncoached-p'), 'Uncoached', 25 * 52, startingAttributes(), uncoachedManager);
+    uncoachedPlayer.setTrainingFocus({ kind: 'surface', surface: 'grass' });
+    uncoachedPlayer.pullDomainEvents();
+    await players.save(uncoachedPlayer);
+
+    const coaches = new InMemoryCoachRepository();
+    await coaches.save(Coach.convert(CoachId('c1'), coachedManager, 100, PlayerId('retired-source'), 'Ex Player'));
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(10),
+      coaches,
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    const coachedResult = (await players.findById(PlayerId('coached-p')))!.attributes.surfaceAffinities.get('grass');
+    const uncoachedResult = (await players.findById(PlayerId('uncoached-p')))!.attributes.surfaceAffinities.get('grass');
+    expect(coachedResult).toBeGreaterThan(uncoachedResult); // same base delta, coach pushes one higher
+    expect(uncoachedResult).toBe(30); // 20 + 10, exactly the uncoached base delta
   });
 });

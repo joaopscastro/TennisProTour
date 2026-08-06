@@ -1,7 +1,7 @@
 import { PlayerId, ManagerId } from '../shared/ids';
 import { PlayerAttributes } from './PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
-import { TrainingFocus, TrainingPolicy, applyPotentialDiminishingReturns } from './TrainingPolicy';
+import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
@@ -147,26 +147,41 @@ export class Player {
    * skill cluster — see TrainingFocus). The BASE delta is computed by
    * the injected policy, never by Player: this method's job is only to
    * apply whatever delta it's given, not to decide how much a session
-   * is worth in a vacuum. What Player DOES own is the one further
-   * adjustment that's intrinsic to this specific player rather than a
-   * swappable policy concern — scaling that base delta down as this
-   * player's own hidden potentialCeiling approaches (see
-   * applyPotentialDiminishingReturns), since a ceiling is a property
-   * of the player, not of the training policy. Surface affinity
-   * training is deliberately NOT run through the ceiling at all — see
-   * applyPotentialDiminishingReturns's doc comment for why. */
-  applyTraining(focus: TrainingFocus, policy: TrainingPolicy): void {
+   * is worth in a vacuum. What Player DOES own is the further
+   * adjustments intrinsic to this specific player/manager rather than
+   * a swappable policy concern:
+   *  - scaling the base delta down as this player's own hidden
+   *    potentialCeiling approaches (see applyPotentialDiminishingReturns),
+   *    since a ceiling is a property of the player, not of the training
+   *    policy. Surface affinity training is deliberately NOT run
+   *    through the ceiling at all — see that function's doc comment.
+   *  - scaling the (already ceiling-adjusted, for skill clusters) delta
+   *    UP by the manager's coach, if any (see applyCoachBonus) — a
+   *    coach's benefit is general training efficiency, unrelated to a
+   *    player's own skill ceiling, so unlike the ceiling adjustment
+   *    this DOES apply to both surface and skill-cluster training.
+   *
+   * `coachRating` defaults to null (no coach) so every pre-existing
+   * call site that never heard of coaches keeps training exactly as
+   * before this feature existed — same "optional trailing param, real
+   * entry points pass a real value" convention as hire()'s
+   * nationality/potentialCeiling params. The real caller
+   * (AdvanceWorldWeekUseCase) looks up the manager's coach and passes
+   * its coachRating through. */
+  applyTraining(focus: TrainingFocus, policy: TrainingPolicy, coachRating: number | null = null): void {
     if (this.isRetired()) {
       throw new Error(`Cannot train retired player ${this.props.id}`);
     }
     const baseDelta = policy.computeDelta(focus, this.props.stage);
     if (focus.kind === 'surface') {
-      const updatedAttributes = this.props.attributes.trainedOnSurface(focus.surface, baseDelta);
+      const delta = applyCoachBonus(baseDelta, coachRating);
+      const updatedAttributes = this.props.attributes.trainedOnSurface(focus.surface, delta);
       this.props = { ...this.props, attributes: updatedAttributes };
       return;
     }
     const currentClusterAverage = this.props.attributes.clusterAverage(focus.cluster);
-    const delta = applyPotentialDiminishingReturns(baseDelta, currentClusterAverage, this.props.potentialCeiling);
+    const ceilingAdjusted = applyPotentialDiminishingReturns(baseDelta, currentClusterAverage, this.props.potentialCeiling);
+    const delta = applyCoachBonus(ceilingAdjusted, coachRating);
     const updatedAttributes = this.props.attributes.trainedOnCluster(focus.cluster, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
   }

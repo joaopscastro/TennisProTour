@@ -4,9 +4,11 @@ import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
 import { RankingLedgerEntry } from '@tennis-manager/domain';
+import { ManagerXpPolicy } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
   RankingLedgerRepository,
+  ManagerXpRepository,
   MatchLogStorePort,
   PlayerRepository,
   TournamentRepository,
@@ -64,6 +66,17 @@ export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, 
  * RankingCalculationService for why: real ATP rankings are a rolling
  * 52-week window with a best-18 cap, which is only possible to compute
  * from a ledger of dated results, not a mutable cumulative counter.
+ *
+ * Manager XP (Manager & Progression bounded context) is awarded from
+ * the exact same two call sites as ranking points, immediately below
+ * each awardRankingPoints call — same trigger, same "loser at
+ * elimination, winner only at the final" shape, just a second write
+ * alongside the existing one rather than new event-plumbing. Unlike
+ * ranking points, XP goes to the player's current MANAGER (via
+ * managerId), not the player themselves: XP is a manager-progression
+ * currency, not a player accolade, and a player with no current
+ * manager (released/free agent) simply earns no XP for anyone — there's
+ * no one to credit.
  */
 export class SimulateMatchUseCase {
   constructor(
@@ -75,6 +88,8 @@ export class SimulateMatchUseCase {
     private readonly bracketGenerator: BracketGenerator,
     private readonly rankingPointsTable: RankingPointsTable,
     private readonly rankingLedger: RankingLedgerRepository,
+    private readonly managerXpPolicy: ManagerXpPolicy,
+    private readonly managerXp: ManagerXpRepository,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -131,6 +146,7 @@ export class SimulateMatchUseCase {
       tournament.id,
       tournament.weekScheduled,
     );
+    await this.awardManagerXp(loserPlayer, 'loss', tournament.tier);
     if (tournament.isFinalRound(command.roundNumber)) {
       await this.awardRankingPoints(
         winnerPlayer,
@@ -139,6 +155,7 @@ export class SimulateMatchUseCase {
         tournament.id,
         tournament.weekScheduled,
       );
+      await this.awardManagerXp(winnerPlayer, 'win', tournament.tier);
     }
 
     return { replayUrl: url };
@@ -155,6 +172,12 @@ export class SimulateMatchUseCase {
     const points = this.rankingPointsTable.pointsFor(tier, roundsWon);
     const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, points, weekEarned };
     await this.rankingLedger.append(entry);
+  }
+
+  private async awardManagerXp(player: Player | null, result: 'win' | 'loss', tier: TournamentTier): Promise<void> {
+    if (!player || !player.managerId) return;
+    const xp = this.managerXpPolicy.xpFor(result, tier);
+    await this.managerXp.credit(player.managerId, xp);
   }
 
   private async loadParticipant(playerId: PlayerId) {

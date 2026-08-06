@@ -1,5 +1,5 @@
 import { ManagerId, PlayerAgingService, TrainingPolicy, WorldId } from '@tennis-manager/domain';
-import { BillingPort, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
+import { BillingPort, CoachRepository, EventPublisherPort, GameWorldRepository, PlayerRepository } from '../ports/ports';
 
 export interface AdvanceWorldWeekCommand {
   worldId: WorldId;
@@ -39,6 +39,14 @@ export interface AdvanceWorldWeekResult {
  * at all, so a focus changed *after* a tick has no way to retroactively
  * affect it.
  *
+ * A manager's coach (if any — COACH_CAP_PER_MANAGER is 1 today, see
+ * ConvertPlayerToCoachUseCase) is looked up here too and its
+ * coachRating passed into applyTraining, same "looked up once per
+ * manager per tick, not once per player" caching pattern as Pro status
+ * above (coachRatingByManager mirrors proStatusByManager exactly). A
+ * free agent (managerId null) has no manager to have a coach, so
+ * always trains uncoached.
+ *
  * Honest limitation, deliberate for now: the per-player saves and the
  * final world save are not one atomic transaction, so a crash mid-run
  * can age some players and leave the tick unrecorded (a rerun would
@@ -55,6 +63,7 @@ export class AdvanceWorldWeekUseCase {
     private readonly proAging: PlayerAgingService,
     private readonly events: EventPublisherPort,
     private readonly trainingPolicy: TrainingPolicy,
+    private readonly coaches: CoachRepository,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
@@ -75,6 +84,17 @@ export class AdvanceWorldWeekUseCase {
       return isPro;
     };
 
+    const coachRatingByManager = new Map<ManagerId, number | null>();
+    const coachRatingFor = async (managerId: ManagerId | null): Promise<number | null> => {
+      if (managerId === null) return null;
+      const cached = coachRatingByManager.get(managerId);
+      if (cached !== undefined) return cached;
+      const [coach] = await this.coaches.findByManager(managerId);
+      const rating = coach?.coachRating ?? null;
+      coachRatingByManager.set(managerId, rating);
+      return rating;
+    };
+
     const allPlayers = await this.players.findAll();
     for (const player of allPlayers) {
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
@@ -83,7 +103,8 @@ export class AdvanceWorldWeekUseCase {
       // applyTraining rejects retired players, so re-check after aging
       // rather than trusting the focus was set against a live player.
       if (player.currentFocus && !player.isRetired()) {
-        player.applyTraining(player.currentFocus, this.trainingPolicy);
+        const coachRating = await coachRatingFor(player.managerId);
+        player.applyTraining(player.currentFocus, this.trainingPolicy, coachRating);
       }
       await this.players.save(player);
       await this.events.publish(player.pullDomainEvents());

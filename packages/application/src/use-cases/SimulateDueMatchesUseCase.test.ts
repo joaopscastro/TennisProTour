@@ -12,6 +12,7 @@ import {
   PlayerId,
   SimulatedMatch,
   Skill,
+  StandardManagerXpPolicy,
   StandardRankingPointsTable,
   Surface,
   SurfaceAffinities,
@@ -20,6 +21,7 @@ import {
 } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
+  ManagerXpRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
@@ -97,6 +99,25 @@ class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
   }
 }
 
+class InMemoryManagerXpRepository implements ManagerXpRepository {
+  private readonly balances = new Map<ManagerId, number>();
+
+  async balanceFor(managerId: ManagerId): Promise<number> {
+    return this.balances.get(managerId) ?? 0;
+  }
+
+  async credit(managerId: ManagerId, amount: number): Promise<void> {
+    this.balances.set(managerId, (this.balances.get(managerId) ?? 0) + amount);
+  }
+
+  async spendXpIfSufficient(managerId: ManagerId, amount: number): Promise<boolean> {
+    const balance = this.balances.get(managerId) ?? 0;
+    if (balance < amount) return false;
+    this.balances.set(managerId, balance - amount);
+    return true;
+  }
+}
+
 class AlwaysAWinsSimulator implements MatchSimulator {
   simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
     return {
@@ -147,6 +168,8 @@ async function setup() {
     bracketGenerator,
     new StandardRankingPointsTable(),
     new InMemoryRankingLedgerRepository(),
+    new StandardManagerXpPolicy(),
+    new InMemoryManagerXpRepository(),
   );
   const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch);
 

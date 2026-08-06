@@ -14,3 +14,7 @@ export * from './match-simulation/StatisticalMatchSimulator';
 export * from './world/GameWorld';
 export * from './ranking/RankingLedgerEntry';
 export * from './ranking/RankingCalculationService';
+export * from './manager/ManagerXpPolicy';
+export * from './manager/TalentClaimPricingPolicy';
+export * from './manager/Coach';
+export * from './manager/CoachConversionPolicy';

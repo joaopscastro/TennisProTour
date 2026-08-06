@@ -90,3 +90,40 @@ export function applyPotentialDiminishingReturns(baseDelta: number, current: num
   const factor = Math.min(1, headroom / DIMINISHING_RETURNS_RANGE);
   return baseDelta * factor;
 }
+
+/** PLACEHOLDER, not tuned — same discipline as DIMINISHING_RETURNS_RANGE
+ * above and every other tuning constant in this codebase.
+ * Linear scaling factor from a Coach's coachRating (0-100, see
+ * CoachConversionPolicy) to a training-delta multiplier bonus — e.g.
+ * coachRating 100 -> +50% training delta at this constant's current
+ * value. */
+const COACH_BONUS_PER_RATING_POINT = 0.005;
+
+/**
+ * A manager's coach (docs/manager-xp-and-coaching-system.md section 4)
+ * applies a training-efficiency multiplier to a computed delta:
+ * `finalDelta = baseDelta * (1 + coachBonus)`. Deliberately a
+ * standalone function in the same spirit as
+ * applyPotentialDiminishingReturns above — TrainingPolicy answers "how
+ * much is a session worth in a vacuum" (stage/focus only), this
+ * answers "how much more does this particular manager's coaching setup
+ * make it worth," a different, orthogonal concern.
+ *
+ * Unlike applyPotentialDiminishingReturns (deliberately NOT applied to
+ * surface-affinity training — see that function's doc comment), a
+ * coach's benefit is general training efficiency, not tied to a
+ * player's own intrinsic skill ceiling — so this DOES apply to both
+ * surface and skill-cluster training (see Player.applyTraining). For
+ * skill-cluster training specifically, this runs AFTER the potential-
+ * ceiling diminishing-returns adjustment: a coach makes each session
+ * more effective, but doesn't lift what's already been throttled by
+ * how close a player is to their hidden ceiling.
+ *
+ * `coachRating` is null for a manager with no coach — the common case,
+ * and the same "absence means no effect" convention as
+ * applyPotentialDiminishingReturns' own gating. Like that function,
+ * only growth (a positive delta) is ever boosted, never decay. */
+export function applyCoachBonus(delta: number, coachRating: number | null): number {
+  if (delta <= 0 || coachRating === null) return delta;
+  return delta * (1 + coachRating * COACH_BONUS_PER_RATING_POINT);
+}

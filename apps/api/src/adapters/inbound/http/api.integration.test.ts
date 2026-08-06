@@ -7,6 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
 import {
+  ManagerId,
   PlayerAttributes,
   Skill,
   StandardRankingPointsTable,
@@ -55,6 +56,7 @@ beforeEach(async () => {
   await db.delete(schema.players);
   await db.delete(schema.talentPoolCandidates);
   await db.delete(schema.managerEntitlements);
+  await db.delete(schema.managerProgression);
 });
 
 afterAll(async () => {
@@ -79,11 +81,20 @@ function fixedAttributes(base: number): PlayerAttributes {
   });
 }
 
+/** Claiming now costs XP (see docs/manager-xp-and-coaching-system.md) —
+ * comfortably more than any single fixedAttributes(30) candidate could
+ * ever cost, so every hirePlayer() call in these HTTP-level tests
+ * (which are about roster caps, ranking points, etc., not pricing
+ * itself) can keep assuming the claim succeeds on ability grounds
+ * alone. Pricing itself has its own dedicated coverage in
+ * ClaimTalentPoolCandidateUseCase.test.ts. */
+const AMPLE_XP_FOR_TESTS = 100_000;
+
 /** Seeds a talent pool candidate at a fixed id/attribute baseline,
- * then claims it through the real HTTP endpoint
- * (POST /talent-pool/:id/claim) — the candidate's id becomes the
- * resulting player's id, so callers can keep using the same `p1`-style
- * ids the old direct-hire helper used. */
+ * funds the claiming manager with ample XP, then claims it through the
+ * real HTTP endpoint (POST /talent-pool/:id/claim) — the candidate's
+ * id becomes the resulting player's id, so callers can keep using the
+ * same `p1`-style ids the old direct-hire helper used. */
 async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
     TalentPoolCandidate.generate(
@@ -92,6 +103,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
       { season: 1, week: 1 },
     ),
   );
+  await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
   const response = await app.inject({
     method: 'POST',
     url: `/talent-pool/${id}/claim`,
@@ -346,6 +358,7 @@ describe('API', () => {
     expect(listed.body).not.toContain('potentialCeiling');
     expect(listed.body).not.toContain('91'); // the real ceiling value itself, nowhere in the payload
 
+    await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
     const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm1' } });
     expect(claimed.statusCode).toBe(201);
     expect(claimed.json().name).toBe('Pool Player');
@@ -354,7 +367,11 @@ describe('API', () => {
 
     expect((await app.inject({ method: 'GET', url: '/talent-pool' })).json()).toEqual([]);
 
-    // A second claim attempt on the now-claimed candidate is a conflict.
+    // A second claim attempt on the now-claimed candidate is a conflict
+    // — m2 is funded too, so this genuinely exercises the "candidate
+    // already claimed" path rather than incidentally masking it behind
+    // an unrelated "insufficient XP" rejection.
+    await deps.managerXp.credit(ManagerId('m2'), AMPLE_XP_FOR_TESTS);
     const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', payload: { managerId: 'm2' } });
     expect(secondClaim.statusCode).toBe(409);
   });

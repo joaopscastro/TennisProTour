@@ -109,6 +109,42 @@ export const rankingLedger = pgTable('ranking_ledger', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * A manager's cumulative XP balance (Manager & Progression bounded
+ * context — see ManagerXpRepository). One row per manager who has ever
+ * earned XP; absence of a row = balance 0, same "absence means zero"
+ * convention as manager_entitlements above. Credited via
+ * SimulateMatchUseCase on every rostered player's deciding match
+ * result; spent atomically by spendXpIfSufficient's conditional UPDATE
+ * (same "WHERE re-checks the guard as part of the same statement"
+ * mechanism as talent_pool_candidates.status / manager_entitlements.
+ * custom_player_credits above — no separate row-level locking needed).
+ */
+export const managerProgression = pgTable('manager_progression', {
+  managerId: text('manager_id').primaryKey(),
+  xpBalance: integer('xp_balance').notNull().default(0),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * A manager's converted coach (Manager & Progression bounded context —
+ * see Coach/ConvertPlayerToCoachUseCase). No FK to players: a coach's
+ * sourcePlayerId/sourcePlayerName are lineage/flavor snapshotted at
+ * conversion time, same "no FK, opaque id" convention as players.
+ * manager_id elsewhere in this schema — the source player row keeps
+ * existing (released, not deleted), but the coach doesn't need a live
+ * reference back to it since coachRating is fixed at conversion, not
+ * recomputed from the player's current (now-frozen, ex-roster) state.
+ */
+export const coaches = pgTable('coaches', {
+  id: text('id').primaryKey(),
+  managerId: text('manager_id').notNull(),
+  coachRating: integer('coach_rating').notNull(),
+  sourcePlayerId: text('source_player_id').notNull(),
+  sourcePlayerName: text('source_player_name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),

@@ -49,7 +49,11 @@ export class DrizzleTalentPoolCandidateRepository implements TalentPoolCandidate
   }
 }
 
-function toDomain(row: TalentPoolCandidateRow): TalentPoolCandidate {
+/** Exported for DrizzleTalentClaimAdapter, which needs to map a row
+ * back to the domain type from inside its own transaction — reusing
+ * this mapping rather than duplicating it, since a claimed candidate's
+ * row shape is identical either way. */
+export function toDomain(row: TalentPoolCandidateRow): TalentPoolCandidate {
   return TalentPoolCandidate.reconstitute({
     id: TalentPoolCandidateId(row.id),
     name: row.name,
