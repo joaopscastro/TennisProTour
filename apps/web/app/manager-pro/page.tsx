@@ -67,8 +67,9 @@ export default function ManagerProPage() {
           <div className="max-w-[640px]">
             <div className="text-[23px] font-bold tracking-[-0.2px]">Manager Pro</div>
             <div className="text-[14px] mt-[6px] leading-[1.55]" style={{ color: 'oklch(45% 0.006 75)' }}>
-              A paid tier for managers who want more room and less upkeep — not more win rate. The one perk that
-              touches competitiveness comes with a real cost, spelled out below, not in fine print.
+              A paid tier for managers who want more room, less upkeep, and a modest coaching edge — not a better
+              formula. The coaching system works identically for every manager; Pro just gets a second slot to run
+              it with. The one perk that carries a real tradeoff cost is spelled out below too, not in fine print.
             </div>
           </div>
           <form
@@ -160,13 +161,39 @@ export default function ManagerProPage() {
           </div>
         </div>
 
-        {/* THE ONE COMPETITIVE PERK */}
+        {/* THE ONE PERK WITH A REAL EDGE */}
+        <div className="mb-[10px]">
+          <div className="text-[13px] font-bold tracking-[0.4px] uppercase" style={{ color: 'oklch(45% 0.1 240)' }}>
+            The one perk with a real edge
+          </div>
+          <div className="text-[12.5px] mt-[3px]" style={{ color: 'oklch(48% 0.006 75)' }}>
+            This does affect competitiveness — here&rsquo;s exactly what it is and why it&rsquo;s still fair.
+          </div>
+        </div>
+        <div
+          className="rounded-[10px] p-[20px_22px] mb-8"
+          style={{ border: '1.5px solid oklch(85% 0.03 240)', background: 'oklch(97% 0.01 240)' }}
+        >
+          <div className="text-[15px] font-bold" style={{ color: 'oklch(25% 0.006 75)' }}>
+            A 2nd coach slot
+          </div>
+          <div className="text-[13px] mt-[5px] leading-[1.5]" style={{ color: 'oklch(42% 0.006 75)' }}>
+            Run two coaches training two players at once instead of one. This is a real training-efficiency edge
+            over a single-coach roster — not a hidden one, and not a bigger one than that.
+          </div>
+          <div className="text-[13px] mt-[10px] leading-[1.5]" style={{ color: 'oklch(42% 0.006 75)' }}>
+            The coaching system itself is identical for every manager: same formulas, same training gains per coach,
+            free or Pro. Manager Pro doesn&rsquo;t get a better coach — it gets a second one.
+          </div>
+        </div>
+
+        {/* THE ONE PERK WITH A COST */}
         <div className="mb-[10px]">
           <div className="text-[13px] font-bold tracking-[0.4px] uppercase" style={{ color: 'oklch(48% 0.13 30)' }}>
             The one perk with a cost
           </div>
           <div className="text-[12.5px] mt-[3px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-            This is the only part of Manager Pro that touches competitiveness — and it&rsquo;s not a flat unlock.
+            The only part of Manager Pro with a real cost attached to it — and it&rsquo;s not a flat unlock.
           </div>
         </div>
         <div
@@ -217,8 +244,10 @@ export default function ManagerProPage() {
         </div>
 
         <div className="mt-7 text-[12px] leading-[1.6] max-w-[640px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-          We built Manager Pro this way on purpose: the only lever that could affect match outcomes carries an equal
-          and opposite cost, so paying never buys a stronger roster — only a bigger, faster-aging one.
+          We built Manager Pro this way on purpose: of the two perks that touch competitiveness, one (roster slots)
+          carries an equal and opposite cost, so paying never buys a stronger roster — only a bigger, faster-aging
+          one. The other (a 2nd coach slot) is a modest, fully disclosed training-efficiency edge running the same
+          coaching system every manager uses — not a better version of it.
         </div>
       </div>
     </div>
