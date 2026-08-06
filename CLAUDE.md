@@ -25,6 +25,30 @@ long-unmaintained browser games with active but underserved players.
    (e.g. faster stat/point decay) — never a flat unlock. This is
    modeled directly on Rocking Rackets' own VIP system, which is
    genuinely well-designed on this front.
+   - **One explicit, narrow, disclosed exception: Manager Pro's second
+     coach slot.** Free tier is capped at 1 coach; Pro raises the cap
+     to 2 (`FREE_COACH_CAP`/`PRO_COACH_CAP` in
+     `packages/application/src/use-cases/coachCap.ts`). Be precise
+     about what this is: a second coach IS a real competitive edge —
+     it applies a training-speed multiplier
+     (`TrainingPolicy.applyCoachBonus`) that a free-tier manager
+     cannot match no matter how well they play — not merely a
+     "convenience" being mislabeled. It carries no offsetting cost the
+     way the extra-roster-slot perk does (that one is paired with
+     faster stat/point decay; this one isn't paired with anything).
+     This was a deliberate decision, made and disclosed honestly here
+     and on the Manager Pro page (never folded in among the
+     zero-effect-on-competitiveness perks, never described as "pure
+     convenience"), not a silent violation of this principle
+     discovered later. Everything else about coaching stays fair:
+     conversion cost and the resulting `coachRating` are priced by the
+     same formula (`CoachConversionPolicy`) for every manager
+     regardless of tier, and talent-pool claim pricing
+     (`TalentClaimPricingPolicy`) is likewise identical for everyone —
+     the exception is scoped to *this one cap*, not the coaching
+     system's economics in general. See
+     `docs/manager-xp-and-coaching-system.md` section 5 for the full
+     reasoning.
 2. **Avoid the Football Manager complexity trap.** No 3D/graphical
    match engine, no deep tactical instruction trees, no board-politics
    or press-conference sub-games, no attempt to model real players or a
@@ -187,7 +211,7 @@ tennis-manager/
 1. **Player & Roster** — player entities, stats, aging, training. ✅ domain skeleton built.
 2. **Competition** — tournaments, brackets, rankings, match scheduling. ✅ domain skeleton built.
 3. **Match Simulation Engine** — deterministic sim, pure domain logic, no I/O. ✅ domain skeleton built.
-4. **Manager & Progression** — manager XP, staff, scouting. 🟡 in progress: scouting (the talent pool — see "Player acquisition" above), manager XP accrual, and a first staff mechanic (coach conversion) are all real now; UI for XP/coaching is not built yet (domain/economy work first, per `docs/manager-xp-and-coaching-system.md`'s sequencing note — no HTTP routes for coach conversion exist yet either). Manager XP is a simple cumulative balance (`ManagerXpRepository`/`ManagerXpPolicy`), credited on every rostered player's deciding match result (same event point as ranking-ledger writes) and spent on two things: claiming a talent-pool candidate (`TalentClaimPricingPolicy`, super-linear off `overallRating()`, atomically claimed+charged via `TalentClaimPort`/a real DB transaction — see `DrizzleTalentClaimAdapter`) and converting a rostered player into a `Coach` (`CoachConversionPolicy`, cost/rating scale with ability+age, permanent, capped at 1/manager for free tier — see `ConvertPlayerToCoachUseCase`). A manager's coach applies a training-efficiency multiplier in `TrainingPolicy.applyCoachBonus`. All pricing/rating/XP constants are explicit placeholders, flagged in code comments the same way aging thresholds and ranking point values are. `maxRosterSizeFor` (roster-cap policy) lives in `packages/application/src/use-cases/rosterCap.ts`, shared by `ClaimTalentPoolCandidateUseCase` and `CreateCustomPlayerUseCase`.
+4. **Manager & Progression** — manager XP, staff, scouting. 🟡 in progress: scouting (the talent pool — see "Player acquisition" above), manager XP accrual, and a first staff mechanic (coach conversion) are all real now; UI for XP/coaching is not built yet (domain/economy work first, per `docs/manager-xp-and-coaching-system.md`'s sequencing note — no HTTP routes for coach conversion exist yet either). Manager XP is a simple cumulative balance (`ManagerXpRepository`/`ManagerXpPolicy`), credited on every rostered player's deciding match result (same event point as ranking-ledger writes) and spent on two things: claiming a talent-pool candidate (`TalentClaimPricingPolicy`, super-linear off `overallRating()`, atomically claimed+charged via `TalentClaimPort`/a real DB transaction — see `DrizzleTalentClaimAdapter`) and converting a rostered player into a `Coach` (`CoachConversionPolicy`, cost/rating scale with ability+age, permanent, capped at 1/manager free tier / 2/manager Manager Pro — see `ConvertPlayerToCoachUseCase` and `coachCap.ts`; this 2nd-coach cap is a deliberate, disclosed exception to principle #1 above, not an oversight). A manager's coach applies a training-efficiency multiplier in `TrainingPolicy.applyCoachBonus`. All pricing/rating/XP constants are explicit placeholders, flagged in code comments the same way aging thresholds and ranking point values are. `maxRosterSizeFor` (roster-cap policy) lives in `packages/application/src/use-cases/rosterCap.ts`, shared by `ClaimTalentPoolCandidateUseCase` and `CreateCustomPlayerUseCase`.
 5. **Billing** — Stripe subscriptions/one-offs, entitlements. ⬜ not started (`BillingPort` referenced but not yet defined).
 6. **Notifications** — push/email digest, decoupled via events. ⬜ not started.
 7. **Social** — guilds/academies, chat, leaderboards. ⬜ not started.

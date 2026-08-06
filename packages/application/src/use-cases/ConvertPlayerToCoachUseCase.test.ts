@@ -9,8 +9,9 @@ import {
   StandardCoachConversionPolicy,
   SurfaceAffinities,
 } from '@tennis-manager/domain';
-import { CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
-import { COACH_CAP_PER_MANAGER, ConvertPlayerToCoachUseCase } from './ConvertPlayerToCoachUseCase';
+import { BillingPort, CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
+import { ConvertPlayerToCoachUseCase } from './ConvertPlayerToCoachUseCase';
+import { FREE_COACH_CAP, PRO_COACH_CAP } from './coachCap';
 
 class InMemoryPlayerRepository implements PlayerRepository {
   private readonly store = new Map<PlayerId, Player>();
@@ -63,6 +64,26 @@ class InMemoryManagerXpRepository implements ManagerXpRepository {
   }
 }
 
+class FakeBillingPort implements BillingPort {
+  constructor(private readonly proManagers: Set<string> = new Set()) {}
+
+  async isProSubscriber(managerId: ManagerId): Promise<boolean> {
+    return this.proManagers.has(managerId);
+  }
+
+  async createProCheckoutSession(): Promise<{ url: string }> {
+    return { url: 'https://checkout.test/session' };
+  }
+
+  async customPlayerCreditBalance(): Promise<number> {
+    return 0;
+  }
+
+  async consumeCustomPlayerCredit(): Promise<boolean> {
+    return false;
+  }
+}
+
 class SequentialIdGenerator implements IdGeneratorPort {
   private counter = 0;
   generate(): string {
@@ -99,6 +120,7 @@ function makeUseCase(
   coaches: InMemoryCoachRepository,
   managerXp: InMemoryManagerXpRepository,
   events: EventPublisherPort = new RecordingEventPublisher(),
+  billing: BillingPort = new FakeBillingPort(), // free tier by default
 ): ConvertPlayerToCoachUseCase {
   return new ConvertPlayerToCoachUseCase(
     players,
@@ -107,6 +129,7 @@ function makeUseCase(
     new StandardCoachConversionPolicy(),
     new SequentialIdGenerator(),
     events,
+    billing,
   );
 }
 
@@ -209,7 +232,7 @@ describe('ConvertPlayerToCoachUseCase', () => {
     expect(await coaches.findByManager(managerId)).toHaveLength(0);
   });
 
-  it(`rejects a conversion once the manager already has ${COACH_CAP_PER_MANAGER} coach(es) (free-tier cap)`, async () => {
+  it(`rejects a conversion once the manager already has ${FREE_COACH_CAP} coach(es) (free-tier cap)`, async () => {
     const players = new InMemoryPlayerRepository();
     const coaches = new InMemoryCoachRepository();
     const managerXp = new InMemoryManagerXpRepository();
@@ -226,5 +249,38 @@ describe('ConvertPlayerToCoachUseCase', () => {
     // The 2nd player was never touched — still rostered.
     expect((await players.findById(PlayerId('p2')))!.managerId).toBe(managerId);
     expect(await coaches.findByManager(managerId)).toHaveLength(1);
+  });
+
+  it(`a Manager Pro subscriber gets a ${PRO_COACH_CAP}nd coach slot (deliberate, disclosed exception — see coachCap.ts), a free-tier manager does not`, async () => {
+    const players = new InMemoryPlayerRepository();
+    const coaches = new InMemoryCoachRepository();
+    const managerXp = new InMemoryManagerXpRepository();
+
+    // A Pro manager: converts FREE_COACH_CAP + 1 players and both succeed.
+    const proManagerId = ManagerId('pro-m');
+    const proBilling = new FakeBillingPort(new Set(['pro-m']));
+    for (let i = 1; i <= PRO_COACH_CAP; i++) {
+      await players.save(makePlayer(PlayerId(`pro-p${i}`), proManagerId));
+    }
+    await managerXp.credit(proManagerId, AMPLE_XP);
+    const proUseCase = makeUseCase(players, coaches, managerXp, new RecordingEventPublisher(), proBilling);
+    for (let i = 1; i <= PRO_COACH_CAP; i++) {
+      await proUseCase.execute({ playerId: PlayerId(`pro-p${i}`), managerId: proManagerId });
+    }
+    expect(await coaches.findByManager(proManagerId)).toHaveLength(PRO_COACH_CAP);
+
+    // A free-tier manager: the SAME 2nd conversion is rejected at FREE_COACH_CAP.
+    const freeManagerId = ManagerId('free-m');
+    const freeBilling = new FakeBillingPort(); // no one is Pro
+    await players.save(makePlayer(PlayerId('free-p1'), freeManagerId));
+    await players.save(makePlayer(PlayerId('free-p2'), freeManagerId));
+    await managerXp.credit(freeManagerId, AMPLE_XP);
+    const freeUseCase = makeUseCase(players, coaches, managerXp, new RecordingEventPublisher(), freeBilling);
+    await freeUseCase.execute({ playerId: PlayerId('free-p1'), managerId: freeManagerId });
+
+    await expect(freeUseCase.execute({ playerId: PlayerId('free-p2'), managerId: freeManagerId })).rejects.toThrow(
+      /already has/,
+    );
+    expect(await coaches.findByManager(freeManagerId)).toHaveLength(FREE_COACH_CAP);
   });
 });

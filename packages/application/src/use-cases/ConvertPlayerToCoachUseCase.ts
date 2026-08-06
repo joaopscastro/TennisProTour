@@ -1,16 +1,6 @@
 import { Coach, CoachConversionPolicy, CoachId, ManagerId, PlayerId } from '@tennis-manager/domain';
-import { CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
-
-/** PLACEHOLDER cap, free tier: a manager may have at most this many
- * coaches at once. Whether Manager Pro should raise this (mirroring
- * the roster-slot cap's free/Pro split — see rosterCap.ts) is an OPEN
- * monetization question explicitly NOT decided here — do not assume
- * Pro raises it without separate confirmation. This constant is
- * intentionally NOT threaded through BillingPort the way
- * maxRosterSizeFor is, so raising it later is a clear, deliberate
- * follow-up rather than something that silently falls out of this cap
- * living in the wrong place. */
-export const COACH_CAP_PER_MANAGER = 1;
+import { BillingPort, CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
+import { maxCoachCountFor } from './coachCap';
 
 export interface ConvertPlayerToCoachCommand {
   playerId: PlayerId;
@@ -28,20 +18,30 @@ export interface ConvertPlayerToCoachCommand {
  * better coach). There is deliberately no release/undo path for a
  * Coach once created — see Coach's own doc comment.
  *
+ * Coach cap: free tier is capped at FREE_COACH_CAP (1); Manager Pro
+ * raises it to PRO_COACH_CAP (2) — see coachCap.ts. This is a
+ * DELIBERATE, DISCLOSED exception to CLAUDE.md principle #1's usual
+ * "money never buys an unconditional win-rate boost" rule, not an
+ * oversight — see coachCap.ts's own doc comment and CLAUDE.md
+ * principle #1 for the full disclosure. Pro status is checked the
+ * exact same way roster-slot capacity already is (maxRosterSizeFor in
+ * rosterCap.ts) — one BillingPort.isProSubscriber() call, no new
+ * pattern invented for it.
+ *
  * Race safety note, stated honestly rather than silently glossed over:
  * unlike ClaimTalentPoolCandidateUseCase (which the user's own
- * concurrency-test requirement was explicitly scoped to), the
- * COACH_CAP_PER_MANAGER check below is a plain check-then-act, NOT
- * protected by an atomic conditional UPDATE the way the XP spend
- * itself is (spendXpIfSufficient still guarantees a manager can never
- * overspend their XP balance even under a cap race). Two
- * near-simultaneous conversions by the same manager could theoretically
- * both pass the cap check before either coach is saved, exceeding the
- * cap by one. This mirrors an existing, already-accepted gap in this
- * codebase (the roster-size cap check in ClaimTalentPoolCandidateUseCase
- * has the exact same shape) — worth tightening later with the same
- * kind of atomic-guard treatment if it matters in practice, but out of
- * scope for this pass.
+ * concurrency-test requirement was explicitly scoped to), the coach
+ * cap check below is a plain check-then-act, NOT protected by an
+ * atomic conditional UPDATE the way the XP spend itself is
+ * (spendXpIfSufficient still guarantees a manager can never overspend
+ * their XP balance even under a cap race). Two near-simultaneous
+ * conversions by the same manager could theoretically both pass the
+ * cap check before either coach is saved, exceeding the cap by one.
+ * This mirrors an existing, already-accepted gap in this codebase (the
+ * roster-size cap check in ClaimTalentPoolCandidateUseCase has the
+ * exact same shape) — worth tightening later with the same kind of
+ * atomic-guard treatment if it matters in practice, but out of scope
+ * for this pass.
  */
 export class ConvertPlayerToCoachUseCase {
   constructor(
@@ -51,6 +51,7 @@ export class ConvertPlayerToCoachUseCase {
     private readonly conversionPolicy: CoachConversionPolicy,
     private readonly idGenerator: IdGeneratorPort,
     private readonly events: EventPublisherPort,
+    private readonly billing: BillingPort,
   ) {}
 
   async execute(command: ConvertPlayerToCoachCommand): Promise<Coach> {
@@ -63,9 +64,11 @@ export class ConvertPlayerToCoachUseCase {
     }
 
     const existingCoaches = await this.coaches.findByManager(command.managerId);
-    if (existingCoaches.length >= COACH_CAP_PER_MANAGER) {
+    const maxCoaches = await maxCoachCountFor(command.managerId, this.billing);
+    if (existingCoaches.length >= maxCoaches) {
       throw new Error(
-        `Manager ${command.managerId} already has ${existingCoaches.length}/${COACH_CAP_PER_MANAGER} coaches`,
+        `Manager ${command.managerId} already has ${existingCoaches.length}/${maxCoaches} coaches. ` +
+          `Upgrade to Manager Pro for a second coach slot.`,
       );
     }
 

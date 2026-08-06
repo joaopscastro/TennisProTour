@@ -188,6 +188,14 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
     setTrainingFocus: new SetTrainingFocusUseCase(players),
     releasePlayer: new ReleasePlayerUseCase(players),
-    convertPlayerToCoach: new ConvertPlayerToCoachUseCase(players, coaches, managerXp, coachConversionPolicy, idGenerator, events),
+    convertPlayerToCoach: new ConvertPlayerToCoachUseCase(
+      players,
+      coaches,
+      managerXp,
+      coachConversionPolicy,
+      idGenerator,
+      events,
+      billing,
+    ),
   };
 }
