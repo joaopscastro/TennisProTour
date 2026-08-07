@@ -115,8 +115,16 @@ export class BracketGenerator {
   }
 
   private orderBySeed(entrants: ReadonlyArray<TournamentEntrant>): TournamentEntrant[] {
+    // Unseeded entrants (seed === null) must still sort deterministically
+    // and independent of the input array's order: this array is
+    // reconstructed from a fresh repository read every time a later
+    // round is generated, and that read order does not necessarily match
+    // the order entrants were in when round 1 was originally seeded. If
+    // two reconstructions of the same entrant set disagree on order, the
+    // seed-slot pairing used to look up round 1's winners no longer
+    // matches any pairing that actually played, and generation fails.
     return [...entrants].sort((a, b) => {
-      if (a.seed === null && b.seed === null) return 0;
+      if (a.seed === null && b.seed === null) return a.playerId.localeCompare(b.playerId);
       if (a.seed === null) return 1;
       if (b.seed === null) return -1;
       return a.seed - b.seed;

@@ -104,5 +104,28 @@ describe('BracketGenerator', () => {
         [PlayerId('seed-3'), PlayerId('seed-6')], // both had byes
       ]);
     });
+
+    it('pairs round 1 winners for unseeded entrants even when the entrants array order differs from generate() to generateNextRound() (e.g. a repository re-read)', () => {
+      const unseeded = Array.from({ length: 16 }, (_, i) => ({ playerId: PlayerId(`p-${i + 1}`), seed: null }));
+      const [round1] = generator.generate(unseeded, 16);
+
+      const completedRound1 = {
+        ...round1,
+        matches: round1.matches.map((m) => ({
+          ...m,
+          outcome: { winner: m.entrantA, loser: m.entrantB, setScores: [] },
+        })),
+      };
+
+      // Same entrants, different array order — simulates a fresh
+      // repository read reordering an unseeded entrant list between
+      // round 1 completing and round 2 being generated.
+      const reordered = [...unseeded].reverse();
+
+      const round2 = generator.generateNextRound(completedRound1, reordered, 16);
+
+      expect(round2.matches).toHaveLength(4);
+      expect(round2.matches.every((m) => m.outcome === null)).toBe(true);
+    });
   });
 });
