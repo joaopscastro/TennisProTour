@@ -65,10 +65,24 @@ async function main(): Promise<void> {
 
   // eslint-disable-next-line no-console
   console.log(`Seeding and claiming ${PLAYER_COUNT} talent pool candidates...`);
+  // Claiming costs XP (TalentClaimPricingPolicy) — fund every manager
+  // this script is about to claim on behalf of BEFORE the first claim,
+  // same pattern api.integration.test.ts's hirePlayer() helper already
+  // uses (deps.managerXp.credit(...) before claiming). 100_000 is
+  // deliberately far above any real claim cost (super-linear off
+  // overallRating, capped by what this policy can even produce), not a
+  // tuned number — it just needs to never be the thing that fails a
+  // dev seed run.
+  const AMPLE_SEED_XP = 100_000;
+  const fundedManagers = new Set<string>();
   const entrants: Array<{ playerId: string; seed: number; managerId: string }> = [];
   for (let i = 1; i <= PLAYER_COUNT; i++) {
     const playerId = `seed-p${i}`;
     const managerId = `seed-m${Math.ceil(i / PLAYERS_PER_MANAGER)}`;
+    if (!fundedManagers.has(managerId)) {
+      await deps.managerXp.credit(ManagerId(managerId), AMPLE_SEED_XP);
+      fundedManagers.add(managerId);
+    }
     const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
     await deps.talentPoolCandidates.save(
       TalentPoolCandidate.generate(

@@ -311,21 +311,25 @@ this:
   be premature (contrast with ranking, which got its own `domain/ranking/`
   folder because it was large enough to justify one). Revisit this
   placement if scouting grows real scope beyond "generate + claim."
-- **Two more pre-existing, unrelated bugs found while re-verifying this
-  pass, disclosed rather than silently fixed (out of scope for this
-  change):**
-  1. Claiming a talent-pool candidate costs XP
+- **One more pre-existing, unrelated bug, found while re-verifying this
+  pass — now actually fixed, not just disclosed:**
+  1. **Fixed.** Claiming a talent-pool candidate costs XP
      (`TalentClaimPricingPolicy`), but `apps/api/src/scripts/seed.ts`
-     (the actual dev seed script — confirmed by running `npm run seed`
-     against a live database, not just reading the code) and
-     `apps/worker/src/e2e.smoke.test.ts` both still claim candidates
-     without ever crediting the claiming manager's XP balance first, so
-     both fail today with "insufficient XP to claim this candidate."
-     Introduced when XP-gated claiming shipped after both were written;
-     neither was updated. `apps/api/src/adapters/inbound/http/api.integration.test.ts`
-     and `billing.integration.test.ts` already do this correctly
-     (`deps.managerXp.credit(...)` before claiming) — that's the fix,
-     just not applied to the two broken call sites yet.
+     (the actual dev seed script) and `apps/worker/src/e2e.smoke.test.ts`
+     both used to claim candidates without ever crediting the claiming
+     manager's XP balance first, so both failed with "insufficient XP
+     to claim this candidate" — this is the exact error a fresh
+     `npm run setup` hit for anyone actually trying to run the project
+     locally, not just a theoretical gap. Introduced when XP-gated
+     claiming shipped after both were written; neither was updated at
+     the time. Both now credit each manager (`deps.managerXp.credit(...)`,
+     100_000 XP — deliberately far above any real claim cost, not a
+     tuned number) before their first claim, same pattern
+     `api.integration.test.ts`'s `hirePlayer()` helper and
+     `billing.integration.test.ts` already used correctly. Verified by
+     actually running `npm run seed` against a live, freshly-truncated
+     database (not just reading the diff) and the worker's e2e smoke
+     test, both green.
   2. `composition.ts` builds `rankPosition`/`rankPositionU14`/
      `rankPositionU16` once, at startup, against a single module-level
      `WorldId` (`WORLD_ID` env var, default `'main'`) — not

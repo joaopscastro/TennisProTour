@@ -92,8 +92,20 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
       // seed script does for the same reason.
       const generationPolicy = new StandardPlayerGenerationPolicy();
       const random = { next: () => Math.random() };
+      // Claiming costs XP (TalentClaimPricingPolicy) — fund each
+      // manager before their first claim, same pattern
+      // apps/api/src/scripts/seed.ts and api.integration.test.ts's
+      // hirePlayer() helper use. 100_000 is deliberately far above any
+      // real claim cost, not a tuned number.
+      const AMPLE_XP_FOR_TESTS = 100_000;
+      const fundedManagers = new Set<string>();
       for (let i = 1; i <= PLAYER_COUNT; i++) {
         const candidateId = TalentPoolCandidateId(`e2e-p${i}`);
+        const managerId = `e2e-m${Math.ceil(i / 2)}`; // 2/manager: within the free-tier cap
+        if (!fundedManagers.has(managerId)) {
+          await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
+          fundedManagers.add(managerId);
+        }
         const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
         await deps.talentPoolCandidates.save(
           TalentPoolCandidate.generate(
@@ -104,7 +116,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
         );
         await deps.claimTalentPoolCandidate.execute({
           candidateId,
-          managerId: ManagerId(`e2e-m${Math.ceil(i / 2)}`), // 2/manager: within the free-tier cap
+          managerId: ManagerId(managerId),
         });
       }
       const hired = await deps.players.findById(PlayerId('e2e-p1'));
