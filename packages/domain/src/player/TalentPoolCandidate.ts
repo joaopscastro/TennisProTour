@@ -14,6 +14,10 @@ export interface TalentPoolCandidateProps {
   name: string;
   nationality: string;
   tier: PlayerRarityTier;
+  /** See GeneratedPlayer.ageInWeeks's doc comment — carried on the
+   * candidate so it transfers unchanged onto the resulting Player once
+   * claimed, same as potentialCeiling below. */
+  ageInWeeks: number;
   attributes: PlayerAttributes;
   /** The real, hidden ceiling — see GeneratedPlayer.potentialCeiling's
    * doc comment. Carried on the candidate so it transfers unchanged
@@ -63,6 +67,7 @@ export class TalentPoolCandidate {
       name: generated.name,
       nationality: generated.nationality,
       tier: generated.tier,
+      ageInWeeks: generated.ageInWeeks,
       attributes: generated.attributes,
       potentialCeiling: generated.potentialCeiling,
       potentialTier: generated.potentialTier,
@@ -91,6 +96,10 @@ export class TalentPoolCandidate {
 
   get tier(): PlayerRarityTier {
     return this.props.tier;
+  }
+
+  get ageInWeeks(): number {
+    return this.props.ageInWeeks;
   }
 
   get attributes(): PlayerAttributes {

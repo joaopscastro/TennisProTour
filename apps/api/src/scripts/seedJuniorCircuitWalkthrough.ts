@@ -1,17 +1,20 @@
 import 'dotenv/config';
 import {
-  AgeBand,
   GameWorld,
   ManagerId,
-  Player,
   PlayerAttributes,
   PlayerId,
+  RandomSource,
   Skill,
+  StandardPlayerGenerationPolicy,
   SurfaceAffinities,
+  TalentPoolCandidate,
+  TalentPoolCandidateId,
   TournamentId,
   WorldId,
   juniorEligibilityForAge,
 } from '@tennis-manager/domain';
+import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
 
@@ -22,51 +25,96 @@ import { buildDependencies } from '../composition';
  * never collides with seed.ts's fixtures; safe to run against a
  * database seed.ts has already populated.
  *
- * Disclosed up front, not glossed over: this script constructs young
- * players directly via Player.hire() + a repository save, bypassing
- * ClaimTalentPoolCandidateUseCase and CreateCustomPlayerUseCase
- * entirely. That's not a shortcut of convenience — neither of those
- * use cases can produce a junior-eligible player at all. Both hire at
- * a fixed STARTING_AGE_IN_WEEKS = 18 years, which is already past the
- * U16 boundary (16 years). There is currently no path through the
- * normal game flow for a manager to ever acquire a junior-eligible
- * player. This script demonstrates the junior circuit mechanics
- * (tournaments, rankings, weekly cap, graduation carryover) are real
- * and correct at the domain/application layer; it does not — because
- * it cannot — demonstrate them via the same flow a real manager would
- * use, since that flow doesn't reach a junior-eligible player yet.
+ * MUST be run with WORLD_ID=junior-walkthrough set in the environment
+ * — composition.ts's rank-position queries (deps.rankPosition /
+ * rankPositionU14 / rankPositionU16) are built once at startup against
+ * a single module-level WorldId read from that env var (defaulting to
+ * 'main'), not parameterized per call. Running this script against a
+ * dedicated world without matching WORLD_ID would silently read the
+ * WRONG world's current week for the rolling-ranking-window
+ * calculation (RankingCalculationService.calculateTotal filters
+ * ledger entries by weeksBetween(entry.weekEarned, currentWeek) >= 0,
+ * so a mismatched clock can exclude entries that are genuinely within
+ * the window, or worse, look like they're "in the future"). This is a
+ * real, previously-undetected consequence of this codebase currently
+ * only ever really running ONE game world at a time (every composition
+ * root, worker included, is built around a single WORLD_ID) — not
+ * something this script works around silently.
+ *
+ * Every player below is acquired through the REAL
+ * ClaimTalentPoolCandidateUseCase — no more direct Player.hire(). Two
+ * things are still pre-seeded rather than left to real randomness, for
+ * a controllable, repeatable demo (the exact same shortcut seed.ts and
+ * apps/worker/src/e2e.smoke.test.ts already take):
+ *   1. Candidate ids are fixed/sequential, not real UUIDs.
+ *   2. The "star" candidate's exact age is pinned near the top of
+ *      TALENT_POOL_AGE_RANGE so the U16->senior graduation boundary is
+ *      only 2 weekly ticks away, not up to ~103.
+ * The CLAIM itself — XP pricing, the atomic claim+charge, the roster
+ * cap check, Player.hire() reading the candidate's own generated
+ * ageInWeeks — is exactly what a real manager triggers via
+ * POST /talent-pool/:id/claim.
+ *
+ * Real, worth-restating consequence of TALENT_POOL_AGE_RANGE = 14-16yo
+ * starting exactly at the U14/U16 boundary (14*52 weeks): every player
+ * claimed below starts U16-band-eligible, NEVER U14-band-eligible.
+ * This walkthrough can prove the junior circuit is reachable through
+ * the real acquisition flow for the U16 band; it cannot prove the same
+ * for U14, because no real acquisition path reaches U14 at all — see
+ * docs/junior-circuit-research-and-proposal.md's status section.
  */
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const worldId = WorldId('junior-walkthrough');
-const MANAGER_ID = ManagerId('jw-manager');
+const AMPLE_XP = 100_000; // comfortably more than any common/strong-tier candidate could ever cost
 const COHORT_SIZE = 16; // fills one draw exactly, no byes to reason about
-// Two weeks before the U14 -> U16 boundary (14 * 52 = 728), so the
-// whole cohort crosses together after 2 weekly ticks — fast enough to
-// run in this script, not a multi-season wait.
-const STARTING_AGE_WEEKS = 14 * 52 - 2;
-
-function attributes(base: number): PlayerAttributes {
-  return new PlayerAttributes({
-    technical: { serve: Skill.of(base), forehand: Skill.of(base + 3), backhand: Skill.of(base + 1), volley: Skill.of(base + 2) },
-    physical: { speed: Skill.of(base + 4), stamina: Skill.of(base + 2), strength: Skill.of(base + 1) },
-    mental: { consistency: Skill.of(base + 2), clutch: Skill.of(base) },
-    surfaceAffinities: SurfaceAffinities.initial(),
-  });
-}
+const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap, same convention as seed.ts
+// 2 weeks short of TALENT_POOL_AGE_RANGE.maxWeeks (831) -> 832 (16*52,
+// the real U16/senior boundary) in exactly 2 ticks, fast enough for
+// this script without being an unrealistic age to generate.
+const STAR_AGE_WEEKS = TALENT_POOL_AGE_RANGE.maxWeeks - 1;
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
   console.log(...args);
 }
 
+function managerIdFor(cohortIndex: number): ReturnType<typeof ManagerId> {
+  return ManagerId(`jw-m${Math.ceil(cohortIndex / PLAYERS_PER_MANAGER)}`);
+}
+
+/** Deliberately strong, fixed attributes for the "star" candidate —
+ * makes winning LIKELY, not certain: StatisticalMatchSimulator still
+ * genuinely simulates every match, this just avoids relying on a ~1%
+ * exceptional-tier roll to get a meaningful demonstration of
+ * graduation carryover firing within one script run. No different in
+ * spirit from picking the star's age near the U16/senior boundary for
+ * speed — shaping the setup, not the outcome. */
+function strongAttributes(): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(88), forehand: Skill.of(90), backhand: Skill.of(87), volley: Skill.of(85) },
+    physical: { speed: Skill.of(89), stamina: Skill.of(86), strength: Skill.of(85) },
+    mental: { consistency: Skill.of(88), clutch: Skill.of(90) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
 async function main(): Promise<void> {
+  if ((process.env.WORLD_ID ?? 'main') !== worldId) {
+    throw new Error(
+      `This script must be run with WORLD_ID=${worldId} set (got ${process.env.WORLD_ID ?? '<unset, defaults to "main">'}) ` +
+        `— see this file's header comment for why a mismatched WORLD_ID silently breaks ranking reads.`,
+    );
+  }
+
   const db = createDb(connectionString);
   const deps = buildDependencies({
     db,
     matchLogDirectory: process.env.MATCH_LOG_DIR ?? './data/match-logs',
     logEvent: () => {},
   });
+  const random: RandomSource = { next: () => Math.random() };
+  const generationPolicy = new StandardPlayerGenerationPolicy();
 
   log('=== 0. World setup ===');
   if (!(await deps.worlds.findById(worldId))) {
@@ -76,23 +124,46 @@ async function main(): Promise<void> {
     log(`World "${worldId}" already exists (rerun) — using its current state.`);
   }
 
-  log('\n=== 1. Create a young player (bypassing the normal acquisition flow — see header comment) ===');
-  const starId = PlayerId('jw-star');
-  let star = await deps.players.findById(starId);
-  if (!star) {
-    star = Player.hire(starId, 'Young Star', STARTING_AGE_WEEKS, attributes(45), MANAGER_ID, 'BR');
-    star.pullDomainEvents();
-    await deps.players.save(star);
+  log('\n=== 1. Real weekly talent-pool batch generation (RefreshTalentPoolUseCase, the actual worker-tick wiring) ===');
+  const refreshResult = await deps.refreshTalentPool.execute({ worldId });
+  log(`RefreshTalentPoolUseCase: generated=${refreshResult.generated}, expired=${refreshResult.expired}`);
+  const availableAfterRefresh = await deps.talentPoolCandidates.findAvailable();
+  const sample = availableAfterRefresh.slice(0, 5);
+  log(`Sample of ${sample.length} of the ${availableAfterRefresh.length} available candidates (proving the real 14-16yo range):`);
+  for (const c of sample) {
+    const years = (c.ageInWeeks / 52).toFixed(2);
+    log(`  ${c.name}: age ${c.ageInWeeks}wk (${years}y), tier ${c.tier}, band ${juniorEligibilityForAge(c.ageInWeeks)}`);
   }
+  const allInRange = availableAfterRefresh.every(
+    (c) => c.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && c.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
+  );
+  const allU16 = availableAfterRefresh.every((c) => juniorEligibilityForAge(c.ageInWeeks) === 'u16');
+  log(`All ${availableAfterRefresh.length} available candidates within TALENT_POOL_AGE_RANGE: ${allInRange}. All U16-band: ${allU16}.`);
+
+  log('\n=== 2. Claim the "star" through the REAL ClaimTalentPoolCandidateUseCase ===');
+  const starManagerId = managerIdFor(1);
+  await deps.managerXp.credit(starManagerId, AMPLE_XP);
+  const starCandidateId = TalentPoolCandidateId('jw-star');
+  if (!(await deps.talentPoolCandidates.findById(starCandidateId))) {
+    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+    await deps.talentPoolCandidates.save(
+      TalentPoolCandidate.generate(
+        starCandidateId,
+        { ...generated, name: 'Young Star', ageInWeeks: STAR_AGE_WEEKS, tier: 'exceptional', attributes: strongAttributes() },
+        { season: 1, week: 1 },
+      ),
+    );
+  }
+  const star = await deps.claimTalentPoolCandidate.execute({ candidateId: starCandidateId, managerId: starManagerId });
   log(
-    `Player "${star.name}" (${starId}), age ${STARTING_AGE_WEEKS} weeks (${(STARTING_AGE_WEEKS / 52).toFixed(2)} years), ` +
-      `currently ${juniorEligibilityForAge(star.ageInWeeks)}-eligible.`,
+    `Claimed "${star.name}" (${star.id}) for manager ${starManagerId} — age ${star.ageInWeeks}wk ` +
+      `(${(star.ageInWeeks / 52).toFixed(2)}y), currently ${juniorEligibilityForAge(star.ageInWeeks)}-eligible. ` +
+      `This came from the SAME claim path a real manager uses — no Player.hire() shortcut.`,
   );
 
-  log('\n=== 2. Generate this week\'s junior tournaments, both bands ===');
+  log('\n=== 3. This week\'s open junior tournaments, both bands ===');
   const genResult = await deps.generateJuniorTournaments.execute({ worldId });
   log(`GenerateJuniorTournamentsUseCase: opened=${genResult.opened}, mastersHeld=${genResult.mastersHeld}`);
-
   const world1 = (await deps.worlds.findById(worldId))!;
   const openThisWeek = (await deps.tournaments.findOpenForRegistration()).filter(
     (t) => t.weekScheduled.season === world1.currentWeek.season && t.weekScheduled.week === world1.currentWeek.week,
@@ -101,42 +172,45 @@ async function main(): Promise<void> {
   for (const t of openThisWeek) {
     if (t.ageBand) byBand[t.ageBand].push(`${t.tier}(${t.id})`);
   }
-  log(`Open junior tournaments this week, U14 band (${byBand.u14.length}): ${byBand.u14.join(', ')}`);
-  log(`Open junior tournaments this week, U16 band (${byBand.u16.length}): ${byBand.u16.join(', ')}`);
+  log(`U14 band (${byBand.u14.length}): ${byBand.u14.join(', ')}`);
+  log(`U16 band (${byBand.u16.length}): ${byBand.u16.join(', ')}`);
   log(
-    'Note: nothing filters this list by the player\'s actual age — a disclosed gap ' +
-      '(see docs/junior-circuit-research-and-proposal.md). The player above is U14-eligible; ' +
-      'both bands\' tournaments are shown here because the system does not yet distinguish.',
+    'The star is U16-eligible (every real claim is, per TALENT_POOL_AGE_RANGE starting exactly at the U14/U16 ' +
+      'boundary) — U14 tournaments above are real and open, but no real acquisition path can ever produce a ' +
+      'player able to enter them. That half of the original gap is still open; see the research doc.',
   );
 
-  log('\n=== 3. Enter the young player into 3 U14 tournaments, then confirm a 4th is rejected (weekly cap) ===');
-  const u14ThisWeek = openThisWeek.filter((t) => t.ageBand === 'u14');
-  const chosen = u14ThisWeek.slice(0, 4); // 3 should succeed, the 4th should be rejected
+  log('\n=== 4. Enter the star into 3 U16 tournaments, then confirm a 4th is rejected (weekly cap) ===');
+  const u16ThisWeek = openThisWeek.filter((t) => t.ageBand === 'u16');
+  const chosen = u16ThisWeek.slice(0, 4); // 3 should succeed, the 4th should be rejected
   for (let i = 0; i < 3; i++) {
-    await deps.registerEntrant.execute({ tournamentId: chosen[i].id, playerId: starId });
+    await deps.registerEntrant.execute({ tournamentId: chosen[i].id, playerId: star.id });
     log(`  Registered into ${chosen[i].tier} (${chosen[i].id}) — OK (entry ${i + 1}/3)`);
   }
   try {
-    await deps.registerEntrant.execute({ tournamentId: chosen[3].id, playerId: starId });
+    await deps.registerEntrant.execute({ tournamentId: chosen[3].id, playerId: star.id });
     log(`  UNEXPECTED: 4th registration into ${chosen[3].tier} (${chosen[3].id}) succeeded — cap did not fire!`);
   } catch (error) {
     log(`  4th registration into ${chosen[3].tier} (${chosen[3].id}) REJECTED: ${(error as Error).message}`);
   }
 
-  log('\n=== 4. Fill one of those draws (16 players) and simulate it to completion, to get real ranking points ===');
-  const fillTarget = chosen[0]; // whichever grade this is, fill it out
-  log(`Filling ${fillTarget.tier} (${fillTarget.id}) — star player already entered, adding ${COHORT_SIZE - 1} more.`);
-  const cohortIds: PlayerId[] = [starId];
+  log('\n=== 5. Fill one of those draws (16 players, all REALLY claimed) and simulate it to completion ===');
+  const fillTarget = chosen[0];
+  log(`Filling ${fillTarget.tier} (${fillTarget.id}) — star already entered, claiming and adding ${COHORT_SIZE - 1} more.`);
+  const cohortIds: PlayerId[] = [star.id];
   for (let i = 2; i <= COHORT_SIZE; i++) {
-    const id = PlayerId(`jw-p${i}`);
-    let p = await deps.players.findById(id);
-    if (!p) {
-      p = Player.hire(id, `Junior Player ${i}`, STARTING_AGE_WEEKS, attributes(40 + (i % 10)), MANAGER_ID, 'BR');
-      p.pullDomainEvents();
-      await deps.players.save(p);
+    const managerId = managerIdFor(i);
+    await deps.managerXp.credit(managerId, AMPLE_XP);
+    const candidateId = TalentPoolCandidateId(`jw-p${i}`);
+    if (!(await deps.talentPoolCandidates.findById(candidateId))) {
+      const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+      await deps.talentPoolCandidates.save(
+        TalentPoolCandidate.generate(candidateId, { ...generated, name: `Junior Player ${i}` }, { season: 1, week: 1 }),
+      );
     }
-    await deps.registerEntrant.execute({ tournamentId: fillTarget.id, playerId: id });
-    cohortIds.push(id);
+    const player = await deps.claimTalentPoolCandidate.execute({ candidateId, managerId });
+    await deps.registerEntrant.execute({ tournamentId: fillTarget.id, playerId: player.id });
+    cohortIds.push(player.id);
   }
   const filled = await deps.tournaments.findById(fillTarget.id);
   log(`Draw filled: hasStarted=${filled!.hasStarted}, entrants=${filled!.entrants.length}`);
@@ -149,7 +223,7 @@ async function main(): Promise<void> {
     if (result.simulated.length === 0) break;
   }
 
-  log('\n=== 5. Real ranking points, straight from the ledger ===');
+  log('\n=== 6. Real ranking points, straight from the ledger ===');
   const ledgerEntries = (await Promise.all(cohortIds.map((id) => deps.rankingLedger.findByPlayer(id)))).flat();
   const byPoints = [...ledgerEntries].sort((a, b) => b.points - a.points);
   for (const entry of byPoints) {
@@ -159,71 +233,79 @@ async function main(): Promise<void> {
   const positiveCount = byPoints.filter((e) => e.points > 0).length;
   log(`  -> ${zeroCount} first-round-loss entries at 0 points, ${positiveCount} entries with real points > 0.`);
 
-  const starRankBefore = await deps.rankPositionU14.rankFor(starId);
-  log(`Star player's U14 ranking right now: rank=${starRankBefore.rank}, totalPoints=${starRankBefore.totalPoints}`);
+  const starRankU16 = await deps.rankPositionU16.rankFor(star.id);
+  log(`Star player's U16 ranking right now: rank=${starRankU16.rank}, totalPoints=${starRankU16.totalPoints}`);
 
-  log('\n=== 6. Advance the world week-by-week until the cohort crosses U14 -> U16 ===');
+  log('\n=== 7. Advance the world week-by-week until the star crosses U16 -> senior ===');
   for (let tick = 1; tick <= 3; tick++) {
     const advanceResult = await deps.advanceWorldWeek.execute({ worldId, tickKey: `jw-tick-${Date.now()}-${tick}` });
     if (advanceResult.advanced) {
       await deps.generateJuniorTournaments.execute({ worldId });
     }
     const w = (await deps.worlds.findById(worldId))!;
-    const starNow = (await deps.players.findById(starId))!;
+    const starNow = (await deps.players.findById(star.id))!;
     const band = juniorEligibilityForAge(starNow.ageInWeeks);
     log(
       `  Tick ${tick}: week=${JSON.stringify(w.currentWeek)}, star age=${starNow.ageInWeeks} weeks, ` +
         `band=${band}, dormantCarryoverBonus=${JSON.stringify(starNow.dormantCarryoverBonus)}`,
     );
+    if (band === 'senior') break;
   }
 
-  log('\n=== 7. Enter the (now U16) cohort into a fresh U16 draw, simulate round 1, look for the carryover firing ===');
+  log('\n=== 8. Open a fresh SENIOR tournament, register the (now-senior) star + cohort, simulate, look for carryover firing ===');
   const world2 = (await deps.worlds.findById(worldId))!;
-  const u16ThisWeek = (await deps.tournaments.findOpenForRegistration()).filter(
-    (t) =>
-      t.ageBand === 'u16' &&
-      t.weekScheduled.season === world2.currentWeek.season &&
-      t.weekScheduled.week === world2.currentWeek.week,
-  );
-  if (u16ThisWeek.length === 0) {
-    log('  No fresh U16 tournament opened this week — skipping this step (schedule cadence did not line up).');
-  } else {
-    const u16Target = u16ThisWeek[0];
-    log(`  Registering the cohort into ${u16Target.tier} (${u16Target.id})...`);
-    for (const id of cohortIds) {
-      await deps.registerEntrant.execute({ tournamentId: u16Target.id, playerId: id });
-    }
-    const startedU16 = await deps.tournaments.findById(u16Target.id);
-    log(`  hasStarted=${startedU16!.hasStarted}`);
-
-    const dormantBefore = new Map<string, unknown>();
-    for (const id of cohortIds) {
-      dormantBefore.set(id, (await deps.players.findById(id))!.dormantCarryoverBonus);
-    }
-
-    log('  Simulating until the draw is finished (so winners get a second match, giving carryover a real chance to fire)...');
-    for (let sweep = 1; sweep <= 5; sweep++) {
-      const simResult = await deps.simulateDueMatches.execute();
-      log(`    sweep ${sweep}: simulated=${simResult.simulated.length}, failed=${simResult.failed.length}`);
-      for (const f of simResult.failed) log(`      FAILED: ${f.matchId} - ${f.reason}`);
-      if (simResult.simulated.length === 0) break;
-    }
-
-    const u16Entries = (await Promise.all(cohortIds.map((id) => deps.rankingLedger.findByPlayer(id)))).flat();
-    const newU16Entries = u16Entries.filter((e) => e.ageBand === 'u16');
-    let firedForAnyone = false;
-    for (const entry of newU16Entries) {
-      const before = dormantBefore.get(entry.playerId);
-      const player = await deps.players.findById(entry.playerId);
-      const consumed = before !== null && player!.dormantCarryoverBonus === null;
-      log(
-        `  ${entry.playerId}: U16 result = ${entry.points} points; had dormant bonus before = ` +
-          `${JSON.stringify(before)}; carryover fired this match = ${consumed}`,
-      );
-      if (consumed) firedForAnyone = true;
-    }
-    log(firedForAnyone ? '  -> Graduation carryover FIRED for at least one player.' : '  -> No qualifying win occurred this round for anyone still holding a dormant bonus (0-point losses don\'t consume it) — real outcome, not staged.');
+  const seniorTournamentId = TournamentId('jw-senior-1');
+  if (!(await deps.tournaments.findById(seniorTournamentId))) {
+    await deps.openRegistration.execute({
+      tournamentId: seniorTournamentId,
+      tier: 'futures',
+      surface: 'hard',
+      weekScheduled: world2.currentWeek,
+      drawSize: COHORT_SIZE,
+    });
+    log(
+      `  Opened senior tournament "${seniorTournamentId}" (futures, hard, ${COHORT_SIZE}-draw). Nothing enforces age ` +
+        `eligibility at registration (a disclosed gap) — the cohort is still nominally youth-age by generation, entering ` +
+        'a senior draw anyway, exactly as a real manager could do today.',
+    );
   }
+  for (const id of cohortIds) {
+    await deps.registerEntrant.execute({ tournamentId: seniorTournamentId, playerId: id });
+  }
+  const startedSenior = await deps.tournaments.findById(seniorTournamentId);
+  log(`  hasStarted=${startedSenior!.hasStarted}`);
+
+  const dormantBefore = new Map<string, unknown>();
+  for (const id of cohortIds) {
+    dormantBefore.set(id, (await deps.players.findById(id))!.dormantCarryoverBonus);
+  }
+
+  log('  Simulating until the draw is finished (so winners get a second match, giving carryover a real chance to fire)...');
+  for (let sweep = 1; sweep <= 5; sweep++) {
+    const simResult = await deps.simulateDueMatches.execute();
+    log(`    sweep ${sweep}: simulated=${simResult.simulated.length}, failed=${simResult.failed.length}`);
+    for (const f of simResult.failed) log(`      FAILED: ${f.matchId} - ${f.reason}`);
+    if (simResult.simulated.length === 0) break;
+  }
+
+  const seniorEntries = (await Promise.all(cohortIds.map((id) => deps.rankingLedger.findByPlayer(id)))).flat();
+  const newSeniorEntries = seniorEntries.filter((e) => e.ageBand === null);
+  let firedForAnyone = false;
+  for (const entry of newSeniorEntries) {
+    const before = dormantBefore.get(entry.playerId);
+    const player = await deps.players.findById(entry.playerId);
+    const consumed = before !== null && player!.dormantCarryoverBonus === null;
+    log(
+      `  ${entry.playerId}: senior result = ${entry.points} points; had dormant bonus before = ` +
+        `${JSON.stringify(before)}; carryover fired this match = ${consumed}`,
+    );
+    if (consumed) firedForAnyone = true;
+  }
+  log(
+    firedForAnyone
+      ? '  -> Graduation carryover FIRED for at least one player.'
+      : "  -> No qualifying win occurred this round for anyone still holding a dormant bonus (0-point losses don't consume it) — real outcome, not staged.",
+  );
 
   process.exit(0);
 }

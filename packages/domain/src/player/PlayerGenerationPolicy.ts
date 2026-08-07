@@ -20,11 +20,33 @@ export type PlayerRarityTier = 'common' | 'strong' | 'exceptional';
 export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';
 export const POTENTIAL_TIER_ORDER: readonly PotentialTier[] = ['limited', 'promising', 'high', 'elite'];
 
+/**
+ * The span of ages a single generate() call may produce, in weeks —
+ * a caller-supplied input, never a constant baked into this policy
+ * (see StandardPlayerGenerationPolicy's class doc comment for why: the
+ * weekly talent-pool refresh and CreateCustomPlayerUseCase both
+ * currently pass the same narrow youth-only range, but that's a
+ * decision made at those call sites, not a constraint this generator
+ * enforces or knows about — a future caller could pass a different
+ * range without touching this file, same swappable-policy discipline
+ * as AgingPolicy/TrainingPolicy).
+ */
+export interface AgeRange {
+  minWeeks: number;
+  maxWeeks: number;
+}
+
 export interface GeneratedPlayer {
   name: string;
   nationality: string;
   tier: PlayerRarityTier;
   attributes: PlayerAttributes;
+  /** Rolled uniformly within the AgeRange passed to generate() — see
+   * that parameter's doc comment. Every generated player's starting
+   * age now comes from here; there is no separate fixed "starting
+   * age" constant anymore (StandardAgingPolicy is the only thing that
+   * ever moves a player older, one week at a time). */
+  ageInWeeks: number;
   /** The real, hidden ceiling each of this player's skills can
    * eventually reach through training (see
    * TrainingPolicy.applyPotentialDiminishingReturns) — generated once,
@@ -41,10 +63,13 @@ export interface GeneratedPlayer {
    * baked in at generation time (not recomputed per-request), so
    * scouting is a genuinely imperfect signal: the same candidate
    * always shows the same tier, but that tier is only ~70% likely to
-   * be the true one, ±1 tier otherwise. This is the ENTIRE scouting
-   * mechanic — there is deliberately no per-manager scouting-skill or
-   * accuracy system layered on top (see CLAUDE.md); every manager sees
-   * the exact same noisy tier on the exact same candidate. */
+   * be the true one at the midpoint of the generation age range, ±1
+   * tier otherwise — see StandardPlayerGenerationPolicy's age-scaled
+   * noise for why "70%" isn't a single fixed number anymore. This is
+   * the ENTIRE scouting mechanic — there is deliberately no
+   * per-manager scouting-skill or accuracy system layered on top (see
+   * CLAUDE.md); every manager sees the exact same noisy tier on the
+   * exact same candidate. */
   potentialTier: PotentialTier;
 }
 
@@ -58,7 +83,7 @@ export interface GeneratedPlayer {
  * something baked into whatever consumes a generated player.
  */
 export interface PlayerGenerationPolicy {
-  generate(random: RandomSource): GeneratedPlayer;
+  generate(random: RandomSource, ageRange: AgeRange): GeneratedPlayer;
 }
 
 interface SkillBand {
@@ -135,13 +160,27 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
   private static readonly MAX_POTENTIAL_HEADROOM = 45;
   private static readonly MAX_SKILL = 99;
 
-  /** Probability the noisy displayed tier undershoots or overshoots
-   * the true one by exactly one step, each direction — the remainder
-   * (70%) shows the true tier exactly. This IS the scouting mechanic
-   * in full; see GeneratedPlayer.potentialTier's doc comment. */
-  private static readonly POTENTIAL_NOISE_PROBABILITY = 0.15;
+  /** Per-direction noise probability at the YOUNGEST age an AgeRange
+   * can produce — scouting a 14-year-old's long-term ceiling is
+   * genuinely harder than scouting a 16-year-old's, real years of
+   * development still sit between them and their peak, so the noisy
+   * displayed tier is LESS reliable the younger the player is. */
+  private static readonly YOUNGEST_NOISE_PROBABILITY = 0.2;
+  /** Per-direction noise probability at the OLDEST age an AgeRange can
+   * produce — closer to whatever comes after this generation range
+   * (today: senior eligibility), so there's less development left to
+   * be wrong about. */
+  private static readonly OLDEST_NOISE_PROBABILITY = 0.1;
+  /** Used only when an AgeRange has zero width (minWeeks === maxWeeks,
+   * so there's no "younger vs older" to scale between) — the average
+   * of the two bounds above, which also happens to be the flat noise
+   * probability this policy used before age-scaling existed, so a
+   * fixed-age caller sees unchanged behavior. */
+  private static readonly FIXED_AGE_NOISE_PROBABILITY =
+    (StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY + StandardPlayerGenerationPolicy.OLDEST_NOISE_PROBABILITY) / 2;
 
-  generate(random: RandomSource): GeneratedPlayer {
+  generate(random: RandomSource, ageRange: AgeRange): GeneratedPlayer {
+    const ageInWeeks = this.rollAge(ageRange, random);
     const tier = this.rollTier(random);
     const band = StandardPlayerGenerationPolicy.SKILL_BANDS[tier];
     const rollSkill = () => Skill.of(band.min + random.next() * (band.max - band.min));
@@ -178,9 +217,13 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     const nationality = pick(NATIONALITIES, random);
 
     const potentialCeiling = this.rollPotentialCeiling(band, random);
-    const potentialTier = this.rollPotentialTier(potentialCeiling, random);
+    const potentialTier = this.rollPotentialTier(potentialCeiling, ageInWeeks, ageRange, random);
 
-    return { name, nationality, tier, attributes, potentialCeiling, potentialTier };
+    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks };
+  }
+
+  private rollAge(ageRange: AgeRange, random: RandomSource): number {
+    return Math.round(ageRange.minWeeks + random.next() * (ageRange.maxWeeks - ageRange.minWeeks));
   }
 
   private rollTier(random: RandomSource): PlayerRarityTier {
@@ -207,22 +250,39 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     return Math.min(StandardPlayerGenerationPolicy.MAX_SKILL, Math.round(band.max + headroom));
   }
 
-  /** The noise: 70% of the time this returns the ceiling's true tier
-   * exactly, 15% one step lower, 15% one step higher (clamped at the
-   * ends of POTENTIAL_TIER_ORDER) — computed and returned ONCE here,
-   * at generation time, so it's a stable, persisted property of the
+  /** The noise: at the youngest age an AgeRange can produce, 60% of
+   * the time this returns the ceiling's true tier exactly, 20% one
+   * step lower, 20% one step higher; at the oldest age, 80%/10%/10% —
+   * linearly interpolated in between (clamped at the ends of
+   * POTENTIAL_TIER_ORDER) — computed and returned ONCE here, at
+   * generation time, so it's a stable, persisted property of the
    * candidate rather than something that could be re-rolled (and thus
    * gamed by re-fetching) on every read. */
-  private rollPotentialTier(ceiling: number, random: RandomSource): PotentialTier {
+  private rollPotentialTier(ceiling: number, ageInWeeks: number, ageRange: AgeRange, random: RandomSource): PotentialTier {
     const trueTier = tierForPotentialCeiling(ceiling);
     const index = POTENTIAL_TIER_ORDER.indexOf(trueTier);
+    const noiseProbability = this.noiseProbabilityForAge(ageInWeeks, ageRange);
     const roll = random.next();
-    if (roll < StandardPlayerGenerationPolicy.POTENTIAL_NOISE_PROBABILITY) {
+    if (roll < noiseProbability) {
       return POTENTIAL_TIER_ORDER[Math.max(0, index - 1)];
     }
-    if (roll < StandardPlayerGenerationPolicy.POTENTIAL_NOISE_PROBABILITY * 2) {
+    if (roll < noiseProbability * 2) {
       return POTENTIAL_TIER_ORDER[Math.min(POTENTIAL_TIER_ORDER.length - 1, index + 1)];
     }
     return trueTier;
+  }
+
+  /** Linear interpolation between YOUNGEST_NOISE_PROBABILITY (at
+   * ageRange.minWeeks) and OLDEST_NOISE_PROBABILITY (at
+   * ageRange.maxWeeks) — a real, if simple, "scouting is harder for
+   * younger prospects" curve, not just a flat number dressed up as one. */
+  private noiseProbabilityForAge(ageInWeeks: number, ageRange: AgeRange): number {
+    const span = ageRange.maxWeeks - ageRange.minWeeks;
+    if (span <= 0) return StandardPlayerGenerationPolicy.FIXED_AGE_NOISE_PROBABILITY;
+    const t = (ageInWeeks - ageRange.minWeeks) / span; // 0 at youngest, 1 at oldest
+    return (
+      StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY -
+      t * (StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY - StandardPlayerGenerationPolicy.OLDEST_NOISE_PROBABILITY)
+    );
   }
 }

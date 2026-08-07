@@ -58,6 +58,7 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
     name: 'Marta Silva',
     nationality: 'BR',
     tier: 'common',
+    ageInWeeks: 750,
     attributes: attributes(30),
     potentialCeiling: 55,
     potentialTier: 'promising',
@@ -412,6 +413,7 @@ describe('DrizzleTalentPoolCandidateRepository', () => {
     expect(loaded!.generatedAtWeek).toEqual({ season: 2, week: 7 });
     expect(loaded!.status).toBe('available');
     expect(loaded!.attributes.technical.serve.value).toBe(30);
+    expect(loaded!.ageInWeeks).toBe(750);
     // Both the hidden real ceiling and the noisy displayed tier round-trip.
     expect(loaded!.potentialCeiling).toBe(55);
     expect(loaded!.potentialTier).toBe('promising');

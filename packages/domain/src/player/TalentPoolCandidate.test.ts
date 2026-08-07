@@ -9,6 +9,7 @@ function generatedPlayer(): GeneratedPlayer {
     name: 'Marta Silva',
     nationality: 'BR',
     tier: 'common',
+    ageInWeeks: 750,
     attributes: new PlayerAttributes({
       technical: { serve: Skill.of(30), forehand: Skill.of(30), backhand: Skill.of(30), volley: Skill.of(30) },
       physical: { speed: Skill.of(30), stamina: Skill.of(30), strength: Skill.of(30) },
@@ -28,6 +29,7 @@ describe('TalentPoolCandidate', () => {
     expect(candidate.isAvailable()).toBe(true);
     expect(candidate.claimedByManagerId).toBeNull();
     expect(candidate.name).toBe('Marta Silva');
+    expect(candidate.ageInWeeks).toBe(750);
   });
 
   it('markClaimed transitions to claimed and records the manager, but refuses a second claim', () => {

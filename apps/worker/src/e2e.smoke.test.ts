@@ -6,6 +6,7 @@ import IORedis from 'ioredis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId } from '@tennis-manager/domain';
+import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { buildDependencies, createDb, Dependencies, schema } from '@tennis-manager/api';
 import { makeSimulateDueMatchesHandler } from './jobs/handlers';
 
@@ -93,7 +94,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
       const random = { next: () => Math.random() };
       for (let i = 1; i <= PLAYER_COUNT; i++) {
         const candidateId = TalentPoolCandidateId(`e2e-p${i}`);
-        const generated = generationPolicy.generate(random);
+        const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
         await deps.talentPoolCandidates.save(
           TalentPoolCandidate.generate(
             candidateId,

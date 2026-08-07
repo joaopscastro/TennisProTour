@@ -1,5 +1,6 @@
 export * from './ports/ports';
 export * from './use-cases/rosterCap';
+export * from './use-cases/talentPoolAgeRange';
 export * from './use-cases/ClaimTalentPoolCandidateUseCase';
 export * from './use-cases/CreateCustomPlayerUseCase';
 export * from './use-cases/RefreshTalentPoolUseCase';

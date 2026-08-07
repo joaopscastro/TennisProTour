@@ -142,6 +142,7 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
     name: 'Marta Silva',
     nationality: 'BR',
     tier: 'common',
+    ageInWeeks: 750,
     attributes: new PlayerAttributes({
       technical: { serve: Skill.of(35), forehand: Skill.of(35), backhand: Skill.of(35), volley: Skill.of(35) },
       physical: { speed: Skill.of(35), stamina: Skill.of(35), strength: Skill.of(35) },
@@ -193,7 +194,7 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     const events = new RecordingEventPublisher();
     const talentClaim = new InMemoryTalentClaimPort(candidates);
     talentClaim.fundManager(ManagerId('m1'), AMPLE_XP);
-    await seedCandidate(candidates, 'c1');
+    await seedCandidate(candidates, 'c1', { ageInWeeks: 777 });
     const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);
 
     const player = await useCase.execute({ candidateId: TalentPoolCandidateId('c1'), managerId: ManagerId('m1') });
@@ -203,6 +204,11 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     expect(player.managerId).toBe(ManagerId('m1'));
     expect(player.attributes.technical.serve.value).toBe(35);
     expect(player.stage).toBe('youth');
+    // The resulting player's age is whatever the candidate was
+    // generated with, not a fixed constant — closing the old gap where
+    // every claimed player started at a fixed 18 years regardless of
+    // what the candidate itself rolled.
+    expect(player.ageInWeeks).toBe(777);
     // The candidate's hidden potentialCeiling transfers unchanged onto
     // the resulting Player — required for training's diminishing
     // returns to actually mean anything post-claim.

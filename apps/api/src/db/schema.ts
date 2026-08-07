@@ -271,6 +271,10 @@ export const talentPoolCandidates = pgTable('talent_pool_candidates', {
   name: text('name').notNull(),
   nationality: text('nationality').notNull(),
   tier: playerRarityTier('tier').notNull(),
+  /** Rolled at generation time by PlayerGenerationPolicy within
+   * TALENT_POOL_AGE_RANGE (14-16 years) — see GeneratedPlayer.ageInWeeks.
+   * Default only covers rows saved before this column existed. */
+  ageInWeeks: integer('age_in_weeks').notNull().default(15 * 52),
 
   serve: integer('serve').notNull(),
   forehand: integer('forehand').notNull(),

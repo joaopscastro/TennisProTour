@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { GameWorld, ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId, WorldId } from '@tennis-manager/domain';
+import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
 import { MathRandomSource } from '../adapters/outbound/MathRandomSource';
@@ -68,7 +69,7 @@ async function main(): Promise<void> {
   for (let i = 1; i <= PLAYER_COUNT; i++) {
     const playerId = `seed-p${i}`;
     const managerId = `seed-m${Math.ceil(i / PLAYERS_PER_MANAGER)}`;
-    const generated = generationPolicy.generate(random);
+    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
     await deps.talentPoolCandidates.save(
       TalentPoolCandidate.generate(
         TalentPoolCandidateId(playerId),

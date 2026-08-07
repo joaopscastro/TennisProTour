@@ -23,6 +23,7 @@ function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').Ta
     name: candidate.name,
     nationality: candidate.nationality,
     tier: candidate.tier,
+    ageInWeeks: candidate.ageInWeeks,
     potentialTier: candidate.potentialTier,
     generatedAtWeek: candidate.generatedAtWeek,
     attributes: {

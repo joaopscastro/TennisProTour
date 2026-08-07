@@ -108,13 +108,78 @@ this:
 
 - **A shared talent pool, not a hire button.** `PlayerGenerationPolicy`
   (a swappable policy, same pattern as `AgingPolicy`/`TrainingPolicy`)
-  generates full players — name, nationality, and a complete
+  generates full players — name, nationality, age, and a complete
   `PlayerAttributes` snapshot — from a rarity-skewed distribution: most
   generated players are mediocre, a small share are strong, and a
   genuinely rare share are exceptional. A weekly worker job
   (`RefreshTalentPoolUseCase`, riding the same tick as aging) tops the
   pool up with a fresh batch and expires any candidate that's sat
-  unclaimed for more than ~2 weeks.
+  unclaimed for more than ~2 weeks. **Audited, not assumed**: this
+  really does run on the weekly world-tick cadence it's scoped for —
+  `apps/worker/src/index.ts` registers a real BullMQ repeatable
+  scheduler against `advance-world-week`, whose handler
+  (`makeAdvanceWorldHandler`) calls `RefreshTalentPoolUseCase.execute()`
+  (and `GenerateJuniorTournamentsUseCase.execute()`) gated on the same
+  tick actually having advanced the world clock. Unlike junior
+  tournament generation (which had to be built from nothing in an
+  earlier pass), this wiring was already correct — confirmed by reading
+  the real scheduler + handler + composition wiring end to end, not by
+  assuming a doc comment was still true.
+- **Every generated player's age comes from `PlayerGenerationPolicy`
+  itself now, not a fixed constant.** `generate(random, ageRange)`
+  takes an `AgeRange` (`{ minWeeks, maxWeeks }`) as a real parameter —
+  the generator has no opinion on what range is "correct," the same
+  swappable-policy discipline as `AgingPolicy`/`TrainingPolicy`.
+  `TALENT_POOL_AGE_RANGE` (`packages/application/src/use-cases/talentPoolAgeRange.ts`)
+  is the one CALL-SITE decision both `RefreshTalentPoolUseCase` and
+  `CreateCustomPlayerUseCase` import and pass: 14-16 years old,
+  representing new young talent entering the world — growth past this
+  happens entirely through `PlayerAgingService`'s weekly ticks over
+  real in-game time, never by generating someone directly older.
+  There's still no manager-chosen age anywhere (unchanged fairness
+  constraint). Scouting's noise is now age-scaled too, not flat:
+  `noiseProbabilityForAge` linearly interpolates the off-by-one
+  probability from ~20% per direction at the youngest age a range can
+  produce down to ~10% at the oldest — scouting a 14-year-old's
+  eventual ceiling is genuinely harder than a 16-year-old's, real years
+  of development still separate them from their peak. **Real,
+  worth-knowing consequence, not a bug**: 14 years = exactly 14×52 =
+  728 weeks, which is precisely `RankingBand`'s U14/U16 boundary
+  (`juniorEligibilityForAge`) — so every player who comes through
+  `ClaimTalentPoolCandidateUseCase` or `CreateCustomPlayerUseCase`
+  starts U16-band-eligible, **never** U14-band-eligible. This closes
+  HALF of the gap the junior-circuit work disclosed (see
+  `docs/junior-circuit-research-and-proposal.md`): a real player can
+  now genuinely reach the U16 ladder through the real acquisition flow
+  (proven end-to-end by `apps/api/src/scripts/seedJuniorCircuitWalkthrough.ts`,
+  which claims every player through the real
+  `ClaimTalentPoolCandidateUseCase` — no `Player.hire()` shortcut). U14
+  is still unreachable by any acquisition path; nothing in this pass
+  changed that, and widening the range downward would need its own
+  design decision (a wider spread changes the population math below).
+- **Population math, sanity-checked, not just trusted constants.**
+  `TALENT_POOL_BATCH_SIZE` = 5/week, `TALENT_POOL_EXPIRY_WEEKS` = 2 —
+  a candidate generated in week *W* is still visible during the
+  refreshes at *W*, *W+1*, and *W+2* (three refresh cycles, since
+  expiry triggers only once `weeksBetween > 2`), THEN gets swept at
+  *W+3*'s refresh. So the steady-state visible pool (upper bound, zero
+  claims) is batch × **3**, not batch × 2 — 5 × 3 = **~15 candidates**
+  visible at once. Tier odds are the existing, unchanged
+  `StandardPlayerGenerationPolicy` skew (3% exceptional / 17% strong /
+  80% common — real Common/Uncommon/Rare-style scarcity, not relabeled
+  here). At batch size 5, expected exceptional-tier candidates per week
+  = 5 × 0.03 = **0.15/week** (~0.65/month at ~4.33 weeks/month); the
+  chance of at least one appearing in a given week is
+  1 − 0.97⁵ ≈ **14%** — about 1 week in 7. That preserves genuine
+  scarcity: frequent enough the pool never feels barren (strong-tier
+  candidates land ~0.85/week, most weeks have several worthwhile
+  common-tier options), but an exceptional prospect appearing stays a
+  real, race-worthy event rather than routine background noise. Given
+  roster caps are tiny (2 free / 4 Pro — see `rosterCap.ts`) and
+  players are never automatically removed, a 15-deep pool is already
+  generous relative to real demand, so this pass keeps the batch size
+  at 5 rather than changing it — the math validates the existing
+  constant instead of replacing it with a different unvalidated one.
 - **Every manager sees the same pool and races for it.**
   `TalentPoolCandidate` rows are visible to all managers until claimed
   or expired. Claiming is genuinely race-safe: two managers hitting
@@ -179,6 +244,35 @@ this:
   be premature (contrast with ranking, which got its own `domain/ranking/`
   folder because it was large enough to justify one). Revisit this
   placement if scouting grows real scope beyond "generate + claim."
+- **Two more pre-existing, unrelated bugs found while re-verifying this
+  pass, disclosed rather than silently fixed (out of scope for this
+  change):**
+  1. Claiming a talent-pool candidate costs XP
+     (`TalentClaimPricingPolicy`), but `apps/api/src/scripts/seed.ts`
+     (the actual dev seed script — confirmed by running `npm run seed`
+     against a live database, not just reading the code) and
+     `apps/worker/src/e2e.smoke.test.ts` both still claim candidates
+     without ever crediting the claiming manager's XP balance first, so
+     both fail today with "insufficient XP to claim this candidate."
+     Introduced when XP-gated claiming shipped after both were written;
+     neither was updated. `apps/api/src/adapters/inbound/http/api.integration.test.ts`
+     and `billing.integration.test.ts` already do this correctly
+     (`deps.managerXp.credit(...)` before claiming) — that's the fix,
+     just not applied to the two broken call sites yet.
+  2. `composition.ts` builds `rankPosition`/`rankPositionU14`/
+     `rankPositionU16` once, at startup, against a single module-level
+     `WorldId` (`WORLD_ID` env var, default `'main'`) — not
+     parameterized per call. This is correct for how this game actually
+     runs today (one live world at a time), but any script or tool that
+     operates on a *different* world id (e.g.
+     `seedJuniorCircuitWalkthrough.ts`'s dedicated `junior-walkthrough`
+     world) must set the same `WORLD_ID` env var, or its ranking reads
+     silently use the wrong world's clock for the rolling-window
+     calculation (`RankingCalculationService.calculateTotal` filters by
+     `weeksBetween(entry.weekEarned, currentWeek)`, and `currentWeek`
+     would come from an unrelated world). Found while building that
+     walkthrough script; not a bug in the single-world game as it
+     actually ships, but a real footgun for any multi-world tooling.
 
 ## Committed stack (with rationale — see full plan doc for the "why not X" reasoning)
 

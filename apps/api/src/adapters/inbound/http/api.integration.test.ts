@@ -100,7 +100,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
     TalentPoolCandidate.generate(
       TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising' },
+      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising' },
       { season: 1, week: 1 },
     ),
   );
@@ -367,6 +367,7 @@ describe('API', () => {
           name: 'Pool Player',
           nationality: 'ES',
           tier: 'strong',
+          ageInWeeks: 750,
           attributes: fixedAttributes(50),
           potentialCeiling: 91, // the real hidden number — must never appear in any response below
           potentialTier: 'elite',

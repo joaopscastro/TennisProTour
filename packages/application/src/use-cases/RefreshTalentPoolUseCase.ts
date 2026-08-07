@@ -1,5 +1,6 @@
 import { PlayerGenerationPolicy, RandomSource, TalentPoolCandidate, TalentPoolCandidateId, WorldId } from '@tennis-manager/domain';
 import { GameWorldRepository, IdGeneratorPort, TalentPoolCandidateRepository } from '../ports/ports';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 /** How many new candidates enter the pool each weekly refresh. A
  * balance/tuning constant, same status as StandardRankingPointsTable's
@@ -59,7 +60,7 @@ export class RefreshTalentPoolUseCase {
     }
 
     for (let i = 0; i < this.batchSize; i++) {
-      const generated = this.generationPolicy.generate(this.random);
+      const generated = this.generationPolicy.generate(this.random, TALENT_POOL_AGE_RANGE);
       const candidate = TalentPoolCandidate.generate(TalentPoolCandidateId(this.ids.generate()), generated, currentWeek);
       await this.candidates.save(candidate);
     }

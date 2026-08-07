@@ -1,0 +1,1 @@
+ALTER TABLE "talent_pool_candidates" ADD COLUMN "age_in_weeks" integer DEFAULT 780 NOT NULL;

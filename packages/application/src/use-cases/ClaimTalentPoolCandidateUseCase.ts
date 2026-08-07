@@ -8,13 +8,6 @@ import {
 } from '../ports/ports';
 import { maxRosterSizeFor } from './rosterCap';
 
-/** Every generated/claimed/custom player starts at the same fixed age
- * — deliberately not caller-supplied (the earlier HirePlayerUseCase
- * this replaces let the client pick an arbitrary starting age, which
- * never had a real design reason behind it). 18 years sits solidly in
- * StandardAgingPolicy's 'youth' stage (prime starts at 20). */
-export const STARTING_AGE_IN_WEEKS = 18 * 52;
-
 export interface ClaimTalentPoolCandidateCommand {
   candidateId: TalentPoolCandidateId;
   managerId: ManagerId;
@@ -94,7 +87,7 @@ export class ClaimTalentPoolCandidateUseCase {
     const player = Player.hire(
       PlayerId(claimed.id),
       claimed.name,
-      STARTING_AGE_IN_WEEKS,
+      claimed.ageInWeeks,
       claimed.attributes,
       command.managerId,
       claimed.nationality,

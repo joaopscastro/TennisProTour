@@ -90,6 +90,7 @@ class RecordingGenerationPolicy {
       name: 'ignored — command.name wins',
       nationality: 'ignored',
       tier: 'common',
+      ageInWeeks: 799,
       attributes: fixedAttributes(),
       potentialCeiling: 72,
       potentialTier: 'high',
@@ -123,6 +124,9 @@ describe('CreateCustomPlayerUseCase', () => {
     expect(player.nationality).toBe('FR');
     expect(player.attributes.technical.serve.value).toBe(55); // came from the generation policy
     expect(player.potentialCeiling).toBe(72); // also came from the SAME generation policy call
+    // Age also comes from the generation policy now — no manager-chosen
+    // age, and no separate fixed "starting age" constant either.
+    expect(player.ageInWeeks).toBe(799);
     expect(generationPolicy.calls).toBe(1);
     expect(billing.credits).toBe(2); // exactly one credit spent
     expect(events.published.some((e) => e.type === 'PlayerHired')).toBe(true);

@@ -7,6 +7,7 @@ import {
   PlayerRarityTier,
   RandomSource,
   Skill,
+  StandardPlayerGenerationPolicy,
   SurfaceAffinities,
   TalentPoolCandidate,
   TalentPoolCandidateId,
@@ -14,6 +15,7 @@ import {
 } from '@tennis-manager/domain';
 import { GameWorldRepository, IdGeneratorPort, TalentPoolCandidateRepository } from '../ports/ports';
 import { RefreshTalentPoolUseCase } from './RefreshTalentPoolUseCase';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateRepository {
   private readonly store = new Map<TalentPoolCandidateId, TalentPoolCandidate>();
@@ -78,6 +80,7 @@ class FixedGenerationPolicy {
         mental: { consistency: Skill.of(30), clutch: Skill.of(30) },
         surfaceAffinities: SurfaceAffinities.initial(),
       }),
+      ageInWeeks: 750,
       potentialCeiling: 55,
       potentialTier: 'promising',
     };
@@ -111,6 +114,29 @@ describe('RefreshTalentPoolUseCase', () => {
     expect(candidates.all()).toHaveLength(5);
     expect(candidates.all().every((c) => c.isAvailable())).toBe(true);
     expect(candidates.all().every((c) => c.name === 'Generated Player')).toBe(true);
+  });
+
+  it('wires the REAL StandardPlayerGenerationPolicy with TALENT_POOL_AGE_RANGE, so every generated candidate lands in that exact 14-16yo window', async () => {
+    const candidates = new InMemoryTalentPoolCandidateRepository();
+    const worlds = new InMemoryGameWorldRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    const useCase = new RefreshTalentPoolUseCase(
+      candidates,
+      worlds,
+      new StandardPlayerGenerationPolicy(),
+      { next: () => Math.random() },
+      new SequentialIdGenerator(),
+      20,
+    );
+
+    await useCase.execute({ worldId });
+
+    expect(candidates.all()).toHaveLength(20);
+    for (const candidate of candidates.all()) {
+      expect(candidate.ageInWeeks).toBeGreaterThanOrEqual(TALENT_POOL_AGE_RANGE.minWeeks);
+      expect(candidate.ageInWeeks).toBeLessThanOrEqual(TALENT_POOL_AGE_RANGE.maxWeeks);
+    }
   });
 
   it('expires unclaimed candidates older than the pool expiry window, leaving fresher ones and claimed ones untouched', async () => {
