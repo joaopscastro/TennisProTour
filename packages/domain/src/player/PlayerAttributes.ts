@@ -89,9 +89,24 @@ export class SurfaceAffinities {
     return this.values[surface];
   }
 
+  /** Rounds the result to a whole number — same discipline as Skill.of(),
+   * and for the same underlying reason: the `affinity_clay`/etc. DB
+   * columns (apps/api/src/db/schema.ts) are `integer`, and this class's
+   * own scale is whole percentage points (see the class doc comment),
+   * not a continuous value. A real, previously-latent bug: no caller
+   * ever rounds `gain` before calling this, and manual TrainingFocus
+   * training deltas (StandardTrainingPolicy) are themselves fractional
+   * (e.g. 0.6 for a decline-stage session) — this was silent until a
+   * caller actually persisted a fractional result against a live
+   * integer column and the insert failed outright, which is exactly
+   * what surfaced it (see SimulateMatchUseCase's automatic surface
+   * growth, MATCH_SURFACE_AFFINITY_GAIN = 0.3). Rounding here, once,
+   * fixes it for every caller (manual weekly training AND automatic
+   * match-play growth) rather than pushing the responsibility onto
+   * each one individually. */
   trainedOn(surface: Surface, gain: number): SurfaceAffinities {
     const next = { ...this.values };
-    next[surface] = Math.min(SurfaceAffinities.MAX_PER_SURFACE, next[surface] + gain);
+    next[surface] = Math.round(Math.min(SurfaceAffinities.MAX_PER_SURFACE, next[surface] + gain));
     return new SurfaceAffinities(next);
   }
 }

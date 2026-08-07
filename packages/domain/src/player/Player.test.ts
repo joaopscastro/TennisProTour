@@ -72,6 +72,44 @@ describe('Player', () => {
     expect(player.fatigue).toBe(0);
   });
 
+  it('applyMatchSurfaceGrowth bumps only the played surface, leaves the other three and every skill untouched', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+
+    player.applyMatchSurfaceGrowth('clay', 1);
+
+    expect(player.attributes.surfaceAffinities.get('clay')).toBe(21);
+    expect(player.attributes.surfaceAffinities.get('grass')).toBe(20);
+    expect(player.attributes.surfaceAffinities.get('hard')).toBe(20);
+    expect(player.attributes.surfaceAffinities.get('indoor')).toBe(20);
+    expect(player.attributes.technical.serve.value).toBe(30);
+  });
+
+  it('applyMatchSurfaceGrowth rounds a fractional gain to a whole number — the affinity_* DB columns are integer, so this must never produce a fraction', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+
+    player.applyMatchSurfaceGrowth('clay', 0.3); // < 0.5: rounds back down to where it started
+    expect(player.attributes.surfaceAffinities.get('clay')).toBe(20);
+
+    player.applyMatchSurfaceGrowth('grass', 0.6); // >= 0.5: rounds up
+    expect(player.attributes.surfaceAffinities.get('grass')).toBe(21);
+  });
+
+  it('applyMatchSurfaceGrowth never overshoots SurfaceAffinities own cap, even summed across many matches', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+
+    for (let i = 0; i < 1000; i++) player.applyMatchSurfaceGrowth('grass', 1);
+
+    expect(player.attributes.surfaceAffinities.get('grass')).toBeLessThanOrEqual(60);
+  });
+
+  it('applyMatchSurfaceGrowth does not throw for a retired player — unlike applyTraining, a completed match is a fact, not a rejectable request', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 38 * 52, startingAttributes(), ManagerId('m1'));
+    player.advanceWeek(38 * 52 + 1, 'retired', startingAttributes());
+    expect(player.isRetired()).toBe(true);
+
+    expect(() => player.applyMatchSurfaceGrowth('hard', 1)).not.toThrow();
+  });
+
   it('applies surface training by delegating the delta to the injected policy', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
     const focus: TrainingFocus = { kind: 'surface', surface: 'clay' };

@@ -7,6 +7,7 @@ import {
   TalentPoolCandidateRepository,
 } from '../ports/ports';
 import { maxRosterSizeFor } from './rosterCap';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 export interface ClaimTalentPoolCandidateCommand {
   candidateId: TalentPoolCandidateId;
@@ -67,7 +68,13 @@ export class ClaimTalentPoolCandidateUseCase {
     if (!candidate) {
       throw new Error(`Talent pool candidate ${command.candidateId} is no longer available`);
     }
-    const xpCost = this.pricingPolicy.priceFor(candidate.attributes.overallRating());
+    // TALENT_POOL_AGE_RANGE: the same call-site age window every
+    // candidate-generating flow already imports (RefreshTalentPoolUseCase,
+    // CreateCustomPlayerUseCase) — pricing's age-blend is scoped to
+    // that exact same range so "youngest"/"oldest" mean the same thing
+    // here as everywhere else a generated candidate's age is judged
+    // against it (e.g. scouting's own noiseProbabilityForAge).
+    const xpCost = this.pricingPolicy.priceFor(candidate.attributes.overallRating(), candidate.ageInWeeks, TALENT_POOL_AGE_RANGE);
 
     const outcome = await this.talentClaim.claimAndCharge(command.candidateId, command.managerId, xpCost);
     if (outcome.kind === 'candidate-unavailable') {

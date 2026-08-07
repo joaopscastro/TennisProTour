@@ -15,6 +15,35 @@ import {
   TournamentRepository,
 } from '../ports/ports';
 
+/** PLACEHOLDER, not tuned — same illustrative-constant discipline as
+ * every other Standard* policy/flagged magic number in this codebase
+ * (StandardTrainingPolicy's BASE_GAIN, composition.ts's
+ * PRO_DECLINE_MULTIPLIER). Automatic surface-affinity growth from
+ * simply having played a match on this surface — see
+ * Player.applyMatchSurfaceGrowth's doc comment for why this exists at
+ * all (a real regression this constant/wiring fixes: surface affinity
+ * had no growth path except a manager explicitly choosing that exact
+ * weekly TrainingFocus).
+ *
+ * **1, not something smaller — a real constraint, not an arbitrary
+ * choice.** `SurfaceAffinities.trainedOn` rounds its result to a whole
+ * number (the `affinity_*` DB columns are `integer` — see that
+ * method's doc comment for the bug this rounding fix closed). Every
+ * call starts from an already-whole-number value, so any gain below
+ * 0.5 rounds back down to exactly where it started, EVERY time,
+ * forever — a "smaller than 1" automatic gain would silently never do
+ * anything at all, which would just reintroduce a frozen-affinity bug
+ * in a different shape. 1 is the smallest value that reliably has any
+ * effect. It's still smaller than most manual weekly focus deltas
+ * (StandardTrainingPolicy: base * 2, i.e. 0.6-2.0 depending on stage,
+ * which themselves round to a flat +1 or +2 per week for the same
+ * reason) when weighed per event, but note a player can play several
+ * matches in one calendar week during an active tournament run — true
+ * gradual sub-1-per-event growth isn't achievable without persisting a
+ * fractional remainder somewhere, which is real added complexity, out
+ * of scope for closing this regression. */
+export const MATCH_SURFACE_AFFINITY_GAIN = 1;
+
 export interface SimulateMatchCommand {
   matchId: MatchId;
   tournamentId: TournamentId;
@@ -130,11 +159,16 @@ export class SimulateMatchUseCase {
     const timestampedLog: MatchLog = { ...log, simulatedAt: new Date().toISOString() };
     const { url } = await this.matchLogs.save(command.matchId, timestampedLog);
 
-    // Apply resulting fatigue to both players and persist.
+    // Apply resulting fatigue AND automatic surface-affinity growth to
+    // both players, for the surface actually played, and persist. See
+    // MATCH_SURFACE_AFFINITY_GAIN's doc comment for why the latter is
+    // here at all.
     const winnerPlayer = await this.players.findById(outcome.winner);
     const loserPlayer = await this.players.findById(outcome.loser);
     winnerPlayer?.applyMatchFatigue(8);
     loserPlayer?.applyMatchFatigue(8);
+    winnerPlayer?.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
+    loserPlayer?.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
     if (winnerPlayer) await this.players.save(winnerPlayer);
     if (loserPlayer) await this.players.save(loserPlayer);
 

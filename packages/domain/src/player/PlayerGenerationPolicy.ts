@@ -36,6 +36,28 @@ export interface AgeRange {
   maxWeeks: number;
 }
 
+/** t=0 at ageRange.minWeeks, t=1 at ageRange.maxWeeks — a plain linear
+ * age-position factor. Originally inline inside
+ * StandardPlayerGenerationPolicy.noiseProbabilityForAge (scouting's
+ * potential-range uncertainty: younger prospects get noisier reads),
+ * extracted here so any other age-blended formula reuses the exact
+ * same interpolation shape instead of a second, possibly-drifted copy
+ * — see StandardTalentClaimPricingPolicy.priceFor for the other real
+ * caller (blended talent-claim pricing: near-flat at the youngest
+ * generated age, progressively ability-dominated toward the oldest).
+ * Falls back to 0.5 (the exact midpoint a zero-width range's old
+ * flat-average behavior already gave) when there's no span to
+ * interpolate across at all. Not clamped to [0,1] for an out-of-range
+ * age — every real caller only ever passes an age that was itself
+ * rolled from within this same range, so that case doesn't arise in
+ * practice, and clamping would be defensive code for an input this
+ * function doesn't control and no caller can actually produce. */
+export function ageInterpolationFactor(ageInWeeks: number, ageRange: AgeRange): number {
+  const span = ageRange.maxWeeks - ageRange.minWeeks;
+  if (span <= 0) return 0.5;
+  return (ageInWeeks - ageRange.minWeeks) / span;
+}
+
 /**
  * Hidden per-attribute training ceilings for the physical cluster
  * (speed/stamina/strength) — see docs/training-redesign-per-attribute.md.
@@ -218,14 +240,6 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
    * (today: senior eligibility), so there's less development left to
    * be wrong about. */
   private static readonly OLDEST_NOISE_PROBABILITY = 0.1;
-  /** Used only when an AgeRange has zero width (minWeeks === maxWeeks,
-   * so there's no "younger vs older" to scale between) — the average
-   * of the two bounds above, which also happens to be the flat noise
-   * probability this policy used before age-scaling existed, so a
-   * fixed-age caller sees unchanged behavior. */
-  private static readonly FIXED_AGE_NOISE_PROBABILITY =
-    (StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY + StandardPlayerGenerationPolicy.OLDEST_NOISE_PROBABILITY) / 2;
-
   generate(random: RandomSource, ageRange: AgeRange): GeneratedPlayer {
     const ageInWeeks = this.rollAge(ageRange, random);
     const tier = this.rollTier(random);
@@ -358,11 +372,11 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
   /** Linear interpolation between YOUNGEST_NOISE_PROBABILITY (at
    * ageRange.minWeeks) and OLDEST_NOISE_PROBABILITY (at
    * ageRange.maxWeeks) — a real, if simple, "scouting is harder for
-   * younger prospects" curve, not just a flat number dressed up as one. */
+   * younger prospects" curve, not just a flat number dressed up as one.
+   * Uses the shared ageInterpolationFactor (see its own doc comment)
+   * rather than a locally re-derived t. */
   private noiseProbabilityForAge(ageInWeeks: number, ageRange: AgeRange): number {
-    const span = ageRange.maxWeeks - ageRange.minWeeks;
-    if (span <= 0) return StandardPlayerGenerationPolicy.FIXED_AGE_NOISE_PROBABILITY;
-    const t = (ageInWeeks - ageRange.minWeeks) / span; // 0 at youngest, 1 at oldest
+    const t = ageInterpolationFactor(ageInWeeks, ageRange); // 0 at youngest, 1 at oldest
     return (
       StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY -
       t * (StandardPlayerGenerationPolicy.YOUNGEST_NOISE_PROBABILITY - StandardPlayerGenerationPolicy.OLDEST_NOISE_PROBABILITY)

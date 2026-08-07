@@ -1,5 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { ManagerId, TalentPoolCandidateId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 import { requireManager } from './auth';
@@ -30,11 +31,12 @@ function toTalentPoolCandidateDto(
     potentialTier: candidate.potentialTier,
     // The exact XP cost ClaimTalentPoolCandidateUseCase would charge if
     // this manager clicked Claim right now — computed from the same
-    // TalentClaimPricingPolicy instance and the same overallRating()
-    // input the use case itself reads, not a second guess. A candidate's
-    // attributes never change post-generation, so this stays accurate
-    // until the candidate is claimed or expires.
-    claimCost: talentClaimPricingPolicy.priceFor(candidate.attributes.overallRating()),
+    // TalentClaimPricingPolicy instance, the same overallRating()/
+    // ageInWeeks inputs, and the same TALENT_POOL_AGE_RANGE the use
+    // case itself reads, not a second guess. A candidate's attributes
+    // never change post-generation, so this stays accurate until the
+    // candidate is claimed or expires.
+    claimCost: talentClaimPricingPolicy.priceFor(candidate.attributes.overallRating(), candidate.ageInWeeks, TALENT_POOL_AGE_RANGE),
     generatedAtWeek: candidate.generatedAtWeek,
     attributes: {
       technical: {

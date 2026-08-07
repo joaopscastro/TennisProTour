@@ -16,7 +16,7 @@ import {
   PlayerRepository,
   TournamentRepository,
 } from '../ports/ports';
-import { SimulateMatchUseCase } from './SimulateMatchUseCase';
+import { MATCH_SURFACE_AFFINITY_GAIN, SimulateMatchUseCase } from './SimulateMatchUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -213,6 +213,52 @@ describe('SimulateMatchUseCase', () => {
     expect(saved!.getRounds()[1].roundNumber).toBe(2);
     expect(saved!.getRounds()[1].matches).toHaveLength(4);
     expect(saved!.getRounds()[1].matches.every((m) => m.outcome === null)).toBe(true);
+  });
+
+  describe('automatic surface-affinity growth', () => {
+    it('bumps both the winner and loser affinity for the surface actually played, and nothing else', async () => {
+      const tournamentId = TournamentId('surface-t1');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, 'challenger'); // 'hard'
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+      );
+
+      // Read the actual slot 0 pairing rather than assuming p1 vs p2 —
+      // BracketGenerator's seeding doesn't necessarily pair entrants in
+      // registration order.
+      const slot0 = tournament.getScheduledMatch(1, 0);
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const winner = await players.findById(slot0.entrantA); // AlwaysAWinsSimulator: entrantA always wins
+      const loser = await players.findById(slot0.entrantB);
+
+      expect(winner!.attributes.surfaceAffinities.get('hard')).toBeCloseTo(20 + MATCH_SURFACE_AFFINITY_GAIN, 5);
+      expect(loser!.attributes.surfaceAffinities.get('hard')).toBeCloseTo(20 + MATCH_SURFACE_AFFINITY_GAIN, 5);
+      // Every other surface, and every skill, untouched.
+      expect(winner!.attributes.surfaceAffinities.get('clay')).toBe(20);
+      expect(winner!.attributes.surfaceAffinities.get('grass')).toBe(20);
+      expect(winner!.attributes.surfaceAffinities.get('indoor')).toBe(20);
+      expect(winner!.attributes.technical.serve.value).toBe(30);
+    });
+
   });
 
   it('does not generate a further round once the final round completes, relying on TournamentCompleted instead', async () => {

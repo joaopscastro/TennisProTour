@@ -13,8 +13,26 @@ surface × attribute weighting table below is still just the design,
 not wired into `StatisticalMatchSimulator` or anywhere else.
 
 Supersedes the coarse technical/physical/mental TrainingFocus cluster
-system. Surface is already handled separately (passive, match-driven —
-see the prior surface-affinity decision) and is not part of this.
+system. Surface is handled separately (passive, match-driven) and is
+not part of this. **This was a real, disclosed regression until fixed
+directly, not just an assumption that happened to hold**: when the
+manual `TrainingFocus: 'surface'` weekly option was removed as a
+cluster-training axis, "passive, match-driven" growth was assumed to
+already exist as its replacement — it didn't. Nothing anywhere in the
+codebase ever called `SurfaceAffinities.trainedOn()` automatically, so
+surface affinity was frozen at its `initial()` value (20 on all four
+surfaces) forever, for any player, unless a manager happened to pick
+that exact weekly focus. Confirmed by a full-repo grep for every
+`trainedOn`/`trainedOnSurface` call site before writing a single line
+of the fix. Now genuinely fixed: `SimulateMatchUseCase` applies
+`Player.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN)`
+to both participants after every simulated match, alongside the
+existing fatigue application — see that constant's doc comment for why
+its value is 1, not something smaller (a real constraint from
+`SurfaceAffinities.trainedOn` now rounding to a whole number to match
+the `integer` DB column, not an arbitrary tuning choice — fixing THAT
+rounding gap was itself only discovered by actually persisting a
+fractional result against live Postgres, not by reading the code).
 
 ## The three philosophies
 

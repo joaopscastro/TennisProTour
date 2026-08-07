@@ -20,6 +20,7 @@ import {
   TalentPoolCandidateRepository,
 } from '../ports/ports';
 import { ClaimTalentPoolCandidateUseCase } from './ClaimTalentPoolCandidateUseCase';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateRepository {
   readonly store = new Map<TalentPoolCandidateId, TalentPoolCandidate>();
@@ -397,8 +398,9 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
       await seedCandidate(candidates, 'c1');
       await seedCandidate(candidates, 'c2');
       const pricingPolicy = new StandardTalentClaimPricingPolicy();
-      const rating = generatedPlayer().attributes.overallRating();
-      const costPerCandidate = pricingPolicy.priceFor(rating);
+      const fixture = generatedPlayer();
+      const rating = fixture.attributes.overallRating();
+      const costPerCandidate = pricingPolicy.priceFor(rating, fixture.ageInWeeks, TALENT_POOL_AGE_RANGE);
       talentClaim.fundManager(managerId, costPerCandidate + Math.floor(costPerCandidate / 2)); // covers 1, not 2
 
       const useCase = makeUseCase(candidates, players, events, new FakeBillingPort(), talentClaim);

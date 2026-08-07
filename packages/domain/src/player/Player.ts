@@ -1,5 +1,5 @@
 import { PlayerId, ManagerId } from '../shared/ids';
-import { PlayerAttributes, isPhysicalAttribute } from './PlayerAttributes';
+import { PlayerAttributes, Surface, isPhysicalAttribute } from './PlayerAttributes';
 import { PhysicalCeilings } from './PlayerGenerationPolicy';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
@@ -285,6 +285,31 @@ export class Player {
 
   recoverFatigue(amount: number): void {
     this.applyMatchFatigue(-amount);
+  }
+
+  /** Small, automatic surface-affinity growth from having actually
+   * played a match on this surface — called by SimulateMatchUseCase
+   * for both participants after every match, alongside
+   * applyMatchFatigue (same "direct Player mutator, no policy/ceiling
+   * indirection" shape, since like fatigue this is a fixed per-match
+   * side effect, not a weekly manager decision the way TrainingFocus
+   * itself is). This is the replacement for surface affinity's only
+   * previous growth path (the manual TrainingFocus='surface' weekly
+   * choice via applyTraining) — the per-attribute training redesign
+   * (docs/training-redesign-per-attribute.md) removed surface as a
+   * cluster-training axis on the assumption automatic match-play
+   * growth would take over, but that replacement was never actually
+   * built until now; without this, surface affinity was frozen at its
+   * initial value for any manager who never happened to pick that
+   * exact weekly focus. Deliberately no retirement guard, unlike
+   * applyTraining — matches applyMatchFatigue's own precedent, since a
+   * completed match is a fact that already happened, not a request
+   * that can be rejected. */
+  applyMatchSurfaceGrowth(surface: Surface, gain: number): void {
+    this.props = {
+      ...this.props,
+      attributes: this.props.attributes.trainedOnSurface(surface, gain),
+    };
   }
 
   /** Advances lifecycle stage and age. Called by PlayerAgingService,
