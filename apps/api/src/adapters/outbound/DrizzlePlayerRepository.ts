@@ -101,6 +101,7 @@ function toDomain(row: PlayerRow): Player {
     fatigue: row.fatigue,
     currentFocus: toDomainFocus(row),
     potentialCeiling: row.potentialCeiling,
+    physicalCeilings: { speed: row.speedCeiling, stamina: row.staminaCeiling, strength: row.strengthCeiling },
     dormantCarryoverBonus: toDomainDormantCarryoverBonus(row),
     attributes: new PlayerAttributes({
       technical: {
@@ -139,6 +140,9 @@ function toRow(player: Player): typeof players.$inferInsert {
     stage: player.stage,
     fatigue: player.fatigue,
     potentialCeiling: player.potentialCeiling,
+    speedCeiling: player.physicalCeilings.speed,
+    staminaCeiling: player.physicalCeilings.stamina,
+    strengthCeiling: player.physicalCeilings.strength,
     ...focusColumns(player.currentFocus),
     ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
     serve: technical.serve.value,

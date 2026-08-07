@@ -36,6 +36,22 @@ export interface AgeRange {
   maxWeeks: number;
 }
 
+/**
+ * Hidden per-attribute training ceilings for the physical cluster
+ * (speed/stamina/strength) — see docs/training-redesign-per-attribute.md.
+ * Deliberately THREE independent numbers, not one shared ceiling
+ * reused across all three: a player's speed and stamina ceilings can
+ * (and generally do) land at different values, same as their current
+ * speed and stamina values are independently rolled. Same non-exposure
+ * discipline as the existing overall potentialCeiling — see
+ * GeneratedPlayer.physicalCeilings' doc comment below.
+ */
+export interface PhysicalCeilings {
+  speed: number;
+  stamina: number;
+  strength: number;
+}
+
 export interface GeneratedPlayer {
   name: string;
   nationality: string;
@@ -71,6 +87,19 @@ export interface GeneratedPlayer {
    * CLAUDE.md); every manager sees the exact same noisy tier on the
    * exact same candidate. */
   potentialTier: PotentialTier;
+  /** Hidden per-physical-attribute training ceilings — see
+   * PhysicalCeilings' doc comment. Generated once, fixed for the
+   * player's whole career, and NEVER serialized in any API response
+   * (same discipline as potentialCeiling above — grep
+   * `physicalCeilings` in any new DTO/route code and it should only
+   * ever appear in adapter-internal mapping functions, never in a
+   * response body). Each ceiling is anchored to that SPECIFIC
+   * attribute's own rolled current value (never below what the player
+   * can already do at that attribute), with independent headroom on
+   * top — not anchored to the tier band's max the way the overall
+   * potentialCeiling is, since this needs to respect each attribute's
+   * own individually-rolled starting value, not a shared band. */
+  physicalCeilings: PhysicalCeilings;
 }
 
 /**
@@ -153,6 +182,24 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
 
   private static readonly AFFINITY_RANGE: SkillBand = { min: 12, max: 28 };
 
+  /** Mental attributes (consistency, clutch) are generated already
+   * mature — see docs/training-redesign-per-attribute.md: "personality
+   * isn't coached." Unlike technical/physical, which start at a low
+   * youth-tier band and grow through training, mental attributes never
+   * train at all, so starting them low would leave every player
+   * mentally underdeveloped for their whole career with no way to fix
+   * it. This range is independent of rarity tier AND age — a 'common'
+   * player can have just as composed a mental game as an 'exceptional'
+   * one, matching how this range reads: not clustered near the
+   * skill cap (an unearned "everyone is a champion" feel), not
+   * clustered low either (a "raw kid" feel that contradicts "already
+   * mature") — a broad, credible spread roughly matching how a
+   * strong, experienced veteran's mental stats already look under the
+   * OLD flat-band system after years of training toward a high
+   * ceiling. */
+  private static readonly MENTAL_MATURE_MIN = 55;
+  private static readonly MENTAL_MATURE_MAX = 90;
+
   /** Headroom rolled on TOP of the rarity tier's own band max — see
    * this class's generate() for why the ceiling isn't independently
    * rolled from scratch (it's deliberately anchored to the tier band
@@ -184,9 +231,21 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     const tier = this.rollTier(random);
     const band = StandardPlayerGenerationPolicy.SKILL_BANDS[tier];
     const rollSkill = () => Skill.of(band.min + random.next() * (band.max - band.min));
+    const rollMatureSkill = () =>
+      Skill.of(
+        StandardPlayerGenerationPolicy.MENTAL_MATURE_MIN +
+          random.next() *
+            (StandardPlayerGenerationPolicy.MENTAL_MATURE_MAX - StandardPlayerGenerationPolicy.MENTAL_MATURE_MIN),
+      );
     const rollAffinity = () => {
       const { min, max } = StandardPlayerGenerationPolicy.AFFINITY_RANGE;
       return Math.round(min + random.next() * (max - min));
+    };
+
+    const physical = {
+      speed: rollSkill(),
+      stamina: rollSkill(),
+      strength: rollSkill(),
     };
 
     const attributes = new PlayerAttributes({
@@ -196,14 +255,14 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
         backhand: rollSkill(),
         volley: rollSkill(),
       },
-      physical: {
-        speed: rollSkill(),
-        stamina: rollSkill(),
-        strength: rollSkill(),
-      },
+      physical,
+      // Mental attributes are exempt from the rarity-tier band
+      // entirely (see MENTAL_MATURE_MIN/MAX's doc comment) — rolled
+      // via rollMatureSkill(), not rollSkill(), so they're independent
+      // of both `tier` and `ageInWeeks`.
       mental: {
-        consistency: rollSkill(),
-        clutch: rollSkill(),
+        consistency: rollMatureSkill(),
+        clutch: rollMatureSkill(),
       },
       surfaceAffinities: SurfaceAffinities.of({
         clay: rollAffinity(),
@@ -218,8 +277,9 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
 
     const potentialCeiling = this.rollPotentialCeiling(band, random);
     const potentialTier = this.rollPotentialTier(potentialCeiling, ageInWeeks, ageRange, random);
+    const physicalCeilings = this.rollPhysicalCeilings(physical, random);
 
-    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks };
+    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks, physicalCeilings };
   }
 
   private rollAge(ageRange: AgeRange, random: RandomSource): number {
@@ -248,6 +308,29 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
   private rollPotentialCeiling(band: SkillBand, random: RandomSource): number {
     const headroom = random.next() * StandardPlayerGenerationPolicy.MAX_POTENTIAL_HEADROOM;
     return Math.min(StandardPlayerGenerationPolicy.MAX_SKILL, Math.round(band.max + headroom));
+  }
+
+  /** Three INDEPENDENT rolls, one per physical attribute — not one
+   * shared ceiling reused across speed/stamina/strength. Each is
+   * anchored to that specific attribute's own already-rolled current
+   * value (never below what the player can already do at that
+   * attribute), with its own independent headroom on top, same
+   * MAX_POTENTIAL_HEADROOM/MAX_SKILL scale as the overall
+   * potentialCeiling for consistency. */
+  private rollPhysicalCeilings(
+    physical: { speed: Skill; stamina: Skill; strength: Skill },
+    random: RandomSource,
+  ): PhysicalCeilings {
+    return {
+      speed: this.rollAttributeCeiling(physical.speed.value, random),
+      stamina: this.rollAttributeCeiling(physical.stamina.value, random),
+      strength: this.rollAttributeCeiling(physical.strength.value, random),
+    };
+  }
+
+  private rollAttributeCeiling(currentValue: number, random: RandomSource): number {
+    const headroom = random.next() * StandardPlayerGenerationPolicy.MAX_POTENTIAL_HEADROOM;
+    return Math.min(StandardPlayerGenerationPolicy.MAX_SKILL, Math.round(currentValue + headroom));
   }
 
   /** The noise: at the youngest age an AgeRange can produce, 60% of

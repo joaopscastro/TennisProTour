@@ -151,6 +151,7 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
     }),
     potentialCeiling: 60,
     potentialTier: 'promising',
+    physicalCeilings: { speed: 55, stamina: 55, strength: 55 },
     ...overrides,
   };
 }
@@ -213,6 +214,8 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     // the resulting Player — required for training's diminishing
     // returns to actually mean anything post-claim.
     expect(player.potentialCeiling).toBe(60);
+    // Same for the hidden per-physical-attribute ceilings.
+    expect(player.physicalCeilings).toEqual({ speed: 55, stamina: 55, strength: 55 });
     expect((await players.findByManager(ManagerId('m1')))).toHaveLength(1);
     expect(events.published.some((e) => e.type === 'PlayerHired')).toBe(true);
 

@@ -89,7 +89,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
     TalentPoolCandidate.generate(
       TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising' },
+      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising', physicalCeilings: { speed: 100, stamina: 100, strength: 100 } },
       { season: 1, week: 1 },
     ),
   );

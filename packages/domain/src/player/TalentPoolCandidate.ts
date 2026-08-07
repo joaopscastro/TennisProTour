@@ -1,5 +1,5 @@
 import { PlayerAttributes } from './PlayerAttributes';
-import { GeneratedPlayer, PlayerRarityTier, PotentialTier } from './PlayerGenerationPolicy';
+import { GeneratedPlayer, PhysicalCeilings, PlayerRarityTier, PotentialTier } from './PlayerGenerationPolicy';
 import { GameWeek, ManagerId, TalentPoolCandidateId } from '../shared/ids';
 import { weeksBetween } from '../world/GameWorld';
 
@@ -29,6 +29,12 @@ export interface TalentPoolCandidateProps {
   /** The noisy, coarse signal scouting actually exposes — see
    * GeneratedPlayer.potentialTier's doc comment. */
   potentialTier: PotentialTier;
+  /** Hidden per-physical-attribute training ceilings — see
+   * GeneratedPlayer.physicalCeilings' doc comment. Carried on the
+   * candidate so it transfers unchanged into the resulting Player once
+   * claimed, same as potentialCeiling above; MUST NEVER be serialized
+   * by any adapter that turns a candidate into an API response. */
+  physicalCeilings: PhysicalCeilings;
   generatedAtWeek: GameWeek;
   status: TalentPoolCandidateStatus;
   claimedByManagerId: ManagerId | null;
@@ -71,6 +77,7 @@ export class TalentPoolCandidate {
       attributes: generated.attributes,
       potentialCeiling: generated.potentialCeiling,
       potentialTier: generated.potentialTier,
+      physicalCeilings: generated.physicalCeilings,
       generatedAtWeek,
       status: 'available',
       claimedByManagerId: null,
@@ -115,6 +122,13 @@ export class TalentPoolCandidate {
 
   get potentialTier(): PotentialTier {
     return this.props.potentialTier;
+  }
+
+  /** Hidden — see TalentPoolCandidateProps.physicalCeilings' doc
+   * comment. Callers converting a claimed candidate into a Player need
+   * this; HTTP-facing DTO mappers must never call it. */
+  get physicalCeilings(): PhysicalCeilings {
+    return this.props.physicalCeilings;
   }
 
   get generatedAtWeek(): GameWeek {

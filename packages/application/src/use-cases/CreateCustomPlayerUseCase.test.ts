@@ -94,6 +94,7 @@ class RecordingGenerationPolicy {
       attributes: fixedAttributes(),
       potentialCeiling: 72,
       potentialTier: 'high',
+      physicalCeilings: { speed: 80, stamina: 80, strength: 80 },
     };
   }
 }
@@ -124,6 +125,7 @@ describe('CreateCustomPlayerUseCase', () => {
     expect(player.nationality).toBe('FR');
     expect(player.attributes.technical.serve.value).toBe(55); // came from the generation policy
     expect(player.potentialCeiling).toBe(72); // also came from the SAME generation policy call
+    expect(player.physicalCeilings).toEqual({ speed: 80, stamina: 80, strength: 80 }); // same, per-attribute
     // Age also comes from the generation policy now — no manager-chosen
     // age, and no separate fixed "starting age" constant either.
     expect(player.ageInWeeks).toBe(799);

@@ -18,6 +18,7 @@ function generatedPlayer(): GeneratedPlayer {
     }),
     potentialCeiling: 65,
     potentialTier: 'promising',
+    physicalCeilings: { speed: 55, stamina: 55, strength: 55 },
   };
 }
 

@@ -208,6 +208,15 @@ export const players = pgTable('players', {
    * matching Player.hire()'s own default, for any row that predates
    * this column. */
   potentialCeiling: integer('potential_ceiling').notNull().default(100),
+  /** Hidden per-physical-attribute training ceilings (see
+   * Player.physicalCeilings / docs/training-redesign-per-attribute.md)
+   * — NEVER read by playerDto.ts or any other HTTP-facing mapper.
+   * Defaults to 100 each (no meaningful ceiling), matching
+   * Player.hire()'s own default, for any row that predates these
+   * columns. */
+  speedCeiling: integer('speed_ceiling').notNull().default(100),
+  staminaCeiling: integer('stamina_ceiling').notNull().default(100),
+  strengthCeiling: integer('strength_ceiling').notNull().default(100),
 
   /** The player's standing weekly training focus (Player.currentFocus
    * / TrainingFocus union) — null kind means no focus set. Exactly one
@@ -295,6 +304,14 @@ export const talentPoolCandidates = pgTable('talent_pool_candidates', {
    * resulting Player once claimed; MUST NEVER be read by
    * talentPoolRoutes.ts's DTO mapper. */
   potentialCeiling: integer('potential_ceiling').notNull(),
+  /** Hidden per-physical-attribute training ceilings — see
+   * players.speedCeiling's doc comment above; same non-exposure rule
+   * applies here (talentPoolRoutes.ts's DTO mapper must never read
+   * these). Default only covers rows saved before these columns
+   * existed. */
+  speedCeiling: integer('speed_ceiling').notNull().default(100),
+  staminaCeiling: integer('stamina_ceiling').notNull().default(100),
+  strengthCeiling: integer('strength_ceiling').notNull().default(100),
   /** The noisy, coarse tier scouting actually exposes — computed once
    * at generation time (see PlayerGenerationPolicy), not recomputed
    * per-request, so the same candidate always shows the same tier. */

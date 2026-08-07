@@ -83,6 +83,7 @@ class FixedGenerationPolicy {
       ageInWeeks: 750,
       potentialCeiling: 55,
       potentialTier: 'promising',
+      physicalCeilings: { speed: 55, stamina: 55, strength: 55 },
     };
   }
 }

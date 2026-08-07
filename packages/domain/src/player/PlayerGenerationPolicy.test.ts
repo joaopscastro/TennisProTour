@@ -84,20 +84,28 @@ describe('StandardPlayerGenerationPolicy', () => {
   it('produces every skill within the rolled tier band, and picks name/nationality from the reference pools', () => {
     const policy = new StandardPlayerGenerationPolicy();
     // roll 1 -> age (irrelevant, fixed range). roll 2 (0.5) -> common
-    // tier. Rolls 3-11 (0.0, 1 each) drive the nine skills to the exact
-    // bottom of the common band (20). Rolls 12-15 drive the four
-    // surface affinities to the bottom of their range (12). Rolls
-    // 16-17 pick name indices, roll 18 nationality. Rolls 19-20 (0)
-    // drive potentialCeiling to the tier band's own max (common: 42)
-    // and potentialTier's noise roll to "one tier down".
-    const values = [0, 0.5, ...Array(9).fill(0), ...Array(4).fill(0), 0, 0, 0, 0, 0];
+    // tier. Rolls 3-8 (0.0 each) drive the seven technical+physical
+    // skills to the exact bottom of the common band (20). Rolls 9-10
+    // (0.0 each) drive the two mental skills to MENTAL_MATURE_MIN (55)
+    // — mental ignores the tier band entirely, see rollMatureSkill().
+    // Rolls 11-14 drive the four surface affinities to the bottom of
+    // their range (12). Rolls 15-16 pick name indices, roll 17
+    // nationality. Roll 18 (0) drives potentialCeiling to the tier
+    // band's own max (common: 42); roll 19 (0) drives potentialTier's
+    // noise roll to "one tier down"; rolls 20-22 (0 each) drive the
+    // three physical ceilings to their respective attribute's own
+    // current value (20) plus zero headroom. 23 rolls total.
+    const values = [0, 0.5, ...Array(9).fill(0), ...Array(4).fill(0), 0, 0, 0, 0, 0, 0, 0, 0];
     const generated = policy.generate(new ScriptedRandomSource(values), fixedAge(800));
 
     expect(generated.tier).toBe('common');
     expect(generated.attributes.technical.serve.value).toBe(20);
     expect(generated.attributes.technical.forehand.value).toBe(20);
     expect(generated.attributes.physical.speed.value).toBe(20);
-    expect(generated.attributes.mental.clutch.value).toBe(20);
+    // Mental is exempt from the tier band — always mature, regardless
+    // of the (here, 'common') rolled tier.
+    expect(generated.attributes.mental.clutch.value).toBe(55);
+    expect(generated.attributes.mental.consistency.value).toBe(55);
     expect(generated.attributes.surfaceAffinities.get('clay')).toBe(12);
     expect(generated.attributes.surfaceAffinities.get('indoor')).toBe(12);
     expect(generated.name.split(' ')).toHaveLength(2);
@@ -105,6 +113,9 @@ describe('StandardPlayerGenerationPolicy', () => {
     expect(generated.nationality).toMatch(/^[A-Z]{2}$/);
     // Zero headroom -> ceiling lands exactly on the common band's max (42).
     expect(generated.potentialCeiling).toBe(42);
+    // Zero headroom -> each physical ceiling lands exactly on that
+    // attribute's own current value (20, the common band's bottom here).
+    expect(generated.physicalCeilings).toEqual({ speed: 20, stamina: 20, strength: 20 });
   });
 
   describe('age', () => {
@@ -322,13 +333,27 @@ describe('StandardPlayerGenerationPolicy', () => {
       const generated = policy.generate(random, REAL_AGE_RANGE);
       counts[generated.tier] += 1;
 
-      // Every skill (and therefore the average overallRating) can
-      // only ever fall within its rolled tier's band, by construction —
-      // asserted per-generation, not just on the aggregate counts.
+      // Technical and physical skills can only ever fall within the
+      // rolled tier's band, by construction — asserted per-generation,
+      // not just on the aggregate counts. Mental is deliberately
+      // EXCLUDED from this check (and from overallRating() as an
+      // aggregate proxy for it): mental attributes ignore the tier
+      // band entirely now, always landing in the mature range instead,
+      // so overallRating() (which averages all nine skills) is no
+      // longer guaranteed to sit inside the tier band the way it used
+      // to — that's the intended effect of the redesign, not a bug.
       const band = SKILL_BANDS[generated.tier];
-      const overall = generated.attributes.overallRating();
-      expect(overall).toBeGreaterThanOrEqual(band.min);
-      expect(overall).toBeLessThanOrEqual(band.max);
+      const { technical, physical } = generated.attributes;
+      for (const skill of [...Object.values(technical), ...Object.values(physical)]) {
+        expect(skill.value).toBeGreaterThanOrEqual(band.min);
+        expect(skill.value).toBeLessThanOrEqual(band.max);
+      }
+      // Mental stays inside the mature range regardless of tier.
+      const { consistency, clutch } = generated.attributes.mental;
+      for (const skill of [consistency, clutch]) {
+        expect(skill.value).toBeGreaterThanOrEqual(55);
+        expect(skill.value).toBeLessThanOrEqual(90);
+      }
     }
 
     expect(counts.common + counts.strong + counts.exceptional).toBe(1000);
@@ -344,5 +369,128 @@ describe('StandardPlayerGenerationPolicy', () => {
     expect(counts.strong).toBeGreaterThan(100);
     expect(counts.strong).toBeLessThan(250);
     expect(counts.common).toBeGreaterThan(700); // clearly the dominant tier
+  });
+
+  describe('mental attributes (per docs/training-redesign-per-attribute.md)', () => {
+    it('generates consistency and clutch inside the mature range at every age within a range, not the youth tier band', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const random = new SeededRandomSource(101);
+
+      for (let i = 0; i < 500; i++) {
+        const generated = policy.generate(random, REAL_AGE_RANGE);
+        expect(generated.attributes.mental.consistency.value).toBeGreaterThanOrEqual(55);
+        expect(generated.attributes.mental.consistency.value).toBeLessThanOrEqual(90);
+        expect(generated.attributes.mental.clutch.value).toBeGreaterThanOrEqual(55);
+        expect(generated.attributes.mental.clutch.value).toBeLessThanOrEqual(90);
+      }
+    });
+
+    it('generates mental attributes identically distributed at the youngest and oldest ends of an age range — no age dependence at all', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const range: AgeRange = { minWeeks: 728, maxWeeks: 831 };
+      const youngest = fixedAge(range.minWeeks);
+      const oldest = fixedAge(range.maxWeeks);
+      const midlife = fixedAge(780); // roughly the midpoint, a third reference age
+
+      const randomYoung = new SeededRandomSource(7);
+      const randomOld = new SeededRandomSource(7); // same seed: same roll sequence, only age differs
+      const randomMid = new SeededRandomSource(7);
+
+      for (let i = 0; i < 200; i++) {
+        const y = policy.generate(randomYoung, youngest);
+        const o = policy.generate(randomOld, oldest);
+        const m = policy.generate(randomMid, midlife);
+        // Same seed, same roll sequence, only the AgeRange differs ->
+        // if mental generation truly ignores age, all three must roll
+        // identical mental values every iteration (the age roll is
+        // consumed and pinned by fixedAge() regardless of its value,
+        // so it doesn't perturb the rest of the sequence either).
+        expect(y.attributes.mental.consistency.value).toBe(o.attributes.mental.consistency.value);
+        expect(y.attributes.mental.consistency.value).toBe(m.attributes.mental.consistency.value);
+        expect(y.attributes.mental.clutch.value).toBe(o.attributes.mental.clutch.value);
+        expect(y.attributes.mental.clutch.value).toBe(m.attributes.mental.clutch.value);
+      }
+    });
+
+    it('generates mental attributes identically across every rarity tier — a common-tier player is not mentally weaker than an exceptional one by construction', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const age = fixedAge(800);
+
+      // roll 2 controls tier: 0 -> exceptional, 0.1 -> strong, 0.5 -> common.
+      // Rolls 3-11 (all nine technical+physical+mental skills) are
+      // explicitly listed as 0.4 each, not left to a shorter array's
+      // cycling — a period-3 cycle would misalign which specific roll
+      // lands on which skill and silently break this test's premise.
+      const skillRolls = Array(9).fill(0.4);
+      const exceptional = policy.generate(new ScriptedRandomSource([0, 0, ...skillRolls]), age);
+      const strong = policy.generate(new ScriptedRandomSource([0, 0.1, ...skillRolls]), age);
+      const common = policy.generate(new ScriptedRandomSource([0, 0.5, ...skillRolls]), age);
+
+      expect(exceptional.tier).toBe('exceptional');
+      expect(strong.tier).toBe('strong');
+      expect(common.tier).toBe('common');
+      // Same 0.4 roll value feeds every skill roll (technical, physical,
+      // AND mental) — technical/physical values legitimately differ by
+      // tier (they use the tier band), but mental must be identical
+      // across all three regardless, since it never reads the tier band.
+      expect(exceptional.attributes.technical.serve.value).not.toBe(common.attributes.technical.serve.value);
+      expect(exceptional.attributes.mental.consistency.value).toBe(common.attributes.mental.consistency.value);
+      expect(strong.attributes.mental.consistency.value).toBe(common.attributes.mental.consistency.value);
+      expect(exceptional.attributes.mental.clutch.value).toBe(common.attributes.mental.clutch.value);
+    });
+  });
+
+  describe('physical ceilings (per docs/training-redesign-per-attribute.md)', () => {
+    it('rolls speed/stamina/strength ceilings independently, not one shared ceiling reused across all three', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const random = new SeededRandomSource(55);
+
+      let sawADifference = false;
+      for (let i = 0; i < 200; i++) {
+        const generated = policy.generate(random, REAL_AGE_RANGE);
+        const { speed, stamina, strength } = generated.physicalCeilings;
+        if (speed !== stamina || stamina !== strength) {
+          sawADifference = true;
+          break;
+        }
+      }
+      // Astronomically unlikely all three ceilings coincide across 200
+      // independent generations if they're genuinely independently
+      // rolled; a shared-ceiling implementation would make them equal
+      // (within the same generation) every single time.
+      expect(sawADifference).toBe(true);
+    });
+
+    it('anchors each physical ceiling to that specific attribute\'s own rolled value, never below it', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const random = new SeededRandomSource(9);
+
+      for (let i = 0; i < 500; i++) {
+        const generated = policy.generate(random, REAL_AGE_RANGE);
+        const { speed, stamina, strength } = generated.attributes.physical;
+        expect(generated.physicalCeilings.speed).toBeGreaterThanOrEqual(speed.value);
+        expect(generated.physicalCeilings.stamina).toBeGreaterThanOrEqual(stamina.value);
+        expect(generated.physicalCeilings.strength).toBeGreaterThanOrEqual(strength.value);
+        expect(generated.physicalCeilings.speed).toBeLessThanOrEqual(99);
+        expect(generated.physicalCeilings.stamina).toBeLessThanOrEqual(99);
+        expect(generated.physicalCeilings.strength).toBeLessThanOrEqual(99);
+      }
+    });
+
+    it('zero headroom on each roll anchors every ceiling exactly on that attribute\'s own current value', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const age = fixedAge(800);
+      // roll 2 (0.5) -> common tier (band 20-42). Rolls 3-8 (all 0) ->
+      // technical+physical all land at 20. Rolls 9-10 (mental,
+      // irrelevant here) -> 0. Rolls 11-14 (affinities) -> 0. Rolls
+      // 15-16 (name), 17 (nationality) -> 0. Roll 18 (headroom) -> 0.
+      // Roll 19 (noise) -> 0. Rolls 20-22 (the three physical-ceiling
+      // headrooms) -> 0.
+      const values = [0, 0.5, ...Array(9).fill(0), ...Array(4).fill(0), 0, 0, 0, 0, 0, 0, 0, 0];
+      const generated = policy.generate(new ScriptedRandomSource(values), age);
+
+      expect(generated.attributes.physical.speed.value).toBe(20);
+      expect(generated.physicalCeilings).toEqual({ speed: 20, stamina: 20, strength: 20 });
+    });
   });
 });

@@ -100,7 +100,7 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
   await deps.talentPoolCandidates.save(
     TalentPoolCandidate.generate(
       TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising' },
+      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising', physicalCeilings: { speed: 100, stamina: 100, strength: 100 } },
       { season: 1, week: 1 },
     ),
   );
@@ -359,7 +359,7 @@ describe('API', () => {
     expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0 });
   });
 
-  it('lists available talent pool candidates with a coarse potentialTier, and NEVER leaks the hidden potentialCeiling', async () => {
+  it('lists available talent pool candidates with a coarse potentialTier, and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {
     await deps.talentPoolCandidates.save(
       TalentPoolCandidate.generate(
         TalentPoolCandidateId('tp1'),
@@ -371,6 +371,9 @@ describe('API', () => {
           attributes: fixedAttributes(50),
           potentialCeiling: 91, // the real hidden number — must never appear in any response below
           potentialTier: 'elite',
+          // Distinctive, individually-identifiable values — must never
+          // appear in any response below either.
+          physicalCeilings: { speed: 77, stamina: 83, strength: 89 },
         },
         { season: 1, week: 1 },
       ),
@@ -384,6 +387,10 @@ describe('API', () => {
     expect(candidates[0].attributes.technical.serve).toBe(50); // current attributes stay precise, unfuzzed
     expect(listed.body).not.toContain('potentialCeiling');
     expect(listed.body).not.toContain('91'); // the real ceiling value itself, nowhere in the payload
+    expect(listed.body).not.toContain('physicalCeilings');
+    expect(listed.body).not.toContain('77'); // the real speed ceiling
+    expect(listed.body).not.toContain('83'); // the real stamina ceiling
+    expect(listed.body).not.toContain('89'); // the real strength ceiling
 
     await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
     const claimed = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', headers: { 'x-dev-manager-id': 'm1' }, payload: { managerId: 'm1' } });
@@ -391,6 +398,10 @@ describe('API', () => {
     expect(claimed.json().name).toBe('Pool Player');
     expect(claimed.body).not.toContain('potentialCeiling'); // claiming hands back a player DTO — same rule applies
     expect(claimed.body).not.toContain('91');
+    expect(claimed.body).not.toContain('physicalCeilings');
+    expect(claimed.body).not.toContain('77');
+    expect(claimed.body).not.toContain('83');
+    expect(claimed.body).not.toContain('89');
 
     expect((await app.inject({ method: 'GET', url: '/talent-pool' })).json()).toEqual([]);
 

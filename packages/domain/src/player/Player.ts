@@ -1,5 +1,6 @@
 import { PlayerId, ManagerId } from '../shared/ids';
 import { PlayerAttributes } from './PlayerAttributes';
+import { PhysicalCeilings } from './PlayerGenerationPolicy';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
@@ -53,6 +54,16 @@ export interface PlayerProps {
    * player this Player originated from. NEVER exposed via any DTO —
    * see playerDto.ts, which deliberately does not read this field. */
   potentialCeiling: number;
+  /** Hidden per-physical-attribute training ceilings — set once at
+   * generation time (see PlayerGenerationPolicy.GeneratedPlayer.physicalCeilings),
+   * carried unchanged from whatever talent-pool candidate or custom
+   * player this Player originated from. NEVER exposed via any DTO —
+   * see playerDto.ts, which deliberately does not read this field. Not
+   * yet consumed by applyTraining()/TrainingPolicy — that wiring is
+   * separate future work (see docs/training-redesign-per-attribute.md);
+   * this field exists so it's generated and persisted correctly ahead
+   * of that, not so it's already load-bearing. */
+  physicalCeilings: PhysicalCeilings;
   /** null = no pending graduation-carryover bonus. Set by
    * AdvanceWorldWeekUseCase the week this player crosses a junior
    * age-band boundary; cleared by SimulateMatchUseCase the moment it's
@@ -96,6 +107,13 @@ export class Player {
      * (ClaimTalentPoolCandidateUseCase, CreateCustomPlayerUseCase)
      * always pass the real generated value. */
     potentialCeiling = 100,
+    /** Same "optional trailing param, real entry points always pass a
+     * real value" convention as potentialCeiling above. Defaults to
+     * {100,100,100} — "no meaningful ceiling" per attribute — so every
+     * pre-existing call site that never heard of per-attribute
+     * ceilings is unaffected. Real entry points (ClaimTalentPoolCandidateUseCase,
+     * CreateCustomPlayerUseCase) always pass the real generated value. */
+    physicalCeilings: PhysicalCeilings = { speed: 100, stamina: 100, strength: 100 },
   ): Player {
     const player = new Player({
       id,
@@ -108,6 +126,7 @@ export class Player {
       fatigue: 0,
       currentFocus: null,
       potentialCeiling,
+      physicalCeilings,
       dormantCarryoverBonus: null,
     });
     player._domainEvents.push({
@@ -166,6 +185,12 @@ export class Player {
    * it; never by anything building an HTTP-facing DTO. */
   get potentialCeiling() {
     return this.props.potentialCeiling;
+  }
+
+  /** Hidden — see PlayerProps.physicalCeilings' doc comment. Never
+   * read by anything building an HTTP-facing DTO. */
+  get physicalCeilings() {
+    return this.props.physicalCeilings;
   }
 
   get dormantCarryoverBonus() {

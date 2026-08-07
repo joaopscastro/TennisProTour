@@ -62,6 +62,7 @@ function generatedPlayer(overrides: Partial<GeneratedPlayer> = {}): GeneratedPla
     attributes: attributes(30),
     potentialCeiling: 55,
     potentialTier: 'promising',
+    physicalCeilings: { speed: 55, stamina: 55, strength: 55 },
     ...overrides,
   };
 }
@@ -117,6 +118,25 @@ describe('DrizzlePlayerRepository', () => {
     const withoutCeiling = Player.hire(PlayerId('p-default'), 'Default Test', 19 * 52, attributes(30), ManagerId('m1'));
     await repository.save(withoutCeiling);
     expect((await repository.findById(PlayerId('p-default')))!.potentialCeiling).toBe(100);
+  });
+
+  it('round-trips physicalCeilings (hidden per-attribute training caps), defaulting to 100 each when not explicitly set', async () => {
+    const withCeilings = Player.hire(
+      PlayerId('p-physceil'),
+      'Physical Ceiling Test',
+      19 * 52,
+      attributes(30),
+      ManagerId('m1'),
+      'XX',
+      100,
+      { speed: 71, stamina: 82, strength: 93 },
+    );
+    await repository.save(withCeilings);
+    expect((await repository.findById(PlayerId('p-physceil')))!.physicalCeilings).toEqual({ speed: 71, stamina: 82, strength: 93 });
+
+    const withoutCeilings = Player.hire(PlayerId('p-physceil-default'), 'Default Test', 19 * 52, attributes(30), ManagerId('m1'));
+    await repository.save(withoutCeilings);
+    expect((await repository.findById(PlayerId('p-physceil-default')))!.physicalCeilings).toEqual({ speed: 100, stamina: 100, strength: 100 });
   });
 
   it('round-trips a skill-cluster training focus and a null focus', async () => {
@@ -417,6 +437,7 @@ describe('DrizzleTalentPoolCandidateRepository', () => {
     // Both the hidden real ceiling and the noisy displayed tier round-trip.
     expect(loaded!.potentialCeiling).toBe(55);
     expect(loaded!.potentialTier).toBe('promising');
+    expect(loaded!.physicalCeilings).toEqual({ speed: 55, stamina: 55, strength: 55 });
 
     expect(await repository.findAvailable()).toHaveLength(1);
   });

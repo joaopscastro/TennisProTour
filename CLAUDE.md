@@ -246,6 +246,38 @@ this:
   subscription **renewal** (not the initial signup, and not an
   invented in-game clock — real `invoice.paid` webhook events with
   `billing_reason: subscription_cycle`), spent one at a time.
+- **Mental attributes generate already mature; physical attributes each
+  get their own hidden training ceiling — the generation-time slice of
+  the per-attribute training redesign (see
+  `docs/training-redesign-per-attribute.md` for the full three-
+  philosophy design: technical open-ended, physical capped per-
+  attribute, mental untrainable).** `PlayerGenerationPolicy.generate()`
+  now rolls consistency/clutch via a SEPARATE `rollMatureSkill()` path
+  (55-90, independent of both rarity tier and age — see
+  `MENTAL_MATURE_MIN`/`MAX`'s doc comment for why that specific range:
+  it brackets where a "strong veteran" mental stat already landed
+  under the old flat-band system after a full career of training,
+  since mental attributes will never train at all under the new
+  design and starting them at a youth-tier low would leave every
+  player mentally underdeveloped forever with no way to fix it).
+  Physical attributes (speed/stamina/strength) each get an independent
+  `physicalCeilings.{speed,stamina,strength}` — three separate rolls,
+  not one number reused across all three — each anchored to that
+  specific attribute's own already-rolled current value (never below
+  what the player can already do at that attribute), with its own
+  headroom on top, same scale as the existing overall
+  `potentialCeiling`. Threaded through `TalentPoolCandidate`/`Player`/
+  the DB exactly like `potentialCeiling` already was, and held to the
+  same non-exposure discipline (grep `physicalCeilings` in any new
+  DTO/route code — it should only ever appear in adapter-internal
+  mapping functions). **What this pass does NOT do**: wire these
+  ceilings into `TrainingPolicy`/`Player.applyTraining()`'s actual
+  training math (still reads the single overall `potentialCeiling` via
+  cluster-average, unchanged), make mental attributes actually immune
+  to training (`TrainingFocus` still allows a `mental` cluster focus
+  today), or build the surface×attribute weighting table from the same
+  doc. Those are the redesign's remaining, larger pieces — this pass
+  is generation-only, disclosed as such, not silently partial.
 - **Where this lives, and why it's pragmatic, not dogmatic:** the
   talent pool is really the first real slice of bounded context #4
   (Manager & Progression)'s "scouting" idea below — but
