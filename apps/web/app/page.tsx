@@ -16,6 +16,7 @@ import {
 import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
+import { CoachConversionModal } from '../components/CoachConversionModal';
 import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
 
 // ---------------------------------------------------------------------------
@@ -184,6 +185,7 @@ export default function RosterDashboardPage() {
 
   const [enterModalPlayer, setEnterModalPlayer] = useState<{ id: string; name: string } | null>(null);
   const [customPlayerModalOpen, setCustomPlayerModalOpen] = useState(false);
+  const [coachModalPlayer, setCoachModalPlayer] = useState<{ id: string; name: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const customPlayerCredits = entitlement?.customPlayerCredits ?? 0;
@@ -196,7 +198,7 @@ export default function RosterDashboardPage() {
 
   return (
     <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
-      <Sidebar active="roster" tier={tier} />
+      <Sidebar active="roster" tier={tier} xpBalance={entitlement?.xpBalance} />
 
       {/* MAIN CONTENT */}
       <div className="flex-1 p-8 max-w-[1180px] min-w-0">
@@ -360,8 +362,18 @@ export default function RosterDashboardPage() {
 
                     {/* Rank */}
                     <div>
-                      <div className="text-[19px] font-bold [font-variant-numeric:tabular-nums]">
-                        {p.rank !== null ? `#${p.rank}` : '—'}
+                      <div className="flex items-center gap-[6px]">
+                        <div className="text-[19px] font-bold [font-variant-numeric:tabular-nums]">
+                          {p.rank !== null ? `#${p.rank}` : '—'}
+                        </div>
+                        {p.rankBand !== 'senior' && (
+                          <div
+                            className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px]"
+                            style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
+                          >
+                            {p.rankBand}
+                          </div>
+                        )}
                       </div>
                       <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
                         {p.overall} OVR
@@ -424,13 +436,13 @@ export default function RosterDashboardPage() {
                       </button>
                       {openFocusMenu === p.id && (
                         <div
-                          className="absolute top-[calc(100%+4px)] left-0 right-0 min-w-[170px] bg-white rounded-[6px] z-10 overflow-hidden py-1"
+                          className="absolute top-[calc(100%+4px)] left-0 right-0 min-w-[170px] max-h-[300px] overflow-y-auto bg-white rounded-[6px] z-10 py-1"
                           style={{ border: '1px solid oklch(88% 0.006 75)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
                         >
-                          {FOCUS_GROUPS.map((grp) => (
-                            <div key={grp.label}>
+                          {FOCUS_GROUPS.map((grp, i) => (
+                            <div key={grp.label} style={i > 0 ? { borderTop: '1px solid oklch(93% 0.004 75)' } : undefined}>
                               <div
-                                className="px-[10px] pt-[6px] pb-1 text-[10px] font-bold tracking-[0.5px] uppercase"
+                                className="px-[10px] pt-[6px] pb-[3px] text-[10px] font-bold tracking-[0.5px] uppercase"
                                 style={{ color: 'oklch(55% 0.006 75)' }}
                               >
                                 {grp.label}
@@ -439,7 +451,7 @@ export default function RosterDashboardPage() {
                                 <div
                                   key={opt.label}
                                   onClick={() => handleSelectFocus(p.id, opt.focus)}
-                                  className="flex items-center justify-between px-[10px] py-[7px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
+                                  className="flex items-center justify-between px-[10px] py-[6px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
                                   style={{ color: 'oklch(28% 0.006 75)' }}
                                 >
                                   {opt.label}
@@ -479,6 +491,16 @@ export default function RosterDashboardPage() {
                           className="absolute top-[calc(100%+4px)] right-0 min-w-[150px] bg-white rounded-[6px] z-10 overflow-hidden py-1"
                           style={{ border: '1px solid oklch(88% 0.006 75)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
                         >
+                          <div
+                            onClick={() => {
+                              setOpenActionsMenu(null);
+                              setCoachModalPlayer({ id: p.id, name: p.name });
+                            }}
+                            className="px-[10px] py-[7px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
+                            style={{ color: 'oklch(28% 0.006 75)' }}
+                          >
+                            Convert to coach
+                          </div>
                           <div
                             onClick={() => handleRelease(p.id, p.name)}
                             className="px-[10px] py-[7px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
@@ -570,6 +592,21 @@ export default function RosterDashboardPage() {
           onCreated={(player) => {
             setCustomPlayerModalOpen(false);
             showNotice(`Created ${player.name}.`);
+            void load(managerId);
+          }}
+        />
+      )}
+
+      {coachModalPlayer && (
+        <CoachConversionModal
+          playerId={coachModalPlayer.id}
+          playerName={coachModalPlayer.name}
+          managerId={managerId}
+          tier={tier}
+          onClose={() => setCoachModalPlayer(null)}
+          onConverted={(coach) => {
+            setCoachModalPlayer(null);
+            showNotice(`${coachModalPlayer.name} converted to a coach (rating ${coach.coachRating}).`);
             void load(managerId);
           }}
         />

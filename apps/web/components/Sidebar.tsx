@@ -18,6 +18,12 @@ interface Props {
    * the footer then shows generic copy instead of fetching/guessing a
    * tier for a manager that isn't actually relevant on that screen. */
   tier?: 'free' | 'pro';
+  /** Current XP balance — shown persistently just above the tier
+   * footer so a manager can always see it without navigating anywhere
+   * specific (it's spent on talent-pool claims and coach conversion,
+   * both decisions a manager needs to weigh against this number).
+   * Omitted on the same manager-less pages `tier` is omitted on. */
+  xpBalance?: number;
 }
 
 /**
@@ -26,7 +32,7 @@ interface Props {
  * are structural conventions carried through every screen in the
  * Grand Circuit set, not just the roster dashboard.
  */
-export function Sidebar({ active, tier }: Props) {
+export function Sidebar({ active, tier, xpBalance }: Props) {
   return (
     <div
       className="w-[232px] flex-none flex flex-col p-[22px_16px] text-[oklch(96%_0.004_75)]"
@@ -82,17 +88,29 @@ export function Sidebar({ active, tier }: Props) {
         </div>
       </div>
 
-      <div className="mt-auto p-3 rounded-[8px] flex flex-col gap-[6px]" style={{ background: 'oklch(24% 0.008 75)' }}>
-        <div className="flex items-center gap-[6px] mb-1">
-          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
-          <div className="w-px h-2" style={{ background: 'rgba(255,255,255,0.85)' }} />
-          <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
-        </div>
-        <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>
-          {tier === 'pro' ? 'Manager Pro' : 'Free tier'}
-        </div>
-        <div className="text-[12px] leading-[1.4]" style={{ color: 'oklch(78% 0.005 75)' }}>
-          {tier === 'pro' ? '4 roster slots · faster point decay applies' : '2 roster slots · upgrade for more room'}
+      <div className="mt-auto flex flex-col">
+        {xpBalance !== undefined && (
+          <div className="flex items-center justify-between px-3 py-[9px] rounded-[6px] mb-2" style={{ background: 'oklch(24% 0.008 75)' }}>
+            <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>
+              XP balance
+            </div>
+            <div className="text-[14px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(80% 0.14 90)' }}>
+              {xpBalance.toLocaleString()}
+            </div>
+          </div>
+        )}
+        <div className="p-3 rounded-[8px] flex flex-col gap-[6px]" style={{ background: 'oklch(24% 0.008 75)' }}>
+          <div className="flex items-center gap-[6px] mb-1">
+            <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
+            <div className="w-px h-2" style={{ background: 'rgba(255,255,255,0.85)' }} />
+            <div className="flex-1 h-px" style={{ background: 'rgba(255,255,255,0.55)' }} />
+          </div>
+          <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>
+            {tier === 'pro' ? 'Manager Pro' : 'Free tier'}
+          </div>
+          <div className="text-[12px] leading-[1.4]" style={{ color: 'oklch(78% 0.005 75)' }}>
+            {tier === 'pro' ? '4 roster slots · faster point decay applies' : '2 roster slots · upgrade for more room'}
+          </div>
         </div>
       </div>
       {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <ClerkAuthControls />}

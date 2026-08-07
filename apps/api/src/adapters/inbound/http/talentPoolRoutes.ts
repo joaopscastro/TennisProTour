@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { ManagerId, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { ManagerId, TalentPoolCandidateId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 import { requireManager } from './auth';
@@ -16,7 +16,10 @@ import { requireManager } from './auth';
  * would defeat the entire scouting mechanic (see
  * PlayerGenerationPolicy.GeneratedPlayer.potentialTier's doc comment).
  */
-function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').TalentPoolCandidate) {
+function toTalentPoolCandidateDto(
+  candidate: import('@tennis-manager/domain').TalentPoolCandidate,
+  talentClaimPricingPolicy: TalentClaimPricingPolicy,
+) {
   const { technical, physical, mental, surfaceAffinities } = candidate.attributes;
   return {
     id: candidate.id,
@@ -25,6 +28,13 @@ function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').Ta
     tier: candidate.tier,
     ageInWeeks: candidate.ageInWeeks,
     potentialTier: candidate.potentialTier,
+    // The exact XP cost ClaimTalentPoolCandidateUseCase would charge if
+    // this manager clicked Claim right now — computed from the same
+    // TalentClaimPricingPolicy instance and the same overallRating()
+    // input the use case itself reads, not a second guess. A candidate's
+    // attributes never change post-generation, so this stays accurate
+    // until the candidate is claimed or expires.
+    claimCost: talentClaimPricingPolicy.priceFor(candidate.attributes.overallRating()),
     generatedAtWeek: candidate.generatedAtWeek,
     attributes: {
       technical: {
@@ -63,7 +73,7 @@ function toTalentPoolCandidateDto(candidate: import('@tennis-manager/domain').Ta
 export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencies): void {
   app.get('/talent-pool', async () => {
     const available = await deps.talentPoolCandidates.findAvailable();
-    return available.map(toTalentPoolCandidateDto);
+    return available.map((candidate) => toTalentPoolCandidateDto(candidate, deps.talentClaimPricingPolicy));
   });
 
   app.post<{ Params: { id: string }; Body: { managerId: string } }>(

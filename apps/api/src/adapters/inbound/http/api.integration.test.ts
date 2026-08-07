@@ -356,7 +356,7 @@ describe('API', () => {
   it("reports a manager's entitlement tier", async () => {
     const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement', headers: { 'x-dev-manager-id': 'some-free-manager' } });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0 });
+    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 0 });
   });
 
   it('lists available talent pool candidates with a coarse potentialTier, and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {

@@ -1,6 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { PlayerId } from '@tennis-manager/domain';
 import { Surface, TrainableAttribute, TrainingFocus } from '@tennis-manager/domain';
+import { maxCoachCountFor } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 import { requireManager, ownershipMismatch } from './auth';
@@ -123,6 +124,54 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     return toPlayerDto(player);
   });
 
+  // Read-only preview for the "convert to coach" confirmation step —
+  // computed from the exact same CoachConversionPolicy instance
+  // ConvertPlayerToCoachUseCase itself uses (see composition.ts), so
+  // the number a manager confirms against is never a second,
+  // possibly-drifted estimate. Doesn't spend XP or touch the roster;
+  // only the POST below does that.
+  app.get<{ Params: { id: string } }>('/players/:id/coach-conversion-preview', async (request, reply) => {
+    const player = await deps.players.findById(PlayerId(request.params.id));
+    const manager = await requireManager(request, reply, deps);
+    if (!manager) return;
+    if (!player || player.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found' });
+
+    const overallRating = player.attributes.overallRating();
+    const ageInWeeks = player.ageInWeeks;
+    const [existingCoaches, maxCoaches, xpBalance] = await Promise.all([
+      deps.coaches.findByManager(manager.id),
+      maxCoachCountFor(manager.id, deps.billing),
+      deps.managerXp.balanceFor(manager.id),
+    ]);
+
+    return {
+      xpCost: deps.coachConversionPolicy.conversionCostFor(overallRating, ageInWeeks),
+      coachRating: deps.coachConversionPolicy.coachRatingFor(overallRating, ageInWeeks),
+      xpBalance,
+      coachCount: existingCoaches.length,
+      coachCap: maxCoaches,
+      atCap: existingCoaches.length >= maxCoaches,
+    };
+  });
+
+  // Executes the conversion — permanent, see ConvertPlayerToCoachUseCase's
+  // doc comment. The frontend is expected to have shown the preview
+  // above and required an explicit confirmation before ever calling
+  // this (docs/ui-direction.md's "consequential action" convention,
+  // same as Release).
+  app.post<{ Params: { id: string } }>('/players/:id/convert-to-coach', async (request, reply) => {
+    const existing = await deps.players.findById(PlayerId(request.params.id));
+    const manager = await requireManager(request, reply, deps);
+    if (!manager) return;
+    if (!existing || existing.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found' });
+    try {
+      const coach = await deps.convertPlayerToCoach.execute({ playerId: PlayerId(request.params.id), managerId: manager.id });
+      return reply.code(201).send({ id: coach.id, coachRating: coach.coachRating, sourcePlayerName: coach.sourcePlayerName });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   // A player's rank is their 1-indexed position among every player
   // who has ever earned a ranking-ledger entry, sorted by their
   // currently-computed rolling total descending — null means unranked
@@ -173,26 +222,31 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
   // slots) or the free tier (2), without exposing any other billing
   // detail — just the bits of entitlement state the roster screen
   // needs to render its slot indicator, upsell copy, and "Create
-  // custom player" credit count correctly.
+  // custom player" credit count correctly. xpBalance rides along here
+  // (not a separate endpoint) since every screen that needs it already
+  // calls fetchEntitlement — the sidebar's persistent XP display reuses
+  // this one call rather than adding a second fetch everywhere.
   app.get<{ Params: { id: string } }>('/managers/:id/entitlement', async (request, reply) => {
     const manager = await requireManager(request, reply, deps);
     if (!manager) return;
     if (ownershipMismatch(request.params.id, manager)) return reply.code(404).send({ error: 'Manager not found' });
     const managerId = manager.id;
-    const [isPro, customPlayerCredits] = await Promise.all([
+    const [isPro, customPlayerCredits, xpBalance] = await Promise.all([
       deps.billing.isProSubscriber(managerId),
       deps.billing.customPlayerCreditBalance(managerId),
+      deps.managerXp.balanceFor(managerId),
     ]);
-    return { managerId, tier: isPro ? 'pro' : 'free', customPlayerCredits };
+    return { managerId, tier: isPro ? 'pro' : 'free', customPlayerCredits, xpBalance };
   });
 
   app.get('/me/entitlement', async (request, reply) => {
     const manager = await requireManager(request, reply, deps);
     if (!manager) return;
-    const [isPro, customPlayerCredits] = await Promise.all([
+    const [isPro, customPlayerCredits, xpBalance] = await Promise.all([
       deps.billing.isProSubscriber(manager.id),
       deps.billing.customPlayerCreditBalance(manager.id),
+      deps.managerXp.balanceFor(manager.id),
     ]);
-    return { managerId: manager.id, tier: isPro ? 'pro' : 'free', customPlayerCredits };
+    return { managerId: manager.id, tier: isPro ? 'pro' : 'free', customPlayerCredits, xpBalance };
   });
 }

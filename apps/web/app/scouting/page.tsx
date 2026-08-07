@@ -76,6 +76,7 @@ export default function ScoutingPage() {
       await claimTalentPoolCandidate(candidateId, managerId);
       showNotice(`Claimed ${name} for ${managerId}.`);
       await load();
+      await fetchEntitlement(managerId).then(setEntitlement).catch(() => {});
     } catch (e) {
       // A 409 most likely means someone else claimed it first — refresh
       // so the (now-stale) candidate disappears rather than leaving a
@@ -87,9 +88,11 @@ export default function ScoutingPage() {
     }
   }
 
+  const xpBalance = entitlement?.xpBalance ?? 0;
+
   return (
     <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
-      <Sidebar active="scouting" tier={entitlement?.tier} />
+      <Sidebar active="scouting" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
       <div className="flex-1 p-8 max-w-[1180px] min-w-0">
         <div className="flex items-start justify-between mb-3">
@@ -159,12 +162,14 @@ export default function ScoutingPage() {
               const rarity = RARITY_META[c.tier];
               const potential = POTENTIAL_META[c.potentialTier];
               const busy = claimingId === c.id;
+              const affordable = xpBalance >= c.claimCost;
               return (
                 <div
                   key={c.id}
                   className="grid gap-[14px] items-center bg-white rounded-[8px] px-4 py-[14px]"
                   style={{
-                    gridTemplateColumns: 'minmax(0,2.4fr) minmax(70px,0.7fr) minmax(0,1.6fr) minmax(0,1.6fr) minmax(90px,1fr)',
+                    gridTemplateColumns:
+                      'minmax(0,2.2fr) minmax(60px,0.6fr) minmax(0,1.4fr) minmax(0,1.4fr) minmax(80px,0.8fr) minmax(120px,1.2fr)',
                     border: '1px solid oklch(90% 0.005 75)',
                     opacity: busy ? 0.6 : 1,
                   }}
@@ -210,14 +215,33 @@ export default function ScoutingPage() {
                     </div>
                   </div>
 
-                  <button
-                    onClick={() => handleClaim(c.id, c.name)}
-                    disabled={claimingId !== null}
-                    className="justify-self-end px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ background: 'oklch(20% 0.006 75)' }}
-                  >
-                    {busy ? 'Claiming…' : 'Claim'}
-                  </button>
+                  <div>
+                    <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'oklch(55% 0.006 75)' }}>
+                      Cost
+                    </div>
+                    <div
+                      className="text-[14px] font-bold [font-variant-numeric:tabular-nums]"
+                      style={{ color: affordable ? 'oklch(30% 0.006 75)' : 'oklch(60% 0.006 75)' }}
+                    >
+                      {c.claimCost} XP
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col items-end gap-[4px]">
+                    <button
+                      onClick={() => handleClaim(c.id, c.name)}
+                      disabled={claimingId !== null || !affordable}
+                      className="justify-self-end px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed w-full"
+                      style={{ background: 'oklch(20% 0.006 75)' }}
+                    >
+                      {busy ? 'Claiming…' : 'Claim'}
+                    </button>
+                    {!affordable && (
+                      <div className="text-[10.5px] font-semibold text-right" style={{ color: 'oklch(50% 0.16 30)' }}>
+                        Need {c.claimCost - xpBalance} more XP
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             })}

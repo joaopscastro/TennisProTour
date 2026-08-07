@@ -315,6 +315,14 @@ export default function TournamentBracketPage() {
               >
                 {tournament.surface}
               </div>
+              {tournament.ageBand && (
+                <div
+                  className="text-[11px] font-bold tracking-[0.4px] uppercase px-[9px] py-[4px] rounded-[4px]"
+                  style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
+                >
+                  {tournament.ageBand}
+                </div>
+              )}
             </div>
             <div className="text-[13.5px] mt-[5px]" style={{ color: 'oklch(48% 0.006 75)' }}>
               Single elimination · {tournament.entrants.length} players · {overallStatus}

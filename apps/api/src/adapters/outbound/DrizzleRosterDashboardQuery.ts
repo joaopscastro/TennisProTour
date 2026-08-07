@@ -1,5 +1,14 @@
 import { and, desc, eq, isNotNull, or } from 'drizzle-orm';
-import { AgingPolicy, ManagerId, PlayerId, PlayerLifecycleStage, TrainingFocus, weeksUntilNextStage } from '@tennis-manager/domain';
+import {
+  AgingPolicy,
+  juniorEligibilityForAge,
+  ManagerId,
+  PlayerId,
+  PlayerLifecycleStage,
+  RankingBand,
+  TrainingFocus,
+  weeksUntilNextStage,
+} from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentMatches } from '../../db/schema';
@@ -41,10 +50,20 @@ export interface RosterDashboardEntry {
    * as "OVR." */
   overall: number;
   /** 1-indexed position among every player who has ever earned a
-   * ranking-ledger entry, sorted by their currently-computed rolling
-   * total descending. null = unranked (never earned a point), not
-   * rank 0 — see RankPositionQuery/RankingCalculationService. */
+   * ranking-ledger entry IN THIS PLAYER'S rankBand, sorted by their
+   * currently-computed rolling total descending. null = unranked
+   * (never earned a point in that band), not rank 0 — see
+   * RankPositionQuery/RankingCalculationService. */
   rank: number | null;
+  /** Which of the player's three independent rankings `rank`/`points`
+   * come from — derived purely from the player's CURRENT age via
+   * `juniorEligibilityForAge` (not from which tournaments they've
+   * actually entered), same rule `AdvanceWorldWeekUseCase` uses to
+   * detect a graduation crossing. A player never has more than one
+   * live rank shown at a time: once they age out of u14 their
+   * dashboard rank switches to u16, then to senior, matching which
+   * ladder they're actually still eligible to enter now. */
+  rankBand: RankingBand;
   points: number;
   /** Tennis scoreline notation from THIS player's perspective, e.g.
    * "W 7-6, 6-2" or "L 4-6, 6-7". null = no decided match yet. */
@@ -77,7 +96,13 @@ export class DrizzleRosterDashboardQuery {
   constructor(
     private readonly db: Db,
     private readonly agingPolicy: AgingPolicy,
-    private readonly rankPositionQuery: RankPositionQuery,
+    /** One query per independent ranking a roster row could need — a
+     * player's dashboard rank comes from whichever band their CURRENT
+     * age is eligible for (see `rankBand` on RosterDashboardEntry), so
+     * this reads whichever one applies rather than always reading the
+     * senior tour the way this query did before the junior circuit's
+     * frontend surface existed. */
+    private readonly rankPositionQueries: { senior: RankPositionQuery; u14: RankPositionQuery; u16: RankPositionQuery },
   ) {
     this.players = new DrizzlePlayerRepository(db);
   }
@@ -86,34 +111,55 @@ export class DrizzleRosterDashboardQuery {
     const roster = await this.players.findByManager(managerId);
     if (roster.length === 0) return [];
 
-    // One sorted-rankings read for the whole roster, not one per
-    // player — a manager has at most 4 players (roster cap), so this
-    // stays cheap even as the league-wide rankings table grows.
-    const ranked = await this.rankPositionQuery.sortedRankings();
-    const rankByPlayerId = new Map(ranked.map((r, i) => [r.playerId, i + 1]));
-    const pointsByPlayerId = new Map(ranked.map((r) => [r.playerId, r.totalPoints]));
+    // One sorted-rankings read per band for the whole roster, not one
+    // per player — a manager has at most 4 players (roster cap), so
+    // this stays cheap (3 queries total, not 3 * roster size) even as
+    // the league-wide rankings tables grow.
+    const [seniorRanked, u14Ranked, u16Ranked] = await Promise.all([
+      this.rankPositionQueries.senior.sortedRankings(),
+      this.rankPositionQueries.u14.sortedRankings(),
+      this.rankPositionQueries.u16.sortedRankings(),
+    ]);
+    const byBand: Record<RankingBand, { rank: Map<PlayerId, number>; points: Map<PlayerId, number> }> = {
+      senior: {
+        rank: new Map(seniorRanked.map((r, i) => [r.playerId, i + 1])),
+        points: new Map(seniorRanked.map((r) => [r.playerId, r.totalPoints])),
+      },
+      u14: {
+        rank: new Map(u14Ranked.map((r, i) => [r.playerId, i + 1])),
+        points: new Map(u14Ranked.map((r) => [r.playerId, r.totalPoints])),
+      },
+      u16: {
+        rank: new Map(u16Ranked.map((r, i) => [r.playerId, i + 1])),
+        points: new Map(u16Ranked.map((r) => [r.playerId, r.totalPoints])),
+      },
+    };
 
     return Promise.all(
-      roster.map(async (player) => ({
-        id: player.id,
-        name: player.name,
-        nationality: player.nationality,
-        ageInWeeks: player.ageInWeeks,
-        stage: player.stage,
-        stageNote: formatStageNote(player.stage, player.ageInWeeks, this.agingPolicy),
-        fatigue: player.fatigue,
-        overall: Math.round(player.attributes.overallRating()),
-        rank: rankByPlayerId.get(player.id) ?? null,
-        points: pointsByPlayerId.get(player.id) ?? 0,
-        trainingFocus: player.currentFocus,
-        surfaceAffinities: {
-          clay: player.attributes.surfaceAffinities.get('clay'),
-          grass: player.attributes.surfaceAffinities.get('grass'),
-          hard: player.attributes.surfaceAffinities.get('hard'),
-          indoor: player.attributes.surfaceAffinities.get('indoor'),
-        },
-        lastResult: await this.lastResultFor(player.id),
-      })),
+      roster.map(async (player) => {
+        const rankBand = juniorEligibilityForAge(player.ageInWeeks);
+        return {
+          id: player.id,
+          name: player.name,
+          nationality: player.nationality,
+          ageInWeeks: player.ageInWeeks,
+          stage: player.stage,
+          stageNote: formatStageNote(player.stage, player.ageInWeeks, this.agingPolicy),
+          fatigue: player.fatigue,
+          overall: Math.round(player.attributes.overallRating()),
+          rank: byBand[rankBand].rank.get(player.id) ?? null,
+          rankBand,
+          points: byBand[rankBand].points.get(player.id) ?? 0,
+          trainingFocus: player.currentFocus,
+          surfaceAffinities: {
+            clay: player.attributes.surfaceAffinities.get('clay'),
+            grass: player.attributes.surfaceAffinities.get('grass'),
+            hard: player.attributes.surfaceAffinities.get('hard'),
+            indoor: player.attributes.surfaceAffinities.get('indoor'),
+          },
+          lastResult: await this.lastResultFor(player.id),
+        };
+      }),
     );
   }
 

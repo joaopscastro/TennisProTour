@@ -7,8 +7,8 @@ import { StandardPlayerGenerationPolicy } from '@tennis-manager/domain';
 import { WorldId } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy } from '@tennis-manager/domain';
-import { StandardTalentClaimPricingPolicy } from '@tennis-manager/domain';
-import { StandardCoachConversionPolicy } from '@tennis-manager/domain';
+import { StandardTalentClaimPricingPolicy, TalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { StandardCoachConversionPolicy, CoachConversionPolicy } from '@tennis-manager/domain';
 import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
@@ -86,6 +86,13 @@ export interface Dependencies {
   talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   managerXp: DrizzleManagerXpRepository;
   coaches: DrizzleCoachRepository;
+  /** Exposed on Dependencies (not just built inline in buildDependencies)
+   * so routes can compute the exact same real numbers a use case would
+   * — e.g. a talent-pool claim's XP cost or a coach conversion's
+   * preview cost/rating — without duplicating the formula or
+   * instantiating a second, possibly-drifted policy instance. */
+  talentClaimPricingPolicy: TalentClaimPricingPolicy;
+  coachConversionPolicy: CoachConversionPolicy;
   rosterDashboard: DrizzleRosterDashboardQuery;
   billing: StripeBillingAdapter;
   idGenerator: CryptoIdGenerator;
@@ -173,7 +180,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   // dashboard's stage-transition estimate is always against the BASE
   // policy regardless of Pro status anyway (see formatStageNote's doc
   // comment), so there's no reason to share the aging services' instance.
-  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy(), rankPosition);
+  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy(), {
+    senior: rankPosition,
+    u14: rankPositionU14,
+    u16: rankPositionU16,
+  });
   const rankingPointsTable = new StandardRankingPointsTable();
   const simulateMatch = new SimulateMatchUseCase(
     tournaments,
@@ -215,6 +226,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     talentPoolCandidates,
     managerXp,
     coaches,
+    talentClaimPricingPolicy,
+    coachConversionPolicy,
     rosterDashboard,
     billing,
     idGenerator,

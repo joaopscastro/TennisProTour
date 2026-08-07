@@ -1,16 +1,25 @@
 import { FastifyInstance } from 'fastify';
-import { PlayerId, TournamentId } from '@tennis-manager/domain';
+import { isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 
 const TOURNAMENT_TIERS = ['futures', 'challenger', 'tour', 'major', 'j30', 'j60', 'j100', 'j200', 'j300', 'j500', 'juniorMasters'];
-import { matchIdForSlot } from '@tennis-manager/application';
+import { countJuniorEntriesForWeek, JUNIOR_WEEKLY_ENTRY_CAP, matchIdForSlot } from '@tennis-manager/application';
+import { TournamentRepository } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { requireInternalAdmin, requireManager } from './auth';
 
-/** Thin serialization only — no domain rules here. */
-function toTournamentDto(tournament: Tournament) {
+/** Thin serialization only — no domain rules here, EXCEPT the two
+ * junior-entry-cap fields, which are only ever attached by the
+ * playerId-aware overload below (see GET /tournaments) — never
+ * computed from anything but the real JUNIOR_WEEKLY_ENTRY_CAP constant
+ * and TournamentRepository.findByPlayerAndWeek, the same source
+ * RegisterEntrantUseCase itself enforces against. */
+function toTournamentDto(
+  tournament: Tournament,
+  juniorEntryInfo?: { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number },
+) {
   return {
     id: tournament.id,
     tier: tournament.tier,
@@ -20,6 +29,7 @@ function toTournamentDto(tournament: Tournament) {
     drawSize: tournament.drawSize,
     hasStarted: tournament.hasStarted,
     entrants: tournament.entrants.map((entrant) => ({ playerId: entrant.playerId, seed: entrant.seed })),
+    ...(juniorEntryInfo ?? {}),
     rounds: tournament.getRounds().map((round) => ({
       roundNumber: round.roundNumber,
       matches: round.matches.map((match) => ({
@@ -35,6 +45,34 @@ function toTournamentDto(tournament: Tournament) {
       })),
     })),
   };
+}
+
+/** For every junior-tier tournament in the list, how many junior
+ * tournaments the given player has already entered in that
+ * tournament's specific week — one countJuniorEntriesForWeek call per
+ * DISTINCT (season, week) among the junior tournaments, not one per
+ * tournament, since a manager's open-tournament list is typically
+ * dominated by a handful of weeks. Senior tournaments never get this
+ * field at all (isJuniorTier gate matches RegisterEntrantUseCase's own
+ * scoping — see its doc comment on why the senior tour isn't capped). */
+async function attachJuniorEntryInfo(
+  tournaments: TournamentRepository,
+  list: Tournament[],
+  playerId: PlayerId,
+): Promise<Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number }>> {
+  const countByWeekKey = new Map<string, number>();
+  const result = new Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number }>();
+  for (const tournament of list) {
+    if (!isJuniorTier(tournament.tier)) continue;
+    const weekKey = `${tournament.weekScheduled.season}-${tournament.weekScheduled.week}`;
+    let count = countByWeekKey.get(weekKey);
+    if (count === undefined) {
+      count = await countJuniorEntriesForWeek(tournaments, playerId, tournament.weekScheduled);
+      countByWeekKey.set(weekKey, count);
+    }
+    result.set(tournament.id, { juniorEntryCountThisWeek: count, juniorEntryCapThisWeek: JUNIOR_WEEKLY_ENTRY_CAP });
+  }
+  return result;
 }
 
 interface OpenTournamentBody {
@@ -186,12 +224,22 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
   // exists — what the Tournaments nav index links to for brackets to
   // browse/watch). No unfiltered "list everything" mode on purpose:
   // every real caller so far wants one or the other, never both.
-  app.get<{ Querystring: { status?: string } }>('/tournaments', async (request, reply) => {
+  //
+  // Optional ?playerId= attaches juniorEntryCountThisWeek/CapThisWeek
+  // to every junior-tier tournament in the response, so a caller like
+  // EnterTournamentModal can disable an over-cap entry attempt up
+  // front instead of only discovering it from a failed POST — the
+  // count itself is real (RegisterEntrantUseCase's own source), not a
+  // client-side guess.
+  app.get<{ Querystring: { status?: string; playerId?: string } }>('/tournaments', async (request, reply) => {
+    const playerId = request.query.playerId ? PlayerId(request.query.playerId) : null;
     if (request.query.status === 'open') {
-      return (await deps.tournaments.findOpenForRegistration()).map(toTournamentDto);
+      const list = await deps.tournaments.findOpenForRegistration();
+      const juniorInfo = playerId ? await attachJuniorEntryInfo(deps.tournaments, list, playerId) : null;
+      return list.map((t) => toTournamentDto(t, juniorInfo?.get(t.id)));
     }
     if (request.query.status === 'started') {
-      return (await deps.tournaments.findStarted()).map(toTournamentDto);
+      return (await deps.tournaments.findStarted()).map((t) => toTournamentDto(t));
     }
     return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });

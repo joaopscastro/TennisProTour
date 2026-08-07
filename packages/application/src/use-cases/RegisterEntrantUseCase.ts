@@ -1,7 +1,7 @@
 import { isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
-import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
+import { countJuniorEntriesForWeek, JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -56,8 +56,7 @@ export class RegisterEntrantUseCase {
     }
 
     if (isJuniorTier(tournament.tier)) {
-      const sameWeekEntries = await this.tournaments.findByPlayerAndWeek(command.playerId, tournament.weekScheduled);
-      const juniorEntryCount = sameWeekEntries.filter((t) => isJuniorTier(t.tier)).length;
+      const juniorEntryCount = await countJuniorEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled);
       if (juniorEntryCount >= JUNIOR_WEEKLY_ENTRY_CAP) {
         throw new Error(
           `Player ${command.playerId} has already entered ${juniorEntryCount} junior tournaments in ` +

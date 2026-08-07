@@ -1,3 +1,6 @@
+import { GameWeek, isJuniorTier, PlayerId } from '@tennis-manager/domain';
+import { TournamentRepository } from '../ports/ports';
+
 /**
  * Real ITF rule, not a placeholder guess: "a player may enter up to
  * three ITF Junior Circuit tournaments in a single tournament week,
@@ -20,3 +23,18 @@
  * comment for why the senior tour isn't capped the same way.
  */
 export const JUNIOR_WEEKLY_ENTRY_CAP = 3;
+
+/** How many junior tournaments a player is already entered in for a
+ * given GameWeek — the exact count RegisterEntrantUseCase compares
+ * against JUNIOR_WEEKLY_ENTRY_CAP, factored out so a read-only caller
+ * (e.g. a tournament-list route deciding whether to let a manager even
+ * attempt an entry) can show the same real number up front instead of
+ * only learning it from a failed registration attempt. */
+export async function countJuniorEntriesForWeek(
+  tournaments: TournamentRepository,
+  playerId: PlayerId,
+  week: GameWeek,
+): Promise<number> {
+  const sameWeekEntries = await tournaments.findByPlayerAndWeek(playerId, week);
+  return sameWeekEntries.filter((t) => isJuniorTier(t.tier)).length;
+}

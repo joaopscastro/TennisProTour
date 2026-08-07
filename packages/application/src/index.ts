@@ -15,4 +15,6 @@ export * from './use-cases/GenerateJuniorTournamentsUseCase';
 export * from './use-cases/SimulateDueMatchesUseCase';
 export * from './use-cases/ConvertPlayerToCoachUseCase';
 export * from './use-cases/EnsureManagerAccountUseCase';
+export * from './use-cases/coachCap';
+export * from './use-cases/juniorEntryCap';
 export * from './queries/RankPositionQuery';

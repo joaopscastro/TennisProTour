@@ -33,7 +33,7 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchOpenTournaments()
+    fetchOpenTournaments(playerId)
       .then((all) => setTournaments(all.filter((t) => t.entrants.length < t.drawSize && !t.entrants.some((e) => e.playerId === playerId))))
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [playerId]);
@@ -49,6 +49,20 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
       setError(e instanceof Error ? e.message : String(e));
       setSubmitting(false);
     }
+  }
+
+  /** True once this player has already entered juniorEntryCapThisWeek
+   * junior tournaments in a given tournament's specific week — the
+   * real cap RegisterEntrantUseCase enforces (see
+   * juniorEntryCap.ts), surfaced here so the row is disabled up front
+   * rather than only failing after a click. Senior tournaments never
+   * carry these fields at all, so they're never blocked by this. */
+  function overCapFor(t: TournamentDto): boolean {
+    return (
+      t.juniorEntryCountThisWeek !== undefined &&
+      t.juniorEntryCapThisWeek !== undefined &&
+      t.juniorEntryCountThisWeek >= t.juniorEntryCapThisWeek
+    );
   }
 
   return (
@@ -87,14 +101,17 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
           )}
           {tournaments?.map((t) => {
             const selected = selectedId === t.id;
+            const overCap = overCapFor(t);
             return (
               <button
                 key={t.id}
-                onClick={() => setSelectedId(t.id)}
-                className="text-left rounded-[8px] px-[14px] py-[10px] cursor-pointer"
+                onClick={() => !overCap && setSelectedId(t.id)}
+                disabled={overCap}
+                className="text-left rounded-[8px] px-[14px] py-[10px] cursor-pointer disabled:cursor-not-allowed"
                 style={{
                   border: selected ? '1.5px solid oklch(20% 0.006 75)' : '1px solid oklch(90% 0.005 75)',
                   background: selected ? 'oklch(97% 0.003 75)' : 'white',
+                  opacity: overCap ? 0.55 : 1,
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -105,6 +122,14 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
                     >
                       {t.surface}
                     </div>
+                    {t.ageBand && (
+                      <div
+                        className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
+                        style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
+                      >
+                        {t.ageBand}
+                      </div>
+                    )}
                     <div className="text-[13.5px] font-semibold truncate">{t.id}</div>
                   </div>
                   <div className="text-[11.5px] flex-none" style={{ color: 'oklch(52% 0.006 75)' }}>
@@ -114,6 +139,11 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
                 <div className="text-[11.5px] mt-[3px]" style={{ color: 'oklch(52% 0.006 75)' }}>
                   {t.tier} · season {t.weekScheduled.season}, week {t.weekScheduled.week}
                 </div>
+                {overCap && (
+                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+                    Already entered {t.juniorEntryCountThisWeek}/{t.juniorEntryCapThisWeek} junior tournaments this week
+                  </div>
+                )}
               </button>
             );
           })}

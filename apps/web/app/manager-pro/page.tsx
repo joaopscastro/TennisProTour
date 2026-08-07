@@ -60,7 +60,7 @@ export default function ManagerProPage() {
 
   return (
     <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
-      <Sidebar active="manager-pro" tier={tier} />
+      <Sidebar active="manager-pro" tier={tier} xpBalance={entitlement?.xpBalance} />
 
       <div className="flex-1 p-9 max-w-[1080px] min-w-0">
         <div className="flex items-start justify-between gap-6 mb-2">

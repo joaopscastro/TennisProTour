@@ -26,6 +26,14 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
         >
           {t.surface}
         </div>
+        {t.ageBand && (
+          <div
+            className="text-[11px] font-bold tracking-[0.4px] uppercase px-[9px] py-[4px] rounded-[4px]"
+            style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
+          >
+            {t.ageBand}
+          </div>
+        )}
         <div>
           <div className="text-[14px] font-semibold">{t.id}</div>
           <div className="text-[12px]" style={{ color: 'oklch(50% 0.006 75)' }}>

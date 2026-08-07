@@ -22,6 +22,18 @@ CLAUDE.md.
   "(4) Deshawn Okafor."
 - Sentence case throughout, no title case, no ALL CAPS except small
   label text (e.g. column headers, badges).
+- Age-band badge: a small blue "U14"/"U16" pill (same blue used
+  nowhere else, so it reads as one consistent signal) wherever a
+  junior tournament or a junior-eligible player's ranking appears —
+  the tournament picker, the tournaments list, the bracket header, and
+  the roster dashboard's Rank column. Never shown for senior
+  tournaments/rankings — absence of the badge IS the "this is senior"
+  signal, not a separate "SENIOR" label.
+- Sidebar XP balance: a persistent, always-visible readout just above
+  the tier footer (not tucked into a page a manager has to navigate
+  to) — it's spent on two real decisions (claiming a talent-pool
+  candidate, converting a player to a coach), so it needs to be
+  checkable from wherever a manager is deciding either one.
 
 ## Roster dashboard
 - Roster sized for 2 (free) or 4 (Pro) players — never a long
@@ -35,6 +47,13 @@ CLAUDE.md.
   proportional to strength (0–60 scale), not flat yes/no.
 - Stage badge (Youth/Prime/Decline/Retired) plus a transition estimate,
   e.g. "Decline in ~4 seasons," "Retires in 1 season."
+- Rank column shows the age-band badge (see visual conventions above)
+  next to the rank number whenever a player's CURRENT age makes them
+  junior-eligible (`RosterDashboardEntryDto.rankBand`, derived from
+  `juniorEligibilityForAge` server-side, never guessed client-side) —
+  the number itself is that player's position within THAT band, not
+  the senior tour. No badge = senior rank, same as everywhere else the
+  badge convention applies.
 - Training Focus is a single dropdown with three grouped sections —
   Surface (Clay/Grass/Hard/Indoor), Technical (Serve/Forehand/Backhand/
   Volley), and Physical (Speed/Stamina/Strength) — exactly one
@@ -43,7 +62,29 @@ CLAUDE.md.
   all, a compile-time impossibility via the domain model's
   `TrainingFocus`/`TrainableAttribute` types, not a UI-level omission.
 - Row-level quick actions: Enter Tournament, change Training Focus —
-  no drill-in required. Release/cut a player requires drilling in.
+  no drill-in required. **The tournament picker (`EnterTournamentModal`)
+  shows the real age-band badge per junior tournament and disables any
+  row that would exceed the real ITF weekly junior entry cap** — see
+  `JUNIOR_WEEKLY_ENTRY_CAP` (3 tournaments/week, not a smaller
+  placeholder — see `juniorEntryCap.ts`'s doc comment for the sourcing)
+  — with the exact count shown ("Already entered 3/3 junior
+  tournaments this week"), computed server-side from the same query
+  `RegisterEntrantUseCase` itself enforces against, not a client-side
+  guess. Disabled up front, not just caught after a failed submit.
+  Release/cut a player requires drilling in.
+  **Convert to coach** lives in the same drill-in "More" menu as
+  Release, for the same reason: it's exactly as consequential
+  (permanent, removes the player from the roster) and shouldn't be a
+  one-click row action. Unlike Release (a native `window.confirm()`),
+  conversion opens a real modal — see `CoachConversionModal` — because
+  the manager needs to see the SPECIFIC XP cost and resulting
+  coachRating for that exact player (both pulled from the real
+  `CoachConversionPolicy`, never invented placeholder numbers) before
+  the explicit confirm step, not just acknowledge a generic warning
+  string. The modal states the coach cap plainly if the manager is
+  already at it (1 free tier / 2 Manager Pro — see `coachCap.ts`) and
+  disables the confirm button rather than letting the attempt fail
+  after the fact.
 - Sort options include fatigue and stage/age, not just alphabetical.
 - Real empty state for a brand-new manager: "Your roster is empty,"
   one-line explanation, "Browse Talent Pool" CTA — not a blank table.
@@ -71,7 +112,15 @@ CLAUDE.md.
   fuzzed), a rarity tier badge (Common/Strong/Exceptional — how good
   this player already is), a **separate** potential tier badge
   (Limited/Promising/High/Elite — how good scouts think they could
-  become), and a Claim button.
+  become), the real XP claim cost (`TalentClaimPricingPolicy.priceFor`,
+  never a flat/estimated number), and a Claim button.
+- **A candidate the manager can't afford stays fully visible, never
+  hidden or filtered out** — that would silently shrink the pool for
+  no reason a manager could see. The cost is shown muted/greyed
+  instead of the normal dark tone, Claim is disabled (not removed),
+  and a clear "Need N more XP" line states exactly how short the
+  manager is, computed from their real current balance, not a vague
+  "insufficient funds."
 - Rarity and potential get visually distinct badge colors, on purpose
   — they're answering two different questions (current ability vs.
   scouted upside) and reusing one color language for both would blur

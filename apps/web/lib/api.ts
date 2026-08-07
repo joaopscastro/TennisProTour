@@ -57,6 +57,10 @@ export interface RosterDashboardEntryDto {
   fatigue: number;
   overall: number;
   rank: number | null;
+  /** See RankingBand's doc comment above — which of the three
+   * independent rankings `rank`/`points` are scoped to, derived purely
+   * from the player's current age. */
+  rankBand: RankingBand;
   points: number;
   lastResult: string | null;
   trainingFocus: TrainingFocus | null;
@@ -69,7 +73,18 @@ export interface EntitlementDto {
   /** Custom-player-creation credits: +1 per confirmed Stripe
    * subscription renewal, spent one at a time by createCustomPlayer(). */
   customPlayerCredits: number;
+  /** Current XP balance — shown persistently in the sidebar (see
+   * Sidebar.tsx) so a manager never has to navigate anywhere specific
+   * to check it before deciding whether to claim a candidate or
+   * convert a player to a coach. */
+  xpBalance: number;
 }
+
+/** Which of a player's three independent rankings a roster-dashboard
+ * row's rank/points came from — see DrizzleRosterDashboardQuery's
+ * rankBand doc comment on the API side. Mirrors the domain's
+ * RankingBand. */
+export type RankingBand = 'senior' | 'u14' | 'u16';
 
 export type PlayerRarityTier = 'common' | 'strong' | 'exceptional';
 
@@ -92,6 +107,12 @@ export interface TalentPoolCandidateDto {
   nationality: string;
   tier: PlayerRarityTier;
   potentialTier: PotentialTier;
+  /** The exact XP cost claiming this candidate would charge right now
+   * — see TalentClaimPricingPolicy on the API side. Never claimable
+   * for free; a candidate whose cost exceeds the manager's balance
+   * still appears in the list (see docs/ui-direction.md's "never hide
+   * unaffordable candidates" convention), just with Claim disabled. */
+  claimCost: number;
   generatedAtWeek: { season: number; week: number };
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
@@ -107,14 +128,26 @@ export interface MatchOutcomeDto {
   setScores: Array<{ winnerGames: number; loserGames: number }>;
 }
 
+export type AgeBand = 'u14' | 'u16';
+
 export interface TournamentDto {
   id: string;
   tier: string;
+  /** null = senior tour. See docs/junior-circuit-research-and-proposal.md
+   * — the same six tier grades work identically for both junior bands,
+   * this is the field that distinguishes them. */
+  ageBand: AgeBand | null;
   surface: string;
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
   entrants: Array<{ playerId: string; seed: number | null }>;
+  /** Only present when GET /tournaments was called with ?playerId= AND
+   * this tournament is junior-tier — see fetchOpenTournaments and
+   * attachJuniorEntryInfo on the API side. Absent (not zero) for senior
+   * tournaments, since the weekly cap deliberately doesn't apply there. */
+  juniorEntryCountThisWeek?: number;
+  juniorEntryCapThisWeek?: number;
   rounds: Array<{
     roundNumber: number;
     matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
@@ -229,8 +262,43 @@ export function releasePlayer(playerId: string, managerId?: string): Promise<Pla
   return sendJson('POST', `/players/${encodeURIComponent(playerId)}/release`, undefined, managerId);
 }
 
-export function fetchOpenTournaments(): Promise<TournamentDto[]> {
-  return getJson('/tournaments?status=open');
+/** Read-only preview computed from the real CoachConversionPolicy —
+ * see GET /players/:id/coach-conversion-preview on the API side. Does
+ * not spend XP or touch the roster; shown before requiring the
+ * explicit confirmation step convertPlayerToCoach performs. */
+export interface CoachConversionPreviewDto {
+  xpCost: number;
+  coachRating: number;
+  xpBalance: number;
+  coachCount: number;
+  coachCap: number;
+  atCap: boolean;
+}
+
+export function fetchCoachConversionPreview(playerId: string, managerId?: string): Promise<CoachConversionPreviewDto> {
+  return getJson(`/players/${encodeURIComponent(playerId)}/coach-conversion-preview`, managerId);
+}
+
+export interface CoachDto {
+  id: string;
+  coachRating: number;
+  sourcePlayerName: string;
+}
+
+/** Permanent: removes the player from the roster and frees their slot
+ * — see ConvertPlayerToCoachUseCase's doc comment on the API side.
+ * Always preceded by fetchCoachConversionPreview + an explicit
+ * confirmation step (docs/ui-direction.md), never a single click. */
+export function convertPlayerToCoach(playerId: string, managerId?: string): Promise<CoachDto> {
+  return sendJson('POST', `/players/${encodeURIComponent(playerId)}/convert-to-coach`, undefined, managerId);
+}
+
+/** playerId, when supplied, attaches juniorEntryCountThisWeek/CapThisWeek
+ * to junior-tier tournaments in the response (see TournamentDto) — used
+ * by EnterTournamentModal to disable an over-cap entry attempt up
+ * front rather than only learning about it from a failed POST. */
+export function fetchOpenTournaments(playerId?: string): Promise<TournamentDto[]> {
+  return getJson(`/tournaments?status=open${playerId ? `&playerId=${encodeURIComponent(playerId)}` : ''}`);
 }
 
 export function fetchStartedTournaments(): Promise<TournamentDto[]> {
