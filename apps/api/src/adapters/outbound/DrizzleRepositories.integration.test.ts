@@ -139,11 +139,11 @@ describe('DrizzlePlayerRepository', () => {
     expect((await repository.findById(PlayerId('p-physceil-default')))!.physicalCeilings).toEqual({ speed: 100, stamina: 100, strength: 100 });
   });
 
-  it('round-trips a skill-cluster training focus and a null focus', async () => {
+  it('round-trips a single-attribute training focus and a null focus', async () => {
     const player = Player.hire(PlayerId('p-focus'), 'Focus Test', 19 * 52, attributes(30), ManagerId('m1'));
-    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
+    player.setTrainingFocus({ kind: 'attribute', attribute: 'speed' });
     await repository.save(player);
-    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toEqual({ kind: 'skill', cluster: 'mental' });
+    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toEqual({ kind: 'attribute', attribute: 'speed' });
 
     player.setTrainingFocus(null);
     await repository.save(player);

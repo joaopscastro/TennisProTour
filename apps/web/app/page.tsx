@@ -31,6 +31,10 @@ const SURFACES: Array<{ key: Surface; letter: string; color: string }> = [
   { key: 'indoor', letter: 'I', color: 'oklch(48% 0.05 300)' },
 ];
 
+// Single-attribute selection (see docs/training-redesign-per-attribute.md)
+// — no "Mental" group at all: mental attributes are never a training
+// target, enforced at the type level by TrainableAttribute, so there is
+// no `focus` value this file could even construct for one.
 const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus: TrainingFocus }> }> = [
   {
     label: 'Surface',
@@ -40,11 +44,20 @@ const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus
     })),
   },
   {
-    label: 'Skill',
+    label: 'Technical',
     options: [
-      { label: 'Technical', focus: { kind: 'skill', cluster: 'technical' } },
-      { label: 'Physical', focus: { kind: 'skill', cluster: 'physical' } },
-      { label: 'Mental', focus: { kind: 'skill', cluster: 'mental' } },
+      { label: 'Serve', focus: { kind: 'attribute', attribute: 'serve' } },
+      { label: 'Forehand', focus: { kind: 'attribute', attribute: 'forehand' } },
+      { label: 'Backhand', focus: { kind: 'attribute', attribute: 'backhand' } },
+      { label: 'Volley', focus: { kind: 'attribute', attribute: 'volley' } },
+    ],
+  },
+  {
+    label: 'Physical',
+    options: [
+      { label: 'Speed', focus: { kind: 'attribute', attribute: 'speed' } },
+      { label: 'Stamina', focus: { kind: 'attribute', attribute: 'stamina' } },
+      { label: 'Strength', focus: { kind: 'attribute', attribute: 'strength' } },
     ],
   },
 ];
@@ -74,13 +87,13 @@ function fatigueMeta(f: number): { color: string; label: string } {
 function trainingFocusLabel(focus: TrainingFocus | null): string {
   if (!focus) return 'Set focus';
   if (focus.kind === 'surface') return focus.surface[0].toUpperCase() + focus.surface.slice(1);
-  return focus.cluster[0].toUpperCase() + focus.cluster.slice(1);
+  return focus.attribute[0].toUpperCase() + focus.attribute.slice(1);
 }
 
 function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
   if (!a) return false;
   if (a.kind !== b.kind) return false;
-  return a.kind === 'surface' && b.kind === 'surface' ? a.surface === b.surface : (a as { cluster: string }).cluster === (b as { cluster: string }).cluster;
+  return a.kind === 'surface' && b.kind === 'surface' ? a.surface === b.surface : (a as { attribute: string }).attribute === (b as { attribute: string }).attribute;
 }
 
 const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, prime: 1, youth: 2, retired: 3 };

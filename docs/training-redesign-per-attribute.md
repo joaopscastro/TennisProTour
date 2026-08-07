@@ -1,5 +1,17 @@
 # Training redesign — per-attribute, three philosophies
 
+**Status: built.** The `TrainingFocus`/training-application piece this
+doc specifies (single-attribute selection, mental structurally
+excluded via the `TrainableAttribute` type, technical uncapped,
+physical gated per-attribute by reusing `applyPotentialDiminishingReturns`
+rather than a second plateau formula) is implemented in
+`packages/domain/src/player/{PlayerAttributes,TrainingPolicy,Player}.ts`,
+threaded through the DB schema/migration, the API routes/schema
+validation, and the roster dashboard's Training Focus dropdown. What
+this doc does NOT yet cover, because this pass didn't touch it: the
+surface × attribute weighting table below is still just the design,
+not wired into `StatisticalMatchSimulator` or anywhere else.
+
 Supersedes the coarse technical/physical/mental TrainingFocus cluster
 system. Surface is already handled separately (passive, match-driven —
 see the prior surface-affinity decision) and is not part of this.

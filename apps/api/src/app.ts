@@ -36,7 +36,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
-  app.register(cors, { origin: allowedOrigins, credentials: true });
+  // @fastify/cors defaults `methods` to 'GET,HEAD,POST' when not set
+  // explicitly — silently blocking every other verb at the browser's
+  // preflight check even though the route itself exists server-side
+  // (integration tests using undici/node-fetch don't enforce CORS, so
+  // this stayed invisible until exercised from a real browser). The
+  // training-focus PUT endpoint was blocked by exactly this before it
+  // was found and fixed here.
+  app.register(cors, { origin: allowedOrigins, credentials: true, methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'] });
   app.register(helmet);
   app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 

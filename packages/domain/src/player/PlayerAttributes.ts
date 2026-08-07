@@ -27,9 +27,40 @@ export class Skill {
 
 export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
 
-/** The three attribute groups PlayerAttributes is organized into —
- * the other training axis alongside Surface (see TrainingFocus). */
+/** The three attribute groups PlayerAttributes is organized into.
+ * Still used for read-only grouping (overallRating, the frontend
+ * dropdown's Technical/Physical headers) — no longer a training axis
+ * itself now that TrainingFocus selects a single attribute (see
+ * TrainingPolicy.ts); 'mental' in particular can never be a training
+ * target at all. */
 export type SkillCluster = 'technical' | 'physical' | 'mental';
+
+/** The four technical attributes — trainable, no hidden ceiling (see
+ * docs/training-redesign-per-attribute.md: "open-ended, bounded only
+ * by training investment and eventual decay"). */
+export type TechnicalAttribute = 'serve' | 'forehand' | 'backhand' | 'volley';
+
+/** The three physical attributes — trainable, each gated by its own
+ * hidden per-attribute ceiling (see
+ * PlayerGenerationPolicy.GeneratedPlayer.physicalCeilings and
+ * Player.physicalCeilings). */
+export type PhysicalAttribute = 'speed' | 'stamina' | 'strength';
+
+/** Every attribute a TrainingFocus can target — deliberately EXCLUDES
+ * 'consistency'/'clutch' (mental) at the type level: mental attributes
+ * are never a training target, not because of a runtime check that
+ * happens to reject them, but because there is no value of this union
+ * that could ever name one. See TrainingFocus's doc comment. */
+export type TrainableAttribute = TechnicalAttribute | PhysicalAttribute;
+
+const PHYSICAL_ATTRIBUTES: readonly PhysicalAttribute[] = ['speed', 'stamina', 'strength'];
+
+/** True for 'speed'/'stamina'/'strength', false for any TechnicalAttribute
+ * — the one place this distinction is derived, so Player.applyTraining
+ * doesn't need its own copy of this list. */
+export function isPhysicalAttribute(attribute: TrainableAttribute): attribute is PhysicalAttribute {
+  return (PHYSICAL_ATTRIBUTES as readonly string[]).includes(attribute);
+}
 
 /**
  * Percentage bonus per surface. Mirrors Rocking Rackets' rule that each
@@ -118,24 +149,18 @@ export class PlayerAttributes {
     return all.reduce((sum, s) => sum + s.value, 0) / all.length;
   }
 
-  /** Average current value across one skill cluster — used by
-   * Player.applyTraining as the "how close to the ceiling is this
-   * cluster already" input to the potential-ceiling diminishing-
-   * returns calculation (see TrainingPolicy.applyPotentialDiminishingReturns).
-   * A cluster average rather than per-skill deltas is a deliberate
-   * simplification: trainedOnCluster() already applies one uniform
-   * delta to every skill in a cluster, so gating that single delta by
-   * the cluster's average proximity to the ceiling keeps the
-   * ceiling mechanic consistent with the existing "one delta per
-   * cluster" training model instead of requiring per-skill ceiling
-   * tracking. */
-  clusterAverage(cluster: SkillCluster): number {
-    const values = Object.values(this.props[cluster]) as Skill[];
-    return values.reduce((sum, s) => sum + s.value, 0) / values.length;
+  /** Current value of a single trainable attribute — used by
+   * Player.applyTraining as the "how close to its own ceiling is THIS
+   * attribute already" input to the potential-ceiling diminishing-
+   * returns calculation (see TrainingPolicy.applyPotentialDiminishingReturns),
+   * now computed per-attribute rather than as a cluster average, since
+   * training targets exactly one attribute at a time. */
+  attributeValue(attribute: TrainableAttribute): number {
+    return isPhysicalAttribute(attribute) ? this.props.physical[attribute].value : this.props.technical[attribute].value;
   }
 
   /** Surface-focused training: bumps one surface affinity, leaves
-   * every skill cluster untouched. */
+   * every skill untouched. */
   trainedOnSurface(surface: Surface, gain: number): PlayerAttributes {
     return new PlayerAttributes({
       ...this.props,
@@ -143,38 +168,22 @@ export class PlayerAttributes {
     });
   }
 
-  /** Skill-focused training: bumps every skill in one cluster by the
-   * same delta, leaves surface affinities and the other two clusters
-   * untouched. */
-  trainedOnCluster(cluster: SkillCluster, delta: number): PlayerAttributes {
-    switch (cluster) {
-      case 'technical':
-        return new PlayerAttributes({
-          ...this.props,
-          technical: {
-            serve: this.props.technical.serve.add(delta),
-            forehand: this.props.technical.forehand.add(delta),
-            backhand: this.props.technical.backhand.add(delta),
-            volley: this.props.technical.volley.add(delta),
-          },
-        });
-      case 'physical':
-        return new PlayerAttributes({
-          ...this.props,
-          physical: {
-            speed: this.props.physical.speed.add(delta),
-            stamina: this.props.physical.stamina.add(delta),
-            strength: this.props.physical.strength.add(delta),
-          },
-        });
-      case 'mental':
-        return new PlayerAttributes({
-          ...this.props,
-          mental: {
-            consistency: this.props.mental.consistency.add(delta),
-            clutch: this.props.mental.clutch.add(delta),
-          },
-        });
+  /** Attribute-focused training: bumps exactly ONE technical or
+   * physical skill by delta, leaves every other skill (including the
+   * rest of its own cluster), surface affinities, and mental
+   * attributes entirely untouched — single-attribute selection per
+   * docs/training-redesign-per-attribute.md, not the old "one delta
+   * across a whole cluster" model. */
+  trainedOnAttribute(attribute: TrainableAttribute, delta: number): PlayerAttributes {
+    if (isPhysicalAttribute(attribute)) {
+      return new PlayerAttributes({
+        ...this.props,
+        physical: { ...this.props.physical, [attribute]: this.props.physical[attribute].add(delta) },
+      });
     }
+    return new PlayerAttributes({
+      ...this.props,
+      technical: { ...this.props.technical, [attribute]: this.props.technical[attribute].add(delta) },
+    });
   }
 }

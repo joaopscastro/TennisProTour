@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { PlayerId } from '@tennis-manager/domain';
-import { SkillCluster, Surface, TrainingFocus } from '@tennis-manager/domain';
+import { Surface, TrainableAttribute, TrainingFocus } from '@tennis-manager/domain';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 import { requireManager, ownershipMismatch } from './auth';
@@ -13,7 +13,7 @@ interface CreateCustomPlayerBody {
 
 interface TrainingFocusBody {
   /** null clears the standing focus. */
-  focus: { kind: 'surface'; surface: Surface } | { kind: 'skill'; cluster: SkillCluster } | null;
+  focus: { kind: 'surface'; surface: Surface } | { kind: 'attribute'; attribute: TrainableAttribute } | null;
 }
 
 const trainingFocusSchema = {
@@ -30,10 +30,14 @@ const trainingFocusSchema = {
     },
     {
       type: 'object',
-      required: ['kind', 'cluster'],
+      required: ['kind', 'attribute'],
       properties: {
-        kind: { const: 'skill' },
-        cluster: { type: 'string', enum: ['technical', 'physical', 'mental'] },
+        kind: { const: 'attribute' },
+        // Mental attributes ('consistency'/'clutch') deliberately absent
+        // — not just at the TypeScript level (TrainableAttribute), but
+        // here too, so a request that tries to target one is rejected
+        // by schema validation before it ever reaches the use case.
+        attribute: { type: 'string', enum: ['serve', 'forehand', 'backhand', 'volley', 'speed', 'stamina', 'strength'] },
       },
       additionalProperties: false,
     },

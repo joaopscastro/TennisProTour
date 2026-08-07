@@ -12,24 +12,44 @@ describe('StandardTrainingPolicy', () => {
     expect(policy.computeDelta(surfaceFocus, 'decline')).toBeCloseTo(0.6);
   });
 
-  it('computes a skill-cluster-focus delta that scales with stage', () => {
-    const skillFocus: TrainingFocus = { kind: 'skill', cluster: 'technical' };
+  it('computes an attribute-focus delta that scales with stage, identically for a technical and a physical attribute', () => {
+    const technicalFocus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+    const physicalFocus: TrainingFocus = { kind: 'attribute', attribute: 'speed' };
 
-    expect(policy.computeDelta(skillFocus, 'youth')).toBe(1.0);
-    expect(policy.computeDelta(skillFocus, 'prime')).toBe(0.6);
-    expect(policy.computeDelta(skillFocus, 'decline')).toBeCloseTo(0.3);
+    for (const focus of [technicalFocus, physicalFocus]) {
+      expect(policy.computeDelta(focus, 'youth')).toBe(1.0);
+      expect(policy.computeDelta(focus, 'prime')).toBe(0.6);
+      expect(policy.computeDelta(focus, 'decline')).toBeCloseTo(0.3);
+    }
   });
 
-  it('gives a surface focus exactly double a skill-cluster focus at the same stage', () => {
+  it('gives a surface focus exactly double an attribute focus at the same stage', () => {
     const surfaceFocus: TrainingFocus = { kind: 'surface', surface: 'hard' };
-    const skillFocus: TrainingFocus = { kind: 'skill', cluster: 'mental' };
+    const attributeFocus: TrainingFocus = { kind: 'attribute', attribute: 'stamina' };
 
-    expect(policy.computeDelta(surfaceFocus, 'prime')).toBe(2 * policy.computeDelta(skillFocus, 'prime'));
+    expect(policy.computeDelta(surfaceFocus, 'prime')).toBe(2 * policy.computeDelta(attributeFocus, 'prime'));
   });
 
   it('returns zero for a retired player regardless of focus', () => {
     expect(policy.computeDelta({ kind: 'surface', surface: 'grass' }, 'retired')).toBe(0);
-    expect(policy.computeDelta({ kind: 'skill', cluster: 'physical' }, 'retired')).toBe(0);
+    expect(policy.computeDelta({ kind: 'attribute', attribute: 'strength' }, 'retired')).toBe(0);
+  });
+});
+
+describe('TrainingFocus type safety', () => {
+  it('cannot be constructed to target a mental attribute — enforced at compile time, not by a runtime check', () => {
+    // @ts-expect-error — 'consistency' is not a TrainableAttribute (TechnicalAttribute | PhysicalAttribute);
+    // mental attributes can never be a TrainingFocus target, structurally, not via a check that happens to reject them.
+    const targetingConsistency: TrainingFocus = { kind: 'attribute', attribute: 'consistency' };
+    // @ts-expect-error — same for 'clutch', the other mental attribute.
+    const targetingClutch: TrainingFocus = { kind: 'attribute', attribute: 'clutch' };
+    // What actually proves the impossibility is `npx tsc --noEmit --strict`
+    // failing on THIS FILE if either line above were NOT a type error: an
+    // unused `@ts-expect-error` directive is itself a compile error. This
+    // test's runtime pass/fail is incidental — both lines execute fine as
+    // plain JS, since erasing the types leaves ordinary object literals.
+    expect(targetingConsistency).toBeDefined();
+    expect(targetingClutch).toBeDefined();
   });
 });
 

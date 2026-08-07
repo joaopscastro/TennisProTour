@@ -1,15 +1,24 @@
 import { PlayerLifecycleStage } from './Player';
-import { Surface, SkillCluster } from './PlayerAttributes';
+import { Surface, TrainableAttribute } from './PlayerAttributes';
 
 /**
- * Exactly one training axis per session: either a surface, or a skill
- * cluster — never both at once. This is a deliberate game-design
- * constraint (a manager picks one focus per week), not something this
- * type happens to allow; a discriminated union enforces it structurally
- * rather than by convention, so there's no "surface and cluster both
- * set" state to guard against elsewhere.
+ * Exactly one training axis per session: either a surface, or a single
+ * attribute — never both at once, and never a whole cluster at once
+ * (superseded the old cluster-level model — see
+ * docs/training-redesign-per-attribute.md). This is a deliberate
+ * game-design constraint (a manager picks one focus per week), not
+ * something this type happens to allow; a discriminated union enforces
+ * it structurally rather than by convention, so there's no "surface
+ * and attribute both set" state to guard against elsewhere.
+ *
+ * Mental attributes (consistency, clutch) can NEVER appear here — not
+ * because of a runtime check that happens to reject them, but because
+ * `TrainableAttribute` structurally excludes them. Attempting
+ * `{ kind: 'attribute', attribute: 'consistency' }` is a TypeScript
+ * compile error, not a value this type can ever hold at runtime.
+ * "Personality isn't coached" is enforced by the type checker.
  */
-export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'skill'; cluster: SkillCluster };
+export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'attribute'; attribute: TrainableAttribute };
 
 /**
  * Domain service seam (same swappable-policy pattern as AgingPolicy in
@@ -19,7 +28,7 @@ export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'ski
  * PlayerAgingService computes the full next PlayerAttributes outside
  * Player — training delegation happens one level down: Player itself
  * calls this policy to get a delta, then applies that delta via
- * PlayerAttributes' own trainedOnSurface()/trainedOnCluster() methods.
+ * PlayerAttributes' own trainedOnSurface()/trainedOnAttribute() methods.
  * Player's job stays "apply whatever delta I'm given," never "decide
  * how much training is worth."
  */
@@ -27,8 +36,8 @@ export interface TrainingPolicy {
   /** The attribute delta a single training session on this focus is
    * worth, for a player currently at this lifecycle stage. Positive
    * for surface affinity (percentage points, capped by
-   * SurfaceAffinities itself) and for skill clusters (0-100 points,
-   * capped by Skill itself). */
+   * SurfaceAffinities itself) and for the trained attribute (0-100
+   * points, capped by Skill itself). */
   computeDelta(focus: TrainingFocus, stage: PlayerLifecycleStage): number;
 }
 
@@ -52,13 +61,17 @@ export class StandardTrainingPolicy implements TrainingPolicy {
   computeDelta(focus: TrainingFocus, stage: PlayerLifecycleStage): number {
     const base = this.BASE_GAIN[stage];
     // Surface affinity moves on a 0-60 scale with its own cap, so a
-    // session is worth more raw points than the 0-100 skill clusters.
+    // session is worth more raw points than the 0-100 attribute scale.
+    // Technical and physical attributes train at the same base rate —
+    // what differs between them is whether Player.applyTraining gates
+    // the result by a hidden ceiling afterward, not this base amount.
     return focus.kind === 'surface' ? base * 2 : base;
   }
 }
 
-/** How close to a player's hidden potentialCeiling (see
- * PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling) training
+/** How close to a player's hidden ceiling (a physical attribute's own
+ * entry in Player.physicalCeilings — see
+ * PlayerGenerationPolicy.GeneratedPlayer.physicalCeilings) training
  * gains start tapering off, in skill points. Full-rate training up
  * until this close to the ceiling, then a linear falloff to zero
  * exactly at it — a player physically cannot be trained past what
@@ -67,22 +80,29 @@ const DIMINISHING_RETURNS_RANGE = 15;
 
 /**
  * Scales a base training delta down as `current` approaches `ceiling`
- * — the mechanical form of "a hidden ceiling on how much a player's
- * attributes can grow via training." Deliberately a standalone
- * function, not a TrainingPolicy method: TrainingPolicy answers "how
- * much is a session worth in a vacuum" (stage/focus only, unrelated to
- * any specific player's ceiling), while this answers "how much of that
- * actually lands given how close this particular player already is to
- * their cap" — two different concerns that would otherwise force every
+ * — the mechanical form of "a hidden ceiling on how much an attribute
+ * can grow via training." Deliberately a standalone function, not a
+ * TrainingPolicy method: TrainingPolicy answers "how much is a session
+ * worth in a vacuum" (stage/focus only, unrelated to any specific
+ * player's ceiling), while this answers "how much of that actually
+ * lands given how close this particular attribute already is to its
+ * cap" — two different concerns that would otherwise force every
  * TrainingPolicy implementation to know about ceilings even if a
  * future game-world variant wanted to ignore them.
  *
- * Only ever called for skill-cluster training in practice
- * (Player.applyTraining) — surface affinity training is deliberately
- * NOT gated by potentialCeiling at all: a skill ceiling and a surface
- * specialization are treated as unrelated axes here, matching
- * PlayerGenerationPolicy's own "surface affinities are rolled
- * independently of rarity tier" simplification.
+ * The ONE saturation formula in this codebase for "smoothly approach a
+ * hidden numeric cap, never abruptly stop or overshoot" — reused
+ * as-is, not reimplemented, everywhere that shape of problem shows up.
+ * Called for physical-attribute training only (Player.applyTraining,
+ * with `current`/`ceiling` now a single attribute's own value and its
+ * own physicalCeilings entry, not a cluster average against the old
+ * single overall potentialCeiling). Technical-attribute training is
+ * deliberately NOT gated by anything at all — see
+ * docs/training-redesign-per-attribute.md: technical is open-ended,
+ * bounded only by training investment and eventual decline-stage decay
+ * (StandardAgingPolicy.weeklyDeclineDelta), never a ceiling. Surface
+ * affinity training was never gated by a ceiling either, for the same
+ * "unrelated axis" reasoning as before this redesign.
  */
 export function applyPotentialDiminishingReturns(baseDelta: number, current: number, ceiling: number): number {
   if (baseDelta <= 0) return baseDelta; // only growth is gated, never decay

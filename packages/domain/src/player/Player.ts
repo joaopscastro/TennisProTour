@@ -1,5 +1,5 @@
 import { PlayerId, ManagerId } from '../shared/ids';
-import { PlayerAttributes } from './PlayerAttributes';
+import { PlayerAttributes, isPhysicalAttribute } from './PlayerAttributes';
 import { PhysicalCeilings } from './PlayerGenerationPolicy';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
@@ -48,21 +48,31 @@ export interface PlayerProps {
    * focus; this field only records the *standing selection* that
    * AdvanceWorldWeekUseCase reads each week. */
   currentFocus: TrainingFocus | null;
-  /** Hidden ceiling on skill-cluster training growth — set once at
-   * generation time (see PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling),
-   * carried unchanged from whatever talent-pool candidate or custom
-   * player this Player originated from. NEVER exposed via any DTO —
-   * see playerDto.ts, which deliberately does not read this field. */
+  /** Hidden ceiling generated at creation time (see
+   * PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling), carried
+   * unchanged from whatever talent-pool candidate or custom player
+   * this Player originated from. NEVER exposed via any DTO — see
+   * playerDto.ts, which deliberately does not read this field.
+   * ORPHANED by applyTraining() as of the per-attribute training
+   * redesign (docs/training-redesign-per-attribute.md): technical
+   * attributes are never gated by any ceiling, physical attributes are
+   * gated by their own physicalCeilings entry below instead, and
+   * mental attributes are never trained at all — nothing reads this
+   * field for training anymore. Still generated and stored (it also
+   * feeds PlayerGenerationPolicy's scouting-noise calculation at
+   * generation time, unrelated to training), left independent rather
+   * than derived from physicalCeilings per that doc's "deliberately
+   * deferred, not solved now" section — not removed, just no longer
+   * load-bearing for training. */
   potentialCeiling: number;
   /** Hidden per-physical-attribute training ceilings — set once at
    * generation time (see PlayerGenerationPolicy.GeneratedPlayer.physicalCeilings),
    * carried unchanged from whatever talent-pool candidate or custom
    * player this Player originated from. NEVER exposed via any DTO —
-   * see playerDto.ts, which deliberately does not read this field. Not
-   * yet consumed by applyTraining()/TrainingPolicy — that wiring is
-   * separate future work (see docs/training-redesign-per-attribute.md);
-   * this field exists so it's generated and persisted correctly ahead
-   * of that, not so it's already load-bearing. */
+   * see playerDto.ts, which deliberately does not read this field.
+   * This IS what applyTraining() gates physical-attribute training
+   * against now (see that method's doc comment) — potentialCeiling
+   * above is the one that's orphaned, not this one. */
   physicalCeilings: PhysicalCeilings;
   /** null = no pending graduation-carryover bonus. Set by
    * AdvanceWorldWeekUseCase the week this player crosses a junior
@@ -201,23 +211,30 @@ export class Player {
     return this.props.stage === 'retired';
   }
 
-  /** Applies a single training session for one focus (surface XOR
-   * skill cluster — see TrainingFocus). The BASE delta is computed by
-   * the injected policy, never by Player: this method's job is only to
+  /** Applies a single training session for one focus (surface, or a
+   * single technical/physical attribute — see TrainingFocus; mental is
+   * never a valid focus at all). The BASE delta is computed by the
+   * injected policy, never by Player: this method's job is only to
    * apply whatever delta it's given, not to decide how much a session
    * is worth in a vacuum. What Player DOES own is the further
    * adjustments intrinsic to this specific player/manager rather than
    * a swappable policy concern:
-   *  - scaling the base delta down as this player's own hidden
-   *    potentialCeiling approaches (see applyPotentialDiminishingReturns),
-   *    since a ceiling is a property of the player, not of the training
-   *    policy. Surface affinity training is deliberately NOT run
-   *    through the ceiling at all — see that function's doc comment.
-   *  - scaling the (already ceiling-adjusted, for skill clusters) delta
-   *    UP by the manager's coach, if any (see applyCoachBonus) — a
-   *    coach's benefit is general training efficiency, unrelated to a
-   *    player's own skill ceiling, so unlike the ceiling adjustment
-   *    this DOES apply to both surface and skill-cluster training.
+   *  - for a PHYSICAL attribute only, scaling the base delta down as
+   *    that specific attribute's own hidden ceiling
+   *    (physicalCeilings[attribute]) approaches (see
+   *    applyPotentialDiminishingReturns) — a ceiling is a property of
+   *    the player's own attribute, not of the training policy.
+   *    Technical-attribute training is NEVER run through a ceiling at
+   *    all (see docs/training-redesign-per-attribute.md: open-ended,
+   *    bounded only by training investment and decline-stage decay),
+   *    and neither is surface-affinity training — see
+   *    applyPotentialDiminishingReturns' own doc comment.
+   *  - scaling the (already ceiling-adjusted, for physical attributes)
+   *    delta UP by the manager's coach, if any (see applyCoachBonus) —
+   *    a coach's benefit is general training efficiency, unrelated to
+   *    any specific attribute's own ceiling, so unlike the ceiling
+   *    adjustment this DOES apply to surface, technical, AND physical
+   *    training alike.
    *
    * `coachRating` defaults to null (no coach) so every pre-existing
    * call site that never heard of coaches keeps training exactly as
@@ -237,10 +254,12 @@ export class Player {
       this.props = { ...this.props, attributes: updatedAttributes };
       return;
     }
-    const currentClusterAverage = this.props.attributes.clusterAverage(focus.cluster);
-    const ceilingAdjusted = applyPotentialDiminishingReturns(baseDelta, currentClusterAverage, this.props.potentialCeiling);
+    const { attribute } = focus;
+    const ceilingAdjusted = isPhysicalAttribute(attribute)
+      ? applyPotentialDiminishingReturns(baseDelta, this.props.attributes.attributeValue(attribute), this.props.physicalCeilings[attribute])
+      : baseDelta; // technical: no ceiling, ever
     const delta = applyCoachBonus(ceilingAdjusted, coachRating);
-    const updatedAttributes = this.props.attributes.trainedOnCluster(focus.cluster, delta);
+    const updatedAttributes = this.props.attributes.trainedOnAttribute(attribute, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
   }
 

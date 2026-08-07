@@ -120,6 +120,13 @@
       "when": 1786116462793,
       "tag": "0016_heavy_princess_powerful",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1786119297400,
+      "tag": "0017_trainable_attribute",
+      "breakpoints": true
     }
   ]
 }

@@ -55,7 +55,7 @@ describe('SetTrainingFocusUseCase', () => {
   it('clears the standing focus when given null', async () => {
     const players = new InMemoryPlayerRepository();
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
-    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
+    player.setTrainingFocus({ kind: 'attribute', attribute: 'serve' });
     await players.save(player);
 
     const useCase = new SetTrainingFocusUseCase(players);

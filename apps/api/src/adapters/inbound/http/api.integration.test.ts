@@ -132,7 +132,7 @@ describe('API', () => {
       method: 'PUT',
       url: '/players/owned-p1/training-focus',
       headers: { 'x-dev-manager-id': 'm2' },
-      payload: { focus: { kind: 'skill', cluster: 'technical' } },
+      payload: { focus: { kind: 'attribute', attribute: 'serve' } },
     });
     expect(crossManagerMutation.statusCode).toBe(404);
 

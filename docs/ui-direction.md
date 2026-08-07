@@ -35,11 +35,13 @@ CLAUDE.md.
   proportional to strength (0–60 scale), not flat yes/no.
 - Stage badge (Youth/Prime/Decline/Retired) plus a transition estimate,
   e.g. "Decline in ~4 seasons," "Retires in 1 season."
-- Training Focus is a single dropdown with two grouped sections —
-  Surface (Clay/Grass/Hard/Indoor) and Skill (Technical/Physical/
-  Mental) — exactly one selection at a time, never both simultaneously.
-  This is a deliberate constraint matching the domain model's
-  `TrainingFocus` discriminated union.
+- Training Focus is a single dropdown with three grouped sections —
+  Surface (Clay/Grass/Hard/Indoor), Technical (Serve/Forehand/Backhand/
+  Volley), and Physical (Speed/Stamina/Strength) — exactly one
+  selection at a time, never both simultaneously. There is no Mental
+  group: mental attributes are not a valid `TrainingFocus` value at
+  all, a compile-time impossibility via the domain model's
+  `TrainingFocus`/`TrainableAttribute` types, not a UI-level omission.
 - Row-level quick actions: Enter Tournament, change Training Focus —
   no drill-in required. Release/cut a player requires drilling in.
 - Sort options include fatigue and stage/age, not just alphabetical.

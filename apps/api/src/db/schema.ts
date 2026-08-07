@@ -64,14 +64,31 @@ export const ageBand = pgEnum('age_band', ['u14', 'u16']);
 export const rankingBand = pgEnum('ranking_band', ['senior', 'u14', 'u16']);
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
-export const skillCluster = pgEnum('skill_cluster', ['technical', 'physical', 'mental']);
+/** Every attribute TrainingFocus can target — see
+ * PlayerAttributes.TrainableAttribute. Deliberately excludes
+ * 'consistency'/'clutch' (mental): mental attributes are never a
+ * training target at all, per docs/training-redesign-per-attribute.md
+ * — enforced at the TypeScript level in the domain, and there is
+ * consequently no DB value that could ever represent one either.
+ * Replaces the old 'skill_cluster' enum (technical/physical/mental,
+ * one delta applied across a whole cluster) now that training targets
+ * a single attribute, not a cluster. */
+export const trainableAttribute = pgEnum('trainable_attribute', [
+  'serve',
+  'forehand',
+  'backhand',
+  'volley',
+  'speed',
+  'stamina',
+  'strength',
+]);
 /** Discriminant for a player's standing training focus (TrainingFocus
  * union). Kept as a small enum plus two nullable "value" columns
  * (below, on `players`) rather than a jsonb blob, matching this
  * schema's existing convention (skills/affinities are flat columns,
  * not json) — training focus is exactly one of a fixed small set of
  * values, never freeform data. */
-export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'skill']);
+export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'attribute']);
 /** How rare a generated player's skill band is — see
  * PlayerGenerationPolicy.PlayerRarityTier. */
 export const playerRarityTier = pgEnum('player_rarity_tier', ['common', 'strong', 'exceptional']);
@@ -220,14 +237,14 @@ export const players = pgTable('players', {
 
   /** The player's standing weekly training focus (Player.currentFocus
    * / TrainingFocus union) — null kind means no focus set. Exactly one
-   * of trainingFocusSurface/trainingFocusCluster is populated when
+   * of trainingFocusSurface/trainingFocusAttribute is populated when
    * kind is non-null, matching the domain's discriminated union;
    * enforced in the repository mapping layer, not by a DB constraint
    * (same pattern as setScores being validated by the Tournament
    * aggregate, not the schema). */
   trainingFocusKind: trainingFocusKind('training_focus_kind'),
   trainingFocusSurface: surface('training_focus_surface'),
-  trainingFocusCluster: skillCluster('training_focus_cluster'),
+  trainingFocusAttribute: trainableAttribute('training_focus_attribute'),
 
   /** A dormant graduation-carryover bonus (see
    * packages/domain/src/ranking/GraduationCarryover.ts) — null target

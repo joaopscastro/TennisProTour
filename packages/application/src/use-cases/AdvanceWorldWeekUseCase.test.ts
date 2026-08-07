@@ -354,7 +354,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const worldId = WorldId('main');
     await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
     const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
-    player.setTrainingFocus({ kind: 'skill', cluster: 'mental' });
+    player.setTrainingFocus({ kind: 'attribute', attribute: 'serve' });
     player.pullDomainEvents();
     await players.save(player);
 
@@ -375,7 +375,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const second = await useCase.execute({ worldId, tickKey: 'tick-1' });
 
     expect(second).toEqual({ advanced: false, playersAged: 0 });
-    expect((await players.findById(PlayerId('p1')))!.attributes.mental.clutch.value).toBe(33); // 30 + 3, not +6
+    expect((await players.findById(PlayerId('p1')))!.attributes.technical.serve.value).toBe(33); // 30 + 3, not +6
   });
 
   it("boosts a player's weekly training by their manager's coach, and leaves a coachless manager's players unboosted", async () => {

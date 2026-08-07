@@ -4,9 +4,9 @@ import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tenn
 import {
   PlayerAttributes,
   Skill,
-  SkillCluster,
   Surface,
   SurfaceAffinities,
+  TrainableAttribute,
   TrainingFocus,
 } from '@tennis-manager/domain';
 import { PlayerRepository } from '@tennis-manager/application';
@@ -58,17 +58,17 @@ function toDomainFocus(row: PlayerRow): TrainingFocus | null {
   if (row.trainingFocusKind === 'surface' && row.trainingFocusSurface) {
     return { kind: 'surface', surface: row.trainingFocusSurface as Surface };
   }
-  if (row.trainingFocusKind === 'skill' && row.trainingFocusCluster) {
-    return { kind: 'skill', cluster: row.trainingFocusCluster as SkillCluster };
+  if (row.trainingFocusKind === 'attribute' && row.trainingFocusAttribute) {
+    return { kind: 'attribute', attribute: row.trainingFocusAttribute as TrainableAttribute };
   }
   return null;
 }
 
 function focusColumns(focus: TrainingFocus | null) {
-  if (!focus) return { trainingFocusKind: null, trainingFocusSurface: null, trainingFocusCluster: null };
+  if (!focus) return { trainingFocusKind: null, trainingFocusSurface: null, trainingFocusAttribute: null };
   return focus.kind === 'surface'
-    ? { trainingFocusKind: 'surface' as const, trainingFocusSurface: focus.surface, trainingFocusCluster: null }
-    : { trainingFocusKind: 'skill' as const, trainingFocusSurface: null, trainingFocusCluster: focus.cluster };
+    ? { trainingFocusKind: 'surface' as const, trainingFocusSurface: focus.surface, trainingFocusAttribute: null }
+    : { trainingFocusKind: 'attribute' as const, trainingFocusSurface: null, trainingFocusAttribute: focus.attribute };
 }
 
 /** Reassembles the small dormant-bonus value from its two nullable

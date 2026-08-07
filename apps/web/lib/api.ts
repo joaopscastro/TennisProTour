@@ -28,9 +28,19 @@ export interface PlayerDto {
 }
 
 export type Surface = 'clay' | 'grass' | 'hard' | 'indoor';
+/** Still used for read-only grouping (attribute display, dropdown
+ * headers) — no longer a training axis itself now that TrainingFocus
+ * targets a single attribute. Kept for the same reason the domain side
+ * kept SkillCluster (see packages/domain/src/player/PlayerAttributes.ts). */
 export type SkillCluster = 'technical' | 'physical' | 'mental';
+export type TechnicalAttribute = 'serve' | 'forehand' | 'backhand' | 'volley';
+export type PhysicalAttribute = 'speed' | 'stamina' | 'strength';
+/** Mirrors the domain's TrainableAttribute — deliberately excludes
+ * 'consistency'/'clutch' (mental): mental attributes are never a
+ * training target, see packages/domain/src/player/PlayerAttributes.ts. */
+export type TrainableAttribute = TechnicalAttribute | PhysicalAttribute;
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
-export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'skill'; cluster: SkillCluster };
+export type TrainingFocus = { kind: 'surface'; surface: Surface } | { kind: 'attribute'; attribute: TrainableAttribute };
 
 /** The read model behind the Roster Dashboard screen — see
  * DrizzleRosterDashboardQuery on the API side for how this is built. */

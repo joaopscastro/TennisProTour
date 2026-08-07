@@ -1,11 +1,17 @@
-# CLAUDE.md — Tennis Manager RPG
+# AGENTS.md — Tennis Manager RPG
 
-This file gives Claude Code the context that was built up over a planning
-session in claude.ai chat, before any code was committed to this repo.
-Read this in full before making architectural decisions — it captures
-*why*, not just *what*, and several decisions here reverse an earlier,
+This file gives any coding agent (Claude Code, Codex, Cursor, or
+otherwise) the context that was built up over a planning session in
+claude.ai chat, before any code was committed to this repo. Read this
+in full before making architectural decisions — it captures *why*, not
+just *what*, and several decisions here reverse an earlier,
 less-considered version (e.g. the live-scoring approach), so don't
 re-derive from first principles without checking this first.
+
+This mirrors `CLAUDE.md` at the repo root — kept as a second file
+rather than a symlink/import so tools that only look for `AGENTS.md`
+(not `@`-import syntax) still get the full context. Update both files
+together; don't let them drift.
 
 See also: `docs/business-plan.md` (or wherever `tennis-manager-rpg-plan.md`
 gets placed in this repo) for the full business/market rationale. This
