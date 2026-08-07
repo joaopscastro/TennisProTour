@@ -64,13 +64,21 @@ CLAUDE.md.
 - Row-level quick actions: Enter Tournament, change Training Focus —
   no drill-in required. **The tournament picker (`EnterTournamentModal`)
   shows the real age-band badge per junior tournament and disables any
-  row that would exceed the real ITF weekly junior entry cap** — see
+  row that would exceed the real ITF weekly junior entry cap, OR that
+  the player isn't currently age-eligible for** — see
   `JUNIOR_WEEKLY_ENTRY_CAP` (3 tournaments/week, not a smaller
   placeholder — see `juniorEntryCap.ts`'s doc comment for the sourcing)
-  — with the exact count shown ("Already entered 3/3 junior
-  tournaments this week"), computed server-side from the same query
-  `RegisterEntrantUseCase` itself enforces against, not a client-side
-  guess. Disabled up front, not just caught after a failed submit.
+  and `isAgeEligibleForTournamentBand` (playing UP into an older junior
+  band is allowed — a real, deliberately-permitted case — playing down
+  or a senior player entering a junior draw is not). Both show the
+  exact reason inline ("Already entered 3/3 junior tournaments this
+  week" / "Too old for this u14 draw — a player may play up into an
+  older junior band, not down"), computed server-side from the same
+  sources `RegisterEntrantUseCase` itself enforces against, never a
+  client-side guess. Disabled up front, not just caught after a failed
+  submit. The senior tour never shows either message — no age
+  restriction applies there, on purpose (a junior player entering
+  senior tournaments is a normal, unrestricted case, not a bug).
   Release/cut a player requires drilling in.
   **Convert to coach** lives in the same drill-in "More" menu as
   Release, for the same reason: it's exactly as consequential

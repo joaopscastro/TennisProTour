@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { bestResultsCapFor, juniorEligibilityForAge, matchesRankingBand } from './RankingBand';
+import { bestResultsCapFor, isAgeEligibleForTournamentBand, juniorEligibilityForAge, matchesRankingBand } from './RankingBand';
 
 describe('juniorEligibilityForAge', () => {
   it('is u14 for any age up to and including 14 years (real Tennis Europe "14-and-under" eligibility, inclusive)', () => {
@@ -44,6 +44,36 @@ describe('juniorEligibilityForAge', () => {
         expect(order.indexOf(after)).toBe(order.indexOf(before) + 1);
       }
     }
+  });
+});
+
+describe('isAgeEligibleForTournamentBand', () => {
+  const U14_AGE = 10 * 52;
+  const U16_AGE = 15 * 52;
+  const SENIOR_AGE = 25 * 52;
+
+  it('never restricts the senior tour (null ageBand) — any age, including junior, may enter', () => {
+    expect(isAgeEligibleForTournamentBand(U14_AGE, null)).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U16_AGE, null)).toBe(true);
+    expect(isAgeEligibleForTournamentBand(SENIOR_AGE, null)).toBe(true);
+  });
+
+  it('allows a player to enter a tournament exactly matching their own current band', () => {
+    expect(isAgeEligibleForTournamentBand(U14_AGE, 'u14')).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U16_AGE, 'u16')).toBe(true);
+  });
+
+  it('allows "playing up" — a U14-eligible player may enter a U16 draw', () => {
+    expect(isAgeEligibleForTournamentBand(U14_AGE, 'u16')).toBe(true);
+  });
+
+  it('blocks "playing down" — a U16-eligible player may not enter a U14 draw', () => {
+    expect(isAgeEligibleForTournamentBand(U16_AGE, 'u14')).toBe(false);
+  });
+
+  it('blocks a senior player from either junior band', () => {
+    expect(isAgeEligibleForTournamentBand(SENIOR_AGE, 'u14')).toBe(false);
+    expect(isAgeEligibleForTournamentBand(SENIOR_AGE, 'u16')).toBe(false);
   });
 });
 

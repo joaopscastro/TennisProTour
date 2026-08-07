@@ -311,9 +311,11 @@ async function main(): Promise<void> {
       drawSize: COHORT_SIZE,
     });
     log(
-      `  Opened senior tournament "${seniorTournamentId}" (futures, hard, ${COHORT_SIZE}-draw). Nothing enforces age ` +
-        `eligibility at registration (a disclosed gap) — the cohort is still nominally youth-age by generation, entering ` +
-        'a senior draw anyway, exactly as a real manager could do today.',
+      `  Opened senior tournament "${seniorTournamentId}" (futures, hard, ${COHORT_SIZE}-draw). The senior tour has no ` +
+        `age floor — a junior-age player entering it is a deliberately UNRESTRICTED case (real tennis allows turning ` +
+        `pro before 18), not the gap that was fixed. isAgeEligibleForTournamentBand only ever blocks the OTHER ` +
+        `direction (too old for a real u14/u16 draw), so the cohort — still nominally youth-age by generation — ` +
+        'enters this senior draw exactly as a real manager could do today.',
     );
   }
   for (const id of cohortIds) {

@@ -1,6 +1,6 @@
-import { isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { countJuniorEntriesForWeek, JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 
 export interface RegisterEntrantCommand {
@@ -29,6 +29,17 @@ export interface RegisterEntrantCommand {
  * since nothing else currently transitions a tournament out of "open
  * for registration."
  *
+ * **Age eligibility**: a player may not register for a tournament with
+ * a real junior `ageBand` (`u14`/`u16`) unless their CURRENT age is
+ * eligible for it — see `isAgeEligibleForTournamentBand`'s doc comment
+ * for the exact one-directional rule (playing UP into an older junior
+ * band is allowed, playing down or a senior entering either junior
+ * band is not). This closes a previously-disclosed gap ("nothing
+ * enforces a registering player's actual age against a tournament's
+ * ageBand"). Deliberately scoped to junior tournaments only — a junior
+ * player entering the senior tour is a normal, unrestricted case in
+ * real tennis (and in this game), not a second gap to close here.
+ *
  * **Junior weekly entry cap**: if the tournament being entered is a
  * junior tier, a player may not already be registered in
  * `JUNIOR_WEEKLY_ENTRY_CAP` other tournaments the same GameWeek — the
@@ -46,6 +57,7 @@ export interface RegisterEntrantCommand {
 export class RegisterEntrantUseCase {
   constructor(
     private readonly tournaments: TournamentRepository,
+    private readonly players: PlayerRepository,
     private readonly bracketGenerator: BracketGenerator,
   ) {}
 
@@ -56,6 +68,22 @@ export class RegisterEntrantUseCase {
     }
 
     if (isJuniorTier(tournament.tier)) {
+      // Tournament.validateAgeBand guarantees ageBand is non-null
+      // exactly when the tier is a junior tier, so this branch is
+      // always where the age check belongs too — no separate `if
+      // (tournament.ageBand)` needed.
+      const player = await this.players.findById(command.playerId);
+      if (!player) {
+        throw new Error(`Player ${command.playerId} not found`);
+      }
+      if (!isAgeEligibleForTournamentBand(player.ageInWeeks, tournament.ageBand)) {
+        throw new Error(
+          `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for a ` +
+            `${tournament.ageBand} tournament — a player may play up into an older junior band, but not down ` +
+            `into a younger one, and a senior player may not enter a junior tournament at all`,
+        );
+      }
+
       const juniorEntryCount = await countJuniorEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled);
       if (juniorEntryCount >= JUNIOR_WEEKLY_ENTRY_CAP) {
         throw new Error(

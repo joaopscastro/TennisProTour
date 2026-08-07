@@ -148,6 +148,14 @@ export interface TournamentDto {
    * tournaments, since the weekly cap deliberately doesn't apply there. */
   juniorEntryCountThisWeek?: number;
   juniorEntryCapThisWeek?: number;
+  /** Whether the queried player's CURRENT age is eligible for this
+   * tournament's band — see isAgeEligibleForTournamentBand on the API
+   * side. "Playing up" into an older junior band is eligible; playing
+   * down, or a senior player entering either junior band, is not.
+   * Same presence rule as the two fields above: only set for junior
+   * tournaments when ?playerId= was supplied — the senior tour has no
+   * age restriction at all, so this is never attached there. */
+  ageEligible?: boolean;
   rounds: Array<{
     roundNumber: number;
     matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;

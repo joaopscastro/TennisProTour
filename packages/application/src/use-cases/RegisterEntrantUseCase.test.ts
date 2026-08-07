@@ -1,8 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
-import { Tournament } from '@tennis-manager/domain';
+import {
+  GameWeek,
+  ManagerId,
+  Player,
+  PlayerAttributes,
+  PlayerId,
+  Skill,
+  SurfaceAffinities,
+  Tournament,
+  TournamentId,
+} from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 import { RegisterEntrantUseCase } from './RegisterEntrantUseCase';
 
@@ -35,11 +44,55 @@ class InMemoryTournamentRepository implements TournamentRepository {
   }
 }
 
-function openJuniorTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1, week: 1 }): Tournament {
+class InMemoryPlayerRepository implements PlayerRepository {
+  private readonly store = new Map<PlayerId, Player>();
+
+  async findById(id: PlayerId): Promise<Player | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async findByManager(managerId: ManagerId): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === managerId);
+  }
+
+  async findAll(): Promise<Player[]> {
+    return [...this.store.values()];
+  }
+
+  async save(player: Player): Promise<void> {
+    this.store.set(player.id, player);
+  }
+}
+
+function fixedAttributes(): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(30), forehand: Skill.of(30), backhand: Skill.of(30), volley: Skill.of(30) },
+    physical: { speed: Skill.of(30), stamina: Skill.of(30), strength: Skill.of(30) },
+    mental: { consistency: Skill.of(30), clutch: Skill.of(30) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
+/** Registers a player fixture at a given age in the given repository —
+ * most tests here don't care about age at all (senior tournaments have
+ * no age check), but every player entering a junior-tier tournament
+ * now needs a real, saved Player with a real age for the new
+ * age-eligibility check to read. */
+async function savePlayer(players: InMemoryPlayerRepository, id: PlayerId, ageInWeeks: number): Promise<void> {
+  const player = Player.hire(id, `Player ${id}`, ageInWeeks, fixedAttributes(), ManagerId('m1'));
+  player.pullDomainEvents();
+  await players.save(player);
+}
+
+const U14_AGE = 10 * 52;
+const U16_AGE = 15 * 52;
+const SENIOR_AGE = 25 * 52;
+
+function openJuniorTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1, week: 1 }, ageBand: 'u14' | 'u16' = 'u14'): Tournament {
   return Tournament.open({
     id,
     tier: 'j100',
-    ageBand: 'u14',
+    ageBand,
     surface: 'clay',
     weekScheduled,
     drawSize: 16,
@@ -59,10 +112,11 @@ function openTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1,
 describe('RegisterEntrantUseCase', () => {
   it('registers a player into an already-open tournament and persists it', async () => {
     const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
     const tournamentId = TournamentId('t1');
     await tournaments.save(openTournament(tournamentId));
 
-    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
     await useCase.execute({ tournamentId, playerId: PlayerId('p1') });
 
     const saved = await tournaments.findById(tournamentId);
@@ -71,7 +125,8 @@ describe('RegisterEntrantUseCase', () => {
 
   it('throws when the tournament does not exist', async () => {
     const tournaments = new InMemoryTournamentRepository();
-    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+    const players = new InMemoryPlayerRepository();
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
     await expect(useCase.execute({ tournamentId: TournamentId('ghost'), playerId: PlayerId('p1') })).rejects.toThrow(
       /not found/,
@@ -80,6 +135,7 @@ describe('RegisterEntrantUseCase', () => {
 
   it('throws when the tournament has already started (delegated to the aggregate)', async () => {
     const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
     const tournamentId = TournamentId('t1');
     const tournament = openTournament(tournamentId);
     for (let i = 1; i <= 16; i++) {
@@ -89,16 +145,17 @@ describe('RegisterEntrantUseCase', () => {
     tournament.startWithBracket([round1]);
     await tournaments.save(tournament);
 
-    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
     await expect(useCase.execute({ tournamentId, playerId: PlayerId('p17') })).rejects.toThrow(/already started/);
   });
 
   it('auto-starts the bracket the moment the last slot fills, and not before', async () => {
     const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
     const tournamentId = TournamentId('t1');
     await tournaments.save(openTournament(tournamentId));
 
-    const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
     for (let i = 1; i <= 15; i++) {
       await useCase.execute({ tournamentId, playerId: PlayerId(`p${i}`), seed: i });
       expect((await tournaments.findById(tournamentId))!.hasStarted).toBe(false);
@@ -113,12 +170,77 @@ describe('RegisterEntrantUseCase', () => {
     expect(started!.getRounds()[0].matches).toHaveLength(8);
   });
 
+  describe('age eligibility for junior tournaments', () => {
+    it('allows a player whose current age matches the tournament band exactly', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const tournamentId = TournamentId('u14-t1');
+      await tournaments.save(openJuniorTournament(tournamentId, undefined, 'u14'));
+      await savePlayer(players, PlayerId('p1'), U14_AGE);
+
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('p1') })).resolves.toBeUndefined();
+    });
+
+    it('allows a U14-eligible player to "play up" into a U16 draw', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const tournamentId = TournamentId('u16-t1');
+      await tournaments.save(openJuniorTournament(tournamentId, undefined, 'u16'));
+      await savePlayer(players, PlayerId('p1'), U14_AGE);
+
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('p1') })).resolves.toBeUndefined();
+    });
+
+    it('blocks a U16-eligible player from "playing down" into a U14 draw', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const tournamentId = TournamentId('u14-t1');
+      await tournaments.save(openJuniorTournament(tournamentId, undefined, 'u14'));
+      await savePlayer(players, PlayerId('p1'), U16_AGE);
+
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('p1') })).rejects.toThrow(/not age-eligible/);
+
+      const tournament = await tournaments.findById(tournamentId);
+      expect(tournament!.entrants).toHaveLength(0);
+    });
+
+    it('blocks a senior player from entering either junior band', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const u14Id = TournamentId('u14-t1');
+      const u16Id = TournamentId('u16-t1');
+      await tournaments.save(openJuniorTournament(u14Id, undefined, 'u14'));
+      await tournaments.save(openJuniorTournament(u16Id, undefined, 'u16'));
+      await savePlayer(players, PlayerId('p1'), SENIOR_AGE);
+
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      await expect(useCase.execute({ tournamentId: u14Id, playerId: PlayerId('p1') })).rejects.toThrow(/not age-eligible/);
+      await expect(useCase.execute({ tournamentId: u16Id, playerId: PlayerId('p1') })).rejects.toThrow(/not age-eligible/);
+    });
+
+    it('never applies any age check to the senior tour — a senior-age player registers into a senior tournament exactly as before', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const tournamentId = TournamentId('senior-t1');
+      await tournaments.save(openTournament(tournamentId));
+      await savePlayer(players, PlayerId('p1'), U14_AGE); // even a junior-age player: unrestricted on the senior tour
+
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('p1') })).resolves.toBeUndefined();
+    });
+  });
+
   describe('junior weekly entry cap', () => {
     it(`rejects registering a player into a ${JUNIOR_WEEKLY_ENTRY_CAP + 1}th junior tournament in the same GameWeek`, async () => {
       const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
       const week: GameWeek = { season: 1, week: 1 };
       const player = PlayerId('junior-player');
-      const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+      await savePlayer(players, player, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
       // Fill up the cap first.
       for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
@@ -142,10 +264,13 @@ describe('RegisterEntrantUseCase', () => {
 
     it('allows entering junior tournaments up to the cap, and allows a different player unaffected by another player’s count', async () => {
       const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
       const week: GameWeek = { season: 1, week: 1 };
       const player = PlayerId('junior-player');
       const otherPlayer = PlayerId('another-junior-player');
-      const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+      await savePlayer(players, player, U14_AGE);
+      await savePlayer(players, otherPlayer, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
       for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
         const id = TournamentId(`j${i}`);
@@ -164,10 +289,12 @@ describe('RegisterEntrantUseCase', () => {
 
     it('does not count a junior entry from a different GameWeek against the cap', async () => {
       const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
       const week1: GameWeek = { season: 1, week: 1 };
       const week2: GameWeek = { season: 1, week: 2 };
       const player = PlayerId('junior-player');
-      const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+      await savePlayer(players, player, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
       for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
         const id = TournamentId(`week1-j${i}`);
@@ -185,9 +312,10 @@ describe('RegisterEntrantUseCase', () => {
 
     it('does not apply the junior cap to senior-tier registration — a player may enter more than the junior cap worth of senior tournaments in one week', async () => {
       const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
       const week: GameWeek = { season: 1, week: 1 };
       const player = PlayerId('senior-player');
-      const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
       for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP + 2; i++) {
         const id = TournamentId(`senior${i}`);
@@ -201,9 +329,11 @@ describe('RegisterEntrantUseCase', () => {
 
     it('does not let a senior registration count against, or be blocked by, a junior weekly count', async () => {
       const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
       const week: GameWeek = { season: 1, week: 1 };
       const player = PlayerId('mixed-player');
-      const useCase = new RegisterEntrantUseCase(tournaments, new BracketGenerator());
+      await savePlayer(players, player, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
       for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
         const id = TournamentId(`j${i}`);

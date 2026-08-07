@@ -65,6 +65,15 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
     );
   }
 
+  /** True when this player's current age is too old for this junior
+   * band — playing UP into an older junior band is fine (ageEligible
+   * stays true then), only playing down or a senior entering a junior
+   * draw sets this. Senior tournaments never carry `ageEligible` at
+   * all (undefined), so they're never blocked by this. */
+  function ageIneligibleFor(t: TournamentDto): boolean {
+    return t.ageEligible === false;
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -102,16 +111,18 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
           {tournaments?.map((t) => {
             const selected = selectedId === t.id;
             const overCap = overCapFor(t);
+            const ageIneligible = ageIneligibleFor(t);
+            const blocked = overCap || ageIneligible;
             return (
               <button
                 key={t.id}
-                onClick={() => !overCap && setSelectedId(t.id)}
-                disabled={overCap}
+                onClick={() => !blocked && setSelectedId(t.id)}
+                disabled={blocked}
                 className="text-left rounded-[8px] px-[14px] py-[10px] cursor-pointer disabled:cursor-not-allowed"
                 style={{
                   border: selected ? '1.5px solid oklch(20% 0.006 75)' : '1px solid oklch(90% 0.005 75)',
                   background: selected ? 'oklch(97% 0.003 75)' : 'white',
-                  opacity: overCap ? 0.55 : 1,
+                  opacity: blocked ? 0.55 : 1,
                 }}
               >
                 <div className="flex items-center justify-between gap-2">
@@ -139,7 +150,12 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
                 <div className="text-[11.5px] mt-[3px]" style={{ color: 'oklch(52% 0.006 75)' }}>
                   {t.tier} · season {t.weekScheduled.season}, week {t.weekScheduled.week}
                 </div>
-                {overCap && (
+                {ageIneligible && (
+                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+                    Too old for this {t.ageBand} draw — a player may play up into an older junior band, not down
+                  </div>
+                )}
+                {!ageIneligible && overCap && (
                   <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(50% 0.16 30)' }}>
                     Already entered {t.juniorEntryCountThisWeek}/{t.juniorEntryCapThisWeek} junior tournaments this week
                   </div>

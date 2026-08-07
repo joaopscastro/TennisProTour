@@ -243,7 +243,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     refreshTalentPool: new RefreshTalentPoolUseCase(talentPoolCandidates, worlds, generationPolicy, generationRandom, idGenerator),
     openTournament,
     openRegistration,
-    registerEntrant: new RegisterEntrantUseCase(tournaments, bracketGenerator),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger),
     generateJuniorTournaments,

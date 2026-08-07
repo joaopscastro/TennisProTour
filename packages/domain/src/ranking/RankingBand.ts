@@ -66,3 +66,36 @@ export function juniorEligibilityForAge(ageInWeeks: number): RankingBand {
   if (ageInWeeks <= U16_MAX_AGE_WEEKS) return 'u16';
   return 'senior';
 }
+
+/**
+ * Whether a player of this age may register for a tournament scoped
+ * to `tournamentAgeBand` (`null` = senior tour). This is deliberately
+ * ONE-DIRECTIONAL, matching how age eligibility actually works in real
+ * tennis:
+ *
+ * - The senior tour (`null`) has no age floor or ceiling here — a
+ *   junior player entering senior events is normal (many top players
+ *   turn pro before 18), not a gap to close. Nothing about this
+ *   function restricts that direction; it only ever returns `false`
+ *   for a REAL junior tournament (`u14`/`u16`).
+ * - A player may "play up" into an OLDER band than their own current
+ *   eligibility (a U14-eligible player entering a U16 draw) — a real,
+ *   intentionally-permitted case, not an oversight (see
+ *   `juniorEligibilityForAge`'s own doc comment, which already flagged
+ *   this as a case this game should allow). A senior player, or a
+ *   U16-eligible player, may NOT play down into `u14` — you cannot
+ *   become younger than you are.
+ *
+ * This is the fix for the previously-disclosed gap ("nothing enforces
+ * a registering player's actual age against a tournament's ageBand" —
+ * see CLAUDE.md/RegisterEntrantUseCase's prior doc comment): the gap
+ * only ever needed closing in the "too old for this junior draw"
+ * direction; the "too young for senior" direction was never a gap at
+ * all, since real tennis doesn't restrict it either.
+ */
+export function isAgeEligibleForTournamentBand(ageInWeeks: number, tournamentAgeBand: AgeBand | null): boolean {
+  if (tournamentAgeBand === null) return true;
+  const playerBand = juniorEligibilityForAge(ageInWeeks);
+  if (tournamentAgeBand === 'u14') return playerBand === 'u14';
+  return playerBand === 'u14' || playerBand === 'u16';
+}

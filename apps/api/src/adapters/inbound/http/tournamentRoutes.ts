@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -10,15 +10,15 @@ import { TournamentRepository } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { requireInternalAdmin, requireManager } from './auth';
 
-/** Thin serialization only — no domain rules here, EXCEPT the two
- * junior-entry-cap fields, which are only ever attached by the
+/** Thin serialization only — no domain rules here, EXCEPT the
+ * player-scoped fields, which are only ever attached by the
  * playerId-aware overload below (see GET /tournaments) — never
  * computed from anything but the real JUNIOR_WEEKLY_ENTRY_CAP constant
- * and TournamentRepository.findByPlayerAndWeek, the same source
+ * and isAgeEligibleForTournamentBand, the same sources
  * RegisterEntrantUseCase itself enforces against. */
 function toTournamentDto(
   tournament: Tournament,
-  juniorEntryInfo?: { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number },
+  playerScopedInfo?: { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number; ageEligible: boolean },
 ) {
   return {
     id: tournament.id,
@@ -29,7 +29,7 @@ function toTournamentDto(
     drawSize: tournament.drawSize,
     hasStarted: tournament.hasStarted,
     entrants: tournament.entrants.map((entrant) => ({ playerId: entrant.playerId, seed: entrant.seed })),
-    ...(juniorEntryInfo ?? {}),
+    ...(playerScopedInfo ?? {}),
     rounds: tournament.getRounds().map((round) => ({
       roundNumber: round.roundNumber,
       matches: round.matches.map((match) => ({
@@ -47,21 +47,26 @@ function toTournamentDto(
   };
 }
 
-/** For every junior-tier tournament in the list, how many junior
+/** For every junior-tier tournament in the list: how many junior
  * tournaments the given player has already entered in that
- * tournament's specific week — one countJuniorEntriesForWeek call per
+ * tournament's specific week (one countJuniorEntriesForWeek call per
  * DISTINCT (season, week) among the junior tournaments, not one per
  * tournament, since a manager's open-tournament list is typically
- * dominated by a handful of weeks. Senior tournaments never get this
- * field at all (isJuniorTier gate matches RegisterEntrantUseCase's own
- * scoping — see its doc comment on why the senior tour isn't capped). */
+ * dominated by a handful of weeks), and whether the player's CURRENT
+ * age is eligible for that tournament's band at all
+ * (isAgeEligibleForTournamentBand — a player who's aged out, or a
+ * senior player, gets ageEligible: false). Senior tournaments never
+ * get any of this — isJuniorTier gate matches RegisterEntrantUseCase's
+ * own scoping (see its doc comment on why the senior tour is
+ * unrestricted in both the cap and the age-eligibility direction). */
 async function attachJuniorEntryInfo(
   tournaments: TournamentRepository,
   list: Tournament[],
   playerId: PlayerId,
-): Promise<Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number }>> {
+  playerAgeInWeeks: number,
+): Promise<Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number; ageEligible: boolean }>> {
   const countByWeekKey = new Map<string, number>();
-  const result = new Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number }>();
+  const result = new Map<string, { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number; ageEligible: boolean }>();
   for (const tournament of list) {
     if (!isJuniorTier(tournament.tier)) continue;
     const weekKey = `${tournament.weekScheduled.season}-${tournament.weekScheduled.week}`;
@@ -70,7 +75,11 @@ async function attachJuniorEntryInfo(
       count = await countJuniorEntriesForWeek(tournaments, playerId, tournament.weekScheduled);
       countByWeekKey.set(weekKey, count);
     }
-    result.set(tournament.id, { juniorEntryCountThisWeek: count, juniorEntryCapThisWeek: JUNIOR_WEEKLY_ENTRY_CAP });
+    result.set(tournament.id, {
+      juniorEntryCountThisWeek: count,
+      juniorEntryCapThisWeek: JUNIOR_WEEKLY_ENTRY_CAP,
+      ageEligible: isAgeEligibleForTournamentBand(playerAgeInWeeks, tournament.ageBand),
+    });
   }
   return result;
 }
@@ -226,16 +235,17 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
   // every real caller so far wants one or the other, never both.
   //
   // Optional ?playerId= attaches juniorEntryCountThisWeek/CapThisWeek
-  // to every junior-tier tournament in the response, so a caller like
-  // EnterTournamentModal can disable an over-cap entry attempt up
-  // front instead of only discovering it from a failed POST — the
-  // count itself is real (RegisterEntrantUseCase's own source), not a
-  // client-side guess.
+  // and ageEligible to every junior-tier tournament in the response,
+  // so a caller like EnterTournamentModal can disable an over-cap or
+  // age-ineligible entry attempt up front instead of only discovering
+  // it from a failed POST — both are real (RegisterEntrantUseCase's
+  // own sources), never a client-side guess.
   app.get<{ Querystring: { status?: string; playerId?: string } }>('/tournaments', async (request, reply) => {
     const playerId = request.query.playerId ? PlayerId(request.query.playerId) : null;
     if (request.query.status === 'open') {
       const list = await deps.tournaments.findOpenForRegistration();
-      const juniorInfo = playerId ? await attachJuniorEntryInfo(deps.tournaments, list, playerId) : null;
+      const player = playerId ? await deps.players.findById(playerId) : null;
+      const juniorInfo = playerId && player ? await attachJuniorEntryInfo(deps.tournaments, list, playerId, player.ageInWeeks) : null;
       return list.map((t) => toTournamentDto(t, juniorInfo?.get(t.id)));
     }
     if (request.query.status === 'started') {
