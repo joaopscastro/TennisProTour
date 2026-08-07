@@ -2,19 +2,32 @@ import { describe, expect, it } from 'vitest';
 import { bestResultsCapFor, juniorEligibilityForAge, matchesRankingBand } from './RankingBand';
 
 describe('juniorEligibilityForAge', () => {
-  it('is u14 for any age under 14 years', () => {
+  it('is u14 for any age up to and including 14 years (real Tennis Europe "14-and-under" eligibility, inclusive)', () => {
     expect(juniorEligibilityForAge(0)).toBe('u14');
     expect(juniorEligibilityForAge(14 * 52 - 1)).toBe('u14');
+    expect(juniorEligibilityForAge(14 * 52)).toBe('u14');
   });
 
-  it('is u16 from exactly 14 years up to (not including) 16 years', () => {
-    expect(juniorEligibilityForAge(14 * 52)).toBe('u16');
+  it('is u16 from just past 14 years up to and including 16 years', () => {
+    expect(juniorEligibilityForAge(14 * 52 + 1)).toBe('u16');
     expect(juniorEligibilityForAge(16 * 52 - 1)).toBe('u16');
+    expect(juniorEligibilityForAge(16 * 52)).toBe('u16');
   });
 
-  it('is senior from exactly 16 years onward', () => {
-    expect(juniorEligibilityForAge(16 * 52)).toBe('senior');
+  it('is senior from just past 16 years onward', () => {
+    expect(juniorEligibilityForAge(16 * 52 + 1)).toBe('senior');
     expect(juniorEligibilityForAge(40 * 52)).toBe('senior');
+  });
+
+  it('a player generated at exactly TALENT_POOL_AGE_RANGE.minWeeks (the pool\'s youngest possible age) is U14-eligible, not U16 — the exact bug this boundary fix closes', () => {
+    // TALENT_POOL_AGE_RANGE.minWeeks is 14 * 52 (see
+    // talentPoolAgeRange.ts) — duplicated here as a literal, not
+    // imported, since packages/domain cannot depend on
+    // packages/application (hexagonal boundary), and the whole point
+    // of this test is pinning the exact value that broke under the
+    // old strict `<` check.
+    const poolMinAgeWeeks = 14 * 52;
+    expect(juniorEligibilityForAge(poolMinAgeWeeks)).toBe('u14');
   });
 
   it('a single one-week tick can only ever move eligibility to the immediately next band, never skip one', () => {

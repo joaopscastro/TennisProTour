@@ -19,9 +19,17 @@ import { AgeRange } from '@tennis-manager/domain';
  *
  * Real, worth-knowing consequence of this exact range: 14*52 (728
  * weeks) is precisely RankingBand's U14/U16 boundary
- * (juniorEligibilityForAge), so every freshly-generated player lands
- * in the U16 junior band, never U14 — there is still no path that
- * generates a player young enough to be U14-eligible. See
+ * (juniorEligibilityForAge), which is INCLUSIVE at that boundary (real
+ * Tennis Europe "14-and-under" eligibility) — so a generated player
+ * CAN land in U14, but only if they roll exactly minWeeks (728); every
+ * other age in this range (729-831) lands in U16. That's roughly a
+ * 1-in-206 chance per generation (the single integer week 728 out of
+ * the 206-week-wide roll-then-round space this range's uniform draw
+ * covers), not a meaningful supply of U14 candidates — U14 is now
+ * reachable through the real acquisition flow, not abundant in it. If
+ * genuine U14 depth in the pool matters, that's a range decision (e.g.
+ * lowering minWeeks below 728) for a future pass to make deliberately,
+ * not something implied by this fix. See
  * docs/junior-circuit-research-and-proposal.md's status section.
  */
 export const TALENT_POOL_AGE_RANGE: AgeRange = {

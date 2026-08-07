@@ -438,7 +438,11 @@ describe('AdvanceWorldWeekUseCase', () => {
       const worldId = WorldId('main');
       await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
 
-      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
+      // 14*52 (not 14*52 - 1) is the real, inclusive U14 upper edge —
+      // "14-and-under" — so this player is still U14-eligible one tick
+      // before this test starts them; the tick below crosses them to
+      // 14*52 + 1, the first genuinely-U16 week.
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52, startingAttributes(), ManagerId('m1'));
       player.pullDomainEvents();
       await players.save(player);
       await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));
@@ -459,7 +463,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       await useCase.execute({ worldId, tickKey: 'tick-1' });
 
       const aged = await players.findById(PlayerId('p1'));
-      expect(aged!.ageInWeeks).toBe(14 * 52); // exactly crossed into U16 eligibility
+      expect(aged!.ageInWeeks).toBe(14 * 52 + 1); // exactly crossed into U16 eligibility
       expect(aged!.dormantCarryoverBonus).toEqual({
         targetBand: 'u16',
         bonusPoints: 100 * GRADUATION_CARRYOVER_FRACTION,
@@ -540,7 +544,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       const worldId = WorldId('main');
       await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
 
-      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
+      // See the first test in this describe block for why 14*52 (not
+      // 14*52 - 1) is the correct starting age to cross on this tick.
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52, startingAttributes(), ManagerId('m1'));
       player.pullDomainEvents();
       await players.save(player);
       await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));

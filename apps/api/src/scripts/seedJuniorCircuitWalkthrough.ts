@@ -55,13 +55,18 @@ import { buildDependencies } from '../composition';
  * ageInWeeks — is exactly what a real manager triggers via
  * POST /talent-pool/:id/claim.
  *
- * Real, worth-restating consequence of TALENT_POOL_AGE_RANGE = 14-16yo
- * starting exactly at the U14/U16 boundary (14*52 weeks): every player
- * claimed below starts U16-band-eligible, NEVER U14-band-eligible.
- * This walkthrough can prove the junior circuit is reachable through
- * the real acquisition flow for the U16 band; it cannot prove the same
- * for U14, because no real acquisition path reaches U14 at all — see
- * docs/junior-circuit-research-and-proposal.md's status section.
+ * Real consequence of TALENT_POOL_AGE_RANGE = 14-16yo starting exactly
+ * at the U14/U16 boundary (14*52 weeks): RankingBand.juniorEligibilityForAge
+ * used to use a strict `<` check there, which meant NO generated player
+ * could ever land in U14 — only U16 or older, regardless of the age
+ * range. That was a real bug (real Tennis Europe eligibility is
+ * inclusive, "14-and-under"), fixed by making the boundary check `<=`.
+ * Step 3 below deliberately claims a second player at exactly
+ * TALENT_POOL_AGE_RANGE.minWeeks to prove U14 is now genuinely
+ * reachable through the real claim path, not just U16 — see
+ * docs/junior-circuit-research-and-proposal.md's status section for
+ * the full story (including why U14 stays RARE, not abundant, in the
+ * ordinary weekly batch even after the fix).
  */
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
@@ -73,6 +78,12 @@ const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap, same co
 // the real U16/senior boundary) in exactly 2 ticks, fast enough for
 // this script without being an unrealistic age to generate.
 const STAR_AGE_WEEKS = TALENT_POOL_AGE_RANGE.maxWeeks - 1;
+// Exactly the pool's minimum age — the ONE integer week in the whole
+// range that lands in U14 (see this file's header comment). Not a
+// random roll: deliberately pinned, same "shape the setup, not the
+// outcome" reasoning as STAR_AGE_WEEKS above, to reliably demonstrate
+// U14 reachability rather than relying on a ~1-in-206 chance per batch.
+const PRODIGY_AGE_WEEKS = TALENT_POOL_AGE_RANGE.minWeeks;
 
 function log(...args: unknown[]): void {
   // eslint-disable-next-line no-console
@@ -137,8 +148,14 @@ async function main(): Promise<void> {
   const allInRange = availableAfterRefresh.every(
     (c) => c.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && c.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
   );
-  const allU16 = availableAfterRefresh.every((c) => juniorEligibilityForAge(c.ageInWeeks) === 'u16');
-  log(`All ${availableAfterRefresh.length} available candidates within TALENT_POOL_AGE_RANGE: ${allInRange}. All U16-band: ${allU16}.`);
+  const bandCounts = { u14: 0, u16: 0, senior: 0 };
+  for (const c of availableAfterRefresh) bandCounts[juniorEligibilityForAge(c.ageInWeeks)] += 1;
+  log(
+    `All ${availableAfterRefresh.length} available candidates within TALENT_POOL_AGE_RANGE: ${allInRange}. ` +
+      `Band split: u14=${bandCounts.u14}, u16=${bandCounts.u16}, senior=${bandCounts.senior} ` +
+      `(u14 is rare by construction — only the exact minimum-age week qualifies, ~1 in 206 generations; ` +
+      `step 3 below claims one deliberately rather than waiting for the batch to roll one).`,
+  );
 
   log('\n=== 2. Claim the "star" through the REAL ClaimTalentPoolCandidateUseCase ===');
   const starManagerId = managerIdFor(1);
@@ -161,7 +178,36 @@ async function main(): Promise<void> {
       `This came from the SAME claim path a real manager uses — no Player.hire() shortcut.`,
   );
 
-  log('\n=== 3. This week\'s open junior tournaments, both bands ===');
+  log('\n=== 3. Claim a "prodigy" at exactly the pool\'s minimum age, to prove U14 is now reachable through the real claim path ===');
+  // A dedicated manager, NOT managerIdFor(2) — that id is reserved for
+  // the step-6 cohort's own roster-cap accounting (managerIdFor(1) and
+  // managerIdFor(2) both resolve to jw-m1, which already owns the star;
+  // reusing it here would silently eat the roster slot step 6 expects).
+  const prodigyManagerId = ManagerId('jw-m-prodigy');
+  await deps.managerXp.credit(prodigyManagerId, AMPLE_XP);
+  const prodigyCandidateId = TalentPoolCandidateId('jw-prodigy');
+  if (!(await deps.talentPoolCandidates.findById(prodigyCandidateId))) {
+    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+    await deps.talentPoolCandidates.save(
+      TalentPoolCandidate.generate(
+        prodigyCandidateId,
+        { ...generated, name: 'Young Prodigy', ageInWeeks: PRODIGY_AGE_WEEKS },
+        { season: 1, week: 1 },
+      ),
+    );
+  }
+  const prodigy = await deps.claimTalentPoolCandidate.execute({ candidateId: prodigyCandidateId, managerId: prodigyManagerId });
+  const prodigyBand = juniorEligibilityForAge(prodigy.ageInWeeks);
+  log(
+    `Claimed "${prodigy.name}" (${prodigy.id}) — age ${prodigy.ageInWeeks}wk (exactly ${(prodigy.ageInWeeks / 52).toFixed(2)}y, ` +
+      `TALENT_POOL_AGE_RANGE.minWeeks), currently ${prodigyBand}-eligible.`,
+  );
+  if (prodigyBand !== 'u14') {
+    throw new Error(`Expected the prodigy (age ${prodigy.ageInWeeks}wk) to be U14-eligible, got "${prodigyBand}" — the boundary fix regressed.`);
+  }
+  log('  Confirmed: a REAL claimed player (no Player.hire() shortcut) is U14-eligible. The boundary bug is fixed.');
+
+  log('\n=== 4. This week\'s open junior tournaments, both bands ===');
   const genResult = await deps.generateJuniorTournaments.execute({ worldId });
   log(`GenerateJuniorTournamentsUseCase: opened=${genResult.opened}, mastersHeld=${genResult.mastersHeld}`);
   const world1 = (await deps.worlds.findById(worldId))!;
@@ -174,13 +220,14 @@ async function main(): Promise<void> {
   }
   log(`U14 band (${byBand.u14.length}): ${byBand.u14.join(', ')}`);
   log(`U16 band (${byBand.u16.length}): ${byBand.u16.join(', ')}`);
-  log(
-    'The star is U16-eligible (every real claim is, per TALENT_POOL_AGE_RANGE starting exactly at the U14/U16 ' +
-      'boundary) — U14 tournaments above are real and open, but no real acquisition path can ever produce a ' +
-      'player able to enter them. That half of the original gap is still open; see the research doc.',
-  );
 
-  log('\n=== 4. Enter the star into 3 U16 tournaments, then confirm a 4th is rejected (weekly cap) ===');
+  log('\n=== 5. Register the prodigy into a real U14 tournament — closing the loop, not just checking eligibility in isolation ===');
+  const u14Target = openThisWeek.find((t) => t.ageBand === 'u14');
+  if (!u14Target) throw new Error('No U14 tournament open this week — cannot demonstrate real U14 registration.');
+  await deps.registerEntrant.execute({ tournamentId: u14Target.id, playerId: prodigy.id });
+  log(`  Registered "${prodigy.name}" into U14 ${u14Target.tier} (${u14Target.id}) — OK.`);
+
+  log('\n=== 6. Enter the star into 3 U16 tournaments, then confirm a 4th is rejected (weekly cap) ===');
   const u16ThisWeek = openThisWeek.filter((t) => t.ageBand === 'u16');
   const chosen = u16ThisWeek.slice(0, 4); // 3 should succeed, the 4th should be rejected
   for (let i = 0; i < 3; i++) {
@@ -194,7 +241,7 @@ async function main(): Promise<void> {
     log(`  4th registration into ${chosen[3].tier} (${chosen[3].id}) REJECTED: ${(error as Error).message}`);
   }
 
-  log('\n=== 5. Fill one of those draws (16 players, all REALLY claimed) and simulate it to completion ===');
+  log('\n=== 7. Fill one of those draws (16 players, all REALLY claimed) and simulate it to completion ===');
   const fillTarget = chosen[0];
   log(`Filling ${fillTarget.tier} (${fillTarget.id}) — star already entered, claiming and adding ${COHORT_SIZE - 1} more.`);
   const cohortIds: PlayerId[] = [star.id];
@@ -223,7 +270,7 @@ async function main(): Promise<void> {
     if (result.simulated.length === 0) break;
   }
 
-  log('\n=== 6. Real ranking points, straight from the ledger ===');
+  log('\n=== 8. Real ranking points, straight from the ledger ===');
   const ledgerEntries = (await Promise.all(cohortIds.map((id) => deps.rankingLedger.findByPlayer(id)))).flat();
   const byPoints = [...ledgerEntries].sort((a, b) => b.points - a.points);
   for (const entry of byPoints) {
@@ -236,7 +283,7 @@ async function main(): Promise<void> {
   const starRankU16 = await deps.rankPositionU16.rankFor(star.id);
   log(`Star player's U16 ranking right now: rank=${starRankU16.rank}, totalPoints=${starRankU16.totalPoints}`);
 
-  log('\n=== 7. Advance the world week-by-week until the star crosses U16 -> senior ===');
+  log('\n=== 9. Advance the world week-by-week until the star crosses U16 -> senior ===');
   for (let tick = 1; tick <= 3; tick++) {
     const advanceResult = await deps.advanceWorldWeek.execute({ worldId, tickKey: `jw-tick-${Date.now()}-${tick}` });
     if (advanceResult.advanced) {
@@ -252,7 +299,7 @@ async function main(): Promise<void> {
     if (band === 'senior') break;
   }
 
-  log('\n=== 8. Open a fresh SENIOR tournament, register the (now-senior) star + cohort, simulate, look for carryover firing ===');
+  log('\n=== 10. Open a fresh SENIOR tournament, register the (now-senior) star + cohort, simulate, look for carryover firing ===');
   const world2 = (await deps.worlds.findById(worldId))!;
   const seniorTournamentId = TournamentId('jw-senior-1');
   if (!(await deps.tournaments.findById(seniorTournamentId))) {

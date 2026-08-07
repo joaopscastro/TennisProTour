@@ -35,7 +35,16 @@ export function bestResultsCapFor(band: RankingBand): number {
 /** Real age cutoffs, not tunable placeholders — literally what
  * "U14"/"U16" mean (see docs/junior-circuit-research-and-proposal.md's
  * scope note excluding U12: real ITF/Tennis Europe U12 play is
- * unranked and unseeded, so there's no third junior band here). */
+ * unranked and unseeded, so there's no third junior band here).
+ * INCLUSIVE on the upper end of each band, matching real Tennis
+ * Europe eligibility ("14-and-under" / "16-and-under") — a player who
+ * is EXACTLY 14.000 years old (728 weeks) is still U14-eligible, not
+ * already U16; exactly 16.000 years old (832 weeks) is still
+ * U16-eligible, not already senior. See juniorEligibilityForAge's own
+ * comment for why this matters beyond pedantry: it was a real bug,
+ * not just an edge case, because TALENT_POOL_AGE_RANGE's minimum age
+ * sits EXACTLY on this boundary — under the old strict `<` check, no
+ * generated player could ever land in U14 at all, only U16 or older. */
 const U14_MAX_AGE_WEEKS = 14 * 52;
 const U16_MAX_AGE_WEEKS = 16 * 52;
 
@@ -53,7 +62,7 @@ const U16_MAX_AGE_WEEKS = 16 * 52;
  * to enumerate which specific crossing happened.
  */
 export function juniorEligibilityForAge(ageInWeeks: number): RankingBand {
-  if (ageInWeeks < U14_MAX_AGE_WEEKS) return 'u14';
-  if (ageInWeeks < U16_MAX_AGE_WEEKS) return 'u16';
+  if (ageInWeeks <= U14_MAX_AGE_WEEKS) return 'u14';
+  if (ageInWeeks <= U16_MAX_AGE_WEEKS) return 'u16';
   return 'senior';
 }

@@ -142,21 +142,33 @@ this:
   probability from ~20% per direction at the youngest age a range can
   produce down to ~10% at the oldest — scouting a 14-year-old's
   eventual ceiling is genuinely harder than a 16-year-old's, real years
-  of development still separate them from their peak. **Real,
-  worth-knowing consequence, not a bug**: 14 years = exactly 14×52 =
-  728 weeks, which is precisely `RankingBand`'s U14/U16 boundary
-  (`juniorEligibilityForAge`) — so every player who comes through
-  `ClaimTalentPoolCandidateUseCase` or `CreateCustomPlayerUseCase`
-  starts U16-band-eligible, **never** U14-band-eligible. This closes
-  HALF of the gap the junior-circuit work disclosed (see
+  of development still separate them from their peak. **14 years =
+  exactly 14×52 = 728 weeks, which is precisely `RankingBand`'s
+  U14/U16 boundary (`juniorEligibilityForAge`) — this WAS a real bug,
+  now fixed, not just a worth-knowing consequence to live with.** The
+  boundary check used strict `<` (`ageInWeeks < U14_MAX_AGE_WEEKS`),
+  so an exactly-14.000-year-old player fell through to U16 — meaning no
+  generated player could EVER land in U14, only U16 or older, no matter
+  how the age range was tuned. Real Tennis Europe eligibility is
+  inclusive ("14-and-under"), so the check is now `<=` on both
+  boundaries (both `U14_MAX_AGE_WEEKS` and `U16_MAX_AGE_WEEKS`) — the
+  fix is to the boundary check, not the age range, which was already
+  correctly scoped. A real player claimed at exactly
+  `TALENT_POOL_AGE_RANGE.minWeeks` is now genuinely U14-eligible
+  (`RankingBand.test.ts` pins this exact case). Practically, though,
+  U14 is now **reachable, not abundant**: only that single exact
+  integer week out of the range's ~103-week spread qualifies (~1 in
+  206 generations), so real U14 supply in the weekly batch stays rare
+  by construction — a deliberate range decision to revisit later if
+  U14 depth ever matters, not something this fix changed. This closes
+  the gap the junior-circuit work disclosed (see
   `docs/junior-circuit-research-and-proposal.md`): a real player can
-  now genuinely reach the U16 ladder through the real acquisition flow
-  (proven end-to-end by `apps/api/src/scripts/seedJuniorCircuitWalkthrough.ts`,
-  which claims every player through the real
-  `ClaimTalentPoolCandidateUseCase` — no `Player.hire()` shortcut). U14
-  is still unreachable by any acquisition path; nothing in this pass
-  changed that, and widening the range downward would need its own
-  design decision (a wider spread changes the population math below).
+  now genuinely reach BOTH the U14 and U16 ladders through the real
+  acquisition flow (proven end-to-end by
+  `apps/api/src/scripts/seedJuniorCircuitWalkthrough.ts`, which claims
+  every player through the real `ClaimTalentPoolCandidateUseCase` — no
+  `Player.hire()` shortcut, including a player deliberately claimed at
+  the exact boundary age to prove U14 reachability, not just U16).
 - **Population math, sanity-checked, not just trusted constants.**
   `TALENT_POOL_BATCH_SIZE` = 5/week, `TALENT_POOL_EXPIRY_WEEKS` = 2 —
   a candidate generated in week *W* is still visible during the
