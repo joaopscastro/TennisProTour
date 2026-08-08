@@ -316,8 +316,30 @@ export function fetchStartedTournaments(): Promise<TournamentDto[]> {
   return getJson('/tournaments?status=started');
 }
 
-export function registerEntrant(tournamentId: string, playerId: string): Promise<TournamentDto> {
-  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId });
+/** One row of the multi-week planner response — see
+ * PlayerEntryPlannerQuery/GET /players/:id/entry-planner on the API
+ * side. `entries` is a real, possibly-empty list of the tournaments
+ * this player is registered in for exactly this GameWeek — an empty
+ * array is a genuine "nothing yet," not a loading/error state. */
+export interface PlannerWeekDto {
+  week: { season: number; week: number };
+  entries: TournamentDto[];
+}
+
+/** weeksAhead defaults server-side to DEFAULT_PLANNER_WEEKS (6) when
+ * omitted. The window always starts at the world's current week. */
+export function fetchEntryPlanner(playerId: string, weeksAhead?: number): Promise<PlannerWeekDto[]> {
+  return getJson(`/players/${encodeURIComponent(playerId)}/entry-planner${weeksAhead ? `?weeks=${weeksAhead}` : ''}`);
+}
+
+/** managerId must be the ACTUAL owning manager, not left to the
+ * request-header default — the API's ownership check
+ * (`player.managerId === manager.id`) means a caller that omits this
+ * on any manager other than the dev-mode default silently
+ * authenticates as the wrong manager and gets a real "Player not
+ * found in your roster" 404, never the intended registration. */
+export function registerEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {
+  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId }, managerId);
 }
 
 export function fetchTournament(id: string): Promise<TournamentDto> {

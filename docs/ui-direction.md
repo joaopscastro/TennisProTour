@@ -146,6 +146,39 @@ CLAUDE.md.
 - Same manager-id dev-mode input pattern as Roster/Manager Pro — no
   shared cross-page identity yet, each screen asks independently.
 
+## Tournaments (browse + planner)
+- Two views behind a segmented Browse/Planner toggle at the top right
+  — Browse is the original open/started tournament lists; Planner is
+  the multi-week forward-planning view (see below). No manager
+  identity is needed for Browse (it's public data); Planner needs one,
+  same dev-mode manager-id input pattern as Scouting/Roster.
+- **Filter bar (Browse only)**: a category segmented control (All /
+  Senior / Junior), a row of tier chips (U14, U16, Futures,
+  Challenger, Tour, Major — deliberately mixing age-band values and
+  senior tier names into one flat set, matching the age-band-badge
+  convention above rather than introducing raw J-grade filtering), and
+  a row of surface chips (Clay/Grass/Hard/Indoor). All three groups
+  combine with AND; an empty selection in a group means no restriction
+  from it, not "show nothing." A combination with zero matches shows
+  an honest "no tournaments match your filters" line, never a
+  disabled/hidden chip trying to prevent the combination up front. Note
+  for future work: as of this writing, Scouting itself has no filter
+  bar of its own — this is the first one in the app, styled to match
+  existing badge/pill conventions (rounded chips, active = dark
+  fill/white text), not lifted from an existing Scouting pattern.
+- **Multi-week planner**: pick a roster player, see their real entries
+  (or lack thereof) across the next several upcoming weeks as columns,
+  side by side — backed by `GET /players/:id/entry-planner`
+  (`PlayerEntryPlannerQuery`). Each week shows its real entry/entries
+  or "No entry yet," plus an inline (not modal) "+ Register" picker
+  scoped to tournaments open for exactly that week — the point is
+  committing several weeks' worth of entries in one sitting, so the
+  picker never navigates away or closes the page. Reuses the same
+  eligibility/cap data (`ageEligible`, `juniorEntryCountThisWeek`/
+  `CapThisWeek`) `EnterTournamentModal` already reads, so a blocked
+  attempt is disabled with the same real reason inline, not a second,
+  possibly-drifted rule.
+
 ## Tournament bracket
 - Single-elimination bracket, coded by the tournament's surface.
 - Round status badges: Decided / In Progress / Upcoming, with a

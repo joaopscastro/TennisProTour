@@ -13,6 +13,12 @@ const SURFACE_COLOR: Record<string, string> = {
 interface Props {
   playerId: string;
   playerName: string;
+  /** The player's actual owning manager — required so the register
+   * call authenticates as the right manager (see registerEntrant's
+   * doc comment); omitting this silently falls back to the dev-mode
+   * default manager, which only coincidentally works when that
+   * happens to be who's logged in. */
+  managerId: string;
   onClose: () => void;
   onEntered: (tournament: TournamentDto) => void;
 }
@@ -26,7 +32,7 @@ interface Props {
  * meaningful decision (surface, tier, field size) a manager should
  * make deliberately.
  */
-export function EnterTournamentModal({ playerId, playerName, onClose, onEntered }: Props) {
+export function EnterTournamentModal({ playerId, playerName, managerId, onClose, onEntered }: Props) {
   const [tournaments, setTournaments] = useState<TournamentDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +49,7 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
     setSubmitting(true);
     setError(null);
     try {
-      const tournament = await registerEntrant(selectedId, playerId);
+      const tournament = await registerEntrant(selectedId, playerId, managerId);
       onEntered(tournament);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

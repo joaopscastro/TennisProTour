@@ -576,6 +576,7 @@ export default function RosterDashboardPage() {
         <EnterTournamentModal
           playerId={enterModalPlayer.id}
           playerName={enterModalPlayer.name}
+          managerId={managerId}
           onClose={() => setEnterModalPlayer(null)}
           onEntered={(tournament) => {
             setEnterModalPlayer(null);
