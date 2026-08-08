@@ -345,6 +345,76 @@ this:
      walkthrough script; not a bug in the single-world game as it
      actually ships, but a real footgun for any multi-world tooling.
 
+## World clock — persistent chrome, and an honest disclosed gap found while building it
+
+The current `GameWeek` (season/week) plus the real timestamp of the next
+scheduled weekly tick is exposed via `GET /world/clock`
+(`apps/api/src/adapters/inbound/http/worldRoutes.ts`), and shown as
+persistent sidebar chrome (`Sidebar.tsx`, same placement pattern as the
+XP balance) with a client-side ticking countdown (`lib/useCountdown.ts`)
+— no page refresh needed to stay accurate.
+
+**Audited first, before building anything**: the worker's next-tick time
+was NOT exposed anywhere prior to this — it lived entirely inside
+BullMQ's repeatable job scheduler (`apps/worker/src/index.ts`'s
+`upsertJobScheduler('advance-world-week', { pattern: WORLD_TICK_CRON })`),
+internal to the worker's own Redis connection; `apps/api` had (and still
+has) no Redis/BullMQ client at all. Rather than give `apps/api` a second
+connection to Redis just to ask BullMQ "when do you next run this job,"
+`/world/clock` recomputes the same answer independently, via
+`cron-parser` (already a transitive `bullmq` dependency, added directly
+to `apps/api`) against the same `WORLD_TICK_CRON` string. **This means
+`WORLD_TICK_CRON` must be kept identical between `apps/api` and
+`apps/worker`** — the same kind of disclosed cross-process env-var
+coupling as `WORLD_ID` (see above): nothing enforces the two stay in
+sync short of both defaulting to `'0 3 * * 1'` and a human keeping any
+override consistent.
+
+**A real pricing bug found (and fixed) while building this**: seeding
+`apps/api/src/scripts/seed.ts`'s 200 free-agent talent-pool candidates
+across a much wider age span (14-37yo) than `TALENT_POOL_AGE_RANGE`
+(14-16yo — the real weekly refresh's only actual span) exposed that
+`StandardTalentClaimPricingPolicy.priceFor` was unclamped: pricing an
+out-of-range candidate against `TALENT_POOL_AGE_RANGE` extrapolated
+`ageInterpolationFactor`'s blend factor past `[0, 1]`, producing actual
+NEGATIVE XP claim costs for older free agents (verified live via the
+Scouting page before the fix, and via `ClaimTalentPoolCandidateUseCase`,
+which uses the same call — this would have under-charged a real claim,
+not just displayed a wrong number). Fixed by clamping the blend factor
+to `[0, 1]` inside `priceFor` itself (not the shared
+`ageInterpolationFactor` helper, whose OTHER caller,
+`noiseProbabilityForAge`, only ever receives an age rolled from within
+its own range and is unaffected) — see
+`packages/domain/src/manager/TalentClaimPricingPolicy.ts` and its test
+file's new "outside the supplied ageRange" cases.
+
+The talent pool's "next refresh" and the new world clock's "next tick"
+are genuinely the same real schedule, not just presented consistently —
+`RefreshTalentPoolUseCase` and `GenerateJuniorTournamentsUseCase` both
+run inside the exact same `advance-world-week` handler
+(`apps/worker/src/jobs/handlers.ts`), gated on the same `advanced` flag.
+So the Scouting page's "Next refresh in …" line reuses the exact
+`nextTickAt` the sidebar counts down to (same `useCountdown` hook, same
+fetch), not a second, independently-derived countdown.
+
+**A real, previously-undocumented gap found during this audit, disclosed
+here rather than papered over with a fake UI countdown**: neither
+`SimulateDueMatchesUseCase` (the 5-minute automatic match-sweep) nor the
+manual `POST /tournaments/:id/matches/:round/:index/simulate` route is
+actually gated by a tournament's `weekScheduled` against the world's
+`currentWeek` — "due" only means "sits in the current round with no
+outcome yet." In practice this rarely surfaces, because
+`GenerateJuniorTournamentsUseCase` always opens tournaments at
+`weekScheduled: currentWeek`, never in the future — but an
+admin-/seed-opened tournament scheduled for a future week can still have
+its matches simulated immediately, today. The bracket screen
+(`tournaments/[id]/page.tsx`) shows a tournament's `weekScheduled`
+alongside the world clock's real `currentWeek` for honest context, but
+deliberately does NOT show a per-match/round "starts in Nd" countdown —
+building one would misrepresent how simulation actually behaves. Fix the
+underlying gate in `SimulateDueMatchesUseCase` before ever adding that
+countdown.
+
 ## Committed stack (with rationale — see full plan doc for the "why not X" reasoning)
 
 | Layer | Choice |

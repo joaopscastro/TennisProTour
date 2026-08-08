@@ -121,6 +121,23 @@ describe('API', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
+  it('serves the world clock: the real seeded GameWeek plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
+    const response = await app.inject({ method: 'GET', url: '/world/clock' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    // Matches beforeAll's seeded row (season: 1, week: 52) — proves this
+    // reads the same "main" GameWorld row apps/worker advances, not a
+    // second, independently-tracked notion of the current week.
+    expect(body.currentWeek).toEqual({ season: 1, week: 52 });
+    const nextTickAt = new Date(body.nextTickAt);
+    expect(nextTickAt.getTime()).toBeGreaterThan(Date.now());
+    // Default WORLD_TICK_CRON ('0 3 * * 1') fires Mondays at 03:00 —
+    // asserted structurally rather than pinned to a literal date so
+    // this doesn't rot with the passage of time.
+    expect(nextTickAt.getUTCDay()).toBe(1);
+    expect(nextTickAt.getUTCHours()).toBe(3);
+  });
+
   it('requires authenticated manager identity and isolates manager-owned actions', async () => {
     expect((await app.inject({ method: 'GET', url: '/me/players' })).statusCode).toBe(401);
     expect(await hirePlayer('owned-p1', 'm1')).toBe(201);

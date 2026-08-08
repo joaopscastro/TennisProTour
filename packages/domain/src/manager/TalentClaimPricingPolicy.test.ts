@@ -77,4 +77,17 @@ describe('StandardTalentClaimPricingPolicy', () => {
       }
     });
   });
+
+  describe('an ageInWeeks outside the supplied ageRange — real once a dev seed script started generating candidates across a much wider age span than TALENT_POOL_AGE_RANGE for testing variety, not just a hypothetical', () => {
+    it('clamps below the youngest age to exactly the flat (youngest-age) price, never extrapolating past it', () => {
+      const belowRange = RANGE.minWeeks - 20 * 52; // e.g. a 14-16yo range, priced for an actual 6-year-old
+      expect(policy.priceFor(70, belowRange, RANGE)).toBe(policy.priceFor(70, YOUNGEST, RANGE));
+    });
+
+    it('clamps above the oldest age to exactly the fully-ability-based (oldest-age) price, never going negative', () => {
+      const aboveRange = RANGE.maxWeeks + 20 * 52; // e.g. a 14-16yo range, priced for an actual 36-year-old
+      expect(policy.priceFor(70, aboveRange, RANGE)).toBe(policy.priceFor(70, OLDEST, RANGE));
+      expect(policy.priceFor(20, aboveRange, RANGE)).toBeGreaterThanOrEqual(0);
+    });
+  });
 });

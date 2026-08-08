@@ -1,7 +1,10 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ClerkAuthControls } from './ClerkAuthControls';
+import { fetchWorldClock, WorldClockDto } from '../lib/api';
+import { useCountdown, formatCountdown } from '../lib/useCountdown';
 
 export type NavKey = 'roster' | 'scouting' | 'tournaments' | 'manager-pro';
 
@@ -33,6 +36,23 @@ interface Props {
  * Grand Circuit set, not just the roster dashboard.
  */
 export function Sidebar({ active, tier, xpBalance }: Props) {
+  const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchWorldClock()
+      .then((clock) => {
+        if (!cancelled) setWorldClock(clock);
+      })
+      .catch(() => {
+        // Persistent chrome, not a page-blocking dependency — if the
+        // fetch fails the block below just stays hidden.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const remainingMs = useCountdown(worldClock?.nextTickAt ?? null);
+
   return (
     <div
       className="w-[232px] flex-none flex flex-col p-[22px_16px] text-[oklch(96%_0.004_75)]"
@@ -89,6 +109,23 @@ export function Sidebar({ active, tier, xpBalance }: Props) {
       </div>
 
       <div className="mt-auto flex flex-col">
+        {worldClock && (
+          <div className="flex flex-col gap-[2px] px-3 py-[9px] rounded-[6px] mb-2" style={{ background: 'oklch(24% 0.008 75)' }}>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>
+                Season {worldClock.currentWeek.season}, Week {worldClock.currentWeek.week}
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-[11px]" style={{ color: 'oklch(65% 0.006 75)' }}>
+                Next tick in
+              </div>
+              <div className="text-[13px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(80% 0.14 90)' }}>
+                {formatCountdown(remainingMs)}
+              </div>
+            </div>
+          </div>
+        )}
         {xpBalance !== undefined && (
           <div className="flex items-center justify-between px-3 py-[9px] rounded-[6px] mb-2" style={{ background: 'oklch(24% 0.008 75)' }}>
             <div className="text-[11px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(70% 0.006 75)' }}>

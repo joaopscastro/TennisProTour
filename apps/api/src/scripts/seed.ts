@@ -36,7 +36,36 @@ const REGISTRATION_TOURNAMENT_ID = 'seed-registration';
 const PLAYER_COUNT = 10;
 const DRAW_SIZE = 16;
 const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap
-const NATIONALITIES = ['BR', 'US', 'FR', 'JP', 'AU', 'DE', 'AR', 'GB', 'ES', 'SE'];
+const NATIONALITIES = ['BR', 'US', 'FR', 'JP', 'AU', 'DE', 'AR', 'GB', 'ES', 'SE', 'IT', 'CA', 'NL', 'RU', 'CN', 'KR', 'ZA', 'MX', 'PL', 'CH'];
+
+/** Free-listed (unclaimed) talent-pool candidates for browsing/claiming
+ * in the Scouting page — separate from the small claimed cohort above,
+ * which the bracket walkthrough depends on and must stay untouched.
+ * 200 candidates gives a real "shared pool, race to claim" feel instead
+ * of the handful RefreshTalentPoolUseCase's real weekly batch produces. */
+const FREE_AGENT_COUNT = 200;
+/** Deliberately wider than TALENT_POOL_AGE_RANGE (14-16yo, the real
+ * weekly refresh's actual constraint) — this is a dev-only seed script,
+ * not RefreshTalentPoolUseCase, so it can generate across the whole
+ * non-retired age span (StandardAgingPolicy: youth <20, prime 20-30,
+ * decline 30-38) for richer manual testing of the Scouting page. Not
+ * representative of what a real weekly refresh ever produces. */
+const SEED_FREE_AGENT_AGE_RANGE = { minWeeks: 14 * 52, maxWeeks: 37 * 52 };
+
+/** Additional senior tournaments (beyond TOURNAMENT_ID/
+ * REGISTRATION_TOURNAMENT_ID above), open for registration with no
+ * entrants, spanning all four senior tiers and every surface — so the
+ * Tournaments page has real variety to browse, not just two fixtures. */
+const EXTRA_SENIOR_TOURNAMENTS: Array<{ id: string; tier: 'futures' | 'challenger' | 'tour' | 'major'; surface: 'clay' | 'grass' | 'hard' | 'indoor'; drawSize: 16 | 32 | 64 | 128; week: number }> = [
+  { id: 'seed-futures-clay', tier: 'futures', surface: 'clay', drawSize: 16, week: 1 },
+  { id: 'seed-futures-hard', tier: 'futures', surface: 'hard', drawSize: 32, week: 2 },
+  { id: 'seed-challenger-grass', tier: 'challenger', surface: 'grass', drawSize: 32, week: 1 },
+  { id: 'seed-challenger-indoor', tier: 'challenger', surface: 'indoor', drawSize: 16, week: 2 },
+  { id: 'seed-tour-hard', tier: 'tour', surface: 'hard', drawSize: 64, week: 1 },
+  { id: 'seed-tour-clay', tier: 'tour', surface: 'clay', drawSize: 32, week: 3 },
+  { id: 'seed-major-grass', tier: 'major', surface: 'grass', drawSize: 128, week: 4 },
+  { id: 'seed-major-hard', tier: 'major', surface: 'hard', drawSize: 128, week: 5 },
+];
 
 async function main(): Promise<void> {
   const db = createDb(connectionString);
@@ -101,6 +130,21 @@ async function main(): Promise<void> {
   }
 
   // eslint-disable-next-line no-console
+  console.log(`\nSeeding ${FREE_AGENT_COUNT} unclaimed free-agent talent pool candidates (ages 14-37)...`);
+  for (let i = 1; i <= FREE_AGENT_COUNT; i++) {
+    const generated = generationPolicy.generate(random, SEED_FREE_AGENT_AGE_RANGE);
+    await deps.talentPoolCandidates.save(
+      TalentPoolCandidate.generate(
+        TalentPoolCandidateId(`seed-free-${i}`),
+        { ...generated, name: `Free Agent ${i}`, nationality: NATIONALITIES[i % NATIONALITIES.length] },
+        { season: 1, week: 1 },
+      ),
+    );
+  }
+  // eslint-disable-next-line no-console
+  console.log(`  seeded ${FREE_AGENT_COUNT} free agents, unclaimed and browsable at GET /talent-pool.`);
+
+  // eslint-disable-next-line no-console
   console.log(`\nOpening tournament "${TOURNAMENT_ID}" (${DRAW_SIZE}-draw, clay, challenger)...`);
   await deps.openTournament.execute({
     tournamentId: TournamentId(TOURNAMENT_ID),
@@ -140,6 +184,31 @@ async function main(): Promise<void> {
   }
   // eslint-disable-next-line no-console
   console.log(`  4 of ${DRAW_SIZE} slots filled — still open for entrants.`);
+
+  // eslint-disable-next-line no-console
+  console.log(`\nOpening ${EXTRA_SENIOR_TOURNAMENTS.length} more senior tournaments across futures/challenger/tour/major...`);
+  for (const t of EXTRA_SENIOR_TOURNAMENTS) {
+    await deps.openRegistration.execute({
+      tournamentId: TournamentId(t.id),
+      tier: t.tier,
+      surface: t.surface,
+      weekScheduled: { season: 1, week: t.week },
+      drawSize: t.drawSize,
+    });
+    // eslint-disable-next-line no-console
+    console.log(`  ${t.id} (${t.tier}, ${t.surface}, ${t.drawSize}-draw) open for registration.`);
+  }
+
+  // Real junior ladder (all six J-grades × both age bands) via the
+  // actual weekly worker use case, not hand-rolled tournament-creation
+  // logic — GenerateJuniorTournamentsUseCase is what apps/worker calls
+  // every real tick, so this seeds exactly what a live world would have
+  // after its first tick, not an approximation of it.
+  // eslint-disable-next-line no-console
+  console.log('\nGenerating this week\'s junior ladder (all J-grades, both age bands)...');
+  const juniorResult = await deps.generateJuniorTournaments.execute({ worldId });
+  // eslint-disable-next-line no-console
+  console.log(`  opened ${juniorResult.opened} junior tournament(s); ${juniorResult.mastersHeld} juniorMasters field(s) held.`);
 
   // eslint-disable-next-line no-console
   console.log('\nDone! In the web app:');

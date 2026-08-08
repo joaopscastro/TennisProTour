@@ -6,12 +6,15 @@ import {
   PlayerRarityTier,
   PotentialTier,
   TalentPoolCandidateDto,
+  WorldClockDto,
   claimTalentPoolCandidate,
   fetchEntitlement,
   fetchTalentPool,
+  fetchWorldClock,
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
 import { flagFor } from '../../lib/format';
+import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 
 const RARITY_META: Record<PlayerRarityTier, { label: string; bg: string; fg: string }> = {
   common: { label: 'Common', bg: 'oklch(93% 0.006 75)', fg: 'oklch(40% 0.006 75)' },
@@ -44,6 +47,7 @@ export default function ScoutingPage() {
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -57,6 +61,20 @@ export default function ScoutingPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    fetchWorldClock()
+      .then(setWorldClock)
+      .catch(() => setWorldClock(null));
+  }, []);
+
+  // Same nextTickAt the Sidebar's world clock counts down to — the
+  // weekly refresh handler (apps/worker/src/jobs/handlers.ts) runs
+  // RefreshTalentPoolUseCase inside the very same advance-world-week
+  // job, gated on the same `advanced` flag, so "next tick" and "next
+  // talent-pool refresh" are the same real timestamp, not two
+  // independently-computed guesses.
+  const refreshRemainingMs = useCountdown(worldClock?.nextTickAt ?? null);
 
   useEffect(() => {
     fetchEntitlement(managerId)
@@ -101,6 +119,16 @@ export default function ScoutingPage() {
             <div className="text-[13.5px] mt-[3px] max-w-[560px]" style={{ color: 'oklch(48% 0.006 75)' }}>
               A shared talent pool, refreshed weekly — every manager sees the same candidates and races to claim
               them. Unclaimed candidates expire after 2 weeks.
+              {worldClock && (
+                <>
+                  {' '}
+                  Next refresh in{' '}
+                  <span className="font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(38% 0.006 75)' }}>
+                    {formatCountdown(refreshRemainingMs)}
+                  </span>
+                  .
+                </>
+              )}
             </div>
           </div>
           {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <form

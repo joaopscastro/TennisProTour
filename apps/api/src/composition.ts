@@ -62,8 +62,10 @@ export const PRO_DECLINE_MULTIPLIER = 1.5;
 /** Single implicit game-world at MVP — same env var and 'main' default
  * apps/worker uses to create/advance the one GameWorld row, so ranking
  * reads and the weekly tick agree on which world's clock they're
- * reading. Becomes per-request/per-manager once multi-world arrives. */
-const WORLD_ID = WorldId(process.env.WORLD_ID ?? 'main');
+ * reading. Becomes per-request/per-manager once multi-world arrives.
+ * Exported so worldRoutes.ts can read the same world's currentWeek
+ * without re-deriving its own (possibly diverging) WorldId. */
+export const WORLD_ID = WorldId(process.env.WORLD_ID ?? 'main');
 
 export interface Dependencies {
   managers: DrizzleManagerAccountRepository;

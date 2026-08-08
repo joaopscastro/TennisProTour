@@ -7,8 +7,10 @@ import {
   MatchOutcomeDto,
   PlayerDto,
   TournamentDto,
+  WorldClockDto,
   fetchPlayersByIds,
   fetchTournament,
+  fetchWorldClock,
   matchIdForSlot,
   simulateMatch,
 } from '../../../lib/api';
@@ -207,6 +209,13 @@ export default function TournamentBracketPage() {
   const [players, setPlayers] = useState<Map<string, PlayerDto>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
+
+  useEffect(() => {
+    fetchWorldClock()
+      .then(setWorldClock)
+      .catch(() => setWorldClock(null));
+  }, []);
 
   const load = useCallback(async () => {
     setError(null);
@@ -327,6 +336,18 @@ export default function TournamentBracketPage() {
             <div className="text-[13.5px] mt-[5px]" style={{ color: 'oklch(48% 0.006 75)' }}>
               Single elimination · {tournament.entrants.length} players · {overallStatus}
             </div>
+            {worldClock && (
+              <div className="text-[12px] mt-[3px]" style={{ color: 'oklch(58% 0.006 75)' }}>
+                Scheduled Season {tournament.weekScheduled.season}, Week {tournament.weekScheduled.week} · current
+                Season {worldClock.currentWeek.season}, Week {worldClock.currentWeek.week}
+                {/* Deliberately no per-match/round countdown here: match
+                    simulation (SimulateDueMatchesUseCase and the manual
+                    simulate route) isn't actually gated by weekScheduled
+                    vs. the world's currentWeek — see CLAUDE.md — so a
+                    fake "starts in Nd" timer would misrepresent how the
+                    system really behaves. */}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-4 text-[12px]" style={{ color: 'oklch(48% 0.006 75)' }}>
             <div className="flex items-center gap-[6px]">

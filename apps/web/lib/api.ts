@@ -379,3 +379,17 @@ export async function fetchPlayersByIds(ids: Iterable<string>): Promise<Map<stri
 export function createProCheckoutSession(managerId: string): Promise<{ url: string }> {
   return sendJson('POST', '/billing/checkout', { managerId }, managerId);
 }
+
+/** Persistent world-clock chrome (Sidebar) and the scouting page's
+ * "next refresh" countdown both read this same endpoint — one fetch,
+ * one source of truth for "what week is it" and "when does the next
+ * tick land," instead of each screen computing its own guess. See
+ * worldRoutes.ts on the API side for how nextTickAt is derived. */
+export interface WorldClockDto {
+  currentWeek: { season: number; week: number };
+  nextTickAt: string;
+}
+
+export function fetchWorldClock(): Promise<WorldClockDto> {
+  return getJson('/world/clock');
+}

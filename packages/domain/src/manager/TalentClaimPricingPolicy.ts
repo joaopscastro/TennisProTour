@@ -65,7 +65,16 @@ export class StandardTalentClaimPricingPolicy implements TalentClaimPricingPolic
   }
 
   priceFor(overallRating: number, ageInWeeks: number, ageRange: AgeRange): number {
-    const t = ageInterpolationFactor(ageInWeeks, ageRange); // 0 at youngest (flat), 1 at oldest (fully ability-based)
+    // ageInterpolationFactor is deliberately unclamped for its OTHER
+    // caller (noiseProbabilityForAge), where every age really is rolled
+    // from within the given range. Pricing doesn't get that guarantee
+    // for free — a candidate generated outside ageRange (e.g. a dev
+    // seed script deliberately widening the pool for manual-testing
+    // variety, see apps/api/src/scripts/seed.ts) would otherwise
+    // extrapolate past the flat/ability-based endpoints, including into
+    // a NEGATIVE XP cost. Clamp here, at the one caller that can't
+    // assume the invariant, rather than in the shared helper.
+    const t = Math.min(1, Math.max(0, ageInterpolationFactor(ageInWeeks, ageRange))); // 0 at youngest (flat), 1 at oldest (fully ability-based)
     const flatPrice = StandardTalentClaimPricingPolicy.BASE_COST;
     const abilityPrice = StandardTalentClaimPricingPolicy.abilityPrice(overallRating);
     const blended = flatPrice * (1 - t) + abilityPrice * t;
