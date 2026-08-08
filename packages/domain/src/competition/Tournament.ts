@@ -105,6 +105,31 @@ export class Tournament {
     if (rounds[0].roundNumber !== 1) {
       throw new Error('The first bracket round must be round number 1');
     }
+    // A real, previously-latent bug this guard closes: BracketGenerator's
+    // standard seed-slot placement (1v16, 8v9, 4v13, ...) spreads top
+    // seeds apart specifically so they can't meet early — which means a
+    // small enough field can have EVERY entrant land on the bye side of
+    // their pair, producing a round 1 with real entrants but ZERO real
+    // matches (for a 16-draw this is any count from 1 to 8 entrants; the
+    // first real match only appears at 9). Such a round is not just
+    // useless, it's actively broken: Tournament.isRoundComplete() is
+    // vacuously true for an empty matches array, so the tournament can
+    // never progress to round 2 (nothing is ever "decided" to trigger
+    // it), and DrizzleTournamentRepository's round reconstruction groups
+    // rows FROM tournament_matches — a round with zero match rows loses
+    // its round entirely on the next read, so even hasStarted alone
+    // becomes an inconsistent, undebuggable state. Refusing to start
+    // here, before any of that state ever exists, is the correct fix:
+    // an under-filled draw should stay open (StartDueTournamentsUseCase
+    // leaves it open and retries a later tick with more fillers) rather
+    // than starting into a dead end.
+    if (rounds[0].matches.length === 0) {
+      throw new Error(
+        `Cannot start tournament ${this.id}: ${this._entrants.length} entrant(s) is too sparse a field for a ` +
+          `${this.drawSize}-draw to produce a single real round-1 match — every entrant would receive a bye ` +
+          `with nobody to actually play`,
+      );
+    }
     this.rounds = [...rounds];
     this.domainEvents.push({
       type: 'TournamentStarted',

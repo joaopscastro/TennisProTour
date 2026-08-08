@@ -185,9 +185,15 @@ describe('StartDueTournamentsUseCase', () => {
   it('fills a tournament with too few real registrants from tier-appropriate unclaimed players (both fillOnly Players and fresh candidates), then starts it', async () => {
     const { tournaments, players, talentPoolCandidates, useCase } = await setup({ season: 1, week: 4 });
 
+    // 8 real registrants — comfortably past the 9-entrant threshold a
+    // 16-draw needs to produce a real round-1 match once 2 fillers are
+    // added (see Tournament.test.ts's "startWithBracket — refuses a
+    // field too sparse" suite for exactly where that threshold sits;
+    // 8 real + 2 filled = 10, same shape BracketGenerator.test.ts's own
+    // "gives byes to the top seeds" case already proves produces 2 real
+    // matches).
     const tournament = openSeniorTournament('t1');
-    realEntrant(tournament, 'real-1');
-    realEntrant(tournament, 'real-2');
+    for (let i = 1; i <= 8; i++) realEntrant(tournament, `real-${i}`);
     await tournaments.save(tournament);
 
     // A long-term fillOnly free agent, senior-eligible (any non-junior age).
@@ -206,7 +212,8 @@ describe('StartDueTournamentsUseCase', () => {
     const started = await tournaments.findById(TournamentId('t1'));
     expect(started!.hasStarted).toBe(true);
     const entrantIds = started!.entrants.map((e) => e.playerId).sort();
-    expect(entrantIds).toEqual(['filler-fillonly', 'filler-fresh', 'real-1', 'real-2'].sort());
+    const expectedIds = ['filler-fillonly', 'filler-fresh', 'real-1', 'real-2', 'real-3', 'real-4', 'real-5', 'real-6', 'real-7', 'real-8'].sort();
+    expect(entrantIds).toEqual(expectedIds);
 
     // The fresh candidate was converted into a real, permanent fillOnly
     // Player — not deleted, not left dangling as a non-Player entrant.
@@ -317,6 +324,35 @@ describe('StartDueTournamentsUseCase', () => {
     expect(result.started).toBe(0);
     const stillOpen = await tournaments.findById(TournamentId('t-empty'));
     expect(stillOpen!.hasStarted).toBe(false);
+  });
+
+  it('leaves a tournament open, does NOT crash or start it, when fill still leaves too sparse a field to produce a single real round-1 match', async () => {
+    // A real, previously-latent BracketGenerator/Tournament bug this
+    // guards against: for a 16-draw, any entrant count from 1 to 8
+    // lands every entrant on the bye side of its standard seed-slot
+    // pairing (1v16, 8v9, 4v13, ...) — real matches only start
+    // appearing at 9 entrants. Found live via the seed script's own
+    // walkthrough, not just imagined — see Tournament.test.ts's
+    // "startWithBracket — refuses a field too sparse" suite for the
+    // exact threshold proof.
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 4 });
+
+    const tournament = openSeniorTournament('t-too-sparse');
+    await tournaments.save(tournament); // zero real registrants
+
+    // Only 5 eligible fillers exist — nowhere near the 9-entrant
+    // threshold a 16-draw needs for even one real match.
+    for (let i = 1; i <= 5; i++) {
+      await players.save(Player.generateFillOnly(PlayerId(`filler-${i}`), `Filler ${i}`, 25 * 52, 'prime', attributes(30)));
+    }
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.started).toBe(0);
+    expect(result.filled).toBe(5); // the 5 available fillers WERE registered...
+    const stillOpen = await tournaments.findById(TournamentId('t-too-sparse'));
+    expect(stillOpen!.hasStarted).toBe(false); // ...but starting was correctly refused
+    expect(stillOpen!.entrants).toHaveLength(5); // registrations persist for a later tick to build on
   });
 
   it('does not touch a tournament whose scheduled week has not arrived yet', async () => {

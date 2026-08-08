@@ -154,6 +154,18 @@ export class StartDueTournamentsUseCase {
       if (tournament.entrants.length === 0) continue;
 
       const bracket = this.bracketGenerator.generate(tournament.entrants, tournament.drawSize);
+      // BracketGenerator's standard seed-slot placement (1v16, 8v9,
+      // 4v13, ...) spreads top seeds apart so they can't meet early —
+      // which means a field that's short but non-empty can still have
+      // EVERY entrant land on the bye side of its pair, producing round
+      // 1 matches: []. Tournament.startWithBracket() refuses that (see
+      // its own doc comment — such a round can never progress, and
+      // loses its identity entirely on the next repository read). This
+      // is an expected, ordinary outcome of filling from a limited
+      // pool, not an error: leave the tournament open and let a later
+      // tick — with more fillers generated/converted by then — try
+      // again, exactly like the zero-entrants case above.
+      if (bracket[0].matches.length === 0) continue;
       tournament.startWithBracket(bracket);
       await this.tournaments.save(tournament);
       started += 1;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { TournamentId } from '../shared/ids';
+import { PlayerId, TournamentId } from '../shared/ids';
+import { BracketGenerator } from './BracketGenerator';
 import { Tournament, TournamentOpenProps } from './Tournament';
 
 function baseProps(overrides: Partial<TournamentOpenProps> = {}): TournamentOpenProps {
@@ -40,5 +41,40 @@ describe('Tournament.open — ageBand invariant', () => {
     const u16 = Tournament.open(baseProps({ tier: 'j500', ageBand: 'u16' }));
     expect(u14.tier).toBe(u16.tier);
     expect(u14.ageBand).not.toBe(u16.ageBand);
+  });
+});
+
+describe('Tournament.startWithBracket — refuses a field too sparse to produce a single real match', () => {
+  const generator = new BracketGenerator();
+
+  it('refuses a 16-draw with 8 unseeded entrants — every one lands on the bye side of its pair, zero real matches', () => {
+    const tournament = Tournament.open(baseProps());
+    for (let i = 1; i <= 8; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: null });
+    }
+    const bracket = generator.generate(tournament.entrants, 16);
+    expect(bracket[0].matches).toHaveLength(0); // confirms the premise, not just the guard
+
+    expect(() => tournament.startWithBracket(bracket)).toThrow(/too sparse a field/);
+    expect(tournament.hasStarted).toBe(false); // the throw must not leave it half-started
+  });
+
+  it('accepts a 16-draw with 9 unseeded entrants — the threshold where BracketGenerator first produces a real match', () => {
+    const tournament = Tournament.open(baseProps());
+    for (let i = 1; i <= 9; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: null });
+    }
+    const bracket = generator.generate(tournament.entrants, 16);
+    expect(bracket[0].matches.length).toBeGreaterThan(0);
+
+    expect(() => tournament.startWithBracket(bracket)).not.toThrow();
+    expect(tournament.hasStarted).toBe(true);
+  });
+
+  it('still refuses a literally empty bracket (no rounds at all), same as before this guard existed', () => {
+    const tournament = Tournament.open(baseProps());
+    tournament.registerEntrant({ playerId: PlayerId('p1'), seed: null });
+
+    expect(() => tournament.startWithBracket([])).toThrow(/empty bracket/);
   });
 });
