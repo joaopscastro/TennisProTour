@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
@@ -21,6 +22,8 @@ import { DrizzleTalentPoolCandidateRepository } from './DrizzleTalentPoolCandida
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
 import { DrizzleCoachRepository } from './DrizzleCoachRepository';
+import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
+import { DrizzleTitleRepository } from './DrizzleTitleRepository';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 
@@ -41,9 +44,12 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  // Child tables first (FKs), then parents. ranking_ledger has FKs to
-  // both players and tournaments, so it has to go before either.
+  // Child tables first (FKs), then parents. ranking_ledger/titles have
+  // FKs to both players and tournaments, so they have to go before
+  // either; peak_rankings only references players.
   await db.delete(schema.rankingLedger);
+  await db.delete(schema.titles);
+  await db.delete(schema.peakRankings);
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
@@ -433,6 +439,140 @@ describe('DrizzleRankingLedgerRepository', () => {
 
     const seniorEntry = entries.find((e) => e.tournamentId === TournamentId('t-senior-ledger'));
     expect(seniorEntry?.ageBand).toBeNull();
+  });
+});
+
+describe('DrizzlePeakRankingRepository', () => {
+  const peakRankings = new DrizzlePeakRankingRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+
+  it('upserts in place — the row count for one (player, band) stays at exactly one real row no matter how many times it is updated, per docs/data-archival-principles.md', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-peak-1'), 'Peak Player', 20 * 52, attributes(30), ManagerId('m1')));
+
+    // 10 successive "fresh ranking computation" writes for the SAME
+    // (player, band) — simulating what SimulateMatchUseCase does on
+    // every ranking-ledger write point over a long career.
+    for (let i = 1; i <= 10; i++) {
+      await peakRankings.upsert({
+        playerId: PlayerId('p-peak-1'),
+        band: 'senior',
+        peakPoints: i * 10,
+        peakAsOfWeek: { season: 1, week: i },
+      });
+    }
+
+    // The table's REAL row count for this player, read directly via
+    // SQL (not through the repository's own findOne, which could mask
+    // a duplicate-row bug by just returning the first match) — proves
+    // this was 10 real UPDATEs, not 10 accumulating INSERTs.
+    const rawRows = await db.select().from(schema.peakRankings).where(eq(schema.peakRankings.playerId, 'p-peak-1'));
+    expect(rawRows).toHaveLength(1);
+    expect(rawRows[0].peakPoints).toBe(100); // the last (and highest) value written
+
+    const found = await peakRankings.findOne(PlayerId('p-peak-1'), 'senior');
+    expect(found?.peakPoints).toBe(100);
+  });
+
+  it('keeps a separate row per band for the same player — row count bounded by player × scope, not by update count', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-peak-2'), 'Multi Band Player', 12 * 52, attributes(30), ManagerId('m1')));
+
+    for (const band of ['senior', 'u14', 'u16'] as const) {
+      for (let i = 1; i <= 3; i++) {
+        await peakRankings.upsert({
+          playerId: PlayerId('p-peak-2'),
+          band,
+          peakPoints: i * 5,
+          peakAsOfWeek: { season: 1, week: i },
+        });
+      }
+    }
+
+    const rawRows = await db.select().from(schema.peakRankings).where(eq(schema.peakRankings.playerId, 'p-peak-2'));
+    expect(rawRows).toHaveLength(3); // exactly one per band, not 9 (3 bands x 3 updates each)
+
+    const all = await peakRankings.findAllForPlayer(PlayerId('p-peak-2'));
+    expect(all.map((p) => p.band).sort()).toEqual(['senior', 'u14', 'u16']);
+  });
+
+  it('returns null for a player/band with no recorded peak yet', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-peak-3'), 'No Peak Yet', 20 * 52, attributes(30), ManagerId('m1')));
+    const found = await peakRankings.findOne(PlayerId('p-peak-3'), 'senior');
+    expect(found).toBeNull();
+  });
+});
+
+describe('DrizzleTitleRepository', () => {
+  const titleRepository = new DrizzleTitleRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+
+  it('round-trips a title record, referencing the tournament by id rather than copying its data', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-title-1'), 'Champion', 20 * 52, attributes(30), ManagerId('m1')));
+    const tournament = Tournament.open({
+      name: 'Test Championship',
+      id: TournamentId('t-title-1'),
+      tier: 'major',
+      surface: 'grass',
+      weekScheduled: { season: 1, week: 3 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(tournament);
+
+    await titleRepository.append({
+      tournamentId: TournamentId('t-title-1'),
+      playerId: PlayerId('p-title-1'),
+      tier: 'major',
+      ageBand: null,
+      weekEarned: { season: 1, week: 3 },
+    });
+
+    const titles = await titleRepository.findByPlayer(PlayerId('p-title-1'));
+    expect(titles).toHaveLength(1);
+    expect(titles[0]).toEqual({
+      tournamentId: TournamentId('t-title-1'),
+      playerId: PlayerId('p-title-1'),
+      tier: 'major',
+      ageBand: null,
+      weekEarned: { season: 1, week: 3 },
+    });
+  });
+
+  it('refuses a second title for the same tournament — a real DB constraint (tournament_id primary key), not just application convention', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-title-2'), 'Champion', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('p-title-3'), 'Someone Else', 20 * 52, attributes(30), ManagerId('m1')));
+    const tournament = Tournament.open({
+      name: 'Test Championship',
+      id: TournamentId('t-title-2'),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(tournament);
+
+    await titleRepository.append({
+      tournamentId: TournamentId('t-title-2'),
+      playerId: PlayerId('p-title-2'),
+      tier: 'tour',
+      ageBand: null,
+      weekEarned: { season: 1, week: 1 },
+    });
+
+    await expect(
+      titleRepository.append({
+        tournamentId: TournamentId('t-title-2'),
+        playerId: PlayerId('p-title-3'),
+        tier: 'tour',
+        ageBand: null,
+        weekEarned: { season: 1, week: 1 },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('returns an empty list for a player with no titles yet', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-title-4'), 'No Titles Yet', 20 * 52, attributes(30), ManagerId('m1')));
+    const titles = await titleRepository.findByPlayer(PlayerId('p-title-4'));
+    expect(titles).toEqual([]);
   });
 });
 

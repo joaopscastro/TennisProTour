@@ -1,4 +1,4 @@
-import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek } from '@tennis-manager/domain';
+import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek, WorldId } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
@@ -6,12 +6,17 @@ import { RankingPointsTable } from '@tennis-manager/domain';
 import { RankingLedgerEntry } from '@tennis-manager/domain';
 import { ManagerXpPolicy } from '@tennis-manager/domain';
 import { applyGraduationCarryover, RankingBand } from '@tennis-manager/domain';
+import { RankingCalculationService, bestResultsCapFor, matchesRankingBand } from '@tennis-manager/domain';
+import { isNewPeak, PeakRankingEntry, TitleRecord } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
+  GameWorldRepository,
+  PeakRankingRepository,
   RankingLedgerRepository,
   ManagerXpRepository,
   MatchLogStorePort,
   PlayerRepository,
+  TitleRepository,
   TournamentRepository,
 } from '../ports/ports';
 
@@ -107,6 +112,14 @@ export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, 
  * currency, not a player accolade, and a player with no current
  * manager (released/free agent) simply earns no XP for anyone — there's
  * no one to credit.
+ *
+ * Two more permanent records get written from the exact same two
+ * awardRankingPoints call sites (docs/data-archival-principles.md):
+ * a per-(player, band) peak-ranking high-water-mark, refreshed every
+ * time — see updatePeakIfExceeded — and, only on the winner's final-
+ * round call, exactly one title/trophy row (`titles`' own schema doc
+ * comment explains why that's structurally guaranteed, not just
+ * usually true).
  */
 export class SimulateMatchUseCase {
   constructor(
@@ -120,11 +133,23 @@ export class SimulateMatchUseCase {
     private readonly rankingLedger: RankingLedgerRepository,
     private readonly managerXpPolicy: ManagerXpPolicy,
     private readonly managerXp: ManagerXpRepository,
+    private readonly peakRankings: PeakRankingRepository,
+    private readonly titles: TitleRepository,
+    private readonly worlds: GameWorldRepository,
+    private readonly worldId: WorldId,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
     const tournament = await this.tournaments.findById(command.tournamentId);
     if (!tournament) throw new Error(`Tournament ${command.tournamentId} not found`);
+
+    // Same fallback RankPositionQuery uses (week 1 of season 1) for a
+    // fresh dev DB whose world clock hasn't ticked yet — the rolling-
+    // window peak computation below needs SOME "now" to filter
+    // against, and this keeps that consistent with how every other
+    // ranking read in this codebase already defines "now".
+    const world = await this.worlds.findById(this.worldId);
+    const currentWeek: GameWeek = world?.currentWeek ?? { season: 1, week: 1 };
 
     const scheduledMatch = tournament.getScheduledMatch(command.roundNumber, command.matchIndex);
 
@@ -181,6 +206,7 @@ export class SimulateMatchUseCase {
       tournament.ageBand,
       tournament.id,
       tournament.weekScheduled,
+      currentWeek,
     );
     await this.awardManagerXp(loserPlayer, 'loss', tournament.tier);
     if (tournament.isFinalRound(command.roundNumber)) {
@@ -191,8 +217,26 @@ export class SimulateMatchUseCase {
         tournament.ageBand,
         tournament.id,
         tournament.weekScheduled,
+        currentWeek,
       );
       await this.awardManagerXp(winnerPlayer, 'win', tournament.tier);
+
+      // Exactly one title row, for the actual winner, right at the
+      // moment their final-round win is recorded — never for the
+      // loser, never for a non-final round. A started tournament is
+      // guaranteed to reach a real final match (Tournament.
+      // startWithBracket refuses a draw too sparse to ever produce
+      // one), so there is always a genuine winner here to credit.
+      if (winnerPlayer) {
+        const title: TitleRecord = {
+          tournamentId: tournament.id,
+          playerId: winnerPlayer.id,
+          tier: tournament.tier,
+          ageBand: tournament.ageBand,
+          weekEarned: tournament.weekScheduled,
+        };
+        await this.titles.append(title);
+      }
     }
 
     return { replayUrl: url };
@@ -205,6 +249,7 @@ export class SimulateMatchUseCase {
     ageBand: AgeBand | null,
     tournamentId: TournamentId,
     weekEarned: GameWeek,
+    currentWeek: GameWeek,
   ): Promise<void> {
     if (!player) return;
     const rawPoints = this.rankingPointsTable.pointsFor(tier, roundsWon);
@@ -225,6 +270,32 @@ export class SimulateMatchUseCase {
 
     const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, ageBand, points, weekEarned };
     await this.rankingLedger.append(entry);
+
+    await this.updatePeakIfExceeded(player.id, entryBand, currentWeek);
+  }
+
+  /**
+   * Recomputes this player's real rolling total for the band the
+   * entry just written belongs to (same RankingCalculationService any
+   * other ranking read uses — never a second, approximate formula),
+   * and overwrites the stored peak ONLY if it's a genuine new high
+   * (see PeakRanking.isNewPeak — ties and drops never touch the
+   * stored row). Reads via findByPlayer, not the whole-table
+   * sortedRankings() a leaderboard needs — this only ever needs ONE
+   * player's numbers, and findByPlayer is the now-indexed query for
+   * exactly that (docs/data-archival-principles.md's index audit).
+   */
+  private async updatePeakIfExceeded(playerId: PlayerId, band: RankingBand, currentWeek: GameWeek): Promise<void> {
+    const allEntries = await this.rankingLedger.findByPlayer(playerId);
+    const bandEntries = allEntries.filter((e) => matchesRankingBand(e.ageBand, band));
+    const calculator = new RankingCalculationService(bestResultsCapFor(band));
+    const freshTotal = calculator.calculateTotal(bandEntries, currentWeek);
+
+    const currentPeak = await this.peakRankings.findOne(playerId, band);
+    if (!isNewPeak(freshTotal, currentPeak)) return;
+
+    const updated: PeakRankingEntry = { playerId, band, peakPoints: freshTotal, peakAsOfWeek: currentWeek };
+    await this.peakRankings.upsert(updated);
   }
 
   private async awardManagerXp(player: Player | null, result: 'win' | 'loss', tier: TournamentTier): Promise<void> {

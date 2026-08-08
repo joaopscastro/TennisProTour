@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import {
   BracketGenerator,
   GameWeek,
+  GameWorld,
   ManagerId,
+  PeakRankingEntry,
+  RankingBand,
   RankingLedgerEntry,
   MatchId,
   MatchLog,
@@ -17,15 +20,20 @@ import {
   StandardRankingPointsTable,
   Surface,
   SurfaceAffinities,
+  TitleRecord,
   Tournament,
   TournamentId,
+  WorldId,
 } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
+  GameWorldRepository,
   ManagerXpRepository,
+  PeakRankingRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
+  TitleRepository,
   TournamentRepository,
 } from '../ports/ports';
 import { SimulateMatchUseCase } from './SimulateMatchUseCase';
@@ -128,6 +136,50 @@ class InMemoryManagerXpRepository implements ManagerXpRepository {
   }
 }
 
+class InMemoryPeakRankingRepository implements PeakRankingRepository {
+  private readonly store = new Map<string, PeakRankingEntry>();
+  private key(playerId: PlayerId, band: RankingBand): string {
+    return `${playerId}:${band}`;
+  }
+  async findOne(playerId: PlayerId, band: RankingBand): Promise<PeakRankingEntry | null> {
+    return this.store.get(this.key(playerId, band)) ?? null;
+  }
+  async upsert(entry: PeakRankingEntry): Promise<void> {
+    this.store.set(this.key(entry.playerId, entry.band), entry);
+  }
+  async findAllForPlayer(playerId: PlayerId): Promise<PeakRankingEntry[]> {
+    return [...this.store.values()].filter((e) => e.playerId === playerId);
+  }
+}
+
+class InMemoryTitleRepository implements TitleRepository {
+  private readonly titles: TitleRecord[] = [];
+  async append(title: TitleRecord): Promise<void> {
+    this.titles.push(title);
+  }
+  async findByPlayer(playerId: PlayerId): Promise<TitleRecord[]> {
+    return this.titles.filter((t) => t.playerId === playerId);
+  }
+}
+
+class InMemoryGameWorldRepository implements GameWorldRepository {
+  private readonly store = new Map<WorldId, GameWorld>();
+  async findById(id: WorldId): Promise<GameWorld | null> {
+    return this.store.get(id) ?? null;
+  }
+  async save(world: GameWorld): Promise<void> {
+    this.store.set(world.id, world);
+  }
+}
+
+const testWorldId = WorldId('test-world');
+
+function makeTestWorld(week: GameWeek = { season: 1, week: 10 }): GameWorldRepository {
+  const worlds = new InMemoryGameWorldRepository();
+  void worlds.save(GameWorld.reconstitute({ id: testWorldId, currentWeek: week, lastAppliedTick: null }));
+  return worlds;
+}
+
 class AlwaysAWinsSimulator implements MatchSimulator {
   simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
     return {
@@ -180,6 +232,10 @@ async function setup() {
     new InMemoryRankingLedgerRepository(),
     new StandardManagerXpPolicy(),
     new InMemoryManagerXpRepository(),
+    new InMemoryPeakRankingRepository(),
+    new InMemoryTitleRepository(),
+    makeTestWorld(),
+    testWorldId,
   );
   const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch);
 

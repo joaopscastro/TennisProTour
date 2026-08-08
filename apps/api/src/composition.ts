@@ -32,6 +32,10 @@ import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerReposi
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
 import { DrizzleGameWorldRepository } from './adapters/outbound/DrizzleGameWorldRepository';
 import { DrizzleRankingLedgerRepository } from './adapters/outbound/DrizzleRankingLedgerRepository';
+import { DrizzlePeakRankingRepository } from './adapters/outbound/DrizzlePeakRankingRepository';
+import { DrizzleTitleRepository } from './adapters/outbound/DrizzleTitleRepository';
+import { DrizzlePlayerTournamentHistoryQuery } from './adapters/outbound/DrizzlePlayerTournamentHistoryQuery';
+import { DrizzlePlayerProfileQuery } from './adapters/outbound/DrizzlePlayerProfileQuery';
 import { DrizzleTalentPoolCandidateRepository } from './adapters/outbound/DrizzleTalentPoolCandidateRepository';
 import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
 import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClaimAdapter';
@@ -81,6 +85,14 @@ export interface Dependencies {
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
   rankingLedger: DrizzleRankingLedgerRepository;
+  /** Permanent high-water-mark store (docs/data-archival-principles.md)
+   * — separate from rankingLedger's rolling/falling total. */
+  peakRankings: DrizzlePeakRankingRepository;
+  /** Append-only title/trophy store, same doc. */
+  titles: DrizzleTitleRepository;
+  /** The single composed read behind the player profile page — see
+   * DrizzlePlayerProfileQuery's own doc comment. */
+  playerProfile: DrizzlePlayerProfileQuery;
   /** The senior tour's rank-position query (band: 'senior') — what the
    * roster dashboard's rank column reads today. The two junior bands
    * (rankPositionU14/rankPositionU16) are wired below for the same
@@ -183,6 +195,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
 
   const worlds = new DrizzleGameWorldRepository(options.db);
   const rankingLedger = new DrizzleRankingLedgerRepository(options.db);
+  const peakRankings = new DrizzlePeakRankingRepository(options.db);
+  const titles = new DrizzleTitleRepository(options.db);
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'senior');
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u16');
@@ -223,6 +237,10 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankingLedger,
     managerXpPolicy,
     managerXp,
+    peakRankings,
+    titles,
+    worlds,
+    WORLD_ID,
   );
 
   const standardAgingPolicy = new StandardAgingPolicy();
@@ -243,6 +261,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u16: rankPositionU16,
   };
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
+  const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
+  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory);
 
   return {
     managers,
@@ -253,6 +273,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     tournaments,
     worlds,
     rankingLedger,
+    peakRankings,
+    titles,
+    playerProfile,
     rankPosition,
     rankPositionU14,
     rankPositionU16,

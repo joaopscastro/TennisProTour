@@ -18,6 +18,8 @@ export * from './ranking/RankingLedgerEntry';
 export * from './ranking/RankingCalculationService';
 export * from './ranking/RankingBand';
 export * from './ranking/GraduationCarryover';
+export * from './ranking/PeakRanking';
+export * from './ranking/TitleRecord';
 export * from './manager/ManagerXpPolicy';
 export * from './manager/TalentClaimPricingPolicy';
 export * from './manager/Coach';

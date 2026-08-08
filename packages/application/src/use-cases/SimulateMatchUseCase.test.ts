@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GameWeek, ManagerId, MatchId, PlayerId, TournamentId, RankingLedgerEntry } from '@tennis-manager/domain';
+import { GameWeek, GameWorld, ManagerId, MatchId, PeakRankingEntry, PlayerId, RankingBand, TitleRecord, TournamentId, RankingLedgerEntry, WorldId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
@@ -10,10 +10,13 @@ import { StandardManagerXpPolicy, StandardRankingPointsTable } from '@tennis-man
 import { Surface } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
+  GameWorldRepository,
   ManagerXpRepository,
+  PeakRankingRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
   PlayerRepository,
+  TitleRepository,
   TournamentRepository,
 } from '../ports/ports';
 import { MATCH_SURFACE_AFFINITY_GAIN, SimulateMatchUseCase } from './SimulateMatchUseCase';
@@ -116,6 +119,60 @@ class InMemoryManagerXpRepository implements ManagerXpRepository {
   }
 }
 
+class InMemoryPeakRankingRepository implements PeakRankingRepository {
+  private readonly store = new Map<string, PeakRankingEntry>();
+  private key(playerId: PlayerId, band: RankingBand): string {
+    return `${playerId}:${band}`;
+  }
+  async findOne(playerId: PlayerId, band: RankingBand): Promise<PeakRankingEntry | null> {
+    return this.store.get(this.key(playerId, band)) ?? null;
+  }
+  async upsert(entry: PeakRankingEntry): Promise<void> {
+    this.store.set(this.key(entry.playerId, entry.band), entry);
+  }
+  async findAllForPlayer(playerId: PlayerId): Promise<PeakRankingEntry[]> {
+    return [...this.store.values()].filter((e) => e.playerId === playerId);
+  }
+}
+
+class InMemoryTitleRepository implements TitleRepository {
+  private readonly titles: TitleRecord[] = [];
+  async append(title: TitleRecord): Promise<void> {
+    if (this.titles.some((t) => t.tournamentId === title.tournamentId)) {
+      throw new Error(`Tournament ${title.tournamentId} already has a title record`);
+    }
+    this.titles.push(title);
+  }
+  async findByPlayer(playerId: PlayerId): Promise<TitleRecord[]> {
+    return this.titles.filter((t) => t.playerId === playerId);
+  }
+}
+
+class InMemoryGameWorldRepository implements GameWorldRepository {
+  private readonly store = new Map<WorldId, GameWorld>();
+  async findById(id: WorldId): Promise<GameWorld | null> {
+    return this.store.get(id) ?? null;
+  }
+  async save(world: GameWorld): Promise<void> {
+    this.store.set(world.id, world);
+  }
+}
+
+const testWorldId = WorldId('test-world');
+
+/** Every existing SimulateMatchUseCase test predates peak-ranking/title
+ * tracking and doesn't assert on either — this gives every call site a
+ * real (not null-fallback) current week without touching each test's
+ * own assertions. Tests that DO care about peak/title behavior build
+ * their own instances instead of using this shared one. Synchronous on
+ * purpose (no real I/O in the in-memory fake) so it drops into any
+ * call site, sync or async, without an extra `await`. */
+function makeTestWorld(week: GameWeek = { season: 1, week: 10 }): GameWorldRepository {
+  const worlds = new InMemoryGameWorldRepository();
+  void worlds.save(GameWorld.reconstitute({ id: testWorldId, currentWeek: week, lastAppliedTick: null }));
+  return worlds;
+}
+
 /** Always declares entrantA (playerA) the winner, for deterministic
  * cascades through a bracket in these tests. */
 class AlwaysAWinsSimulator implements MatchSimulator {
@@ -193,6 +250,10 @@ describe('SimulateMatchUseCase', () => {
       new InMemoryRankingLedgerRepository(),
       new StandardManagerXpPolicy(),
       new InMemoryManagerXpRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      makeTestWorld(),
+      testWorldId,
     );
 
     const round1MatchCount = tournament.getRounds()[0].matches.length; // 8
@@ -239,6 +300,10 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       // Read the actual slot 0 pairing rather than assuming p1 vs p2 —
@@ -309,6 +374,10 @@ describe('SimulateMatchUseCase', () => {
       new InMemoryRankingLedgerRepository(),
       new StandardManagerXpPolicy(),
       new InMemoryManagerXpRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      makeTestWorld(),
+      testWorldId,
     );
 
     await useCase.execute({ matchId: MatchId('final'), tournamentId, roundNumber: 4, matchIndex: 0 });
@@ -372,6 +441,10 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -416,6 +489,10 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -455,6 +532,10 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         managerXpPolicy,
         managerXp,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       await cascadeToRound(useCase, tournaments, tournamentId, 4);
@@ -544,6 +625,10 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         managerXpPolicy,
         managerXp,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       // A first-round match only ever awards the loser (see the ranking
@@ -603,6 +688,10 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         managerXpPolicy,
         winManagerXp,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       await winUseCase.execute({ matchId: MatchId('final'), tournamentId: winTournamentId, roundNumber: 4, matchIndex: 0 });
@@ -644,6 +733,10 @@ describe('SimulateMatchUseCase', () => {
           new InMemoryRankingLedgerRepository(),
           new StandardManagerXpPolicy(),
           managerXp,
+          new InMemoryPeakRankingRepository(),
+          new InMemoryTitleRepository(),
+          makeTestWorld(),
+          testWorldId,
         );
 
         await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -684,6 +777,10 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         new StandardManagerXpPolicy(),
         managerXp,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -734,6 +831,10 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
       );
     }
 
@@ -909,5 +1010,222 @@ describe('SimulateMatchUseCase', () => {
       const reloaded = await players.findById(PlayerId('p1'));
       expect(reloaded!.dormantCarryoverBonus).toEqual(dormant); // untouched, still dormant
     });
+  });
+});
+
+describe('SimulateMatchUseCase — peak ranking and titles (docs/data-archival-principles.md)', () => {
+  /** DrawSize only allows 16/32/64/128 — there is no genuinely smaller
+   * real tournament. `playerIds` must be exactly 16, already in SEED
+   * order (playerIds[0] = seed 1, ..., playerIds[15] = seed 16). */
+  function buildFullTournament(
+    tournamentId: TournamentId,
+    tier: TournamentTier,
+    ageBand: 'u14' | 'u16' | null,
+    playerIds: PlayerId[],
+  ): { tournament: Tournament; bracketGenerator: BracketGenerator } {
+    const bracketGenerator = new BracketGenerator();
+    const tournament = Tournament.open({
+      name: 'Test Championship',
+      id: tournamentId,
+      tier,
+      ageBand,
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    playerIds.forEach((id, i) => tournament.registerEntrant({ playerId: id, seed: i + 1 }));
+    const [round1] = bracketGenerator.generate(tournament.entrants, 16);
+    tournament.startWithBracket([round1]);
+    return { tournament, bracketGenerator };
+  }
+
+  /** Standard seed-slot pairing puts seed 1 vs seed 16 at round 1,
+   * match index 0 — so putting a player at seed 16 against 15 filler
+   * opponents, then simulating ONLY that one match, gives them a real,
+   * immediate first-round-loss ledger entry (0 points) with no need to
+   * cascade the rest of the bracket at all. */
+  function seededFillerIds(prefix: string, count = 15): PlayerId[] {
+    return Array.from({ length: count }, (_, i) => PlayerId(`${prefix}-filler-${i + 1}`));
+  }
+
+  /** Plays out every match of every round in seed order, so seed 1
+   * (always entrantA under AlwaysAWinsSimulator, and always paired
+   * against the lowest remaining seed) ends up outright champion —
+   * same pattern this file's own graduation-carryover tests already
+   * rely on elsewhere. */
+  async function cascadeToChampion(
+    useCase: SimulateMatchUseCase,
+    tournaments: InMemoryTournamentRepository,
+    tournamentId: TournamentId,
+    totalRounds: number,
+  ): Promise<void> {
+    for (let roundNumber = 1; roundNumber <= totalRounds; roundNumber++) {
+      const tournament = (await tournaments.findById(tournamentId))!;
+      const matchCount = tournament.getRounds()[roundNumber - 1].matches.length;
+      for (let matchIndex = 0; matchIndex < matchCount; matchIndex++) {
+        await useCase.execute({
+          matchId: MatchId(`${tournamentId}-r${roundNumber}-m${matchIndex}`),
+          tournamentId,
+          roundNumber,
+          matchIndex,
+        });
+      }
+    }
+  }
+
+  function buildDeps() {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const rankingLedger = new InMemoryRankingLedgerRepository();
+    const peakRankings = new InMemoryPeakRankingRepository();
+    const titles = new InMemoryTitleRepository();
+    return { tournaments, players, rankingLedger, peakRankings, titles };
+  }
+
+  function makeUseCase(
+    deps: ReturnType<typeof buildDeps>,
+    bracketGenerator: BracketGenerator,
+    worlds: GameWorldRepository,
+  ): SimulateMatchUseCase {
+    return new SimulateMatchUseCase(
+      deps.tournaments,
+      deps.players,
+      new AlwaysAWinsSimulator(),
+      new FakeMatchLogStore(),
+      new RecordingEventPublisher(),
+      bracketGenerator,
+      new StandardRankingPointsTable(),
+      deps.rankingLedger,
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
+      deps.peakRankings,
+      deps.titles,
+      worlds,
+      testWorldId,
+    );
+  }
+
+  it("stays at its high point even after the player's rolling ranking later drops (an older result rolling out of the 52-week window)", async () => {
+    const p1 = PlayerId('peak-p1');
+    const deps = buildDeps();
+    const winnerFieldIds = [p1, ...seededFillerIds('peak-a')];
+    for (const id of winnerFieldIds) await deps.players.save(makePlayer(id));
+
+    // Champion run #1, "now" = season 1 week 10 — a real, big, nonzero
+    // result (a true final win, roundsWon = 4 on a 16-draw).
+    const { tournament: tA, bracketGenerator: bgA } = buildFullTournament(TournamentId('peak-t-a'), 'challenger', null, winnerFieldIds);
+    await deps.tournaments.save(tA);
+    const useCaseA = makeUseCase(deps, bgA, makeTestWorld({ season: 1, week: 10 }));
+    await cascadeToChampion(useCaseA, deps.tournaments, tA.id, 4);
+
+    const rawWinPoints = new StandardRankingPointsTable().pointsFor('challenger', 4);
+    expect(rawWinPoints).toBeGreaterThan(0);
+    const peakAfterWin = await deps.peakRankings.findOne(p1, 'senior');
+    expect(peakAfterWin?.peakPoints).toBe(rawWinPoints);
+
+    // Loss #2, "now" = season 2 week 5 — far enough past win #1's week
+    // 1 (weeksBetween = 52 + 5 - 1 = 56 > 52) that it has rolled OUT of
+    // the rolling window entirely. p1 sits at seed 16 this time (paired
+    // against seed 1 at round 1, match 0), so simulating ONLY that one
+    // match gives them a real, immediate 0-point first-round-exit
+    // entry with no need to cascade the rest of this bracket.
+    const loserFieldIds = [...seededFillerIds('peak-b'), p1];
+    const { tournament: tB, bracketGenerator: bgB } = buildFullTournament(TournamentId('peak-t-b'), 'challenger', null, loserFieldIds);
+    for (const id of loserFieldIds) if (!(await deps.players.findById(id))) await deps.players.save(makePlayer(id));
+    await deps.tournaments.save(tB);
+    const useCaseB = makeUseCase(deps, bgB, makeTestWorld({ season: 2, week: 5 }));
+    await useCaseB.execute({ matchId: MatchId('peak-m-b'), tournamentId: tB.id, roundNumber: 1, matchIndex: 0 });
+
+    // The fresh rolling total really did drop (sanity check, not just
+    // asserting the peak alone).
+    const freshEntries = (await deps.rankingLedger.findByPlayer(p1)).filter((e) => e.ageBand === null);
+    expect(freshEntries.some((e) => e.points === 0)).toBe(true); // the later 0-point loss is recorded
+
+    // The peak must be UNCHANGED — still the champion run's points,
+    // never reduced to reflect the fresh (now lower) rolling total.
+    const peakAfterDrop = await deps.peakRankings.findOne(p1, 'senior');
+    expect(peakAfterDrop?.peakPoints).toBe(rawWinPoints);
+  });
+
+  it('keeps a U14 peak untouched and independently queryable after the same player later earns a U16 result (graduating bands)', async () => {
+    const p1 = PlayerId('grad-p1');
+    const deps = buildDeps();
+    const u14FieldIds = [p1, ...seededFillerIds('grad-u14')];
+    const u16FieldIds = [p1, ...seededFillerIds('grad-u16')];
+    for (const id of [...new Set([...u14FieldIds, ...u16FieldIds])]) await deps.players.save(makePlayer(id));
+
+    // A real U14 championship run.
+    const { tournament: tU14, bracketGenerator: bgU14 } = buildFullTournament(TournamentId('grad-t-u14'), 'j100', 'u14', u14FieldIds);
+    await deps.tournaments.save(tU14);
+    const useCaseU14 = makeUseCase(deps, bgU14, makeTestWorld({ season: 1, week: 5 }));
+    await cascadeToChampion(useCaseU14, deps.tournaments, tU14.id, 4);
+
+    const juniorPeakPoints = new StandardRankingPointsTable().pointsFor('j100', 4);
+    expect(juniorPeakPoints).toBeGreaterThan(0);
+    const u14PeakAfterWin = await deps.peakRankings.findOne(p1, 'u14');
+    expect(u14PeakAfterWin?.peakPoints).toBe(juniorPeakPoints);
+
+    // Later, the SAME player (now competing in U16 — this test only
+    // checks the peak table's per-band isolation, not age-eligibility
+    // enforcement, which RegisterEntrantUseCase already covers) earns
+    // a real U16 championship run too — a completely independent band.
+    const { tournament: tU16, bracketGenerator: bgU16 } = buildFullTournament(TournamentId('grad-t-u16'), 'j100', 'u16', u16FieldIds);
+    await deps.tournaments.save(tU16);
+    const useCaseU16 = makeUseCase(deps, bgU16, makeTestWorld({ season: 1, week: 20 }));
+    await cascadeToChampion(useCaseU16, deps.tournaments, tU16.id, 4);
+
+    // The U14 peak is untouched by the U16 result.
+    const u14PeakAfterGraduating = await deps.peakRankings.findOne(p1, 'u14');
+    expect(u14PeakAfterGraduating?.peakPoints).toBe(juniorPeakPoints);
+
+    // And it's still independently queryable alongside the new U16
+    // peak — both rows present, not one overwriting the other.
+    const allPeaks = await deps.peakRankings.findAllForPlayer(p1);
+    const bands = allPeaks.map((p) => p.band).sort();
+    expect(bands).toEqual(['u14', 'u16']);
+  });
+
+  it('produces exactly one title record for the winner, and none for the runner-up or anyone eliminated earlier', async () => {
+    const champion = PlayerId('title-champion');
+    const fieldIds = [champion, ...seededFillerIds('title')];
+    const deps = buildDeps();
+    for (const id of fieldIds) await deps.players.save(makePlayer(id));
+
+    const { tournament, bracketGenerator } = buildFullTournament(TournamentId('title-t1'), 'challenger', null, fieldIds);
+    await deps.tournaments.save(tournament);
+    const useCase = makeUseCase(deps, bracketGenerator, makeTestWorld());
+    await cascadeToChampion(useCase, deps.tournaments, tournament.id, 4);
+
+    const finished = (await deps.tournaments.findById(tournament.id))!;
+    const finalMatch = finished.getRounds()[3].matches[0];
+    expect(finalMatch.outcome!.winner).toBe(champion); // sanity: seed 1 really did win it all
+
+    const championTitles = await deps.titles.findByPlayer(champion);
+    expect(championTitles).toHaveLength(1);
+    expect(championTitles[0].tournamentId).toBe(tournament.id);
+
+    const runnerUpTitles = await deps.titles.findByPlayer(finalMatch.outcome!.loser);
+    expect(runnerUpTitles).toHaveLength(0);
+
+    // A player eliminated in round 1 (never reached the final at all).
+    const earlyExitTitles = await deps.titles.findByPlayer(fieldIds[8]);
+    expect(earlyExitTitles).toHaveLength(0);
+  });
+
+  it('awards NO title to anyone from a non-final round decided match — only the actual final does', async () => {
+    const fieldIds = seededFillerIds('nofinal', 16);
+    const deps = buildDeps();
+    for (const id of fieldIds) await deps.players.save(makePlayer(id));
+
+    const { tournament, bracketGenerator } = buildFullTournament(TournamentId('nofinal-t1'), 'challenger', null, fieldIds);
+    await deps.tournaments.save(tournament);
+
+    const useCase = makeUseCase(deps, bracketGenerator, makeTestWorld());
+    // Only round 1's first match (seed 1 vs seed 16) — nowhere near the
+    // final (round 4) of a 16-draw.
+    await useCase.execute({ matchId: MatchId('nofinal-m1'), tournamentId: tournament.id, roundNumber: 1, matchIndex: 0 });
+
+    const allTitles = await Promise.all(fieldIds.map((id) => deps.titles.findByPlayer(id)));
+    expect(allTitles.flat()).toHaveLength(0);
   });
 });

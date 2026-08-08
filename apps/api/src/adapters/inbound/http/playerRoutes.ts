@@ -91,6 +91,18 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     return toPlayerDto(player);
   });
 
+  // The single composed read the profile page needs: avatar identity,
+  // current + peak rankings across all three bands, full tournament
+  // history, and the trophy list — one request, not five. See
+  // DrizzlePlayerProfileQuery's own doc comment.
+  app.get<{ Params: { id: string } }>('/players/:id/profile', async (request, reply) => {
+    const profile = await deps.playerProfile.forPlayer(PlayerId(request.params.id));
+    if (!profile) {
+      return reply.code(404).send({ error: `Player ${request.params.id} not found` });
+    }
+    return profile;
+  });
+
   // Records the player's standing weekly training focus — does not
   // apply any attribute delta itself (see SetTrainingFocusUseCase).
   app.put<{ Params: { id: string }; Body: TrainingFocusBody }>(

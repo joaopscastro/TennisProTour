@@ -2,6 +2,7 @@ import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId, CoachId } from '@tennis-manager/domain';
 import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate, Coach } from '@tennis-manager/domain';
+import { PeakRankingEntry, RankingBand, TitleRecord } from '@tennis-manager/domain';
 
 export interface ManagerAccount {
   id: ManagerId;
@@ -176,6 +177,40 @@ export interface RankingLedgerRepository {
    * to read in one call, same assumption RosterDashboardQuery already
    * makes about tournament_matches. */
   findAll(): Promise<RankingLedgerEntry[]>;
+}
+
+/**
+ * The permanent high-water-mark store (docs/data-archival-principles.md)
+ * — deliberately the opposite persistence shape from
+ * RankingLedgerRepository above: small and MUTABLE (one row per
+ * (player, band), updated in place), never append-only. A player's
+ * ranking can fall as old results roll out of the 52-week window; this
+ * is what remembers how high it ever climbed, independent of that.
+ */
+export interface PeakRankingRepository {
+  findOne(playerId: PlayerId, band: RankingBand): Promise<PeakRankingEntry | null>;
+  /** Overwrites any existing row for this (player, band) — callers are
+   * expected to have already checked `isNewPeak` themselves; this port
+   * doesn't re-check it, so it stays a dumb, testable store rather than
+   * silently swallowing the domain rule. */
+  upsert(entry: PeakRankingEntry): Promise<void>;
+  /** Every band a given player has ever peaked in (up to three: senior,
+   * u14, u16) — what the profile page's "peak rankings" section needs
+   * in one call rather than three. */
+  findAllForPlayer(playerId: PlayerId): Promise<PeakRankingEntry[]>;
+}
+
+/**
+ * Append-only title/trophy store (docs/data-archival-principles.md) —
+ * lean by design: TitleRecord only references the winning tournament
+ * (id + a few scalars), it never copies the tournament's own data.
+ * One row per tournament win, ever — see the Drizzle adapter for how
+ * that's enforced structurally (tournamentId as primary key), not just
+ * by convention.
+ */
+export interface TitleRepository {
+  append(title: TitleRecord): Promise<void>;
+  findByPlayer(playerId: PlayerId): Promise<TitleRecord[]>;
 }
 
 /**

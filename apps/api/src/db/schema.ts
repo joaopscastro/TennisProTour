@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
  * Drizzle schema for the Player & Roster and Competition contexts.
@@ -150,25 +150,99 @@ export const managers = pgTable('managers', {
  * (a single mutable totalPoints) predates this and is being phased out
  * in favor of computing the total on read instead of storing it.
  */
-export const rankingLedger = pgTable('ranking_ledger', {
-  id: text('id').primaryKey(),
-  playerId: text('player_id')
-    .notNull()
-    .references(() => players.id),
-  tournamentId: text('tournament_id')
-    .notNull()
-    .references(() => tournaments.id),
-  tier: tournamentTier('tier').notNull(),
-  /** Mirrors the earning tournament's age_band — null for a senior
-   * result, u14/u16 for a junior one. Scopes this entry to exactly one
-   * of a player's independent rankings — see RankingBand (domain). */
-  ageBand: ageBand('age_band'),
-  points: doublePrecision('points').notNull(),
-  /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
-  seasonEarned: integer('season_earned').notNull(),
-  weekEarned: integer('week_earned').notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const rankingLedger = pgTable(
+  'ranking_ledger',
+  {
+    id: text('id').primaryKey(),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id),
+    tier: tournamentTier('tier').notNull(),
+    /** Mirrors the earning tournament's age_band — null for a senior
+     * result, u14/u16 for a junior one. Scopes this entry to exactly one
+     * of a player's independent rankings — see RankingBand (domain). */
+    ageBand: ageBand('age_band'),
+    points: doublePrecision('points').notNull(),
+    /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
+    seasonEarned: integer('season_earned').notNull(),
+    weekEarned: integer('week_earned').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    /** The real gap docs/data-archival-principles.md's index audit
+     * found: findByPlayer() (AdvanceWorldWeekUseCase's graduation-
+     * carryover check on every weekly tick, and the new player-profile
+     * tournament/ranking history query) filters by player_id alone —
+     * with no index at all here, that was a full-table sequential
+     * scan. This is the fix, not just the finding. */
+    index('idx_ranking_ledger_player_id').on(table.playerId),
+  ],
+);
+
+/**
+ * The permanent high-water-mark table (docs/data-archival-principles.md
+ * — "small and mutable ... never append-only"). Composite primary key
+ * on (player_id, band) is the structural half of "one row per player
+ * per scope": a second write for the same player+band can only ever
+ * be an UPDATE (upsert), never a second INSERT, so this table's size
+ * is bounded by player count × 3 bands, not by how many times a
+ * ranking is recomputed.
+ */
+export const peakRankings = pgTable(
+  'peak_rankings',
+  {
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    band: rankingBand('band').notNull(),
+    peakPoints: doublePrecision('peak_points').notNull(),
+    /** When this peak was actually last reached — display context, not
+     * part of the ordering rule (see PeakRanking.isNewPeak). */
+    peakAsOfSeason: integer('peak_as_of_season').notNull(),
+    peakAsOfWeek: integer('peak_as_of_week').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.playerId, table.band] })],
+);
+
+/**
+ * Append-only title/trophy table (docs/data-archival-principles.md —
+ * "lean ... referencing tournament data rather than copying it").
+ * `tournament_id` as the PRIMARY KEY (not a synthetic id) is a
+ * structural guarantee, not just a convention: a tournament can only
+ * ever have one winner, so the schema itself makes a second title row
+ * for the same tournament impossible, matching RankingLedgerEntry's
+ * minimal-scalar-denormalization shape (tier/age_band/season/week
+ * duplicated for cheap filtering; the tournament's generated name,
+ * surface, draw size, etc. are NOT copied here — display-time code
+ * joins back to `tournaments` for those).
+ */
+export const titles = pgTable(
+  'titles',
+  {
+    tournamentId: text('tournament_id')
+      .primaryKey()
+      .references(() => tournaments.id),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    tier: tournamentTier('tier').notNull(),
+    ageBand: ageBand('age_band'),
+    seasonEarned: integer('season_earned').notNull(),
+    weekEarned: integer('week_earned').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The trophy-list read pattern ("every title this player has ever
+    // won") is exactly the same per-player shape the index audit above
+    // fixed for ranking_ledger/tournament_entries — built with the
+    // index from the start here rather than as a follow-up gap.
+    index('idx_titles_player_id').on(table.playerId),
+  ],
+);
 
 /**
  * A manager's cumulative XP balance (Manager & Progression bounded
@@ -401,7 +475,15 @@ export const tournamentEntries = pgTable(
     seed: integer('seed'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.tournamentId, table.playerId] })],
+  (table) => [
+    primaryKey({ columns: [table.tournamentId, table.playerId] }),
+    /** The composite PK above leads with tournament_id, so it doesn't
+     * serve a player_id-only lookup ("every tournament this player
+     * entered" — the tournament-history query's access pattern) any
+     * better than a full scan would. A second real gap the index audit
+     * found; this is the fix. */
+    index('idx_tournament_entries_player_id').on(table.playerId),
+  ],
 );
 
 export const tournamentMatches = pgTable(
