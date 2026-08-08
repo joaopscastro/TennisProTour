@@ -9,6 +9,7 @@ import { StandardTrainingPolicy } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy } from '@tennis-manager/domain';
 import { StandardTalentClaimPricingPolicy, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { StandardCoachConversionPolicy, CoachConversionPolicy } from '@tennis-manager/domain';
+import { RankingBand } from '@tennis-manager/domain';
 import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
@@ -19,6 +20,7 @@ import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
 import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
+import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingFocusUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
@@ -119,6 +121,12 @@ export interface Dependencies {
    * junior tournament automatically. Run from the same worker handler
    * as advanceWorldWeek, gated on that use case's `advanced` result. */
   generateJuniorTournaments: GenerateJuniorTournamentsUseCase;
+  /** The "this tournament's registration window is over, start it"
+   * trigger docs/tournament-fill-system.md item 5 needed — fills any
+   * under-registered but due tournament from the unclaimed-player pool
+   * before seeding its bracket. Run from the same weekly worker tick as
+   * advanceWorldWeek/generateJuniorTournaments, gated the same way. */
+  startDueTournaments: StartDueTournamentsUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingFocus: SetTrainingFocusUseCase;
   releasePlayer: ReleasePlayerUseCase;
@@ -220,6 +228,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u14: rankPositionU14,
     u16: rankPositionU16,
   }, idGenerator);
+  const rankPositionByBand: Record<RankingBand, RankPositionQuery> = {
+    senior: rankPosition,
+    u14: rankPositionU14,
+    u16: rankPositionU16,
+  };
 
   return {
     managers,
@@ -267,6 +280,15 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger),
     generateJuniorTournaments,
+    startDueTournaments: new StartDueTournamentsUseCase(
+      tournaments,
+      worlds,
+      players,
+      talentPoolCandidates,
+      bracketGenerator,
+      rankPositionByBand,
+      standardAgingPolicy,
+    ),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
     setTrainingFocus: new SetTrainingFocusUseCase(players),
     releasePlayer: new ReleasePlayerUseCase(players),

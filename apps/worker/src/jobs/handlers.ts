@@ -35,6 +35,14 @@ export function makeAdvanceWorldHandler(deps: Dependencies) {
       // the world clock forward shouldn't generate a fresh batch of
       // tournaments either. See GenerateJuniorTournamentsUseCase.
       await deps.generateJuniorTournaments.execute({ worldId });
+      // Runs AFTER junior generation, same tick/gate, for a load-bearing
+      // reason, not just consistency: StartDueTournamentsUseCase's due
+      // check is strictly `weeksBetween(weekScheduled, currentWeek) > 0`
+      // specifically so a junior tournament opened moments ago THIS
+      // tick (weekScheduled: currentWeek) is never force-started before
+      // any manager had a chance to register — see that use case's own
+      // doc comment.
+      await deps.startDueTournaments.execute({ worldId });
     }
     return result;
   };

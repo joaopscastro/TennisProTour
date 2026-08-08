@@ -1,6 +1,6 @@
 # Tournament fill system (unclaimed player pool, not a separate NPC species)
 
-## Status: items 1-4 built and tested; item 5 (actual tournament fill) NOT built yet
+## Status: items 1-5 all built and tested
 
 ## Revision note
 This replaces an earlier draft that proposed a separate persistent
@@ -76,13 +76,61 @@ before it needs to start currently has no fallback.
    `managerId`, is what distinguishes "auto-train toward weakest" from
    "keep whatever currentFocus a departed manager last set."
 
-5. **Tournament fill, at start time**: if a tournament has unfilled
-   slots when it needs to start, select unclaimed players by current
-   ranking appropriateness for that tier/age-band (reusing
-   `RankingCalculationService`, no separate ranking approximation).
-   Real managers' registrations are never displaced. Skip any player
-   already committed to another tournament this `GameWeek` (reuse the
-   existing weekly-cap check).
+5. **Built.** `StartDueTournamentsUseCase` — the "this tournament's
+   registration window is over, time to start it" trigger that never
+   existed before (CLAUDE.md's disclosed gap: "open tournaments never
+   expire if their draw doesn't fill" — literally true; neither of the
+   two existing `startWithBracket` call sites, `OpenTournamentUseCase`
+   (admin-seeded fixed entrant lists) or `RegisterEntrantUseCase`
+   (starts only when the LAST slot fills naturally), could ever reach
+   an under-filled draw). Runs every weekly tick, right after junior
+   generation, gated the same way. For every open tournament whose
+   `weekScheduled` has fully PASSED (strictly — see the note below on
+   why `>` and not `>=`) and which is short of `drawSize`: fills the
+   remaining slots, then generates the bracket (a still-short draw
+   after filling gets byes, same as any other partial field).
+
+   **Selection**: "ranking appropriateness for the tournament's
+   tier/age-band" is `isAgeEligibleForTournamentBand` — the exact same
+   one-directional rule `RegisterEntrantUseCase` already enforces on
+   real registrations (play up allowed, play down or senior-into-junior
+   not) — not a competing numeric ranking. Among eligible candidates,
+   the REAL `RankPositionQuery` for that band is genuinely queried and
+   preferred first (mirrors juniorMasters' invite order); in practice
+   this is always empty since an unclaimed player has by definition
+   never played a ranked match, but the query is honestly reused, not
+   stubbed. Everyone else fills in next — existing fillOnly Players
+   before still-Scouting-visible fresh candidates (minimizes collateral
+   impact on the claimable pool), broken by id for a fully deterministic
+   order. Never reads `overallRating()` or any other ability number for
+   ordering — that would be exactly the "separate ranking approximation"
+   this design avoids.
+
+   **Real managers' registrations are never displaced** —
+   `Tournament.registerEntrant` only ever appends; fill only tops up
+   remaining empty slots. A candidate already registered in another
+   tournament the same `weekScheduled` (`TournamentRepository.findByPlayerAndWeek`,
+   the same query `RegisterEntrantUseCase`'s junior weekly-cap already
+   reads, generalized here to every tier) is skipped — tournaments are
+   processed one at a time, saving each before the next, so this
+   correctly sees a fill made moments earlier the same run.
+
+   **Why `weeksBetween(weekScheduled, currentWeek) > 0`, strictly, not
+   `>= 0`**: `GenerateJuniorTournamentsUseCase` opens every junior
+   tournament with `weekScheduled: currentWeek` — this exact tick's
+   week — and `StartDueTournamentsUseCase` runs on that SAME tick,
+   right after. An inclusive `>= 0` comparison would force-start a
+   junior tournament the very same tick it opens, before any manager
+   ever had a chance to see or register for it — caught by a dedicated
+   test before it ever shipped, not found live.
+
+   **Deliberately untouched**: `OpenTournamentUseCase`
+   (the dev seed script's deliberately-partial demo tournament and
+   juniorMasters' "must be earned into, never auto-filled" invite list
+   both rely on getting EXACTLY the entrant list they were given) and
+   `RegisterEntrantUseCase`'s exactly-full trigger (fill can never
+   engage there — by the time that branch runs, there are no unfilled
+   slots left).
 
 6. **No separate population-maintenance job needed.** Since nothing is
    deleted anymore, the pool grows and diversifies organically from the
@@ -100,26 +148,28 @@ un-expire path either. Matches the original reasoning: avoids extending
 the Scouting UI to browse a years-deep historical roster.
 
 ## Known gap, disclosed rather than fixed as a side effect of this pass
-`RefreshTalentPoolUseCase`'s expiry sweep is a plain read-then-write
-loop (`findAvailable()` then, per candidate, `markExpired()` + `save()`),
-not a single atomic conditional UPDATE the way `claimIfAvailable()` is.
-This was already a narrow, pre-existing race (a claim landing inside
-this loop's execution window could get silently overwritten back to
-'expired'), and the fill-only conversion added by this pass raises the
-stakes slightly: if that race fires, BOTH the real claim AND this
-loop's fill-only conversion would try to save a `Player` under the same
-id, and whichever write lands last wins. In practice this only matters
-if a claim completes in the narrow window between this loop's read and
-its write for that exact candidate — worth a dedicated hardening pass
-(making expiry a single atomic conditional UPDATE, mirroring
-`claimIfAvailable()`), not something to quietly patch as a side effect
-of unrelated work.
+Both `RefreshTalentPoolUseCase`'s expiry sweep AND
+`StartDueTournamentsUseCase`'s fresh-candidate fill conversion are a
+plain read-then-write (`findAvailable()`/eligibility-filter, then, per
+candidate, `markExpired()` + `save()`), not a single atomic conditional
+UPDATE the way `claimIfAvailable()` is. This was already a narrow,
+pre-existing race in the expiry sweep alone (a claim landing inside its
+execution window could get silently overwritten back to 'expired'), and
+the fill-only conversion now shared by both use cases raises the stakes
+slightly: if the race fires, BOTH the real claim AND a fill-only
+conversion would try to save a `Player` under the same id, and
+whichever write lands last wins. In practice this only matters if a
+claim completes in the narrow window between the read and the write for
+that exact candidate — worth a dedicated hardening pass (making expiry
+a single atomic conditional UPDATE, mirroring `claimIfAvailable()`),
+not something to quietly patch as a side effect of unrelated work.
 
-## Deliberately out of scope (still true — item 5 not built)
-- **Item 5 itself (tournament fill at start time) is NOT built.** This
-  pass only built the population/persistence/development mechanics
-  (items 1-4) that item 5 will eventually draw from. No tournament
-  currently pulls a fillOnly player into an unfilled slot.
+## Deliberately out of scope
 - No AI decision-making beyond the simple automatic training default
-  and (whenever item 5 is built) tier-appropriate fill-selection.
-- No manager-facing UI for browsing/managing the fill-only population.
+  and tier-appropriate fill-selection (age-band eligibility + real
+  ranking preference where one exists + deterministic tie-break).
+- No manager-facing UI for browsing/managing the fill-only population,
+  and no UI indication on the bracket screen that some entrants are
+  fillers rather than real managers' players — a real, disclosed gap,
+  not an oversight: a manager currently has no way to tell a filler
+  apart from a real opponent by looking at the bracket.

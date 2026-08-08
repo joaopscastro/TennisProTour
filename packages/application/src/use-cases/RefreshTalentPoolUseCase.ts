@@ -1,15 +1,6 @@
-import {
-  AgingPolicy,
-  Player,
-  PlayerGenerationPolicy,
-  PlayerId,
-  RandomSource,
-  StandardAgingPolicy,
-  TalentPoolCandidate,
-  TalentPoolCandidateId,
-  WorldId,
-} from '@tennis-manager/domain';
+import { AgingPolicy, PlayerGenerationPolicy, RandomSource, StandardAgingPolicy, TalentPoolCandidate, TalentPoolCandidateId, WorldId } from '@tennis-manager/domain';
 import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository, TalentPoolCandidateRepository } from '../ports/ports';
+import { convertToFillOnlyPlayer } from './fillOnlyConversion';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 /** How many new candidates enter the pool each weekly refresh. A
@@ -95,17 +86,7 @@ export class RefreshTalentPoolUseCase {
         candidate.markExpired();
         await this.candidates.save(candidate);
 
-        const stage = this.agingPolicy.stageForAge(candidate.ageInWeeks);
-        const fillOnlyPlayer = Player.generateFillOnly(
-          PlayerId(candidate.id),
-          candidate.name,
-          candidate.ageInWeeks,
-          stage,
-          candidate.attributes,
-          candidate.nationality,
-          candidate.potentialCeiling,
-          candidate.physicalCeilings,
-        );
+        const fillOnlyPlayer = convertToFillOnlyPlayer(candidate, this.agingPolicy);
         await this.players.save(fillOnlyPlayer);
         await this.events.publish(fillOnlyPlayer.pullDomainEvents());
 
