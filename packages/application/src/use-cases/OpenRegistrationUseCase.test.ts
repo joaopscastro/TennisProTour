@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
+import { RandomSource, TournamentNameGenerator } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 import { OpenRegistrationUseCase } from './OpenRegistrationUseCase';
+
+class NullRandomSource implements RandomSource {
+  next(): number {
+    return 0;
+  }
+}
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -36,7 +43,7 @@ class InMemoryTournamentRepository implements TournamentRepository {
 describe('OpenRegistrationUseCase', () => {
   it('creates an unstarted tournament with no entrants, listed via findOpenForRegistration', async () => {
     const tournaments = new InMemoryTournamentRepository();
-    const useCase = new OpenRegistrationUseCase(tournaments);
+    const useCase = new OpenRegistrationUseCase(tournaments, new TournamentNameGenerator(), new NullRandomSource());
     const tournamentId = TournamentId('t1');
 
     await useCase.execute({
@@ -48,6 +55,9 @@ describe('OpenRegistrationUseCase', () => {
     });
 
     const saved = await tournaments.findById(tournamentId);
+    // The command never included a `name` field — this proves it was
+    // generated internally by TournamentNameGenerator, not left blank.
+    expect(saved!.name.trim().length).toBeGreaterThan(0);
     expect(saved!.hasStarted).toBe(false);
     expect(saved!.entrants).toHaveLength(0);
     expect(saved!.tier).toBe('futures');

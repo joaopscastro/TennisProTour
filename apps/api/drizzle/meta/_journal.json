@@ -134,6 +134,13 @@
       "when": 1786183510091,
       "tag": "0018_third_namor",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786211453972,
+      "tag": "0019_sticky_zuras",
+      "breakpoints": true
     }
   ]
 }

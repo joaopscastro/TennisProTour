@@ -16,12 +16,13 @@ import { requireInternalAdmin, requireManager } from './auth';
  * computed from anything but the real JUNIOR_WEEKLY_ENTRY_CAP constant
  * and isAgeEligibleForTournamentBand, the same sources
  * RegisterEntrantUseCase itself enforces against. */
-function toTournamentDto(
+export function toTournamentDto(
   tournament: Tournament,
   playerScopedInfo?: { juniorEntryCountThisWeek: number; juniorEntryCapThisWeek: number; ageEligible: boolean },
 ) {
   return {
     id: tournament.id,
+    name: tournament.name,
     tier: tournament.tier,
     ageBand: tournament.ageBand,
     surface: tournament.surface,

@@ -219,7 +219,7 @@ describe('DrizzleTournamentRepository', () => {
   it('round-trips a started tournament with a populated bracket and a recorded outcome', async () => {
     await savePlayers(16);
 
-    const original = Tournament.open({
+    const original = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t1'),
       tier: 'challenger',
       surface: 'clay',
@@ -270,7 +270,7 @@ describe('DrizzleTournamentRepository', () => {
   });
 
   it('round-trips a junior tournament with its ageBand, and a senior tournament with a null ageBand', async () => {
-    const junior = Tournament.open({
+    const junior = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-junior'),
       tier: 'j100',
       ageBand: 'u14',
@@ -283,7 +283,7 @@ describe('DrizzleTournamentRepository', () => {
     expect(loadedJunior!.tier).toBe('j100');
     expect(loadedJunior!.ageBand).toBe('u14');
 
-    const senior = Tournament.open({
+    const senior = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-senior'),
       tier: 'challenger',
       surface: 'clay',
@@ -299,7 +299,7 @@ describe('DrizzleTournamentRepository', () => {
   it("findByPlayerAndWeek returns only this player's tournaments scheduled exactly that week", async () => {
     await savePlayers(3);
 
-    const sameWeek1 = Tournament.open({
+    const sameWeek1 = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-fpw-1'),
       tier: 'j100',
       ageBand: 'u14',
@@ -310,7 +310,7 @@ describe('DrizzleTournamentRepository', () => {
     sameWeek1.registerEntrant({ playerId: PlayerId('p1'), seed: null });
     await tournamentRepository.save(sameWeek1);
 
-    const sameWeek2 = Tournament.open({
+    const sameWeek2 = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-fpw-2'),
       tier: 'challenger',
       surface: 'hard',
@@ -321,7 +321,7 @@ describe('DrizzleTournamentRepository', () => {
     await tournamentRepository.save(sameWeek2);
 
     // Different week — must be excluded.
-    const differentWeek = Tournament.open({
+    const differentWeek = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-fpw-3'),
       tier: 'j100',
       ageBand: 'u14',
@@ -333,7 +333,7 @@ describe('DrizzleTournamentRepository', () => {
     await tournamentRepository.save(differentWeek);
 
     // Same week, but a different player — must be excluded.
-    const otherPlayerSameWeek = Tournament.open({
+    const otherPlayerSameWeek = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-fpw-4'),
       tier: 'j100',
       ageBand: 'u14',
@@ -351,7 +351,7 @@ describe('DrizzleTournamentRepository', () => {
   it('round-trips an unstarted tournament and lists it via findOpenForRegistration', async () => {
     await savePlayers(10);
 
-    const original = Tournament.open({
+    const original = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t2'),
       tier: 'futures',
       surface: 'hard',
@@ -389,7 +389,7 @@ describe('DrizzleRankingLedgerRepository', () => {
   it("round-trips a junior entry's ageBand and a senior entry's null ageBand", async () => {
     await playerRepository.save(Player.hire(PlayerId('p1'), 'Junior Player', 14 * 52, attributes(30), ManagerId('m1')));
 
-    const juniorTournament = Tournament.open({
+    const juniorTournament = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-junior-ledger'),
       tier: 'j100',
       ageBand: 'u14',
@@ -399,7 +399,7 @@ describe('DrizzleRankingLedgerRepository', () => {
     });
     await tournamentRepository.save(juniorTournament);
 
-    const seniorTournament = Tournament.open({
+    const seniorTournament = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-senior-ledger'),
       tier: 'challenger',
       surface: 'clay',

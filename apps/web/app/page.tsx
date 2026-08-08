@@ -579,7 +579,7 @@ export default function RosterDashboardPage() {
           onClose={() => setEnterModalPlayer(null)}
           onEntered={(tournament) => {
             setEnterModalPlayer(null);
-            showNotice(`Entered ${tournament.id} (${tournament.tier}, ${tournament.surface}).`);
+            showNotice(`Entered ${tournament.name} (${tournament.tier}, ${tournament.surface}).`);
           }}
         />
       )}

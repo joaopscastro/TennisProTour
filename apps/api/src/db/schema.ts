@@ -362,6 +362,14 @@ export const talentPoolCandidates = pgTable('talent_pool_candidates', {
 
 export const tournaments = pgTable('tournaments', {
   id: text('id').primaryKey(),
+  /** A real, original generated display name (TournamentNameGenerator)
+   * — NOT NULL: Tournament.open()/reconstitute() both refuse to
+   * construct a tournament with an empty name, and the only two use
+   * cases that ever open one (OpenTournamentUseCase/
+   * OpenRegistrationUseCase) always generate one internally, so there
+   * is structurally no code path that could ever write a null/blank
+   * value here. */
+  name: text('name').notNull(),
   tier: tournamentTier('tier').notNull(),
   /** Null for senior tiers, required for junior tiers — see
    * Tournament.ageBand's doc comment. */

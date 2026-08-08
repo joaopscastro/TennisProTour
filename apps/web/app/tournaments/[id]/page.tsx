@@ -317,7 +317,7 @@ export default function TournamentBracketPage() {
         <div className="flex items-start justify-between mb-1">
           <div>
             <div className="flex items-center gap-[10px]">
-              <div className="text-[23px] font-bold tracking-[-0.2px]">{tournament.id}</div>
+              <div className="text-[23px] font-bold tracking-[-0.2px]">{tournament.name}</div>
               <div
                 className="text-[11px] font-bold tracking-[0.4px] uppercase px-[9px] py-[4px] rounded-[4px] text-white"
                 style={{ background: accent }}

@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { BracketGenerator } from '@tennis-manager/domain';
+import { TournamentNameGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
 import { AcceleratedDeclinePolicy, PlayerAgingService, StandardAgingPolicy } from '@tennis-manager/domain';
 import { StandardRankingPointsTable } from '@tennis-manager/domain';
@@ -25,6 +26,7 @@ import { SetTrainingFocusUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
 import { RankPositionQuery } from '@tennis-manager/application';
+import { PlayerEntryPlannerQuery } from '@tennis-manager/application';
 import { Db } from './db/client';
 import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
@@ -88,6 +90,12 @@ export interface Dependencies {
   rankPosition: RankPositionQuery;
   rankPositionU14: RankPositionQuery;
   rankPositionU16: RankPositionQuery;
+  /** The multi-week entry planner read — given a player, their
+   * tournament entries (or lack thereof) across the next several
+   * upcoming GameWeeks in one response. See PlayerEntryPlannerQuery's
+   * own doc comment for why it reuses findByPlayerAndWeek rather than
+   * a bulk query. */
+  entryPlanner: PlayerEntryPlannerQuery;
   talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   managerXp: DrizzleManagerXpRepository;
   coaches: DrizzleCoachRepository;
@@ -222,8 +230,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const proAging = new PlayerAgingService(new AcceleratedDeclinePolicy(standardAgingPolicy, PRO_DECLINE_MULTIPLIER));
   const trainingPolicy = new StandardTrainingPolicy();
 
-  const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator);
-  const openRegistration = new OpenRegistrationUseCase(tournaments);
+  const tournamentNameGenerator = new TournamentNameGenerator();
+  const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator, tournamentNameGenerator, generationRandom);
+  const openRegistration = new OpenRegistrationUseCase(tournaments, tournamentNameGenerator, generationRandom);
   const generateJuniorTournaments = new GenerateJuniorTournamentsUseCase(worlds, openRegistration, openTournament, {
     u14: rankPositionU14,
     u16: rankPositionU16,
@@ -233,6 +242,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u14: rankPositionU14,
     u16: rankPositionU16,
   };
+  const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
 
   return {
     managers,
@@ -246,6 +256,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankPosition,
     rankPositionU14,
     rankPositionU16,
+    entryPlanner,
     talentPoolCandidates,
     managerXp,
     coaches,

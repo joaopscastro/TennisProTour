@@ -141,7 +141,7 @@ export function EnterTournamentModal({ playerId, playerName, onClose, onEntered 
                         {t.ageBand}
                       </div>
                     )}
-                    <div className="text-[13.5px] font-semibold truncate">{t.id}</div>
+                    <div className="text-[13.5px] font-semibold truncate">{t.name}</div>
                   </div>
                   <div className="text-[11.5px] flex-none" style={{ color: 'oklch(52% 0.006 75)' }}>
                     {t.entrants.length}/{t.drawSize}

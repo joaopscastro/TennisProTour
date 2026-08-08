@@ -174,7 +174,7 @@ async function setup(currentWeek: GameWeek) {
 /** A senior tournament open for registration, due this tick (scheduled
  * for week 1, currentWeek passed to setup() is always >= that). */
 function openSeniorTournament(id: string, drawSize: 16 = 16): Tournament {
-  return Tournament.open({ id: TournamentId(id), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize });
+  return Tournament.open({ name: 'Test Tournament', id: TournamentId(id), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize });
 }
 
 function realEntrant(tournament: Tournament, playerId: string): void {
@@ -287,7 +287,7 @@ describe('StartDueTournamentsUseCase', () => {
   it('excludes an age-band-ineligible unclaimed player from a junior tournament (senior filler cannot play down into u14)', async () => {
     const { tournaments, players, useCase } = await setup({ season: 1, week: 4 });
 
-    const junior = Tournament.open({
+    const junior = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-u14'),
       tier: 'j100',
       ageBand: 'u14',
@@ -358,7 +358,7 @@ describe('StartDueTournamentsUseCase', () => {
   it('does not touch a tournament whose scheduled week has not arrived yet', async () => {
     const { tournaments, useCase } = await setup({ season: 1, week: 2 });
 
-    const tournament = Tournament.open({
+    const tournament = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-future'),
       tier: 'challenger',
       surface: 'clay',
@@ -381,7 +381,7 @@ describe('StartDueTournamentsUseCase', () => {
     // due-check would force-start it before any manager ever saw it.
     const { tournaments, useCase } = await setup({ season: 1, week: 3 });
 
-    const tournament = Tournament.open({
+    const tournament = Tournament.open({ name: 'Test Tournament',
       id: TournamentId('t-this-week'),
       tier: 'challenger',
       surface: 'clay',

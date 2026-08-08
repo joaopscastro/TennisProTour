@@ -3,8 +3,15 @@ import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { TournamentEntrant } from '@tennis-manager/domain';
+import { RandomSource, TournamentNameGenerator } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 import { OpenTournamentUseCase } from './OpenTournamentUseCase';
+
+class NullRandomSource implements RandomSource {
+  next(): number {
+    return 0;
+  }
+}
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -42,7 +49,7 @@ function entrant(seed: number, id: string): TournamentEntrant {
 describe('OpenTournamentUseCase', () => {
   it('registers every entrant and seeds a full draw', async () => {
     const tournaments = new InMemoryTournamentRepository();
-    const useCase = new OpenTournamentUseCase(tournaments, new BracketGenerator());
+    const useCase = new OpenTournamentUseCase(tournaments, new BracketGenerator(), new TournamentNameGenerator(), new NullRandomSource());
     const tournamentId = TournamentId('t-1');
 
     await useCase.execute({
@@ -56,6 +63,9 @@ describe('OpenTournamentUseCase', () => {
 
     const saved = await tournaments.findById(tournamentId);
     expect(saved).not.toBeNull();
+    // The command never included a `name` field — this proves it was
+    // generated internally by TournamentNameGenerator, not left blank.
+    expect(saved!.name.trim().length).toBeGreaterThan(0);
     expect(saved!.entrants).toHaveLength(16);
     expect(saved!.hasStarted).toBe(true);
     expect(saved!.getRounds()).toHaveLength(1);
@@ -68,7 +78,7 @@ describe('OpenTournamentUseCase', () => {
 
   it('registers byed entrants without giving them a round-1 match', async () => {
     const tournaments = new InMemoryTournamentRepository();
-    const useCase = new OpenTournamentUseCase(tournaments, new BracketGenerator());
+    const useCase = new OpenTournamentUseCase(tournaments, new BracketGenerator(), new TournamentNameGenerator(), new NullRandomSource());
     const tournamentId = TournamentId('t-2');
 
     await useCase.execute({

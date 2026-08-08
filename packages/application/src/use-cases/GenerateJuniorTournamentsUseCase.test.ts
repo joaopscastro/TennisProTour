@@ -6,9 +6,11 @@ import {
   GameWorld,
   JuniorTournamentSchedulePolicy,
   PlayerId,
+  RandomSource,
   RankingLedgerEntry,
   Tournament,
   TournamentId,
+  TournamentNameGenerator,
   WorldId,
 } from '@tennis-manager/domain';
 import { GameWorldRepository, IdGeneratorPort, RankingLedgerRepository } from '../ports/ports';
@@ -95,8 +97,10 @@ async function setup(week: GameWeek, schedule?: JuniorTournamentSchedulePolicy) 
   const tournaments = new InMemoryTournamentRepository();
   const rankingLedger = new InMemoryRankingLedgerRepository();
   const bracketGenerator = new BracketGenerator();
-  const openRegistration = new OpenRegistrationUseCase(tournaments);
-  const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator);
+  const nameGenerator = new TournamentNameGenerator();
+  const nameRandom: RandomSource = { next: () => 0 };
+  const openRegistration = new OpenRegistrationUseCase(tournaments, nameGenerator, nameRandom);
+  const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator, nameGenerator, nameRandom);
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, worldId, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, worldId, 'u16');
   const useCase = new GenerateJuniorTournamentsUseCase(

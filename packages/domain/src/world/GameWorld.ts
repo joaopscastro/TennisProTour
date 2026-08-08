@@ -14,6 +14,20 @@ export function weeksBetween(earlier: GameWeek, later: GameWeek): number {
   return absolute(later) - absolute(earlier);
 }
 
+/** The GameWeek `delta` weeks after `week` (or before, for a negative
+ * delta), rolling season boundaries the same way `advanceWeek()` does
+ * one week at a time — the inverse operation of weeksBetween (`addWeeks(w,
+ * weeksBetween(w, x)) === x`). Weeks are 1-indexed within a season (see
+ * advanceWeek), so this works over the same absolute-week arithmetic
+ * weeksBetween already uses rather than hand-rolling season/week carry
+ * logic a second time. */
+export function addWeeks(week: GameWeek, delta: number): GameWeek {
+  const absolute = week.season * WEEKS_PER_SEASON + week.week + delta;
+  const season = Math.floor((absolute - 1) / WEEKS_PER_SEASON);
+  const weekInSeason = absolute - season * WEEKS_PER_SEASON;
+  return { season, week: weekInSeason };
+}
+
 export interface GameWorldProps {
   id: WorldId;
   currentWeek: GameWeek;

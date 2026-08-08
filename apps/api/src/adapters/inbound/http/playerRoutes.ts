@@ -2,8 +2,9 @@ import { FastifyInstance } from 'fastify';
 import { PlayerId } from '@tennis-manager/domain';
 import { Surface, TrainableAttribute, TrainingFocus } from '@tennis-manager/domain';
 import { maxCoachCountFor } from '@tennis-manager/application';
-import { Dependencies } from '../../../composition';
+import { Dependencies, WORLD_ID } from '../../../composition';
 import { toPlayerDto } from './playerDto';
+import { toTournamentDto } from './tournamentRoutes';
 import { requireManager, ownershipMismatch } from './auth';
 
 interface CreateCustomPlayerBody {
@@ -180,6 +181,31 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     const playerId = PlayerId(request.params.id);
     const { totalPoints, rank } = await deps.rankPosition.rankFor(playerId);
     return { playerId, totalPoints, rank };
+  });
+
+  // The multi-week planner read: this player's tournament entries (or
+  // explicit lack thereof) across the next several upcoming GameWeeks,
+  // in ONE response — what a frontend planner UI needs to show several
+  // weeks at a glance without firing one request per week. ?weeks=
+  // overrides the default span (DEFAULT_PLANNER_WEEKS); a caller can't
+  // ask for zero or a negative span, or an unbounded one.
+  app.get<{ Params: { id: string }; Querystring: { weeks?: string } }>('/players/:id/entry-planner', async (request, reply) => {
+    const player = await deps.players.findById(PlayerId(request.params.id));
+    if (!player) {
+      return reply.code(404).send({ error: `Player ${request.params.id} not found` });
+    }
+    let weeksAhead: number | undefined;
+    if (request.query.weeks !== undefined) {
+      weeksAhead = Number(request.query.weeks);
+      if (!Number.isInteger(weeksAhead) || weeksAhead < 1 || weeksAhead > 52) {
+        return reply.code(400).send({ error: '?weeks must be an integer between 1 and 52' });
+      }
+    }
+    const planner = await deps.entryPlanner.forPlayer(WORLD_ID, player.id, weeksAhead);
+    return planner.map(({ week, entries }) => ({
+      week,
+      entries: entries.map((t) => toTournamentDto(t)),
+    }));
   });
 
   // Roster read for the dashboard. An empty roster is a 200 with [],

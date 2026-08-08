@@ -6,6 +6,7 @@ import { Tournament, TournamentOpenProps } from './Tournament';
 function baseProps(overrides: Partial<TournamentOpenProps> = {}): TournamentOpenProps {
   return {
     id: TournamentId('t1'),
+    name: 'Test Championship',
     tier: 'challenger',
     surface: 'hard',
     weekScheduled: { season: 1, week: 1 },
@@ -41,6 +42,27 @@ describe('Tournament.open — ageBand invariant', () => {
     const u16 = Tournament.open(baseProps({ tier: 'j500', ageBand: 'u16' }));
     expect(u14.tier).toBe(u16.tier);
     expect(u14.ageBand).not.toBe(u16.ageBand);
+  });
+});
+
+describe('Tournament.open — name is required and cannot be blank', () => {
+  it('accepts a real non-blank name', () => {
+    const tournament = Tournament.open(baseProps({ name: 'Meridian Brazil Championship' }));
+    expect(tournament.name).toBe('Meridian Brazil Championship');
+  });
+
+  it('rejects an empty string name', () => {
+    expect(() => Tournament.open(baseProps({ name: '' }))).toThrow(/name must not be empty/);
+  });
+
+  it('rejects a whitespace-only name', () => {
+    expect(() => Tournament.open(baseProps({ name: '   ' }))).toThrow(/name must not be empty/);
+  });
+
+  it('reconstitute() enforces the same non-blank name guard', () => {
+    expect(() =>
+      Tournament.reconstitute({ ...baseProps({ name: '' }), entrants: [], rounds: [] }),
+    ).toThrow(/name must not be empty/);
   });
 });
 

@@ -132,6 +132,9 @@ export type AgeBand = 'u14' | 'u16';
 
 export interface TournamentDto {
   id: string;
+  /** A real, original generated display name (TournamentNameGenerator)
+   * — always present, never a placeholder/debug string or a bare id. */
+  name: string;
   tier: string;
   /** null = senior tour. See docs/junior-circuit-research-and-proposal.md
    * — the same six tier grades work identically for both junior bands,

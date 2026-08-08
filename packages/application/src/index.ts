@@ -21,3 +21,4 @@ export * from './use-cases/EnsureManagerAccountUseCase';
 export * from './use-cases/coachCap';
 export * from './use-cases/juniorEntryCap';
 export * from './queries/RankPositionQuery';
+export * from './queries/PlayerEntryPlannerQuery';

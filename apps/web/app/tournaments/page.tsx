@@ -35,7 +35,7 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
           </div>
         )}
         <div>
-          <div className="text-[14px] font-semibold">{t.id}</div>
+          <div className="text-[14px] font-semibold">{t.name}</div>
           <div className="text-[12px]" style={{ color: 'oklch(50% 0.006 75)' }}>
             {t.tier} · {t.drawSize}-draw · {t.entrants.length}/{t.drawSize} entrants · Season {t.weekScheduled.season}, week{' '}
             {t.weekScheduled.week}

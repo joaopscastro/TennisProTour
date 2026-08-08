@@ -9,6 +9,7 @@ export * from './player/TalentPoolCandidate';
 export * from './competition/CompetitionTypes';
 export * from './competition/Tournament';
 export * from './competition/BracketGenerator';
+export * from './competition/TournamentNameGenerator';
 export * from './competition/JuniorTournamentSchedulePolicy';
 export * from './match-simulation/MatchSimulator';
 export * from './match-simulation/StatisticalMatchSimulator';

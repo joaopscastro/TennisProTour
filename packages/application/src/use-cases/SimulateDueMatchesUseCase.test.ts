@@ -156,7 +156,7 @@ async function setup() {
   }
 
   const bracketGenerator = new BracketGenerator();
-  const tournament = Tournament.open({
+  const tournament = Tournament.open({ name: 'Test Tournament',
     id: TournamentId('t1'),
     tier: 'challenger',
     surface: 'hard',

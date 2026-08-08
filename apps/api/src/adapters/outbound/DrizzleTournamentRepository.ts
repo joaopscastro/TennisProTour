@@ -64,6 +64,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   async save(tournament: Tournament): Promise<void> {
     const tournamentRow: typeof tournaments.$inferInsert = {
       id: tournament.id,
+      name: tournament.name,
       tier: tournament.tier,
       ageBand: tournament.ageBand,
       surface: tournament.surface,
@@ -143,6 +144,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
 
     return Tournament.reconstitute({
       id: TournamentId(row.id),
+      name: row.name,
       tier: row.tier as TournamentTier,
       ageBand: row.ageBand as AgeBand | null,
       surface: row.surface as Surface,

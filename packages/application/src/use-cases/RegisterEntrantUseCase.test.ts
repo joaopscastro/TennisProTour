@@ -89,7 +89,7 @@ const U16_AGE = 15 * 52;
 const SENIOR_AGE = 25 * 52;
 
 function openJuniorTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1, week: 1 }, ageBand: 'u14' | 'u16' = 'u14'): Tournament {
-  return Tournament.open({
+  return Tournament.open({ name: 'Test Tournament',
     id,
     tier: 'j100',
     ageBand,
@@ -100,7 +100,7 @@ function openJuniorTournament(id: TournamentId, weekScheduled: GameWeek = { seas
 }
 
 function openTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1, week: 1 }): Tournament {
-  return Tournament.open({
+  return Tournament.open({ name: 'Test Tournament',
     id,
     tier: 'challenger',
     surface: 'clay',
@@ -308,6 +308,53 @@ describe('RegisterEntrantUseCase', () => {
       await expect(
         useCase.execute({ tournamentId: nextWeekTournament, playerId: player }),
       ).resolves.toBeUndefined();
+    });
+
+    it('allows registering into a week 2 tournament AND a week 3 tournament in the same sitting, while still blocking a second entry within the SAME week once that week is at cap', async () => {
+      // Specifically audits that the weekly cap is scoped PER WEEK, not
+      // globally across a player's whole season — the two real,
+      // distinct behaviors the cap must get right at once: entries in
+      // genuinely different future weeks must never contend with each
+      // other, while entries in the SAME week must still be capped.
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const week2: GameWeek = { season: 1, week: 2 };
+      const week3: GameWeek = { season: 1, week: 3 };
+      const player = PlayerId('multi-week-player');
+      await savePlayer(players, player, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+
+      // Fill week 2 up to the cap first.
+      for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
+        const id = TournamentId(`week2-j${i}`);
+        await tournaments.save(openJuniorTournament(id, week2));
+        await expect(useCase.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
+      }
+
+      // A week 3 entry, in the SAME sitting, must succeed — different
+      // week, unaffected by week 2 already being at cap.
+      const week3Tournament = TournamentId('week3-j1');
+      await tournaments.save(openJuniorTournament(week3Tournament, week3));
+      await expect(
+        useCase.execute({ tournamentId: week3Tournament, playerId: player }),
+      ).resolves.toBeUndefined();
+
+      // One MORE week 2 entry, beyond the cap, must still be rejected —
+      // proving the cap is real per-week enforcement, not bypassed just
+      // because a later week's entry was allowed through.
+      const oneTooManyWeek2 = TournamentId('week2-one-too-many');
+      await tournaments.save(openJuniorTournament(oneTooManyWeek2, week2));
+      await expect(
+        useCase.execute({ tournamentId: oneTooManyWeek2, playerId: player }),
+      ).rejects.toThrow(new RegExp(`already entered ${JUNIOR_WEEKLY_ENTRY_CAP} junior tournaments`));
+
+      // Sanity: the player really did land in both week 2 (at cap) and
+      // week 3 (one entry), confirmed by reading real registrations
+      // back, not just by absence of a thrown error.
+      const week2Entries = await tournaments.findByPlayerAndWeek(player, week2);
+      const week3Entries = await tournaments.findByPlayerAndWeek(player, week3);
+      expect(week2Entries).toHaveLength(JUNIOR_WEEKLY_ENTRY_CAP);
+      expect(week3Entries).toHaveLength(1);
     });
 
     it('does not apply the junior cap to senior-tier registration — a player may enter more than the junior cap worth of senior tournaments in one week', async () => {

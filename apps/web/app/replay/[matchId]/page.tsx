@@ -112,7 +112,7 @@ export default function ReplayPage() {
           {context && (
             <>
               <span>·</span>
-              <span>{context.tournament.id}</span>
+              <span>{context.tournament.name}</span>
               <span>·</span>
               <span>{matchRoundLabel(context.tournament.drawSize / 2 ** context.roundNumber)}</span>
               <div

@@ -5,6 +5,12 @@ import { AgeBand, BracketRound, DrawSize, MatchOutcome, TournamentEntrant, Tourn
 
 export interface TournamentOpenProps {
   id: TournamentId;
+  /** A real, original display name (see TournamentNameGenerator) —
+   * REQUIRED, not optional: there is no such thing as a nameless or
+   * placeholder-named tournament. This is one half of that guarantee;
+   * the other half is open()/reconstitute()'s non-empty runtime check
+   * below, since TypeScript alone can't stop a caller passing `''`. */
+  name: string;
   tier: TournamentTier;
   surface: Surface;
   weekScheduled: GameWeek;
@@ -34,6 +40,7 @@ export class Tournament {
 
   private constructor(
     readonly id: TournamentId,
+    readonly name: string,
     readonly tier: TournamentTier,
     readonly surface: Surface,
     readonly weekScheduled: GameWeek,
@@ -53,10 +60,22 @@ export class Tournament {
     }
   }
 
+  /** Runtime half of the "every tournament has a real name" guarantee
+   * (see TournamentOpenProps.name's doc comment) — closes the loophole
+   * a required TypeScript field alone can't: a caller technically CAN
+   * still pass `''` or `'   '` at runtime, so this rejects that
+   * outright rather than silently accepting a blank/junk name. */
+  private static validateName(name: string): void {
+    if (name.trim().length === 0) {
+      throw new Error('Tournament name must not be empty');
+    }
+  }
+
   static open(props: TournamentOpenProps): Tournament {
     const ageBand = props.ageBand ?? null;
     Tournament.validateAgeBand(props.tier, ageBand);
-    return new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
+    Tournament.validateName(props.name);
+    return new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
   }
 
   /** Rehydrates a persisted tournament (repository adapters only).
@@ -68,7 +87,8 @@ export class Tournament {
   ): Tournament {
     const ageBand = props.ageBand ?? null;
     Tournament.validateAgeBand(props.tier, ageBand);
-    const tournament = new Tournament(props.id, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
+    Tournament.validateName(props.name);
+    const tournament = new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
     tournament._entrants = [...props.entrants];
     tournament.rounds = [...props.rounds];
     return tournament;

@@ -151,7 +151,7 @@ function buildStartedTournament(
   tier: TournamentTier = 'challenger',
 ): { tournament: Tournament; bracketGenerator: BracketGenerator } {
   const bracketGenerator = new BracketGenerator();
-  const tournament = Tournament.open({
+  const tournament = Tournament.open({ name: 'Test Tournament',
     id: tournamentId,
     tier,
     surface: 'hard',
@@ -701,7 +701,7 @@ describe('SimulateMatchUseCase', () => {
      * to a champion. */
     function openJuniorTournament(id: TournamentId, ageBand: 'u14' | 'u16' = 'u16'): { tournament: Tournament; bracketGenerator: BracketGenerator } {
       const bracketGenerator = new BracketGenerator();
-      const tournament = Tournament.open({
+      const tournament = Tournament.open({ name: 'Test Tournament',
         id,
         tier: 'j100',
         ageBand,
@@ -839,7 +839,7 @@ describe('SimulateMatchUseCase', () => {
       // champion under AlwaysAWinsSimulator), same target band.
       for (const tid of ['t-a', 't-b']) {
         const bracketGenerator = new BracketGenerator();
-        const tournament = Tournament.open({
+        const tournament = Tournament.open({ name: 'Test Tournament',
           id: TournamentId(tid),
           tier: 'j100',
           ageBand: 'u16',
@@ -871,7 +871,7 @@ describe('SimulateMatchUseCase', () => {
     it('does NOT apply a dormant bonus to a real (points > 0) result in a different band than the one it targets', async () => {
       const tournamentId = TournamentId('t-senior');
       const bracketGenerator = new BracketGenerator();
-      const tournament = Tournament.open({
+      const tournament = Tournament.open({ name: 'Test Tournament',
         id: tournamentId,
         tier: 'challenger', // senior tier -> ageBand null -> band 'senior'
         surface: 'hard',
