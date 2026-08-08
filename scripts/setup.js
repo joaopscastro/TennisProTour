@@ -3,8 +3,10 @@
 // dev` should be the entire onboarding flow, nothing else. Re-running
 // this later is safe (npm install and docker compose up are both
 // idempotent; db:migrate only applies pending migrations; the seed
-// script fails loudly on duplicate ids rather than corrupting data —
-// see apps/api/src/scripts/seed.ts for that tradeoff).
+// script detects a database it already fully seeded — via seed-m1's
+// roster, the one piece of seed state a rerun can't just overwrite —
+// and exits cleanly instead of failing partway through with a
+// confusing "roster is full" error, see apps/api/src/scripts/seed.ts).
 const { run } = require('./lib/run');
 
 console.log('==> Installing dependencies...');

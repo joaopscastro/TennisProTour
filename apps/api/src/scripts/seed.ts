@@ -20,10 +20,13 @@ import { MathRandomSource } from '../adapters/outbound/MathRandomSource';
  * into round 2, so the seed also demonstrates that path without any
  * extra setup.
  *
- * Idempotent-ish: reruns against data left by a previous run fail
- * loudly (duplicate ids) rather than silently duplicating or
- * resetting — run `npm run db:migrate` against a clean database first
- * if you want a fresh start.
+ * Idempotent: a rerun against a database this script already fully
+ * seeded detects that (seed-m1's roster is non-empty) and exits
+ * cleanly with a message, rather than either silently duplicating data
+ * or failing partway through with a confusing "roster is full" error —
+ * a real failure mode a plain re-run of `npm run setup` used to hit,
+ * not a hypothetical one. Run against a genuinely clean database
+ * (fresh migrate, no prior seed) if you want a fresh start.
  */
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
@@ -89,6 +92,27 @@ async function main(): Promise<void> {
   if (!(await deps.worlds.findById(worldId))) {
     await deps.worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
   }
+
+  // A real failure mode this guards against, not a hypothetical one:
+  // re-running `npm run setup`/`npm run seed` against a database a
+  // PRIOR run already fully seeded used to fail confusingly partway
+  // through — seed-m1 already has its 2 (free-tier cap) players from
+  // that earlier run, so the very first claimTalentPoolCandidate call
+  // below would throw "roster is full (2/2)", not the "duplicate ids"
+  // failure this script's own top-of-file doc comment promises. Detect
+  // that up front and skip cleanly instead: seed-m1's roster is the
+  // one piece of state a rerun can't just overwrite (unlike the
+  // talent-pool candidate rows below, which upsert harmlessly), so its
+  // presence is an unambiguous signal this database was already seeded.
+  const existingRoster = await deps.players.findByManager(ManagerId('seed-m1'));
+  if (existingRoster.length > 0) {
+    // eslint-disable-next-line no-console
+    console.log('Seed data already present (manager "seed-m1" already has rostered players) — skipping.');
+    // eslint-disable-next-line no-console
+    console.log('To reseed from scratch, truncate the database first (e.g. `docker compose down -v` + `docker compose up -d --wait` + `npm run db:migrate -w apps/api`), then rerun `npm run seed -w apps/api`.');
+    process.exit(0);
+  }
+
   const generationPolicy = new StandardPlayerGenerationPolicy();
   const random = new MathRandomSource();
 
