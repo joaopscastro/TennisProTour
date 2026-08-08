@@ -357,6 +357,59 @@ describe('RegisterEntrantUseCase', () => {
       expect(week3Entries).toHaveLength(1);
     });
 
+    it('allows registering into NON-ADJACENT future weeks (week 2 and week 4, skipping week 3 entirely) in the same sitting, while still blocking a second entry within the SAME week — a permanent regression check for the frontend planner bug where a missing managerId silently broke exactly this flow', async () => {
+      // Deliberately non-adjacent (week 2 + week 4, not week 2 + week
+      // 3) so this can never be satisfied by an off-by-one that only
+      // happens to work for CONSECUTIVE weeks — e.g. a scoping bug
+      // that accidentally treats "the next week" as special instead of
+      // treating every week as an independent, exact (season, week)
+      // key. Week 3 is asserted to stay completely empty throughout,
+      // proving it was never touched by either registration.
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const week2: GameWeek = { season: 1, week: 2 };
+      const week3: GameWeek = { season: 1, week: 3 };
+      const week4: GameWeek = { season: 1, week: 4 };
+      const player = PlayerId('non-adjacent-week-player');
+      await savePlayer(players, player, U14_AGE);
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+
+      // Fill week 2 up to the cap.
+      for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP; i++) {
+        const id = TournamentId(`nonadj-week2-j${i}`);
+        await tournaments.save(openJuniorTournament(id, week2));
+        await expect(useCase.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
+      }
+
+      // A week 4 entry — two weeks ahead, past the untouched week 3 —
+      // must succeed in the SAME sitting, completely unaffected by
+      // week 2 already being at cap.
+      const week4Tournament = TournamentId('nonadj-week4-j1');
+      await tournaments.save(openJuniorTournament(week4Tournament, week4));
+      await expect(
+        useCase.execute({ tournamentId: week4Tournament, playerId: player }),
+      ).resolves.toBeUndefined();
+
+      // A further week 2 entry, beyond the cap, must still be rejected
+      // — the cap wasn't accidentally reset or bypassed by the week 4
+      // registration going through.
+      const oneTooManyWeek2 = TournamentId('nonadj-week2-one-too-many');
+      await tournaments.save(openJuniorTournament(oneTooManyWeek2, week2));
+      await expect(
+        useCase.execute({ tournamentId: oneTooManyWeek2, playerId: player }),
+      ).rejects.toThrow(new RegExp(`already entered ${JUNIOR_WEEKLY_ENTRY_CAP} junior tournaments`));
+
+      // Read every week back for real: week 2 at cap, week 3 untouched
+      // (never entered, never blocked — it was simply never involved),
+      // week 4 has exactly the one real entry.
+      const week2Entries = await tournaments.findByPlayerAndWeek(player, week2);
+      const week3Entries = await tournaments.findByPlayerAndWeek(player, week3);
+      const week4Entries = await tournaments.findByPlayerAndWeek(player, week4);
+      expect(week2Entries).toHaveLength(JUNIOR_WEEKLY_ENTRY_CAP);
+      expect(week3Entries).toHaveLength(0);
+      expect(week4Entries).toHaveLength(1);
+    });
+
     it('does not apply the junior cap to senior-tier registration — a player may enter more than the junior cap worth of senior tournaments in one week', async () => {
       const tournaments = new InMemoryTournamentRepository();
       const players = new InMemoryPlayerRepository();
