@@ -1,4 +1,4 @@
-import { AgeBand, GameWeek, PlayerId, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, GameWeek, juniorEligibilityForAge, PlayerId, PlayerLifecycleStage, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
@@ -15,6 +15,15 @@ export interface PlayerProfileDto {
    * one. */
   name: string;
   nationality: string;
+  ageInWeeks: number;
+  stage: PlayerLifecycleStage;
+  /** Which ONE band this player's CURRENT age makes "live" for them —
+   * same derivation `DrizzleRosterDashboardQuery` already uses for its
+   * Rank column (`juniorEligibilityForAge`). The frontend uses this to
+   * decide which junior band(s) to surface in "current standing"
+   * alongside senior (always shown) — never re-derives the age-band
+   * boundary rule itself. */
+  currentEligibleBand: RankingBand;
   currentRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
   tournamentHistory: PlayerTournamentHistoryEntry[];
@@ -71,6 +80,9 @@ export class DrizzlePlayerProfileQuery {
       playerId: player.id,
       name: player.name,
       nationality: player.nationality,
+      ageInWeeks: player.ageInWeeks,
+      stage: player.stage,
+      currentEligibleBand: juniorEligibilityForAge(player.ageInWeeks),
       currentRankings: [
         { band: 'senior', totalPoints: seniorRank.totalPoints, rank: seniorRank.rank },
         { band: 'u14', totalPoints: u14Rank.totalPoints, rank: u14Rank.rank },

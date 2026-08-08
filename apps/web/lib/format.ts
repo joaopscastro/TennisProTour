@@ -4,6 +4,18 @@
  * DTOs already fetched, same reasoning as RosterDashboardEntry's
  * "don't add avatar color to the backend" decision. */
 
+export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
+
+export function stageLabel(stage: PlayerLifecycleStage): string {
+  return stage[0].toUpperCase() + stage.slice(1);
+}
+
+export function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
+  if (stage === 'prime') return { bg: 'oklch(22% 0.006 75)', fg: 'white', noteColor: 'oklch(50% 0.006 75)' };
+  if (stage === 'decline') return { bg: 'oklch(90% 0.03 40)', fg: 'oklch(38% 0.1 30)', noteColor: 'oklch(48% 0.13 30)' };
+  return { bg: 'oklch(93% 0.006 75)', fg: 'oklch(35% 0.006 75)', noteColor: 'oklch(50% 0.006 75)' };
+}
+
 const AVATAR_COLORS = [
   'oklch(58% 0.14 45)',
   'oklch(55% 0.13 240)',
@@ -64,4 +76,24 @@ export function matchRoundLabel(matchesInRound: number): string {
   if (matchesInRound === 2) return 'Semifinal';
   if (matchesInRound === 4) return 'Quarterfinal';
   return `Round of ${matchesInRound * 2}`;
+}
+
+/** A tournament-history row's round-reached/outcome label, derived
+ * entirely from fields the profile endpoint already returns — reuses
+ * matchRoundLabel rather than a second round-naming scheme. The round
+ * a player most recently WON is `drawSize / 2**roundsWon` matches wide
+ * (roundsWon=1 in a 32-draw won the Round of 32); the round they were
+ * ELIMINATED in is one step further, `drawSize / 2**(roundsWon+1)`. */
+export function tournamentHistoryResultLabel(entry: {
+  hasStarted: boolean;
+  won: boolean;
+  eliminated: boolean;
+  roundsWon: number;
+  drawSize: number;
+}): string {
+  if (entry.won) return 'Champion';
+  if (entry.eliminated) return `Lost — ${matchRoundLabel(entry.drawSize / 2 ** (entry.roundsWon + 1))}`;
+  if (!entry.hasStarted) return 'Not yet started';
+  if (entry.roundsWon === 0) return 'In progress — Round 1';
+  return `In progress — through ${matchRoundLabel(entry.drawSize / 2 ** entry.roundsWon)}`;
 }

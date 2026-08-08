@@ -418,3 +418,41 @@ export interface WorldClockDto {
 export function fetchWorldClock(): Promise<WorldClockDto> {
   return getJson('/world/clock');
 }
+
+export interface PlayerTournamentHistoryEntryDto {
+  tournamentId: string;
+  name: string;
+  tier: string;
+  ageBand: AgeBand | null;
+  surface: string;
+  weekScheduled: { season: number; week: number };
+  drawSize: number;
+  hasStarted: boolean;
+  roundsWon: number;
+  won: boolean;
+  eliminated: boolean;
+}
+
+/** The single aggregated read the player profile page needs — see
+ * DrizzlePlayerProfileQuery on the API side for how this is composed
+ * (avatar identity, current rolling rankings, permanent peak rankings,
+ * full tournament history, and titles, all in one call). */
+export interface PlayerProfileDto {
+  playerId: string;
+  name: string;
+  nationality: string;
+  ageInWeeks: number;
+  stage: PlayerLifecycleStage;
+  /** Which ONE band this player's current age makes "live" for —
+   * derived server-side via juniorEligibilityForAge, never re-derived
+   * client-side (see RankingBand's doc comment above). */
+  currentEligibleBand: RankingBand;
+  currentRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
+  peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
+  tournamentHistory: PlayerTournamentHistoryEntryDto[];
+  titles: Array<{ tournamentId: string; name: string; tier: string; ageBand: AgeBand | null; weekEarned: { season: number; week: number } }>;
+}
+
+export function fetchPlayerProfile(playerId: string): Promise<PlayerProfileDto> {
+  return getJson(`/players/${encodeURIComponent(playerId)}/profile`);
+}

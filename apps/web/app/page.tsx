@@ -17,7 +17,7 @@ import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor } from '../lib/format';
+import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor, stageLabel, stageMeta } from '../lib/format';
 
 // ---------------------------------------------------------------------------
 // Static reference data — mirrors the surface-color system and training-focus
@@ -68,16 +68,6 @@ const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus
 // "seasons until next stage" hint text comes from the API
 // (RosterDashboardEntryDto.stageNote), computed server-side against
 // the real StandardAgingPolicy, not duplicated here.
-
-function stageLabel(stage: PlayerLifecycleStage): string {
-  return stage[0].toUpperCase() + stage.slice(1);
-}
-
-function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
-  if (stage === 'prime') return { bg: 'oklch(22% 0.006 75)', fg: 'white', noteColor: 'oklch(50% 0.006 75)' };
-  if (stage === 'decline') return { bg: 'oklch(90% 0.03 40)', fg: 'oklch(38% 0.1 30)', noteColor: 'oklch(48% 0.13 30)' };
-  return { bg: 'oklch(93% 0.006 75)', fg: 'oklch(35% 0.006 75)', noteColor: 'oklch(50% 0.006 75)' };
-}
 
 function fatigueMeta(f: number): { color: string; label: string } {
   if (f >= 70) return { color: 'oklch(55% 0.16 25)', label: `${f}% — high, rest recommended` };
@@ -347,10 +337,14 @@ export default function RosterDashboardPage() {
                         {initialsFor(p.name)}
                       </div>
                       <div className="min-w-0">
-                        <div className="font-semibold text-[14px] flex items-center gap-[7px] overflow-hidden text-ellipsis">
+                        <Link
+                          href={`/players/${p.id}`}
+                          className="font-semibold text-[14px] flex items-center gap-[7px] overflow-hidden text-ellipsis no-underline hover:underline"
+                          style={{ color: 'inherit' }}
+                        >
                           <span className="flex-none">{flagFor(p.nationality)}</span>
                           {p.name}
-                        </div>
+                        </Link>
                         <div className="text-[12px]" style={{ color: 'oklch(50% 0.006 75)' }}>
                           Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)}
                         </div>
