@@ -100,6 +100,7 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded!.stage).toBe('youth');
     expect(loaded!.fatigue).toBe(12);
     expect(loaded!.currentFocus).toEqual({ kind: 'surface', surface: 'grass' });
+    expect(loaded!.fillOnly).toBe(false);
     expect(loaded!.attributes.technical.serve.value).toBe(30);
     expect(loaded!.attributes.technical.volley.value).toBe(33);
     expect(loaded!.attributes.physical.stamina.value).toBe(35);
@@ -108,6 +109,27 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded!.attributes.surfaceAffinities.get('grass')).toBe(20);
     // Reconstitution must not re-emit lifecycle events.
     expect(loaded!.pullDomainEvents()).toHaveLength(0);
+  });
+
+  it('round-trips a fill-only player: no manager, fillOnly true, findAll() still includes it (unlike a manager-scoped query)', async () => {
+    const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 33 * 52, 'decline', attributes(30), 'AR');
+    fillOnly.pullDomainEvents();
+
+    await repository.save(fillOnly);
+    const loaded = await repository.findById(PlayerId('filler-1'));
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.fillOnly).toBe(true);
+    expect(loaded!.managerId).toBeNull();
+    expect(loaded!.stage).toBe('decline');
+    expect(loaded!.ageInWeeks).toBe(33 * 52);
+
+    // findAll() (what AdvanceWorldWeekUseCase reads every tick) sees
+    // it; findByManager() (what every manager-scoped route reads)
+    // never can, since managerId is null — same isolation a released
+    // player already gets, just for a different reason.
+    expect((await repository.findAll()).some((p) => p.id === 'filler-1')).toBe(true);
+    expect(await repository.findByManager(ManagerId('m1'))).toHaveLength(0);
   });
 
   it('round-trips potentialCeiling (hidden training-growth cap), defaulting to 100 when not explicitly set', async () => {

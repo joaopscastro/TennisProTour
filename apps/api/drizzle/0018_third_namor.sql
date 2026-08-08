@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "fill_only" boolean DEFAULT false NOT NULL;

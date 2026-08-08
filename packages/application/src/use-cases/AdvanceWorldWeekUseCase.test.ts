@@ -348,6 +348,116 @@ describe('AdvanceWorldWeekUseCase', () => {
     expect((await players.findById(PlayerId('p1')))!.attributes.surfaceAffinities.get('clay')).toBe(20);
   });
 
+  it('ages AND auto-trains a fillOnly free agent toward its weakest attribute every tick, with no manager, no currentFocus, and no coach involved', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    // Every attribute starts at 30 except backhand, deliberately lower
+    // — the weakest one, so it's the one auto-training should target.
+    const attributes = startingAttributes().trainedOnAttribute('backhand', -10); // 30 -> 20
+    const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 25 * 52, 'prime', attributes);
+    fillOnly.pullDomainEvents();
+    await players.save(fillOnly);
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(6),
+      new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    const trained = await players.findById(PlayerId('filler-1'));
+    // Aging happened exactly like any other non-retired player.
+    expect(trained!.ageInWeeks).toBe(25 * 52 + 1);
+    // The weakest attribute (backhand, 20) trained; nothing else did —
+    // no currentFocus was ever set, and there was no manager/coach to
+    // look up (FakeBillingPort/InMemoryCoachRepository never asked).
+    expect(trained!.attributes.attributeValue('backhand')).toBe(26); // 20 + 6
+    expect(trained!.attributes.attributeValue('serve')).toBe(30); // untouched
+    expect(trained!.currentFocus).toBeNull();
+    expect(trained!.managerId).toBeNull();
+  });
+
+  it('re-targets the fill-only auto-training focus as the weakest attribute changes week over week, instead of freezing on the first pick', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    // backhand (20) starts weakest; a single +6 session brings it to 26,
+    // which ties speed/stamina/strength at their own starting 30 only
+    // if nothing else changes — set stamina lower (18) so it becomes
+    // the new weakest attribute on the SECOND tick, proving the focus
+    // isn't just fixed once at generation time.
+    let attributes = startingAttributes().trainedOnAttribute('backhand', -10); // 30 -> 20
+    attributes = attributes.trainedOnAttribute('stamina', -12); // 30 -> 18
+    const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 25 * 52, 'prime', attributes);
+    fillOnly.pullDomainEvents();
+    await players.save(fillOnly);
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(6),
+      new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+    let mid = await players.findById(PlayerId('filler-1'));
+    expect(mid!.attributes.attributeValue('stamina')).toBe(24); // 18 + 6: this tick's weakest
+    expect(mid!.attributes.attributeValue('backhand')).toBe(20); // untouched this tick
+
+    await useCase.execute({ worldId, tickKey: 'tick-2' });
+    const after = await players.findById(PlayerId('filler-1'));
+    // backhand (20) is now the weakest, not stamina (24 after tick 1) —
+    // confirms the target is recomputed fresh, not frozen from tick 1.
+    expect(after!.attributes.attributeValue('backhand')).toBe(26); // 20 + 6
+    expect(after!.attributes.attributeValue('stamina')).toBe(24); // untouched this tick
+  });
+
+  it('a fillOnly player that ages into retirement this same tick simply stops training, same as any other player', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 38 * 52 - 1, 'decline', startingAttributes());
+    fillOnly.pullDomainEvents();
+    await players.save(fillOnly);
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(6),
+      new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
+    );
+
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+    const retired = await players.findById(PlayerId('filler-1'));
+    expect(retired!.isRetired()).toBe(true);
+    expect(retired!.attributes.attributeValue('serve')).toBe(30); // no training delta applied
+  });
+
   it('does not double-apply training when the same tick is re-run (idempotent, like aging)', async () => {
     const worlds = new InMemoryGameWorldRepository();
     const players = new InMemoryPlayerRepository();

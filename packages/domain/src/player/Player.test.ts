@@ -45,6 +45,7 @@ describe('Player', () => {
     expect(player.fatigue).toBe(0);
     expect(player.managerId).toBe(managerId);
     expect(player.isRetired()).toBe(false);
+    expect(player.fillOnly).toBe(false);
 
     const events = player.pullDomainEvents();
     expect(events).toHaveLength(1);
@@ -380,5 +381,43 @@ describe('Player', () => {
     expect(() => player.setTrainingFocus({ kind: 'surface', surface: 'clay' })).toThrow(
       /Cannot set training focus for retired player/,
     );
+  });
+
+  describe('generateFillOnly', () => {
+    it('produces a manager-less, fill-only player at the given stage, with no standing training focus, emitting FillOnlyPlayerGenerated (not PlayerHired)', () => {
+      const player = Player.generateFillOnly(PlayerId('p1'), 'Free Agent 1', 33 * 52, 'decline', startingAttributes(), 'BR');
+
+      expect(player.managerId).toBeNull();
+      expect(player.fillOnly).toBe(true);
+      expect(player.stage).toBe('decline');
+      expect(player.ageInWeeks).toBe(33 * 52);
+      expect(player.currentFocus).toBeNull();
+      expect(player.fatigue).toBe(0);
+      expect(player.isRetired()).toBe(false);
+
+      const events = player.pullDomainEvents();
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: 'FillOnlyPlayerGenerated',
+        payload: { playerId: player.id },
+      });
+    });
+
+    it('can still be trained and aged exactly like any other non-retired player, despite having no manager', () => {
+      const player = Player.generateFillOnly(PlayerId('p1'), 'Free Agent 1', 25 * 52, 'prime', startingAttributes());
+      const focus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+
+      player.applyTraining(focus, new FixedTrainingPolicy(5));
+
+      expect(player.attributes.attributeValue('serve')).toBe(35);
+    });
+
+    it('a genuinely retired stage still rejects training, same as any hired player', () => {
+      const player = Player.generateFillOnly(PlayerId('p1'), 'Free Agent 1', 39 * 52, 'retired', startingAttributes());
+
+      expect(() => player.applyTraining({ kind: 'attribute', attribute: 'serve' }, new FixedTrainingPolicy(5))).toThrow(
+        /Cannot train retired player/,
+      );
+    });
   });
 });

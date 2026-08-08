@@ -202,3 +202,25 @@ export class PlayerAttributes {
     });
   }
 }
+
+/** Every trainable attribute (technical + physical, never mental —
+ * same exclusion TrainableAttribute already enforces structurally),
+ * in a fixed order used only to seed the reduce() below. */
+const ALL_TRAINABLE_ATTRIBUTES: readonly TrainableAttribute[] = ['serve', 'forehand', 'backhand', 'volley', 'speed', 'stamina', 'strength'];
+
+/** The simple automatic weekly training default for a fillOnly free
+ * agent (see Player.fillOnly's doc comment and
+ * docs/tournament-fill-system.md item 4) — no manager exists to pick a
+ * TrainingFocus for these players, so AdvanceWorldWeekUseCase calls
+ * this fresh every tick and trains whichever single attribute is
+ * currently lowest. Deliberately simple (no ceiling-awareness, no
+ * surface-affinity option, no attempt to build a "balanced" player) —
+ * see the doc's "no AI decision-making beyond the simple automatic
+ * training default" scope note. Ties resolve to the first attribute in
+ * ALL_TRAINABLE_ATTRIBUTES order (deterministic, not random) — which
+ * exact attribute wins a tie has no gameplay significance. */
+export function weakestTrainableAttribute(attributes: PlayerAttributes): TrainableAttribute {
+  return ALL_TRAINABLE_ATTRIBUTES.reduce((weakest, candidate) =>
+    attributes.attributeValue(candidate) < attributes.attributeValue(weakest) ? candidate : weakest,
+  );
+}

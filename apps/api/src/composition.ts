@@ -13,6 +13,7 @@ import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
 import { RefreshTalentPoolUseCase } from '@tennis-manager/application';
+import { GenesisSeedFillOnlyPlayersUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -101,6 +102,13 @@ export interface Dependencies {
   claimTalentPoolCandidate: ClaimTalentPoolCandidateUseCase;
   createCustomPlayer: CreateCustomPlayerUseCase;
   refreshTalentPool: RefreshTalentPoolUseCase;
+  /** One-time-per-world genesis seed (docs/tournament-fill-system.md) —
+   * called from apps/api/src/scripts/genesisSeedFillOnlyPlayers.ts, not
+   * from any recurring worker tick. Wired here anyway, same "real,
+   * tested use case ahead of any UI/route consuming it" precedent as
+   * ConvertPlayerToCoachUseCase originally shipped with (see CLAUDE.md's
+   * Manager & Progression status history). */
+  genesisSeedFillOnlyPlayers: GenesisSeedFillOnlyPlayersUseCase;
   openTournament: OpenTournamentUseCase;
   openRegistration: OpenRegistrationUseCase;
   registerEntrant: RegisterEntrantUseCase;
@@ -242,7 +250,17 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       talentClaimPricingPolicy,
     ),
     createCustomPlayer: new CreateCustomPlayerUseCase(players, events, billing, generationPolicy, generationRandom),
-    refreshTalentPool: new RefreshTalentPoolUseCase(talentPoolCandidates, worlds, generationPolicy, generationRandom, idGenerator),
+    refreshTalentPool: new RefreshTalentPoolUseCase(
+      talentPoolCandidates,
+      worlds,
+      generationPolicy,
+      generationRandom,
+      idGenerator,
+      players,
+      events,
+      standardAgingPolicy,
+    ),
+    genesisSeedFillOnlyPlayers: new GenesisSeedFillOnlyPlayersUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
     openTournament,
     openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator),

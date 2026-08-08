@@ -1,5 +1,15 @@
-import { PlayerGenerationPolicy, RandomSource, TalentPoolCandidate, TalentPoolCandidateId, WorldId } from '@tennis-manager/domain';
-import { GameWorldRepository, IdGeneratorPort, TalentPoolCandidateRepository } from '../ports/ports';
+import {
+  AgingPolicy,
+  Player,
+  PlayerGenerationPolicy,
+  PlayerId,
+  RandomSource,
+  StandardAgingPolicy,
+  TalentPoolCandidate,
+  TalentPoolCandidateId,
+  WorldId,
+} from '@tennis-manager/domain';
+import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository, TalentPoolCandidateRepository } from '../ports/ports';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 /** How many new candidates enter the pool each weekly refresh. A
@@ -30,9 +40,35 @@ export interface RefreshTalentPoolResult {
  * update like ClaimTalentPoolCandidateUseCase's claim path — that's a
  * deliberate difference, not an oversight: only claiming has a real
  * concurrent-writer problem (two managers racing for the same
- * candidate). Nothing else ever writes to a candidate's status
- * concurrently with this sweep, so there's no race to guard against
- * here, and a simple loop keeps this use case readable.
+ * candidate). This loop's read-then-write DOES have a narrow, real race
+ * against a concurrent claim, though: if a manager successfully claims
+ * a candidate in the window between this loop's `findAvailable()` read
+ * and its `save()` write for that same candidate, this loop's stale
+ * in-memory `markExpired()` would overwrite the claim back to
+ * 'expired' — a pre-existing gap (not introduced by the fill-only
+ * conversion below), narrow in practice (it only matters if a claim
+ * lands inside this loop's single-tick execution window), and a good
+ * candidate for a follow-up pass that makes expiry a single atomic
+ * conditional UPDATE the same way claimIfAvailable() already is,
+ * rather than something fixed here as a side effect of unrelated work.
+ *
+ * **Fill-only conversion** (docs/tournament-fill-system.md): expiry no
+ * longer just marks a candidate 'expired' and leaves it inert. The
+ * underlying player is real and should keep developing even after
+ * dropping out of the actively-claimable Scouting list — so the exact
+ * moment a candidate expires, it becomes a real, permanent, fill-only
+ * Player (Player.generateFillOnly, managerId: null), reusing the
+ * candidate's own id as the new player's id (same "this IS that player
+ * from here on" convention ClaimTalentPoolCandidateUseCase already
+ * uses for an actual claim). There is no path back from fillOnly to
+ * claimable — matches TalentPoolCandidate.markExpired()'s own
+ * no-un-expire invariant, and is the deliberate, simpler default
+ * docs/tournament-fill-system.md's open question flags (avoids
+ * extending the Scouting UI to browse a years-deep historical roster).
+ * The TalentPoolCandidate row itself is NEVER deleted here (or
+ * anywhere — see TalentPoolCandidateRepository's doc comment): it
+ * stays as a permanent 'expired' record, now alongside the fillOnly
+ * Player it was converted into, not instead of it.
  */
 export class RefreshTalentPoolUseCase {
   constructor(
@@ -41,6 +77,9 @@ export class RefreshTalentPoolUseCase {
     private readonly generationPolicy: PlayerGenerationPolicy,
     private readonly random: RandomSource,
     private readonly ids: IdGeneratorPort,
+    private readonly players: PlayerRepository,
+    private readonly events: EventPublisherPort,
+    private readonly agingPolicy: AgingPolicy = new StandardAgingPolicy(),
     private readonly batchSize: number = TALENT_POOL_BATCH_SIZE,
   ) {}
 
@@ -55,6 +94,21 @@ export class RefreshTalentPoolUseCase {
       if (candidate.isExpiredAsOf(currentWeek)) {
         candidate.markExpired();
         await this.candidates.save(candidate);
+
+        const stage = this.agingPolicy.stageForAge(candidate.ageInWeeks);
+        const fillOnlyPlayer = Player.generateFillOnly(
+          PlayerId(candidate.id),
+          candidate.name,
+          candidate.ageInWeeks,
+          stage,
+          candidate.attributes,
+          candidate.nationality,
+          candidate.potentialCeiling,
+          candidate.physicalCeilings,
+        );
+        await this.players.save(fillOnlyPlayer);
+        await this.events.publish(fillOnlyPlayer.pullDomainEvents());
+
         expired += 1;
       }
     }

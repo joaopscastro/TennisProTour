@@ -7,6 +7,7 @@ import {
   PlayerAgingService,
   RankingCalculationService,
   TrainingPolicy,
+  weakestTrainableAttribute,
   WorldId,
 } from '@tennis-manager/domain';
 import {
@@ -63,6 +64,18 @@ export interface AdvanceWorldWeekResult {
  * above (coachRatingByManager mirrors proStatusByManager exactly). A
  * free agent (managerId null) has no manager to have a coach, so
  * always trains uncoached.
+ *
+ * **fillOnly players are the one exception to "no focus set means no
+ * training delta."** They have no manager to ever set a TrainingFocus
+ * in the first place (see Player.fillOnly's doc comment and
+ * docs/tournament-fill-system.md item 4), so instead of reading
+ * currentFocus (which stays null forever for them), this loop computes
+ * a fresh focus every tick via weakestTrainableAttribute — "train
+ * whichever eligible attribute is weakest," the simple automatic
+ * default the doc calls for. A RELEASED player (also managerId: null,
+ * but fillOnly stays false) is NOT affected by this branch at all and
+ * keeps exactly its prior currentFocus-driven behavior — fillOnly, not
+ * managerId, is what distinguishes the two.
  *
  * Honest limitation, deliberate for now: the per-player saves and the
  * final world save are not one atomic transaction, so a crash mid-run
@@ -143,7 +156,15 @@ export class AdvanceWorldWeekUseCase {
       // Aging can tip a player into retirement this same tick;
       // applyTraining rejects retired players, so re-check after aging
       // rather than trusting the focus was set against a live player.
-      if (player.currentFocus && !player.isRetired()) {
+      if (player.fillOnly) {
+        // No manager, no currentFocus to read — see this class's doc
+        // comment. A fillOnly player that aged into retirement this
+        // same tick just stops training, same as anyone else.
+        if (!player.isRetired()) {
+          const focus = { kind: 'attribute' as const, attribute: weakestTrainableAttribute(player.attributes) };
+          player.applyTraining(focus, this.trainingPolicy, null);
+        }
+      } else if (player.currentFocus && !player.isRetired()) {
         const coachRating = await coachRatingFor(player.managerId);
         player.applyTraining(player.currentFocus, this.trainingPolicy, coachRating);
       }

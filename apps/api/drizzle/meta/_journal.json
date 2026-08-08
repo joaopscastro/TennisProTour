@@ -127,6 +127,13 @@
       "when": 1786119297400,
       "tag": "0017_trainable_attribute",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786183510091,
+      "tag": "0018_third_namor",
+      "breakpoints": true
     }
   ]
 }
