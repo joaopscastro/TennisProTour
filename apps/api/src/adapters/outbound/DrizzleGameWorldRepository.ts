@@ -29,4 +29,22 @@ export class DrizzleGameWorldRepository implements GameWorldRepository {
       .values(row)
       .onConflictDoUpdate({ target: gameWorlds.id, set: { ...row, updatedAt: new Date() } });
   }
+
+  /**
+   * Real wall-clock time of the last actually-applied tick
+   * (`game_worlds.updated_at`) — bumped only inside `save()`, which
+   * `AdvanceWorldWeekUseCase` only calls when a tick genuinely
+   * advances the week (see that use case), never on a no-op re-fire.
+   * Deliberately NOT part of the `GameWorldRepository` port / the
+   * `GameWorld` aggregate itself: the domain never touches wall-clock
+   * time (see `GameWorld`'s own doc comment) — this is purely an
+   * operational read for `GET /world/clock`'s interval-mode countdown
+   * (`worldRoutes.ts`), same "concrete Drizzle class exposed directly
+   * on Dependencies for a read-side concern" pattern already used by
+   * `DrizzleRosterDashboardQuery`/`DrizzlePlayerProfileQuery`.
+   */
+  async findLastTickAt(id: WorldId): Promise<Date | null> {
+    const rows = await this.db.select({ updatedAt: gameWorlds.updatedAt }).from(gameWorlds).where(eq(gameWorlds.id, id)).limit(1);
+    return rows[0]?.updatedAt ?? null;
+  }
 }

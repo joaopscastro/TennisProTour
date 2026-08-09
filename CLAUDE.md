@@ -415,6 +415,49 @@ building one would misrepresent how simulation actually behaves. Fix the
 underlying gate in `SimulateDueMatchesUseCase` before ever adding that
 countdown.
 
+**Update — the tick cadence itself is now configurable for dev/test,
+with a real idempotency bug caught and fixed while wiring it, not just
+a schedule-string change.** `WORLD_TICK_INTERVAL_MS`
+(`apps/worker/src/index.ts`) fires the world tick every N ms instead of
+`WORLD_TICK_CRON`'s real-week cadence when set — unset (the production
+default) is byte-for-byte the same behavior as before this existed. See
+README.md's "Fast local tick cadence" section for the day-to-day
+version. The bug: the tick's idempotency key
+(`apps/worker/src/tickKey.ts`'s `isoWeekTickKey`) is derived from the
+real-world ISO calendar week, which is exactly right when one tick = one
+real week, but would have silently no-op'd every firing after the first
+within the same real week once ticks started firing hourly — the whole
+point of the override would have been defeated, quietly, with no error.
+Fixed with a second key function, `intervalTickKey`, that buckets real
+time into `intervalMs`-sized slots instead of calendar weeks — used
+whenever `WORLD_TICK_INTERVAL_MS` is set, `isoWeekTickKey` otherwise
+(`tickKey.test.ts` pins the exact failure mode: two firings one
+interval-hour apart get different interval keys but the SAME
+`isoWeekTickKey`). `/world/clock`'s interval-mode countdown
+(`worldRoutes.ts`) is anchored to `game_worlds.updated_at` — the real
+wall-clock time of the last tick that actually advanced the world
+(`DrizzleGameWorldRepository.findLastTickAt`, a plain adapter-level read
+exposed directly on `Dependencies`, deliberately not added to the
+`GameWorldRepository` port or the `GameWorld` aggregate itself — the
+domain still never touches wall-clock time) — rather than the cron path,
+since apps/api has no way to observe an `every: ms` BullMQ schedule's
+real anchor directly.
+
+**Confirmed by explicit audit, not assumed, that nothing else has a
+hidden real-week coupling**: `MatchReplayPlayer.tsx`'s Premiere
+live-edge cap (`computeLiveEdgeSeconds`) only ever measures real elapsed
+time since a match's own `simulatedAt` (`new Date().toISOString()`,
+written once at simulation time in `SimulateMatchUseCase`) — entirely
+independent of tick cadence, cron or interval. `lib/useCountdown.ts`
+likewise never hardcodes an interval anywhere; it just counts down to
+whatever `nextTickAt` timestamp `/world/clock` returns. The one
+cosmetic (non-functional) loose end: the Scouting page's static copy
+("refreshed weekly") stays literally "weekly" even when
+`WORLD_TICK_INTERVAL_MS` is overriding the real cadence for local
+testing — left as-is deliberately, since it's dev-only UI copy, not
+logic, and the countdown number itself stays numerically correct either
+way.
+
 ## Test-database isolation — a real incident, now fixed structurally
 
 `apps/api`'s and `apps/worker`'s integration/e2e suites (`beforeEach`

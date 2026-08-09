@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
@@ -139,6 +140,25 @@ describe('API', () => {
     // this doesn't rot with the passage of time.
     expect(nextTickAt.getUTCDay()).toBe(1);
     expect(nextTickAt.getUTCHours()).toBe(3);
+  });
+
+  it('serves an interval-mode next-tick timestamp anchored to the last applied tick when WORLD_TICK_INTERVAL_MS is set', async () => {
+    // Pins the anchor precisely rather than trusting "recently written
+    // by beforeAll" — this is what AdvanceWorldWeekUseCase's save()
+    // actually bumps on a real applied tick (see
+    // DrizzleGameWorldRepository.findLastTickAt's doc comment).
+    const lastTickAt = new Date('2026-01-05T12:00:00.000Z');
+    await db.update(schema.gameWorlds).set({ updatedAt: lastTickAt }).where(eq(schema.gameWorlds.id, 'main'));
+
+    process.env.WORLD_TICK_INTERVAL_MS = '3600000'; // 1 hour
+    try {
+      const response = await app.inject({ method: 'GET', url: '/world/clock' });
+      expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(new Date(body.nextTickAt).getTime()).toBe(lastTickAt.getTime() + 3_600_000);
+    } finally {
+      delete process.env.WORLD_TICK_INTERVAL_MS;
+    }
   });
 
   it('requires authenticated manager identity and isolates manager-owned actions', async () => {

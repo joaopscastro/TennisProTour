@@ -61,9 +61,42 @@ it runs the same from Git Bash/PowerShell on Windows as it does on
 macOS/Linux. `DATABASE_URL` / `REDIS_URL` env vars still override the
 defaults (`postgresql://tennis:tennis@localhost:5432/tennis_manager`,
 `redis://localhost:6379`) if you need to point at something other than
-the bundled docker-compose services; the worker's schedules are
+the bundled docker-compose services (docker-compose.yml only runs
+Postgres + Redis — apps/api/apps/worker/apps/web are plain Node
+processes on your host, not containerized); the worker's schedules are
 overridable via `WORLD_TICK_CRON` (default Mondays 03:00 UTC) and
-`MATCH_SWEEP_CRON` (default every 5 minutes).
+`MATCH_SWEEP_CRON` (default every 5 minutes). See "Fast local tick
+cadence" below for `WORLD_TICK_INTERVAL_MS`, a dev/test-only override
+of `WORLD_TICK_CRON`.
+
+### Fast local tick cadence (dev/test only)
+
+The world tick — aging, training, tournament generation/fill, ranking,
+all of `AdvanceWorldWeekUseCase` — fires once per **real** week by
+default (`WORLD_TICK_CRON`), same as production. Waiting a real week to
+see anything move is a bad loop for local development, so
+`apps/worker` also accepts `WORLD_TICK_INTERVAL_MS`: when set, it fires
+every N milliseconds instead, on top of the exact same handler/use-case
+path (nothing about the tick's own logic changes, only how often it
+runs).
+
+```
+WORLD_TICK_INTERVAL_MS=3600000 npm run start -w apps/worker   # hourly instead of weekly
+```
+
+- **Production default: unset.** `WORLD_TICK_CRON`'s real-week cadence
+  stays in full control unless you deliberately set this — this is a
+  dev/test override, not a new default, and it must never be set in a
+  production environment.
+- The `GET /world/clock` countdown (Sidebar, Scouting's "next refresh")
+  picks this up automatically — no separate frontend config. In
+  interval mode it's anchored to the real time of the last tick that
+  actually advanced the world (`game_worlds.updated_at`), not a
+  parsed cron expression; see `worldRoutes.ts`'s doc comment.
+- Match replay's "Premiere" live-edge cap is unaffected either way — it
+  only ever measures real elapsed time since a match's own
+  `simulatedAt`, independent of how fast the world itself is ticking
+  (see `MatchReplayPlayer.tsx`'s `computeLiveEdgeSeconds`).
 
 For finer-grained control (e.g. running just one app, or regenerating
 migrations after editing `apps/api/src/db/schema.ts`), the individual

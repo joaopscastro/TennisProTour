@@ -12,6 +12,22 @@ const worldId = process.env.WORLD_ID ?? 'main';
 const worldTickCron = process.env.WORLD_TICK_CRON ?? '0 3 * * 1';
 const matchSweepCron = process.env.MATCH_SWEEP_CRON ?? '*/5 * * * *';
 
+/**
+ * Dev/test override: fire the world tick every N milliseconds instead
+ * of the real-week cron above — e.g. WORLD_TICK_INTERVAL_MS=3600000
+ * for an hourly cadence so aging/training/tournament generation are
+ * actually observable in a normal working session, instead of taking
+ * a real week to show anything. Unset (the production default) keeps
+ * worldTickCron in full control, byte-for-byte the same behavior as
+ * before this override existed. See README.md's "Fast local tick
+ * cadence" section.
+ */
+const worldTickIntervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
+const worldTickIntervalMs = worldTickIntervalMsRaw ? Number(worldTickIntervalMsRaw) : null;
+if (worldTickIntervalMsRaw !== undefined && (!Number.isFinite(worldTickIntervalMs) || (worldTickIntervalMs as number) <= 0)) {
+  throw new Error(`WORLD_TICK_INTERVAL_MS must be a positive number of milliseconds, got "${worldTickIntervalMsRaw}"`);
+}
+
 const WORLD_QUEUE = 'world';
 const MATCHES_QUEUE = 'matches';
 
@@ -37,7 +53,10 @@ async function main(): Promise<void> {
   const matchesQueue = new Queue(MATCHES_QUEUE, { connection });
 
   // Repeatable schedules (upsert = safe across restarts/deploys).
-  await worldQueue.upsertJobScheduler('advance-world-week', { pattern: worldTickCron }, {
+  // worldTickIntervalMs set = dev/test override (every: ms); unset =
+  // production default (pattern: worldTickCron), unchanged behavior.
+  const worldRepeatOptions = worldTickIntervalMs !== null ? { every: worldTickIntervalMs } : { pattern: worldTickCron };
+  await worldQueue.upsertJobScheduler('advance-world-week', worldRepeatOptions, {
     name: 'advance-world-week',
     data: { worldId } satisfies AdvanceWorldJobData,
   });
@@ -45,7 +64,7 @@ async function main(): Promise<void> {
     name: 'simulate-due-matches',
   });
 
-  const advanceWorld = makeAdvanceWorldHandler(deps);
+  const advanceWorld = makeAdvanceWorldHandler(deps, worldTickIntervalMs);
   const simulateDue = makeSimulateDueMatchesHandler(deps);
 
   const workers = [
@@ -65,7 +84,14 @@ async function main(): Promise<void> {
   }
 
   // eslint-disable-next-line no-console
-  console.log(JSON.stringify({ msg: 'worker up', worldTickCron, matchSweepCron, worldId }));
+  console.log(
+    JSON.stringify({
+      msg: 'worker up',
+      worldTick: worldTickIntervalMs !== null ? { mode: 'interval', everyMs: worldTickIntervalMs } : { mode: 'cron', pattern: worldTickCron },
+      matchSweepCron,
+      worldId,
+    }),
+  );
 
   const shutdown = async () => {
     await Promise.all(workers.map((worker) => worker.close()));

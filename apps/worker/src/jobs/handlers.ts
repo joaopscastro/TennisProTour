@@ -1,6 +1,6 @@
 import { WorldId } from '@tennis-manager/domain';
 import { Dependencies } from '@tennis-manager/api';
-import { isoWeekTickKey } from '../tickKey';
+import { intervalTickKey, isoWeekTickKey } from '../tickKey';
 
 /**
  * Thin BullMQ handlers — parse the job, call the use case, log the
@@ -17,9 +17,16 @@ export interface AdvanceWorldJobData {
   tickKey?: string;
 }
 
-export function makeAdvanceWorldHandler(deps: Dependencies) {
+/**
+ * `tickIntervalMs` mirrors whatever WORLD_TICK_INTERVAL_MS index.ts
+ * resolved (null = default real-week cadence) — passed in explicitly
+ * rather than read from process.env here, so this handler's tick-key
+ * choice is a pure function of its arguments and stays unit-testable
+ * without env-var side effects.
+ */
+export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: number | null) {
   return async (data: AdvanceWorldJobData) => {
-    const tickKey = data.tickKey ?? isoWeekTickKey(new Date());
+    const tickKey = data.tickKey ?? (tickIntervalMs !== null ? intervalTickKey(new Date(), tickIntervalMs) : isoWeekTickKey(new Date()));
     const worldId = WorldId(data.worldId);
     const result = await deps.advanceWorldWeek.execute({ worldId, tickKey });
     // Talent pool refresh piggybacks on the SAME weekly tick as aging,
