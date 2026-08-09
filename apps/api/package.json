@@ -10,6 +10,7 @@
     "seed": "tsc --build && node dist/scripts/seed.js",
     "genesis-seed": "tsc --build && node dist/scripts/genesisSeedFillOnlyPlayers.js",
     "typecheck": "tsc --noEmit",
+    "pretest": "node ../../scripts/ensure-test-db.js",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"

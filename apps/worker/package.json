@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
+    "pretest": "node ../../scripts/ensure-test-db.js",
     "test": "vitest run",
     "start": "tsc --build && node dist/index.js"
   },

@@ -7,7 +7,7 @@ import { Queue, QueueEvents, Worker } from 'bullmq';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId } from '@tennis-manager/domain';
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
-import { buildDependencies, createDb, Dependencies, schema } from '@tennis-manager/api';
+import { buildDependencies, createDb, Dependencies, schema, testConnectionString } from '@tennis-manager/api';
 import { makeSimulateDueMatchesHandler } from './jobs/handlers';
 
 /**
@@ -30,7 +30,7 @@ import { makeSimulateDueMatchesHandler } from './jobs/handlers';
  * Redis) must not interfere with, or be interfered with by, this test.
  */
 
-const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
+const connectionString = testConnectionString();
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const QUEUE_NAME = 'e2e-smoke-matches';
 const TOURNAMENT_ID = TournamentId('e2e-smoke-t1');

@@ -9,10 +9,11 @@ import Stripe from 'stripe';
 import { FastifyInstance } from 'fastify';
 import { ManagerId, PlayerAttributes, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
+import { testConnectionString } from '../../../db/testConnection';
 import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
 
-const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
+const connectionString = testConnectionString();
 const WEBHOOK_SECRET = 'whsec_test_secret';
 
 const pool = new Pool({ connectionString });

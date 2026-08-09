@@ -415,6 +415,24 @@ building one would misrepresent how simulation actually behaves. Fix the
 underlying gate in `SimulateDueMatchesUseCase` before ever adding that
 countdown.
 
+## Test-database isolation — a real incident, now fixed structurally
+
+`apps/api`'s and `apps/worker`'s integration/e2e suites (`beforeEach`
+truncates every table between tests — see any `*.integration.test.ts`
+or `e2e.smoke.test.ts`) used to default to `DATABASE_URL`, the exact
+same connection string `npm run dev` uses. Running the suite locally
+against a dev environment with real seeded data really did wipe it —
+this happened for real during a session, not a hypothetical. Fixed by
+decoupling entirely: every test file now resolves its connection via
+`testConnectionString()` (`apps/api/src/db/testConnection.ts`), which
+never reads `DATABASE_URL` at all, defaults to a separate
+`tennis_manager_test` database, and throws outright if
+`TEST_DATABASE_URL` is ever pointed at the known dev database name — a
+structural backstop, not just a naming convention. `scripts/ensure-test-db.js`,
+wired as a `pretest` hook in both packages, creates that database
+automatically (idempotent) before any suite connects. See README.md's
+Testing section for the day-to-day version of this.
+
 ## Committed stack (with rationale — see full plan doc for the "why not X" reasoning)
 
 | Layer | Choice |

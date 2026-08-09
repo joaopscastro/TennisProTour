@@ -84,3 +84,28 @@ npm run test:e2e -w apps/web    # Playwright browser acceptance tests
 For Clerk configuration and the production security checklist, see
 `docs/security-and-identity.md` and `.env.example`. Local development uses an
 explicit development identity header; production must use `AUTH_MODE=clerk`.
+
+## Testing
+
+```
+npm run test -w apps/api      # unit + integration, real Postgres
+npm run test -w apps/worker   # includes the end-to-end smoke test, real Postgres + real Redis
+npm run test -w packages/domain
+npm run test -w packages/application
+```
+
+`apps/api` and `apps/worker`'s integration/e2e suites run against a
+**separate, dedicated database** (`tennis_manager_test` by default, on
+the same local Postgres instance the dev DB uses) — not your dev
+database. Each suite's `beforeEach` truncates every table between
+tests, so this isolation matters: it used to run against the same
+`tennis_manager` database `npm run dev` uses, which meant running the
+tests could silently wipe real seeded dev data.
+
+A `pretest` hook (`scripts/ensure-test-db.js`) creates
+`tennis_manager_test` automatically the first time you run the suite —
+nothing to set up by hand. Override the target with `TEST_DATABASE_URL`
+if you need to point at something else; it's read independently of
+`DATABASE_URL`; a `TEST_DATABASE_URL` that resolves to `tennis_manager`
+itself is refused outright rather than silently truncated (see
+`apps/api/src/db/testConnection.ts`).

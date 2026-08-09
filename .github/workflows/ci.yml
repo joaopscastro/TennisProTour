@@ -38,6 +38,13 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://tennis:tennis@localhost:5432/tennis_manager
+      # Integration/e2e suites (apps/api, apps/worker) never read
+      # DATABASE_URL — they run against this separate database instead
+      # (see README.md's Testing section and
+      # apps/api/src/db/testConnection.ts), same isolation this CI
+      # setup should mirror even though a fresh CI Postgres container
+      # has no real dev data to protect.
+      TEST_DATABASE_URL: postgresql://tennis:tennis@localhost:5432/tennis_manager_test
       REDIS_URL: redis://localhost:6379
 
     steps:

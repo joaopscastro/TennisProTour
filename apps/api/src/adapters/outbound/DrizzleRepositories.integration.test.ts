@@ -15,6 +15,7 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { GeneratedPlayer, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
 import { Coach, CoachId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
+import { testConnectionString } from '../../db/testConnection';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
@@ -25,7 +26,7 @@ import { DrizzleCoachRepository } from './DrizzleCoachRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
 import { DrizzleTitleRepository } from './DrizzleTitleRepository';
 
-const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
+const connectionString = testConnectionString();
 
 const pool = new Pool({ connectionString });
 const db = drizzle(pool, { schema });

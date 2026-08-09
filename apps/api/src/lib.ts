@@ -7,6 +7,7 @@
  */
 export * as schema from './db/schema';
 export { createDb, Db } from './db/client';
+export { testConnectionString } from './db/testConnection';
 export { buildDependencies, CompositionOptions, Dependencies } from './composition';
 export { buildApp, AppOptions } from './app';
 export { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
