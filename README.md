@@ -78,7 +78,21 @@ see anything move is a bad loop for local development, so
 `apps/worker` also accepts `WORLD_TICK_INTERVAL_MS`: when set, it fires
 every N milliseconds instead, on top of the exact same handler/use-case
 path (nothing about the tick's own logic changes, only how often it
-runs).
+runs). Since one tick always advances the world by exactly one game
+week, `WORLD_TICK_INTERVAL_MS=3600000` means **1 game week per real
+hour**.
+
+**Easiest way — persists across restarts, no need to remember it each
+time:** copy `.env.example` to `.env` at the repo root (gitignored,
+never committed) and uncomment `WORLD_TICK_INTERVAL_MS`. Both
+`apps/api` and `apps/worker` load this same file automatically on
+startup (explicit, cwd-independent — see the top of each `src/index.ts`),
+regardless of which directory you actually launch them from, so
+`npm run dev` picks it up with no extra flags. Delete the line (or the
+whole file) to go back to real-week cadence.
+
+For a one-off run without touching `.env`, the env var also works
+inline:
 
 ```
 WORLD_TICK_INTERVAL_MS=3600000 npm run start -w apps/worker   # hourly instead of weekly

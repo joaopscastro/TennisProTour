@@ -1,3 +1,11 @@
+// Same explicit, cwd-independent .env loading as apps/api/src/index.ts
+// — one shared repo-root .env configures both processes identically
+// (WORLD_TICK_INTERVAL_MS in particular needs to reach apps/worker,
+// the process that actually schedules the tick).
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
+config({ path: resolve(__dirname, '../../../.env') });
+
 import IORedis from 'ioredis';
 import { Queue, Worker } from 'bullmq';
 import { GameWorld, WorldId } from '@tennis-manager/domain';

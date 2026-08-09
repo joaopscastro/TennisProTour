@@ -1,4 +1,16 @@
-import 'dotenv/config';
+// Explicit path, not the bare 'dotenv/config' import: that reads .env
+// relative to process.cwd(), which happens to be apps/api only when
+// launched via `npm run start -w apps/api` — any other launch method
+// (e.g. `node dist/index.js` from the repo root, as
+// scripts/boot-smoke-test.sh does) would silently see none of .env's
+// values. Resolving against __dirname instead makes this independent
+// of whatever directory the process was actually started from, and
+// points every app at the SAME single repo-root .env (see
+// .env.example) rather than each needing its own copy.
+import { config } from 'dotenv';
+import { resolve } from 'node:path';
+config({ path: resolve(__dirname, '../../../.env') });
+
 import { createDb } from './db/client';
 import { buildDependencies } from './composition';
 import { buildApp } from './app';
