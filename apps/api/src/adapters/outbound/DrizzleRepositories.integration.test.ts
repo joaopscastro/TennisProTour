@@ -17,6 +17,7 @@ import { Coach, CoachId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
 import { testConnectionString } from '../../db/testConnection';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
+import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepository';
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleTalentPoolCandidateRepository } from './DrizzleTalentPoolCandidateRepository';
@@ -47,10 +48,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   // Child tables first (FKs), then parents. ranking_ledger/titles have
   // FKs to both players and tournaments, so they have to go before
-  // either; peak_rankings only references players.
+  // either; peak_rankings/training_schedule only reference players.
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
+  await db.delete(schema.trainingSchedule);
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
@@ -92,7 +94,6 @@ describe('DrizzlePlayerRepository', () => {
     const managerId = ManagerId('m1');
     const original = Player.hire(PlayerId('p1'), 'João Silva', 19 * 52, attributes(30), managerId, 'BR');
     original.applyMatchFatigue(12);
-    original.setTrainingFocus({ kind: 'surface', surface: 'grass' });
     original.pullDomainEvents(); // adapter persists state, not events
 
     await repository.save(original);
@@ -106,7 +107,6 @@ describe('DrizzlePlayerRepository', () => {
     expect(loaded!.ageInWeeks).toBe(19 * 52);
     expect(loaded!.stage).toBe('youth');
     expect(loaded!.fatigue).toBe(12);
-    expect(loaded!.currentFocus).toEqual({ kind: 'surface', surface: 'grass' });
     expect(loaded!.fillOnly).toBe(false);
     expect(loaded!.attributes.technical.serve.value).toBe(30);
     expect(loaded!.attributes.technical.volley.value).toBe(33);
@@ -168,17 +168,6 @@ describe('DrizzlePlayerRepository', () => {
     expect((await repository.findById(PlayerId('p-physceil-default')))!.physicalCeilings).toEqual({ speed: 100, stamina: 100, strength: 100 });
   });
 
-  it('round-trips a single-attribute training focus and a null focus', async () => {
-    const player = Player.hire(PlayerId('p-focus'), 'Focus Test', 19 * 52, attributes(30), ManagerId('m1'));
-    player.setTrainingFocus({ kind: 'attribute', attribute: 'speed' });
-    await repository.save(player);
-    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toEqual({ kind: 'attribute', attribute: 'speed' });
-
-    player.setTrainingFocus(null);
-    await repository.save(player);
-    expect((await repository.findById(PlayerId('p-focus')))!.currentFocus).toBeNull();
-  });
-
   it('round-trips a dormant graduation-carryover bonus, and its absence (null)', async () => {
     const player = Player.hire(PlayerId('p-carryover'), 'Carryover Test', 14 * 52, attributes(30), ManagerId('m1'));
     expect(player.dormantCarryoverBonus).toBeNull(); // default, before any save
@@ -210,6 +199,58 @@ describe('DrizzlePlayerRepository', () => {
     expect(roster[0].fatigue).toBe(50);
 
     expect(await repository.findById(PlayerId('missing'))).toBeNull();
+  });
+});
+
+describe('DrizzleTrainingScheduleRepository', () => {
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const scheduleRepository = new DrizzleTrainingScheduleRepository(db);
+
+  it('round-trips a surface-focus entry and an attribute-focus entry for the same player', async () => {
+    const player = Player.hire(PlayerId('sched-p1'), 'Schedule Test', 19 * 52, attributes(30), ManagerId('m1'));
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+
+    await scheduleRepository.save({ playerId: PlayerId('sched-p1'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'surface', surface: 'clay' } });
+    await scheduleRepository.save({ playerId: PlayerId('sched-p1'), effectiveFrom: { season: 1, week: 5 }, focus: { kind: 'attribute', attribute: 'serve' } });
+
+    const entries = (await scheduleRepository.findByPlayer(PlayerId('sched-p1'))).sort((a, b) => a.effectiveFrom.week - b.effectiveFrom.week);
+    expect(entries).toEqual([
+      { playerId: PlayerId('sched-p1'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'surface', surface: 'clay' } },
+      { playerId: PlayerId('sched-p1'), effectiveFrom: { season: 1, week: 5 }, focus: { kind: 'attribute', attribute: 'serve' } },
+    ]);
+  });
+
+  it('round-trips an explicit null focus (a real "stop training" order, not an absent row)', async () => {
+    const player = Player.hire(PlayerId('sched-p2'), 'Schedule Test 2', 19 * 52, attributes(30), ManagerId('m1'));
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+
+    await scheduleRepository.save({ playerId: PlayerId('sched-p2'), effectiveFrom: { season: 1, week: 3 }, focus: null });
+
+    const entries = await scheduleRepository.findByPlayer(PlayerId('sched-p2'));
+    expect(entries).toEqual([{ playerId: PlayerId('sched-p2'), effectiveFrom: { season: 1, week: 3 }, focus: null }]);
+  });
+
+  it('overwrites (does not duplicate) an entry saved twice for the same effective week', async () => {
+    const player = Player.hire(PlayerId('sched-p3'), 'Schedule Test 3', 19 * 52, attributes(30), ManagerId('m1'));
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+
+    await scheduleRepository.save({ playerId: PlayerId('sched-p3'), effectiveFrom: { season: 1, week: 2 }, focus: { kind: 'surface', surface: 'clay' } });
+    await scheduleRepository.save({ playerId: PlayerId('sched-p3'), effectiveFrom: { season: 1, week: 2 }, focus: { kind: 'surface', surface: 'grass' } });
+
+    const entries = await scheduleRepository.findByPlayer(PlayerId('sched-p3'));
+    expect(entries).toHaveLength(1);
+    expect(entries[0].focus).toEqual({ kind: 'surface', surface: 'grass' });
+  });
+
+  it('returns an empty array for a player with no schedule entries at all', async () => {
+    const player = Player.hire(PlayerId('sched-p4'), 'Schedule Test 4', 19 * 52, attributes(30), ManagerId('m1'));
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+
+    expect(await scheduleRepository.findByPlayer(PlayerId('sched-p4'))).toEqual([]);
   });
 });
 

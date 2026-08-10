@@ -6,13 +6,17 @@ import {
   PlayerId,
   PlayerLifecycleStage,
   RankingBand,
+  resolveTrainingFocusForWeek,
   TrainingFocus,
+  WorldId,
   weeksUntilNextStage,
 } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentMatches } from '../../db/schema';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
+import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepository';
+import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
 
 const WEEKS_PER_SEASON = 52;
 
@@ -89,9 +93,16 @@ export interface RosterDashboardEntry {
  * overhead. This is a deliberate read-side/write-side split, not an
  * inconsistency: writes to tournament state still only ever happen
  * through Tournament + DrizzleTournamentRepository.
+ *
+ * `trainingFocus` is resolved fresh from each player's training
+ * schedule (resolveTrainingFocusForWeek, against the world's current
+ * week) rather than read off the player row directly — see
+ * TrainingSchedule.ts; Player itself no longer stores a focus at all.
  */
 export class DrizzleRosterDashboardQuery {
   private readonly players: DrizzlePlayerRepository;
+  private readonly trainingSchedule: DrizzleTrainingScheduleRepository;
+  private readonly worlds: DrizzleGameWorldRepository;
 
   constructor(
     private readonly db: Db,
@@ -103,8 +114,11 @@ export class DrizzleRosterDashboardQuery {
      * senior tour the way this query did before the junior circuit's
      * frontend surface existed. */
     private readonly rankPositionQueries: { senior: RankPositionQuery; u14: RankPositionQuery; u16: RankPositionQuery },
+    private readonly worldId: WorldId,
   ) {
     this.players = new DrizzlePlayerRepository(db);
+    this.trainingSchedule = new DrizzleTrainingScheduleRepository(db);
+    this.worlds = new DrizzleGameWorldRepository(db);
   }
 
   async forManager(managerId: ManagerId): Promise<RosterDashboardEntry[]> {
@@ -115,11 +129,13 @@ export class DrizzleRosterDashboardQuery {
     // per player — a manager has at most 4 players (roster cap), so
     // this stays cheap (3 queries total, not 3 * roster size) even as
     // the league-wide rankings tables grow.
-    const [seniorRanked, u14Ranked, u16Ranked] = await Promise.all([
+    const [seniorRanked, u14Ranked, u16Ranked, world] = await Promise.all([
       this.rankPositionQueries.senior.sortedRankings(),
       this.rankPositionQueries.u14.sortedRankings(),
       this.rankPositionQueries.u16.sortedRankings(),
+      this.worlds.findById(this.worldId),
     ]);
+    if (!world) throw new Error(`Game world ${this.worldId} not found`);
     const byBand: Record<RankingBand, { rank: Map<PlayerId, number>; points: Map<PlayerId, number> }> = {
       senior: {
         rank: new Map(seniorRanked.map((r, i) => [r.playerId, i + 1])),
@@ -150,7 +166,7 @@ export class DrizzleRosterDashboardQuery {
           rank: byBand[rankBand].rank.get(player.id) ?? null,
           rankBand,
           points: byBand[rankBand].points.get(player.id) ?? 0,
-          trainingFocus: player.currentFocus,
+          trainingFocus: resolveTrainingFocusForWeek(await this.trainingSchedule.findByPlayer(player.id), world.currentWeek),
           surfaceAffinities: {
             clay: player.attributes.surfaceAffinities.get('clay'),
             grass: player.attributes.surfaceAffinities.get('grass'),

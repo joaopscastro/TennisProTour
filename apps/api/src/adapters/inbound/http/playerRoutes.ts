@@ -16,6 +16,11 @@ interface CreateCustomPlayerBody {
 interface TrainingFocusBody {
   /** null clears the standing focus. */
   focus: { kind: 'surface'; surface: Surface } | { kind: 'attribute'; attribute: TrainableAttribute } | null;
+  /** Omitted = "starting right now" (the world's current week) — the
+   * roster dashboard's quick "Set focus" action never sends this.
+   * An explicit week is what the player profile's Schedule view (Step
+   * 2) uses to commit a focus change for a specific future week. */
+  week?: { season: number; week: number };
 }
 
 const trainingFocusSchema = {
@@ -103,25 +108,62 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     return profile;
   });
 
-  // Records the player's standing weekly training focus — does not
-  // apply any attribute delta itself (see SetTrainingFocusUseCase).
+  // Records one explicit training-schedule entry — does not apply any
+  // attribute delta itself (see SetTrainingScheduleUseCase). `week`
+  // omitted means "starting right now"; an explicit week schedules a
+  // future standing-order change without touching earlier weeks (see
+  // TrainingSchedule.ts's resolveTrainingFocusForWeek).
   app.put<{ Params: { id: string }; Body: TrainingFocusBody }>(
     '/players/:id/training-focus',
-    { schema: { body: { type: 'object', required: ['focus'], properties: { focus: trainingFocusSchema } } } },
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['focus'],
+          properties: {
+            focus: trainingFocusSchema,
+            week: {
+              type: 'object',
+              required: ['season', 'week'],
+              properties: { season: { type: 'integer', minimum: 1 }, week: { type: 'integer', minimum: 1, maximum: 52 } },
+              additionalProperties: false,
+            },
+          },
+        },
+      },
+    },
     async (request, reply) => {
       const existing = await deps.players.findById(PlayerId(request.params.id));
       const manager = await requireManager(request, reply, deps);
       if (!manager) return;
       if (!existing || existing.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found' });
-      await deps.setTrainingFocus.execute({
+      const entry = await deps.setTrainingSchedule.execute({
         playerId: PlayerId(request.params.id),
         focus: (request.body.focus as TrainingFocus | null) ?? null,
+        effectiveFrom: request.body.week,
       });
-      const player = await deps.players.findById(PlayerId(request.params.id));
-      if (!player) return reply.code(404).send({ error: `Player ${request.params.id} not found` });
-      return toPlayerDto(player);
+      return entry;
     },
   );
+
+  // The training-schedule mirror of the entry-planner route below —
+  // same window (weeksAhead defaults to DEFAULT_PLANNER_WEEKS), each
+  // week's resolved effective focus plus whether that week has its
+  // own explicit entry (see PlayerTrainingScheduleQuery).
+  app.get<{ Params: { id: string }; Querystring: { weeks?: string } }>('/players/:id/training-schedule', async (request, reply) => {
+    const player = await deps.players.findById(PlayerId(request.params.id));
+    if (!player) {
+      return reply.code(404).send({ error: `Player ${request.params.id} not found` });
+    }
+    let weeksAhead: number | undefined;
+    if (request.query.weeks !== undefined) {
+      weeksAhead = Number(request.query.weeks);
+      if (!Number.isInteger(weeksAhead) || weeksAhead < 1 || weeksAhead > 52) {
+        return reply.code(400).send({ error: '?weeks must be an integer between 1 and 52' });
+      }
+    }
+    return deps.trainingScheduleQuery.forPlayer(WORLD_ID, player.id, weeksAhead);
+  });
 
   // Releases a player from their manager (frees the roster slot).
   // Deliberately a drill-in action, not a one-click roster-row button

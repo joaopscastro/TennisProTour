@@ -22,11 +22,12 @@ import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
 import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
-import { SetTrainingFocusUseCase } from '@tennis-manager/application';
+import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { PlayerEntryPlannerQuery } from '@tennis-manager/application';
+import { PlayerTrainingScheduleQuery } from '@tennis-manager/application';
 import { Db } from './db/client';
 import { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 import { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';
@@ -41,6 +42,7 @@ import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXp
 import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClaimAdapter';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
+import { DrizzleTrainingScheduleRepository } from './adapters/outbound/DrizzleTrainingScheduleRepository';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
 import { FilesystemMatchLogStore } from './adapters/outbound/FilesystemMatchLogStore';
 import { LoggingEventPublisher } from './adapters/outbound/LoggingEventPublisher';
@@ -108,6 +110,17 @@ export interface Dependencies {
    * own doc comment for why it reuses findByPlayerAndWeek rather than
    * a bulk query. */
   entryPlanner: PlayerEntryPlannerQuery;
+  /** A player's per-GameWeek training-focus schedule (see
+   * TrainingSchedule.ts) — separate repository from `players` itself,
+   * queried directly by routes that need the raw schedule (the
+   * training-schedule read below) as well as by AdvanceWorldWeekUseCase
+   * each tick. */
+  trainingSchedule: DrizzleTrainingScheduleRepository;
+  /** The training-schedule mirror of `entryPlanner` above — same
+   * window, same per-week shape, a separate query against a separate
+   * repository (see PlayerTrainingScheduleQuery's own doc comment on
+   * why this isn't merged into one new backend concept). */
+  trainingScheduleQuery: PlayerTrainingScheduleQuery;
   talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   managerXp: DrizzleManagerXpRepository;
   coaches: DrizzleCoachRepository;
@@ -148,7 +161,7 @@ export interface Dependencies {
    * advanceWorldWeek/generateJuniorTournaments, gated the same way. */
   startDueTournaments: StartDueTournamentsUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
-  setTrainingFocus: SetTrainingFocusUseCase;
+  setTrainingSchedule: SetTrainingScheduleUseCase;
   releasePlayer: ReleasePlayerUseCase;
   convertPlayerToCoach: ConvertPlayerToCoachUseCase;
 }
@@ -220,11 +233,18 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   // dashboard's stage-transition estimate is always against the BASE
   // policy regardless of Pro status anyway (see formatStageNote's doc
   // comment), so there's no reason to share the aging services' instance.
-  const rosterDashboard = new DrizzleRosterDashboardQuery(options.db, new StandardAgingPolicy(), {
-    senior: rankPosition,
-    u14: rankPositionU14,
-    u16: rankPositionU16,
-  });
+  const trainingSchedule = new DrizzleTrainingScheduleRepository(options.db);
+  const trainingScheduleQuery = new PlayerTrainingScheduleQuery(trainingSchedule, worlds);
+  const rosterDashboard = new DrizzleRosterDashboardQuery(
+    options.db,
+    new StandardAgingPolicy(),
+    {
+      senior: rankPosition,
+      u14: rankPositionU14,
+      u16: rankPositionU16,
+    },
+    WORLD_ID,
+  );
   const rankingPointsTable = new StandardRankingPointsTable();
   const simulateMatch = new SimulateMatchUseCase(
     tournaments,
@@ -280,6 +300,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankPositionU14,
     rankPositionU16,
     entryPlanner,
+    trainingSchedule,
+    trainingScheduleQuery,
     talentPoolCandidates,
     managerXp,
     coaches,
@@ -312,7 +334,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule),
     generateJuniorTournaments,
     startDueTournaments: new StartDueTournamentsUseCase(
       tournaments,
@@ -324,7 +346,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       standardAgingPolicy,
     ),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
-    setTrainingFocus: new SetTrainingFocusUseCase(players),
+    setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),
     releasePlayer: new ReleasePlayerUseCase(players),
     convertPlayerToCoach: new ConvertPlayerToCoachUseCase(
       players,

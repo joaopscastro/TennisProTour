@@ -54,6 +54,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
     await db.delete(schema.rankingLedger);
     await db.delete(schema.titles);
     await db.delete(schema.peakRankings);
+    await db.delete(schema.trainingSchedule);
     await db.delete(schema.tournamentMatches);
     await db.delete(schema.tournamentEntries);
     await db.delete(schema.tournaments);

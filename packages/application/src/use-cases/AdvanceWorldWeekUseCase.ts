@@ -6,6 +6,7 @@ import {
   ManagerId,
   PlayerAgingService,
   RankingCalculationService,
+  resolveTrainingFocusForWeek,
   TrainingPolicy,
   weakestTrainableAttribute,
   WorldId,
@@ -17,6 +18,7 @@ import {
   GameWorldRepository,
   PlayerRepository,
   RankingLedgerRepository,
+  TrainingScheduleRepository,
 } from '../ports/ports';
 
 export interface AdvanceWorldWeekCommand {
@@ -46,16 +48,23 @@ export interface AdvanceWorldWeekResult {
  * free agents use the standard service. Pro status is looked up once
  * per manager per tick, not once per player.
  *
- * Same tick also applies each player's standing training focus (see
- * Player.currentFocus / SetTrainingFocusUseCase), same cadence as
- * aging: a manager commits to a focus once, and it applies
- * automatically every week until changed — there is no separate
- * "train now" action. A player with no focus set gets no training
- * delta that week; nothing is invented on their behalf. Idempotency
- * for this, like aging, comes for free from the tickKey guard above —
- * a re-run of an already-applied tick returns before this loop runs
- * at all, so a focus changed *after* a tick has no way to retroactively
- * affect it.
+ * Same tick also applies each player's EFFECTIVE training focus for
+ * THIS week, resolved fresh from their training schedule (see
+ * TrainingSchedule.ts's resolveTrainingFocusForWeek and
+ * SetTrainingScheduleUseCase) rather than read off a single mutable
+ * field — same cadence as aging: a manager commits to a focus once
+ * (for the current week or any future one), and it applies
+ * automatically every week until a later explicit entry overrides it.
+ * A week with no applicable entry at all gets no training delta that
+ * week; nothing is invented on their behalf. Idempotency for this,
+ * like aging, comes for free from the tickKey guard above — a re-run
+ * of an already-applied tick returns before this loop runs at all. The
+ * "no retroactive change" guarantee this relies on lives in
+ * resolveTrainingFocusForWeek itself (a pure function of entries with
+ * effectiveFrom <= the CURRENT week, which SetTrainingScheduleUseCase
+ * never lets be in the past) — this use case just calls it once per
+ * player, per tick, against world.currentWeek AFTER it's already been
+ * advanced to the week this tick is actually applying.
  *
  * A manager's coach (if any — COACH_CAP_PER_MANAGER is 1 today, see
  * ConvertPlayerToCoachUseCase) is looked up here too and its
@@ -66,16 +75,16 @@ export interface AdvanceWorldWeekResult {
  * always trains uncoached.
  *
  * **fillOnly players are the one exception to "no focus set means no
- * training delta."** They have no manager to ever set a TrainingFocus
- * in the first place (see Player.fillOnly's doc comment and
- * docs/tournament-fill-system.md item 4), so instead of reading
- * currentFocus (which stays null forever for them), this loop computes
- * a fresh focus every tick via weakestTrainableAttribute — "train
- * whichever eligible attribute is weakest," the simple automatic
- * default the doc calls for. A RELEASED player (also managerId: null,
- * but fillOnly stays false) is NOT affected by this branch at all and
- * keeps exactly its prior currentFocus-driven behavior — fillOnly, not
- * managerId, is what distinguishes the two.
+ * training delta."** They have no manager to ever set a training
+ * schedule entry in the first place (see Player.fillOnly's doc comment
+ * and docs/tournament-fill-system.md item 4), so instead of resolving
+ * one from the schedule (which stays permanently empty for them), this
+ * loop computes a fresh focus every tick via weakestTrainableAttribute
+ * — "train whichever eligible attribute is weakest," the simple
+ * automatic default the doc calls for. A RELEASED player (also
+ * managerId: null, but fillOnly stays false) is NOT affected by this
+ * branch at all and keeps exactly its prior schedule-resolution
+ * behavior — fillOnly, not managerId, is what distinguishes the two.
  *
  * Honest limitation, deliberate for now: the per-player saves and the
  * final world save are not one atomic transaction, so a crash mid-run
@@ -108,6 +117,7 @@ export class AdvanceWorldWeekUseCase {
     private readonly trainingPolicy: TrainingPolicy,
     private readonly coaches: CoachRepository,
     private readonly rankingLedger: RankingLedgerRepository,
+    private readonly trainingSchedule: TrainingScheduleRepository,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
@@ -155,18 +165,29 @@ export class AdvanceWorldWeekUseCase {
       }
       // Aging can tip a player into retirement this same tick;
       // applyTraining rejects retired players, so re-check after aging
-      // rather than trusting the focus was set against a live player.
+      // rather than trusting a resolved focus was computed against a
+      // live player.
       if (player.fillOnly) {
-        // No manager, no currentFocus to read — see this class's doc
+        // No manager, no schedule to resolve — see this class's doc
         // comment. A fillOnly player that aged into retirement this
         // same tick just stops training, same as anyone else.
         if (!player.isRetired()) {
           const focus = { kind: 'attribute' as const, attribute: weakestTrainableAttribute(player.attributes) };
           player.applyTraining(focus, this.trainingPolicy, null);
         }
-      } else if (player.currentFocus && !player.isRetired()) {
-        const coachRating = await coachRatingFor(player.managerId);
-        player.applyTraining(player.currentFocus, this.trainingPolicy, coachRating);
+      } else if (!player.isRetired()) {
+        // world.currentWeek here is the week THIS tick just advanced
+        // TO (advanceWeek() above already mutated it) — resolving
+        // against that, not the week we came from, is what makes "set
+        // a focus starting this week" actually apply to this same
+        // tick's training, exactly like aging already applies to this
+        // same tick's age.
+        const scheduleEntries = await this.trainingSchedule.findByPlayer(player.id);
+        const focus = resolveTrainingFocusForWeek(scheduleEntries, world.currentWeek);
+        if (focus) {
+          const coachRating = await coachRatingFor(player.managerId);
+          player.applyTraining(focus, this.trainingPolicy, coachRating);
+        }
       }
       await this.players.save(player);
       await this.events.publish(player.pullDomainEvents());

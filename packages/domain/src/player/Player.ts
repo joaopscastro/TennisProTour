@@ -41,13 +41,18 @@ export interface PlayerProps {
   attributes: PlayerAttributes;
   stage: PlayerLifecycleStage;
   fatigue: number; // 0 (fresh) – 100 (exhausted)
-  /** The training focus a manager has committed this player to for
-   * upcoming weekly ticks (see TrainingPolicy) — null means no
-   * standing focus, so no delta applies until one is set. Distinct
-   * from applyTraining(), which applies a delta immediately given a
-   * focus; this field only records the *standing selection* that
-   * AdvanceWorldWeekUseCase reads each week. */
-  currentFocus: TrainingFocus | null;
+  // NOTE: there is deliberately no `currentFocus` field here anymore.
+  // A player's standing training focus used to be one mutable field
+  // Player owned directly (set via a since-removed setTrainingFocus()
+  // method); it's now a per-player, per-GameWeek schedule of explicit
+  // TrainingScheduleEntry rows living in its own repository, resolved
+  // for a given week via resolveTrainingFocusForWeek (see
+  // TrainingSchedule.ts). Player itself has zero opinion about
+  // scheduling — same "Player only applies deltas it's handed, it
+  // doesn't decide what those deltas should be" boundary
+  // applyTraining()'s own doc comment already draws for the delta
+  // SIZE; this is that same boundary applied to WHICH focus applies
+  // this week.
   /** Hidden ceiling generated at creation time (see
    * PlayerGenerationPolicy.GeneratedPlayer.potentialCeiling), carried
    * unchanged from whatever talent-pool candidate or custom player
@@ -93,8 +98,8 @@ export interface PlayerProps {
    * their slot. AdvanceWorldWeekUseCase reads this flag to decide
    * whether to auto-train toward the weakest attribute (fillOnly
    * players have no manager to set a TrainingFocus) or to leave
-   * currentFocus-driven training untouched (every other player,
-   * including a released one). There is deliberately no path back to
+   * schedule-driven training untouched (every other player, including
+   * a released one — see TrainingSchedule.ts). There is deliberately no path back to
    * false, and no manager-facing route ever claims a fillOnly player —
    * see docs/tournament-fill-system.md's "Open question" section for
    * why permanent fill-only status was chosen over some broader
@@ -152,7 +157,6 @@ export class Player {
       attributes,
       stage: 'youth',
       fatigue: 0,
-      currentFocus: null,
       potentialCeiling,
       physicalCeilings,
       dormantCarryoverBonus: null,
@@ -199,7 +203,6 @@ export class Player {
       attributes,
       stage,
       fatigue: 0,
-      currentFocus: null,
       potentialCeiling,
       physicalCeilings,
       dormantCarryoverBonus: null,
@@ -230,10 +233,6 @@ export class Player {
 
   get nationality() {
     return this.props.nationality;
-  }
-
-  get currentFocus() {
-    return this.props.currentFocus;
   }
 
   get ageInWeeks() {
@@ -331,19 +330,6 @@ export class Player {
     const delta = applyCoachBonus(ceilingAdjusted, coachRating);
     const updatedAttributes = this.props.attributes.trainedOnAttribute(attribute, delta);
     this.props = { ...this.props, attributes: updatedAttributes };
-  }
-
-  /** Records the standing training focus a manager has committed this
-   * player to — does NOT apply any attribute delta itself. The delta
-   * is applied later, once per game week, by AdvanceWorldWeekUseCase
-   * calling applyTraining() during the weekly tick (the same cadence
-   * PlayerAgingService already ages players on). Passing null clears
-   * the focus, so no training delta applies until a new one is set. */
-  setTrainingFocus(focus: TrainingFocus | null): void {
-    if (this.isRetired()) {
-      throw new Error(`Cannot set training focus for retired player ${this.props.id}`);
-    }
-    this.props = { ...this.props, currentFocus: focus };
   }
 
   applyMatchFatigue(fatigueDelta: number): void {

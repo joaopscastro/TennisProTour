@@ -18,7 +18,6 @@ export interface PlayerDto {
   ageInWeeks: number;
   stage: 'youth' | 'prime' | 'decline' | 'retired';
   fatigue: number;
-  currentFocus: TrainingFocus | null;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -265,8 +264,36 @@ export function createCustomPlayer(input: { managerId: string; name: string; nat
   return sendJson('POST', '/players/custom', input, input.managerId);
 }
 
-export function setTrainingFocus(playerId: string, focus: TrainingFocus | null, managerId?: string): Promise<PlayerDto> {
+/** One explicit training-schedule entry — see
+ * SetTrainingScheduleUseCase/PlayerTrainingScheduleQuery on the API
+ * side. `effectiveFrom` is always present in a response (the backend
+ * fills in "now" when a request omits `week`), never optional here. */
+export interface TrainingScheduleEntryDto {
+  playerId: string;
+  effectiveFrom: { season: number; week: number };
+  focus: TrainingFocus | null;
+}
+
+/** The roster dashboard's quick "Set focus" action — no week means
+ * "starting right now," the exact same standing-order semantics this
+ * always had. See setTrainingScheduleEntry below for scheduling an
+ * explicit future week (the player profile's Schedule view). */
+export function setTrainingFocus(playerId: string, focus: TrainingFocus | null, managerId?: string): Promise<TrainingScheduleEntryDto> {
   return sendJson('PUT', `/players/${encodeURIComponent(playerId)}/training-focus`, { focus }, managerId);
+}
+
+/** Schedules a training-focus change for a specific future (or
+ * current) week without touching any other week's standing order —
+ * same PUT route as setTrainingFocus above, just with an explicit
+ * `week`. Used by the player profile's Schedule view (Step 2), reusing
+ * this exact call rather than a second endpoint. */
+export function setTrainingScheduleEntry(
+  playerId: string,
+  focus: TrainingFocus | null,
+  week: { season: number; week: number },
+  managerId?: string,
+): Promise<TrainingScheduleEntryDto> {
+  return sendJson('PUT', `/players/${encodeURIComponent(playerId)}/training-focus`, { focus, week }, managerId);
 }
 
 export function releasePlayer(playerId: string, managerId?: string): Promise<PlayerDto> {
@@ -330,6 +357,23 @@ export interface PlannerWeekDto {
  * omitted. The window always starts at the world's current week. */
 export function fetchEntryPlanner(playerId: string, weeksAhead?: number): Promise<PlannerWeekDto[]> {
   return getJson(`/players/${encodeURIComponent(playerId)}/entry-planner${weeksAhead ? `?weeks=${weeksAhead}` : ''}`);
+}
+
+/** One row of the training-schedule planner response — the
+ * PlayerTrainingScheduleQuery mirror of PlannerWeekDto above, same
+ * window/defaults (see GET /players/:id/training-schedule). `focus` is
+ * already resolved (the standing order carried forward, or a week's
+ * own explicit entry); `isExplicit` says which — the player profile's
+ * Schedule view uses it to show "this is where the order changes"
+ * distinctly from "this week just inherits the earlier order". */
+export interface TrainingScheduleWeekDto {
+  week: { season: number; week: number };
+  focus: TrainingFocus | null;
+  isExplicit: boolean;
+}
+
+export function fetchTrainingSchedule(playerId: string, weeksAhead?: number): Promise<TrainingScheduleWeekDto[]> {
+  return getJson(`/players/${encodeURIComponent(playerId)}/training-schedule${weeksAhead ? `?weeks=${weeksAhead}` : ''}`);
 }
 
 /** managerId must be the ACTUAL owning manager, not left to the
@@ -441,6 +485,10 @@ export interface PlayerProfileDto {
   playerId: string;
   name: string;
   nationality: string;
+  /** null for a free agent (no manager) — the Schedule section's
+   * inline actions (set training focus, enter a tournament) need this
+   * to authenticate as the real owning manager. */
+  managerId: string | null;
   ageInWeeks: number;
   stage: PlayerLifecycleStage;
   /** Which ONE band this player's current age makes "live" for —

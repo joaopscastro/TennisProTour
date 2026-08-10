@@ -51,10 +51,12 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   // ranking_ledger/titles have FKs to both players and tournaments —
-  // must go before either; peak_rankings only references players.
+  // must go before either; peak_rankings/training_schedule only
+  // reference players.
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
+  await db.delete(schema.trainingSchedule);
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
@@ -391,6 +393,77 @@ describe('API', () => {
       expect(entry.lastResult).toBeNull();
       expect(entry.surfaceAffinities).toEqual({ clay: 20, grass: 20, hard: 20, indoor: 20 });
     }
+  });
+
+  it('sets a training-schedule entry with no week given, defaulting to the world current week, and it shows up as the resolved roster-dashboard focus', async () => {
+    await hirePlayer('sched-dp1', 'sched-dm1');
+
+    const putResponse = await app.inject({
+      method: 'PUT',
+      url: '/players/sched-dp1/training-focus',
+      headers: { 'x-dev-manager-id': 'sched-dm1' },
+      payload: { focus: { kind: 'surface', surface: 'clay' } },
+    });
+    expect(putResponse.statusCode).toBe(200);
+    // beforeAll seeds the world at season 1, week 52 — the same
+    // "no week means starting right now" default SetTrainingScheduleUseCase applies.
+    expect(putResponse.json()).toEqual({
+      playerId: 'sched-dp1',
+      effectiveFrom: { season: 1, week: 52 },
+      focus: { kind: 'surface', surface: 'clay' },
+    });
+
+    const dashboard = await app.inject({ method: 'GET', url: '/managers/sched-dm1/roster-dashboard', headers: { 'x-dev-manager-id': 'sched-dm1' } });
+    const entry = dashboard.json().find((e: { id: string }) => e.id === 'sched-dp1');
+    expect(entry.trainingFocus).toEqual({ kind: 'surface', surface: 'clay' });
+  });
+
+  it('schedules a future-week focus without touching the current standing order, visible via GET training-schedule with the correct isExplicit flags', async () => {
+    await hirePlayer('sched-dp2', 'sched-dm2');
+
+    // Standing order starting now (week 52).
+    await app.inject({
+      method: 'PUT',
+      url: '/players/sched-dp2/training-focus',
+      headers: { 'x-dev-manager-id': 'sched-dm2' },
+      payload: { focus: { kind: 'attribute', attribute: 'serve' } },
+    });
+    // A future entry, two weeks ahead (season 2, week 2 — 52 -> 1 -> 2).
+    const future = await app.inject({
+      method: 'PUT',
+      url: '/players/sched-dp2/training-focus',
+      headers: { 'x-dev-manager-id': 'sched-dm2' },
+      payload: { focus: { kind: 'surface', surface: 'grass' }, week: { season: 2, week: 2 } },
+    });
+    expect(future.statusCode).toBe(200);
+    expect(future.json()).toEqual({
+      playerId: 'sched-dp2',
+      effectiveFrom: { season: 2, week: 2 },
+      focus: { kind: 'surface', surface: 'grass' },
+    });
+
+    const scheduleResponse = await app.inject({ method: 'GET', url: '/players/sched-dp2/training-schedule?weeks=4' });
+    expect(scheduleResponse.statusCode).toBe(200);
+    const weeks = scheduleResponse.json();
+    expect(weeks).toEqual([
+      { week: { season: 1, week: 52 }, focus: { kind: 'attribute', attribute: 'serve' }, isExplicit: true },
+      { week: { season: 2, week: 1 }, focus: { kind: 'attribute', attribute: 'serve' }, isExplicit: false },
+      { week: { season: 2, week: 2 }, focus: { kind: 'surface', surface: 'grass' }, isExplicit: true },
+      { week: { season: 2, week: 3 }, focus: { kind: 'surface', surface: 'grass' }, isExplicit: false },
+    ]);
+  });
+
+  it('rejects scheduling a training focus for a week before the world current week', async () => {
+    await hirePlayer('sched-dp3', 'sched-dm3');
+
+    const response = await app.inject({
+      method: 'PUT',
+      url: '/players/sched-dp3/training-focus',
+      headers: { 'x-dev-manager-id': 'sched-dm3' },
+      payload: { focus: { kind: 'surface', surface: 'clay' }, week: { season: 1, week: 51 } }, // one before the seeded current week (52)
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toMatch(/past week/);
   });
 
   it("reports a manager's entitlement tier", async () => {

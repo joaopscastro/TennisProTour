@@ -319,16 +319,11 @@ export const players = pgTable('players', {
   staminaCeiling: integer('stamina_ceiling').notNull().default(100),
   strengthCeiling: integer('strength_ceiling').notNull().default(100),
 
-  /** The player's standing weekly training focus (Player.currentFocus
-   * / TrainingFocus union) — null kind means no focus set. Exactly one
-   * of trainingFocusSurface/trainingFocusAttribute is populated when
-   * kind is non-null, matching the domain's discriminated union;
-   * enforced in the repository mapping layer, not by a DB constraint
-   * (same pattern as setScores being validated by the Tournament
-   * aggregate, not the schema). */
-  trainingFocusKind: trainingFocusKind('training_focus_kind'),
-  trainingFocusSurface: surface('training_focus_surface'),
-  trainingFocusAttribute: trainableAttribute('training_focus_attribute'),
+  // NOTE: there is deliberately no training_focus_kind/surface/attribute
+  // column here anymore — a player's training focus moved from a
+  // single mutable field on this row to a per-GameWeek schedule (see
+  // the trainingSchedule table below), replaced rather than kept
+  // alongside it.
 
   /** A dormant graduation-carryover bonus (see
    * packages/domain/src/ranking/GraduationCarryover.ts) — null target
@@ -362,6 +357,42 @@ export const players = pgTable('players', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A player's per-GameWeek training-focus schedule (see
+ * packages/domain/src/player/TrainingSchedule.ts) — replaces the old
+ * single mutable training_focus_kind/surface/attribute columns that
+ * used to live on `players` itself. One row per explicit entry a
+ * manager has ever set; composite primary key on (player_id,
+ * effective_from_season, effective_from_week) is the structural half
+ * of "setting the same week twice overwrites, never duplicates" (a
+ * second write for the same player+week can only ever be an UPDATE,
+ * same "one row per scope" reasoning as peak_rankings above) — and
+ * since player_id is the PK's leading column, "every entry for this
+ * player" (what resolveTrainingFocusForWeek needs) is already served
+ * by the PK's own index, no separate index required (same reasoning
+ * peak_rankings' (player_id, band) PK already relies on).
+ *
+ * `focus_kind` null means an explicit "train nothing from this week
+ * on" order — a real, meaningful row, not the absence of one; the
+ * absence of any row with effective_from <= a given week is what "no
+ * standing order yet" actually looks like.
+ */
+export const trainingSchedule = pgTable(
+  'training_schedule',
+  {
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    effectiveFromSeason: integer('effective_from_season').notNull(),
+    effectiveFromWeek: integer('effective_from_week').notNull(),
+    focusKind: trainingFocusKind('focus_kind'),
+    focusSurface: surface('focus_surface'),
+    focusAttribute: trainableAttribute('focus_attribute'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.playerId, table.effectiveFromSeason, table.effectiveFromWeek] })],
+);
 
 /**
  * Generated players sitting unowned, visible to every manager, until

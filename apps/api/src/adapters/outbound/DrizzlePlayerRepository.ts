@@ -1,14 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tennis-manager/domain';
-import {
-  PlayerAttributes,
-  Skill,
-  Surface,
-  SurfaceAffinities,
-  TrainableAttribute,
-  TrainingFocus,
-} from '@tennis-manager/domain';
+import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { PlayerRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { players } from '../../db/schema';
@@ -52,25 +45,6 @@ export class DrizzlePlayerRepository implements PlayerRepository {
   }
 }
 
-/** Reassembles the discriminated TrainingFocus union from its two
- * nullable flat columns — the inverse of focusColumns() below. */
-function toDomainFocus(row: PlayerRow): TrainingFocus | null {
-  if (row.trainingFocusKind === 'surface' && row.trainingFocusSurface) {
-    return { kind: 'surface', surface: row.trainingFocusSurface as Surface };
-  }
-  if (row.trainingFocusKind === 'attribute' && row.trainingFocusAttribute) {
-    return { kind: 'attribute', attribute: row.trainingFocusAttribute as TrainableAttribute };
-  }
-  return null;
-}
-
-function focusColumns(focus: TrainingFocus | null) {
-  if (!focus) return { trainingFocusKind: null, trainingFocusSurface: null, trainingFocusAttribute: null };
-  return focus.kind === 'surface'
-    ? { trainingFocusKind: 'surface' as const, trainingFocusSurface: focus.surface, trainingFocusAttribute: null }
-    : { trainingFocusKind: 'attribute' as const, trainingFocusSurface: null, trainingFocusAttribute: focus.attribute };
-}
-
 /** Reassembles the small dormant-bonus value from its two nullable
  * flat columns — same "flat columns for a small optional structured
  * field" convention as trainingFocus above, not jsonb (see
@@ -99,7 +73,6 @@ function toDomain(row: PlayerRow): Player {
     ageInWeeks: row.ageInWeeks,
     stage: row.stage as PlayerLifecycleStage,
     fatigue: row.fatigue,
-    currentFocus: toDomainFocus(row),
     potentialCeiling: row.potentialCeiling,
     physicalCeilings: { speed: row.speedCeiling, stamina: row.staminaCeiling, strength: row.strengthCeiling },
     dormantCarryoverBonus: toDomainDormantCarryoverBonus(row),
@@ -145,7 +118,6 @@ function toRow(player: Player): typeof players.$inferInsert {
     speedCeiling: player.physicalCeilings.speed,
     staminaCeiling: player.physicalCeilings.stamina,
     strengthCeiling: player.physicalCeilings.strength,
-    ...focusColumns(player.currentFocus),
     ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
     serve: technical.serve.value,
     forehand: technical.forehand.value,

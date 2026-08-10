@@ -3,6 +3,7 @@ import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId, CoachId } from '@tennis-manager/domain';
 import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate, Coach } from '@tennis-manager/domain';
 import { PeakRankingEntry, RankingBand, TitleRecord } from '@tennis-manager/domain';
+import { TrainingScheduleEntry } from '@tennis-manager/domain';
 
 export interface ManagerAccount {
   id: ManagerId;
@@ -36,6 +37,24 @@ export interface PlayerRepository {
    * multi-world arrives; today there is a single implicit world. */
   findAll(): Promise<Player[]>;
   save(player: Player): Promise<void>;
+}
+
+/** A player's per-GameWeek training-focus schedule (see
+ * TrainingSchedule.ts's resolveTrainingFocusForWeek for how these
+ * entries get resolved into "what applies this week") — replaces the
+ * old single mutable Player.currentFocus field/setTrainingFocus()
+ * method entirely; Player no longer stores or knows its own training
+ * focus at all. */
+export interface TrainingScheduleRepository {
+  /** Every explicit entry ever set for this player, any order — the
+   * caller resolves what applies to a specific week via
+   * resolveTrainingFocusForWeek, this just returns the raw ledger. */
+  findByPlayer(playerId: PlayerId): Promise<TrainingScheduleEntry[]>;
+  /** Upsert: an entry already existing for the same (playerId,
+   * effectiveFrom week) is overwritten — setting the SAME week twice
+   * is "I changed my mind about this week's order," not a second,
+   * separate order. */
+  save(entry: TrainingScheduleEntry): Promise<void>;
 }
 
 export interface TournamentRepository {

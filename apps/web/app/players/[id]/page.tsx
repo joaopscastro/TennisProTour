@@ -1,10 +1,21 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { PlayerProfileDto, RankingBand, fetchPlayerProfile } from '../../../lib/api';
+import {
+  PlannerWeekDto,
+  PlayerProfileDto,
+  RankingBand,
+  TrainingFocus,
+  TrainingScheduleWeekDto,
+  fetchEntryPlanner,
+  fetchPlayerProfile,
+  fetchTrainingSchedule,
+  setTrainingScheduleEntry,
+} from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
+import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
 import {
   WEEKS_PER_SEASON,
   avatarColorFor,
@@ -28,6 +39,50 @@ const ACHIEVEMENT_BADGE = { bg: 'oklch(88% 0.13 75)', fg: 'oklch(38% 0.16 60)' }
 const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16' };
 
 const HISTORY_PAGE_SIZE = 8;
+
+// Same focus-picker reference data / helpers as the roster dashboard's
+// "Set focus" dropdown (app/page.tsx) — deliberately not extracted to
+// a shared module, matching this codebase's existing tolerance for
+// small duplicated reference data per screen (e.g. SURFACE_COLOR is
+// already repeated across several pages).
+const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus: TrainingFocus }> }> = [
+  {
+    label: 'Surface',
+    options: (['clay', 'grass', 'hard', 'indoor'] as const).map((surface) => ({
+      label: surface[0].toUpperCase() + surface.slice(1),
+      focus: { kind: 'surface', surface },
+    })),
+  },
+  {
+    label: 'Technical',
+    options: [
+      { label: 'Serve', focus: { kind: 'attribute', attribute: 'serve' } },
+      { label: 'Forehand', focus: { kind: 'attribute', attribute: 'forehand' } },
+      { label: 'Backhand', focus: { kind: 'attribute', attribute: 'backhand' } },
+      { label: 'Volley', focus: { kind: 'attribute', attribute: 'volley' } },
+    ],
+  },
+  {
+    label: 'Physical',
+    options: [
+      { label: 'Speed', focus: { kind: 'attribute', attribute: 'speed' } },
+      { label: 'Stamina', focus: { kind: 'attribute', attribute: 'stamina' } },
+      { label: 'Strength', focus: { kind: 'attribute', attribute: 'strength' } },
+    ],
+  },
+];
+
+function trainingFocusLabel(focus: TrainingFocus | null): string {
+  if (!focus) return 'No focus';
+  if (focus.kind === 'surface') return focus.surface[0].toUpperCase() + focus.surface.slice(1);
+  return focus.attribute[0].toUpperCase() + focus.attribute.slice(1);
+}
+
+function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
+  if (!a) return false;
+  if (a.kind !== b.kind) return false;
+  return a.kind === 'surface' && b.kind === 'surface' ? a.surface === b.surface : (a as { attribute: string }).attribute === (b as { attribute: string }).attribute;
+}
 
 function NetDivider({ className }: { className?: string }) {
   return (
@@ -73,11 +128,57 @@ export default function PlayerProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [historyShown, setHistoryShown] = useState(HISTORY_PAGE_SIZE);
 
+  // Schedule section (Step 2): two existing, separate backend reads —
+  // the tournament entry planner and the new training-schedule planner
+  // — combined into one per-week timeline here on the frontend, not a
+  // new backend concept (see PlayerTrainingScheduleQuery's own doc
+  // comment). Both default to the same DEFAULT_PLANNER_WEEKS window
+  // starting at the world's current week, so they line up week-for-week.
+  const [plannerWeeks, setPlannerWeeks] = useState<PlannerWeekDto[] | null>(null);
+  const [scheduleWeeks, setScheduleWeeks] = useState<TrainingScheduleWeekDto[] | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [openFocusMenuWeek, setOpenFocusMenuWeek] = useState<number | null>(null);
+  const [enterModalWeek, setEnterModalWeek] = useState<number | null>(null);
+  const [busyWeek, setBusyWeek] = useState<number | null>(null);
+
   useEffect(() => {
     fetchPlayerProfile(playerId)
       .then(setProfile)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [playerId]);
+
+  const loadSchedule = useCallback(() => {
+    Promise.all([fetchEntryPlanner(playerId), fetchTrainingSchedule(playerId)])
+      .then(([planner, schedule]) => {
+        setPlannerWeeks(planner);
+        setScheduleWeeks(schedule);
+      })
+      .catch((e) => setScheduleError(e instanceof Error ? e.message : String(e)));
+  }, [playerId]);
+
+  useEffect(() => {
+    loadSchedule();
+  }, [loadSchedule]);
+
+  const scheduleByWeekKey = useMemo(() => {
+    const map = new Map<string, TrainingScheduleWeekDto>();
+    scheduleWeeks?.forEach((w) => map.set(`${w.week.season}-${w.week.week}`, w));
+    return map;
+  }, [scheduleWeeks]);
+
+  async function handleSelectFocus(weekIndex: number, week: { season: number; week: number }, focus: TrainingFocus) {
+    if (!profile?.managerId) return;
+    setOpenFocusMenuWeek(null);
+    setBusyWeek(weekIndex);
+    try {
+      await setTrainingScheduleEntry(playerId, focus, week, profile.managerId);
+      loadSchedule();
+    } catch (e) {
+      setScheduleError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusyWeek(null);
+    }
+  }
 
   const currentBands = useMemo(() => (profile ? visibleCurrentBands(profile) : []), [profile]);
 
@@ -239,6 +340,150 @@ export default function PlayerProfilePage() {
               </Link>
             ))}
           </div>
+        )}
+
+        <NetDivider />
+
+        {/* Schedule — combined frontend view over two existing, separate
+            backend reads (tournament entry planner + training schedule),
+            not a new backend concept. Same lookahead window as the
+            tournament planner elsewhere in this app. */}
+        <SectionLabel>Schedule</SectionLabel>
+        {!profile.managerId && (
+          <div className="text-[12px] mb-[10px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+            Free agent — no manager to schedule tournaments or training for.
+          </div>
+        )}
+        {scheduleError && (
+          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+            {scheduleError}
+          </div>
+        )}
+        {plannerWeeks === null && !scheduleError && (
+          <div className="text-[13px] mb-[22px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+            Loading schedule…
+          </div>
+        )}
+        {plannerWeeks && (
+          <div className="flex flex-col gap-[8px] mb-[22px]">
+            {plannerWeeks.map((pw, i) => {
+              const weekKey = `${pw.week.season}-${pw.week.week}`;
+              const sw = scheduleByWeekKey.get(weekKey);
+              const busy = busyWeek === i;
+              return (
+                <div
+                  key={weekKey}
+                  className="flex items-center gap-[12px] bg-white rounded-[8px] px-[14px] py-[11px]"
+                  style={{ border: '1px solid oklch(90% 0.005 75)', opacity: busy ? 0.6 : 1 }}
+                >
+                  <div className="text-[11.5px] font-semibold flex-none" style={{ color: 'oklch(48% 0.006 75)', width: 76 }}>
+                    S{pw.week.season} W{pw.week.week}
+                  </div>
+
+                  {/* Tournament entry — reuses the existing registration
+                      flow (EnterTournamentModal) rather than a new one. */}
+                  <div className="flex-1 min-w-0">
+                    {pw.entries.length > 0 ? (
+                      <div className="flex flex-col gap-[3px]">
+                        {pw.entries.map((t) => (
+                          <Link
+                            key={t.id}
+                            href={`/tournaments/${t.id}`}
+                            className="text-[12.5px] font-semibold no-underline hover:underline overflow-hidden text-ellipsis whitespace-nowrap block"
+                            style={{ color: 'oklch(28% 0.006 75)' }}
+                          >
+                            {t.name}
+                          </Link>
+                        ))}
+                      </div>
+                    ) : profile.managerId ? (
+                      <button
+                        onClick={() => setEnterModalWeek(i)}
+                        disabled={busy}
+                        className="text-[11.5px] font-semibold cursor-pointer rounded-[5px] px-[8px] py-[4px] disabled:cursor-not-allowed"
+                        style={{ border: '1px solid oklch(85% 0.006 75)', color: 'oklch(45% 0.006 75)' }}
+                      >
+                        + Enter tournament
+                      </button>
+                    ) : (
+                      <span className="text-[11.5px]" style={{ color: 'oklch(60% 0.006 75)' }}>
+                        —
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Training focus — resolved from the training
+                      schedule; editable inline via the same dropdown
+                      shape the roster dashboard already uses. */}
+                  <div className="relative flex-none" style={{ width: 150 }}>
+                    <button
+                      onClick={() => profile.managerId && setOpenFocusMenuWeek(openFocusMenuWeek === i ? null : i)}
+                      disabled={!profile.managerId || busy}
+                      className="w-full text-left rounded-[6px] px-[10px] py-[6px] text-[12px] font-semibold cursor-pointer flex items-center justify-between gap-[6px] disabled:cursor-not-allowed"
+                      style={{ background: 'oklch(97% 0.003 75)', border: '1px solid oklch(88% 0.006 75)', color: 'oklch(28% 0.006 75)' }}
+                    >
+                      <span className="flex items-center gap-[5px] overflow-hidden text-ellipsis whitespace-nowrap">
+                        {trainingFocusLabel(sw?.focus ?? null)}
+                        {sw?.isExplicit && (
+                          <span className="text-[9px] font-bold flex-none" style={{ color: 'oklch(55% 0.13 240)' }} title="Explicit entry for this week">
+                            ●
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[10px] flex-none" style={{ color: 'oklch(55% 0.006 75)' }}>
+                        ▾
+                      </span>
+                    </button>
+                    {openFocusMenuWeek === i && (
+                      <div
+                        className="absolute top-[calc(100%+4px)] right-0 min-w-[170px] max-h-[260px] overflow-y-auto bg-white rounded-[6px] z-10 py-1"
+                        style={{ border: '1px solid oklch(88% 0.006 75)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
+                      >
+                        {FOCUS_GROUPS.map((grp, gi) => (
+                          <div key={grp.label} style={gi > 0 ? { borderTop: '1px solid oklch(93% 0.004 75)' } : undefined}>
+                            <div
+                              className="px-[10px] pt-[6px] pb-[3px] text-[10px] font-bold tracking-[0.5px] uppercase"
+                              style={{ color: 'oklch(55% 0.006 75)' }}
+                            >
+                              {grp.label}
+                            </div>
+                            {grp.options.map((opt) => (
+                              <div
+                                key={opt.label}
+                                onClick={() => handleSelectFocus(i, pw.week, opt.focus)}
+                                className="flex items-center justify-between px-[10px] py-[6px] text-[12px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
+                                style={{ color: 'oklch(28% 0.006 75)' }}
+                              >
+                                {opt.label}
+                                {focusEquals(sw?.focus ?? null, opt.focus) && (
+                                  <span className="font-bold" style={{ color: 'oklch(55% 0.13 240)' }}>
+                                    ✓
+                                  </span>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {enterModalWeek !== null && profile.managerId && (
+          <EnterTournamentModal
+            playerId={profile.playerId}
+            playerName={profile.name}
+            managerId={profile.managerId}
+            onClose={() => setEnterModalWeek(null)}
+            onEntered={() => {
+              setEnterModalWeek(null);
+              loadSchedule();
+            }}
+          />
         )}
 
         <NetDivider />

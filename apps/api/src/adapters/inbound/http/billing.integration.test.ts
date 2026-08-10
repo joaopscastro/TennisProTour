@@ -48,10 +48,12 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   // ranking_ledger/titles have FKs to both players and tournaments —
-  // must go before either; peak_rankings only references players.
+  // must go before either; peak_rankings/training_schedule only
+  // reference players.
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
+  await db.delete(schema.trainingSchedule);
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);

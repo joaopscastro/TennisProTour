@@ -4,6 +4,7 @@ export * from './player/PlayerAttributes';
 export * from './player/Player';
 export * from './player/PlayerAgingService';
 export * from './player/TrainingPolicy';
+export * from './player/TrainingSchedule';
 export * from './player/PlayerGenerationPolicy';
 export * from './player/TalentPoolCandidate';
 export * from './competition/CompetitionTypes';

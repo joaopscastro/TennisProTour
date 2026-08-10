@@ -1,4 +1,4 @@
-import { AgeBand, GameWeek, juniorEligibilityForAge, PlayerId, PlayerLifecycleStage, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
@@ -15,6 +15,15 @@ export interface PlayerProfileDto {
    * one. */
   name: string;
   nationality: string;
+  /** Needed by the Schedule section's inline "Enter tournament"/set-
+   * training-focus actions, which must authenticate as this player's
+   * ACTUAL owning manager (see EnterTournamentModal/setTrainingFocus's
+   * own doc comments) — never left to the dev-mode default the way an
+   * unauthenticated read gets away with. null for a free agent (no
+   * manager, e.g. a fillOnly player) — the Schedule section has
+   * nothing to offer there anyway, since only a manager can register
+   * entries or set a training focus. */
+  managerId: ManagerId | null;
   ageInWeeks: number;
   stage: PlayerLifecycleStage;
   /** Which ONE band this player's CURRENT age makes "live" for them —
@@ -80,6 +89,7 @@ export class DrizzlePlayerProfileQuery {
       playerId: player.id,
       name: player.name,
       nationality: player.nationality,
+      managerId: player.managerId,
       ageInWeeks: player.ageInWeeks,
       stage: player.stage,
       currentEligibleBand: juniorEligibilityForAge(player.ageInWeeks),
