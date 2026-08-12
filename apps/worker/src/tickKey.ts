@@ -33,3 +33,21 @@ export function isoWeekTickKey(date: Date): string {
 export function intervalTickKey(date: Date, intervalMs: number): string {
   return `interval-${Math.floor(date.getTime() / intervalMs)}`;
 }
+
+/**
+ * The idempotency key for a DAY world tick on the default (non-interval)
+ * cadence: the real-world UTC calendar date (e.g. "2026-01-15"). Every
+ * firing within the same real day — including BullMQ retries and
+ * duplicate schedulers — produces the same key, which
+ * GameWorld.advanceDay() refuses to apply twice. One real day => one
+ * game day, per world. Replaces isoWeekTickKey as the scheduled-tick
+ * key now that one tick advances a single day rather than a whole week
+ * (isoWeekTickKey would collapse all 7 days of a real week to one key,
+ * no-opping days 2-7).
+ */
+export function isoDayTickKey(date: Date): string {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}

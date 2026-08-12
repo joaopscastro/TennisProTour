@@ -108,6 +108,15 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     return profile;
   });
 
+  // The profile page's "latest results + next match" strip — decided
+  // matches (newest first) plus the player's next not-yet-simulated
+  // match, if any. Public like /profile (any player, incl. free agents).
+  // Deliberately carries NO per-match countdown (see
+  // DrizzlePlayerMatchesQuery's doc comment).
+  app.get<{ Params: { id: string } }>('/players/:id/current-matches', async (request) => {
+    return deps.playerMatches.forPlayer(PlayerId(request.params.id));
+  });
+
   // Records one explicit training-schedule entry — does not apply any
   // attribute delta itself (see SetTrainingScheduleUseCase). `week`
   // omitted means "starting right now"; an explicit week schedules a

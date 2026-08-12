@@ -6,6 +6,14 @@ export interface MatchParticipant {
   playerId: PlayerId;
   attributes: PlayerAttributes;
   fatigue: number; // 0–100, read from Player at simulation time
+  form: number; // 0–100 rhythm counter, read from Player at simulation time
+  /** True when this match's tournament is in the player's own country
+   * (home advantage, P6). Optional — absent/false means no bonus, so
+   * every existing caller and test is unaffected. Resolved by
+   * SimulateMatchUseCase (player nationality == tournament hostCountry),
+   * not by the simulator, which never sees nationality/host country
+   * directly — it stays a pure function of match-relevant inputs. */
+  homeAdvantage?: boolean;
 }
 
 export interface SimulatedMatch {

@@ -19,6 +19,54 @@ function standardPointLabel(mine: number, theirs: number): PointScoreLabel {
   return STANDARD_POINT_LABELS[mine];
 }
 
+/* ---- Form (match rhythm) ----------------------------------------------------
+ * See docs/rocking-rackets-competitive-analysis.md §1b. Both under- and
+ * over-playing cost effective rating; a middle "sweet spot" band gives a
+ * small bonus, with a tolerance zone of no effect on either side of it.
+ * ALL constants are illustrative placeholders — the fatigue/form tuning
+ * pass (that doc's §5, the main open balance question) owns the real
+ * values, especially their scaling to our day-tick cadence. */
+export const FORM_SWEET_SPOT_MIN = 12;
+export const FORM_SWEET_SPOT_MAX = 25;
+/** Below this, a player is "rusty" (under-played) and pays a penalty. */
+export const FORM_RUSTY_THRESHOLD = 8;
+/** Above this, a player is "stale" (over-played) and pays a penalty. */
+export const FORM_STALE_THRESHOLD = 30;
+/** Flat effective-rating bonus while inside the sweet-spot band. */
+export const FORM_SWEET_SPOT_BONUS = 2;
+/** Effective-rating penalty per form point outside the tolerance zone. */
+export const FORM_OUT_OF_BAND_PENALTY_PER_POINT = 0.3;
+
+/** Flat effective-rating bonus a player gets when the tournament is held
+ * in their own country (home advantage, P6 — RR models this as a fixed
+ * per-player skill bump in home events). Applied on the same
+ * effective-rating scale as the form bonus, deliberately modest: enough
+ * to tilt a coin-flip and give nationality real strategic weight when
+ * choosing which tournaments to enter, never enough to override a
+ * genuine skill gap. PLACEHOLDER, same as every other constant here —
+ * the fatigue/form tuning pass owns the real value. */
+export const HOME_ADVANTAGE_BONUS = 3;
+
+/**
+ * Effective-rating delta (can be positive or negative) contributed by a
+ * player's current form. Pure and exported so it can be unit-tested and
+ * surfaced in the UI's form gauge without re-deriving the curve.
+ */
+export function formModifier(form: number): number {
+  if (form >= FORM_SWEET_SPOT_MIN && form <= FORM_SWEET_SPOT_MAX) {
+    return FORM_SWEET_SPOT_BONUS;
+  }
+  if (form < FORM_RUSTY_THRESHOLD) {
+    return -(FORM_RUSTY_THRESHOLD - form) * FORM_OUT_OF_BAND_PENALTY_PER_POINT;
+  }
+  if (form > FORM_STALE_THRESHOLD) {
+    return -(form - FORM_STALE_THRESHOLD) * FORM_OUT_OF_BAND_PENALTY_PER_POINT;
+  }
+  // Tolerance zone (between the thresholds but outside the bonus band):
+  // no effect either way.
+  return 0;
+}
+
 /**
  * A deliberately simple point-by-point statistical model — the
  * "Championship Manager 1992" end of the spectrum, not the "Football
@@ -81,8 +129,9 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     const mentalAvg = (mental.consistency.value + mental.clutch.value) / 2;
     const surfaceBonus = participant.attributes.surfaceAffinities.get(surface);
     const fatiguePenalty = participant.fatigue * 0.15;
+    const homeBonus = participant.homeAdvantage ? HOME_ADVANTAGE_BONUS : 0;
 
-    return technicalAvg * 0.5 + physicalAvg * 0.3 + mentalAvg * 0.2 + surfaceBonus * 0.3 - fatiguePenalty;
+    return technicalAvg * 0.5 + physicalAvg * 0.3 + mentalAvg * 0.2 + surfaceBonus * 0.3 - fatiguePenalty + formModifier(participant.form) + homeBonus;
   }
 
   private playBestOfThree(pointWinProbabilityA: number): {

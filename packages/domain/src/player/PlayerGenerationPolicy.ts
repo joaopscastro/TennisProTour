@@ -109,6 +109,20 @@ export interface GeneratedPlayer {
    * CLAUDE.md); every manager sees the exact same noisy tier on the
    * exact same candidate. */
   potentialTier: PotentialTier;
+  /** Growth-rate stat driving experience-based development (see
+   * docs/rocking-rackets-competitive-analysis.md §1c and
+   * PlayerDevelopmentPolicy.weeklyTalentIncome): a high-talent player
+   * earns more free experience every week and so develops faster toward
+   * their (separate) potential ceiling. Generated once, fixed for the
+   * player's whole career — talent is innate, unlike experience which is
+   * earned. Deliberately INDEPENDENT of the rarity tier and of
+   * potentialCeiling: a currently-'common' player can roll high talent
+   * (a raw prospect who develops fast) exactly as they can roll a high
+   * hidden ceiling, and the two aren't the same axis — talent is HOW
+   * FAST they grow, potentialCeiling is HOW FAR. Hidden like
+   * potentialCeiling for now (P4); the profile-only ghost-cap projection
+   * that surfaces a read on it is P5's job (§3), not this field's. */
+  talent: number;
   /** Hidden per-physical-attribute training ceilings — see
    * PhysicalCeilings' doc comment. Generated once, fixed for the
    * player's whole career, and NEVER serialized in any API response
@@ -292,8 +306,9 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     const potentialCeiling = this.rollPotentialCeiling(band, random);
     const potentialTier = this.rollPotentialTier(potentialCeiling, ageInWeeks, ageRange, random);
     const physicalCeilings = this.rollPhysicalCeilings(physical, random);
+    const talent = this.rollTalent(random);
 
-    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks, physicalCeilings };
+    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks, physicalCeilings, talent };
   }
 
   private rollAge(ageRange: AgeRange, random: RandomSource): number {
@@ -340,6 +355,23 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
       stamina: this.rollAttributeCeiling(physical.stamina.value, random),
       strength: this.rollAttributeCeiling(physical.strength.value, random),
     };
+  }
+
+  /** PLACEHOLDER band for the innate talent (growth-rate) stat, rolled
+   * uniformly and INDEPENDENTLY of rarity tier / potential (see
+   * GeneratedPlayer.talent's doc comment). A broad 25-95 spread so
+   * there's a real distribution of "fast learners" vs "slow burners"
+   * across the pool regardless of current ability — not clustered high
+   * (every prospect a can't-miss project) nor low. Owned by the
+   * development tuning pass, same status as MENTAL_MATURE_MIN/MAX. */
+  private static readonly TALENT_MIN = 25;
+  private static readonly TALENT_MAX = 95;
+
+  private rollTalent(random: RandomSource): number {
+    return Math.round(
+      StandardPlayerGenerationPolicy.TALENT_MIN +
+        random.next() * (StandardPlayerGenerationPolicy.TALENT_MAX - StandardPlayerGenerationPolicy.TALENT_MIN),
+    );
   }
 
   private rollAttributeCeiling(currentValue: number, random: RandomSource): number {

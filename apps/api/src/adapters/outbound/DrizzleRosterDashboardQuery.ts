@@ -49,6 +49,10 @@ export interface RosterDashboardEntry {
    * scout a replacement soon." */
   stageNote: string;
   fatigue: number;
+  /** Match rhythm counter (0–100). See Player.form's doc comment. Both
+   * under- and over-playing sit outside the sweet-spot band and hurt in
+   * the sim; the roster surfaces it so a manager can schedule a rhythm. */
+  form: number;
   /** 0-100, rounded — PlayerAttributes.overallRating() averaged over
    * the nine underlying skills, same number the roster mockup showed
    * as "OVR." */
@@ -162,6 +166,7 @@ export class DrizzleRosterDashboardQuery {
           stage: player.stage,
           stageNote: formatStageNote(player.stage, player.ageInWeeks, this.agingPolicy),
           fatigue: player.fatigue,
+          form: player.form,
           overall: Math.round(player.attributes.overallRating()),
           rank: byBand[rankBand].rank.get(player.id) ?? null,
           rankBand,

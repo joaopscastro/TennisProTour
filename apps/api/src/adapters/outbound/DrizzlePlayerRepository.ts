@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne } from 'drizzle-orm';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
@@ -33,6 +33,15 @@ export class DrizzlePlayerRepository implements PlayerRepository {
     return rows.map(toDomain);
   }
 
+  async findFreeAgents(): Promise<Player[]> {
+    const rows = await this.db
+      .select()
+      .from(players)
+      .where(and(isNull(players.managerId), ne(players.stage, 'retired')))
+      .orderBy(asc(players.ageInWeeks));
+    return rows.map(toDomain);
+  }
+
   async save(player: Player): Promise<void> {
     const row = toRow(player);
     await this.db
@@ -64,7 +73,7 @@ function dormantCarryoverBonusColumns(bonus: PlayerDormantCarryoverBonus | null)
   };
 }
 
-function toDomain(row: PlayerRow): Player {
+export function toDomain(row: PlayerRow): Player {
   return Player.reconstitute({
     id: PlayerId(row.id),
     name: row.name,
@@ -73,8 +82,11 @@ function toDomain(row: PlayerRow): Player {
     ageInWeeks: row.ageInWeeks,
     stage: row.stage as PlayerLifecycleStage,
     fatigue: row.fatigue,
+    form: row.form,
     potentialCeiling: row.potentialCeiling,
     physicalCeilings: { speed: row.speedCeiling, stamina: row.staminaCeiling, strength: row.strengthCeiling },
+    talent: row.talent,
+    experience: row.experience,
     dormantCarryoverBonus: toDomainDormantCarryoverBonus(row),
     fillOnly: row.fillOnly,
     attributes: new PlayerAttributes({
@@ -113,11 +125,14 @@ function toRow(player: Player): typeof players.$inferInsert {
     ageInWeeks: player.ageInWeeks,
     stage: player.stage,
     fatigue: player.fatigue,
+    form: player.form,
     fillOnly: player.fillOnly,
     potentialCeiling: player.potentialCeiling,
     speedCeiling: player.physicalCeilings.speed,
     staminaCeiling: player.physicalCeilings.stamina,
     strengthCeiling: player.physicalCeilings.strength,
+    talent: player.talent,
+    experience: player.experience,
     ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
     serve: technical.serve.value,
     forehand: technical.forehand.value,

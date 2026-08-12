@@ -2,6 +2,8 @@ import { TournamentId, GameWeek, PlayerId } from '../shared/ids';
 import { Surface } from '../player/PlayerAttributes';
 import { DomainEvent } from '../shared/DomainEvent';
 import { AgeBand, BracketRound, DrawSize, MatchOutcome, TournamentEntrant, TournamentTier, isJuniorTier } from './CompetitionTypes';
+import { GameDay, addDays } from '../world/GameWorld';
+import { TournamentSchedulePolicy } from './TournamentSchedulePolicy';
 
 export interface TournamentOpenProps {
   id: TournamentId;
@@ -21,6 +23,18 @@ export interface TournamentOpenProps {
    * six J-grades work identically for u14 and u16 (see JuniorTier's
    * doc comment in CompetitionTypes.ts). */
   ageBand?: AgeBand | null;
+  /** Day-within-week (1..7) the tournament begins on, relative to
+   * weekScheduled. Round r is then played on
+   * roundDay(policy) days after this start day. Optional (defaults to
+   * 1) for tournaments/tests created before the day clock existed. */
+  startDay?: number;
+  /** Real host country (see TournamentNameGenerator.GeneratedTournamentName)
+   * — a structured field, not parsed from the display name. Drives the
+   * home-advantage rule (P6): a player whose nationality matches this
+   * gets a small sim bonus. Optional/nullable: tournaments created
+   * before P6 (and the many test call sites) have none, in which case
+   * NO player is ever "home" and the rule is simply inert. */
+  hostCountry?: string | null;
 }
 
 /**
@@ -46,6 +60,8 @@ export class Tournament {
     readonly weekScheduled: GameWeek,
     readonly drawSize: DrawSize,
     readonly ageBand: AgeBand | null,
+    readonly startDay: number,
+    readonly hostCountry: string | null,
   ) {}
 
   /** Junior tiers must carry an ageBand; senior tiers must not — a
@@ -71,11 +87,19 @@ export class Tournament {
     }
   }
 
+  private static validateStartDay(startDay: number): void {
+    if (!Number.isInteger(startDay) || startDay < 1 || startDay > 7) {
+      throw new Error(`Tournament startDay must be an integer day-within-week 1..7, got ${startDay}`);
+    }
+  }
+
   static open(props: TournamentOpenProps): Tournament {
     const ageBand = props.ageBand ?? null;
+    const startDay = props.startDay ?? 1;
     Tournament.validateAgeBand(props.tier, ageBand);
     Tournament.validateName(props.name);
-    return new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
+    Tournament.validateStartDay(startDay);
+    return new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null);
   }
 
   /** Rehydrates a persisted tournament (repository adapters only).
@@ -86,9 +110,11 @@ export class Tournament {
     props: TournamentOpenProps & { entrants: TournamentEntrant[]; rounds: BracketRound[] },
   ): Tournament {
     const ageBand = props.ageBand ?? null;
+    const startDay = props.startDay ?? 1;
     Tournament.validateAgeBand(props.tier, ageBand);
     Tournament.validateName(props.name);
-    const tournament = new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand);
+    Tournament.validateStartDay(startDay);
+    const tournament = new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null);
     tournament._entrants = [...props.entrants];
     tournament.rounds = [...props.rounds];
     return tournament;
@@ -213,6 +239,21 @@ export class Tournament {
    * without duplicating this formula themselves. */
   isFinalRound(roundNumber: number): boolean {
     return roundNumber === Math.log2(this.drawSize);
+  }
+
+  /** The absolute GameDay on which `roundNumber` is played, given a
+   * schedule policy. The tournament's first day is
+   * { ...weekScheduled, day: startDay }; the policy maps each round to a
+   * 1-based day offset within the run (round 1 -> day 1), so this is
+   * `addDays(firstDay, policy.roundDay(...) - 1)`. Callers gate
+   * "is this round due?" by comparing the result against the world's
+   * current GameDay (see SimulateDueMatchesUseCase). Delegating the
+   * round->day mapping to an injected policy keeps the pacing rule
+   * swappable (OCP) rather than baked into the aggregate. */
+  roundScheduledDay(roundNumber: number, policy: TournamentSchedulePolicy): GameDay {
+    const firstDay: GameDay = { ...this.weekScheduled, day: this.startDay };
+    const offset = policy.roundDay(this.tier, this.drawSize, roundNumber);
+    return addDays(firstDay, offset - 1);
   }
 
   isRoundComplete(roundNumber: number): boolean {

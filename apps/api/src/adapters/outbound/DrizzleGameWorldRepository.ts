@@ -13,6 +13,7 @@ export class DrizzleGameWorldRepository implements GameWorldRepository {
     return GameWorld.reconstitute({
       id: WorldId(rows[0].id),
       currentWeek: { season: rows[0].season, week: rows[0].week },
+      currentDay: rows[0].currentDay,
       lastAppliedTick: rows[0].lastAppliedTick,
     });
   }
@@ -22,6 +23,7 @@ export class DrizzleGameWorldRepository implements GameWorldRepository {
       id: world.id,
       season: world.currentWeek.season,
       week: world.currentWeek.week,
+      currentDay: world.currentDay,
       lastAppliedTick: world.lastAppliedTick,
     };
     await this.db

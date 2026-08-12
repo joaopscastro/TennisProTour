@@ -1,51 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AgeRange,
   GameWorld,
   GeneratedPlayer,
   ManagerId,
   Player,
   PlayerAttributes,
+  PlayerGenerationPolicy,
   PlayerId,
-  PlayerRarityTier,
   RandomSource,
   Skill,
-  StandardAgingPolicy,
-  StandardPlayerGenerationPolicy,
   SurfaceAffinities,
-  TalentPoolCandidate,
-  TalentPoolCandidateId,
   WorldId,
 } from '@tennis-manager/domain';
-import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository, TalentPoolCandidateRepository } from '../ports/ports';
-import { RefreshTalentPoolUseCase } from './RefreshTalentPoolUseCase';
-import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
-
-class InMemoryTalentPoolCandidateRepository implements TalentPoolCandidateRepository {
-  private readonly store = new Map<TalentPoolCandidateId, TalentPoolCandidate>();
-
-  async findById(id: TalentPoolCandidateId): Promise<TalentPoolCandidate | null> {
-    return this.store.get(id) ?? null;
-  }
-
-  async findAvailable(): Promise<TalentPoolCandidate[]> {
-    return [...this.store.values()].filter((c) => c.isAvailable());
-  }
-
-  async save(candidate: TalentPoolCandidate): Promise<void> {
-    this.store.set(candidate.id, candidate);
-  }
-
-  async claimIfAvailable(id: TalentPoolCandidateId, managerId: ManagerId): Promise<TalentPoolCandidate | null> {
-    const candidate = this.store.get(id);
-    if (!candidate || !candidate.isAvailable()) return null;
-    candidate.markClaimed(managerId);
-    return candidate;
-  }
-
-  all(): TalentPoolCandidate[] {
-    return [...this.store.values()];
-  }
-}
+import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository } from '../ports/ports';
+import { RefreshTalentPoolUseCase, TALENT_POOL_BATCH_SIZE } from './RefreshTalentPoolUseCase';
 
 class InMemoryGameWorldRepository implements GameWorldRepository {
   private readonly store = new Map<WorldId, GameWorld>();
@@ -74,8 +43,16 @@ class InMemoryPlayerRepository implements PlayerRepository {
     return [...this.store.values()];
   }
 
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
   async save(player: Player): Promise<void> {
     this.store.set(player.id, player);
+  }
+
+  all(): Player[] {
+    return [...this.store.values()];
   }
 }
 
@@ -88,228 +65,104 @@ class RecordingEventPublisher implements EventPublisherPort {
 }
 
 class SequentialIdGenerator implements IdGeneratorPort {
-  private counter = 0;
+  private nextId = 0;
+
   generate(): string {
-    this.counter += 1;
-    return `generated-${this.counter}`;
+    this.nextId += 1;
+    return `generated-${this.nextId}`;
   }
 }
 
-/** Always generates the same fixed player — the refresh use case
- * shouldn't care what the policy produces, only how many times it's
- * called and what it does with the result. */
-class FixedGenerationPolicy {
-  constructor(private readonly tier: PlayerRarityTier = 'common') {}
-  generate(): GeneratedPlayer {
-    return {
-      name: 'Generated Player',
-      nationality: 'BR',
-      tier: this.tier,
-      attributes: new PlayerAttributes({
-        technical: { serve: Skill.of(30), forehand: Skill.of(30), backhand: Skill.of(30), volley: Skill.of(30) },
-        physical: { speed: Skill.of(30), stamina: Skill.of(30), strength: Skill.of(30) },
-        mental: { consistency: Skill.of(30), clutch: Skill.of(30) },
-        surfaceAffinities: SurfaceAffinities.initial(),
-      }),
-      ageInWeeks: 750,
-      potentialCeiling: 55,
-      potentialTier: 'promising',
-      physicalCeilings: { speed: 55, stamina: 55, strength: 55 },
-    };
-  }
-}
-
-class NullRandomSource implements RandomSource {
+class FixedRandomSource implements RandomSource {
   next(): number {
     return 0;
   }
 }
 
+class DeterministicGenerationPolicy implements PlayerGenerationPolicy {
+  readonly ageRanges: AgeRange[] = [];
+  private generated = 0;
+
+  generate(_random: RandomSource, ageRange: AgeRange): GeneratedPlayer {
+    this.ageRanges.push(ageRange);
+    this.generated += 1;
+    return {
+      name: `Prospect ${this.generated}`,
+      nationality: 'PT',
+      tier: 'common',
+      ageInWeeks: 15 * 52,
+      attributes: attributes(35 + this.generated),
+      potentialCeiling: 70,
+      potentialTier: 'promising',
+      physicalCeilings: { speed: 75, stamina: 76, strength: 77 },
+      talent: 60,
+    };
+  }
+}
+
+function attributes(base: number): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(base), forehand: Skill.of(base), backhand: Skill.of(base), volley: Skill.of(base) },
+    physical: { speed: Skill.of(base), stamina: Skill.of(base), strength: Skill.of(base) },
+    mental: { consistency: Skill.of(base), clutch: Skill.of(base) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
+async function setup(batchSize?: number) {
+  const worlds = new InMemoryGameWorldRepository();
+  const players = new InMemoryPlayerRepository();
+  const events = new RecordingEventPublisher();
+  const generationPolicy = new DeterministicGenerationPolicy();
+  const worldId = WorldId('main');
+  await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+  const useCase = new RefreshTalentPoolUseCase(worlds, generationPolicy, new FixedRandomSource(), new SequentialIdGenerator(), players, events, undefined, batchSize);
+  return { worlds, players, events, generationPolicy, worldId, useCase };
+}
+
 describe('RefreshTalentPoolUseCase', () => {
-  it('generates a full batch of new available candidates', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new FixedGenerationPolicy(),
-      new NullRandomSource(),
-      new SequentialIdGenerator(),
-      new InMemoryPlayerRepository(),
-      new RecordingEventPublisher(),
-      undefined,
-      5,
-    );
+  it('generates the default batch as fillOnly free-agent players', async () => {
+    const { players, events, generationPolicy, worldId, useCase } = await setup();
 
     const result = await useCase.execute({ worldId });
 
-    expect(result).toEqual({ generated: 5, expired: 0 });
-    expect(candidates.all()).toHaveLength(5);
-    expect(candidates.all().every((c) => c.isAvailable())).toBe(true);
-    expect(candidates.all().every((c) => c.name === 'Generated Player')).toBe(true);
+    expect(result).toEqual({ generated: TALENT_POOL_BATCH_SIZE });
+    expect(players.all()).toHaveLength(TALENT_POOL_BATCH_SIZE);
+    expect(players.all().every((p) => p.managerId === null)).toBe(true);
+    expect(players.all().every((p) => p.fillOnly)).toBe(true);
+    expect(events.published).toHaveLength(TALENT_POOL_BATCH_SIZE);
+    expect(events.published.every((e) => e.type === 'FillOnlyPlayerGenerated')).toBe(true);
+    expect(generationPolicy.ageRanges).toHaveLength(TALENT_POOL_BATCH_SIZE);
   });
 
-  it('wires the REAL StandardPlayerGenerationPolicy with TALENT_POOL_AGE_RANGE, so every generated candidate lands in that exact 14-16yo window', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new StandardPlayerGenerationPolicy(),
-      { next: () => Math.random() },
-      new SequentialIdGenerator(),
-      new InMemoryPlayerRepository(),
-      new RecordingEventPublisher(),
-      undefined,
-      20,
-    );
-
-    await useCase.execute({ worldId });
-
-    expect(candidates.all()).toHaveLength(20);
-    for (const candidate of candidates.all()) {
-      expect(candidate.ageInWeeks).toBeGreaterThanOrEqual(TALENT_POOL_AGE_RANGE.minWeeks);
-      expect(candidate.ageInWeeks).toBeLessThanOrEqual(TALENT_POOL_AGE_RANGE.maxWeeks);
-    }
-  });
-
-  it('expires unclaimed candidates older than the pool expiry window, leaving fresher ones and claimed ones untouched — and no candidate row is ever deleted', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const players = new InMemoryPlayerRepository();
-    const worldId = WorldId('main');
-    // Current week is 4 — a candidate generated at week 1 is 3 weeks
-    // old (past the 2-week expiry), one generated at week 3 is 1 week
-    // old (still fine).
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 4 }));
-
-    const generated = new FixedGenerationPolicy().generate();
-    const stale = TalentPoolCandidate.generate(TalentPoolCandidateId('stale'), generated, { season: 1, week: 1 });
-    const fresh = TalentPoolCandidate.generate(TalentPoolCandidateId('fresh'), generated, { season: 1, week: 3 });
-    const alreadyClaimed = TalentPoolCandidate.generate(TalentPoolCandidateId('claimed'), generated, { season: 1, week: 1 });
-    alreadyClaimed.markClaimed(ManagerId('m1'));
-    await candidates.save(stale);
-    await candidates.save(fresh);
-    await candidates.save(alreadyClaimed);
-
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new FixedGenerationPolicy(),
-      new NullRandomSource(),
-      new SequentialIdGenerator(),
-      players,
-      new RecordingEventPublisher(),
-      undefined,
-      0, // isolate expiry behavior from the generation batch for this test
-    );
+  it('honors a custom batch size', async () => {
+    const { players, worldId, useCase } = await setup(2);
 
     const result = await useCase.execute({ worldId });
 
-    expect(result.expired).toBe(1);
-    // The row persists (not deleted) — this is the entire "must not be
-    // deleted" requirement, verified against the SAME repository the
-    // Scouting page's GET /talent-pool reads (findAvailable() below).
-    expect((await candidates.findById(TalentPoolCandidateId('stale')))!.status).toBe('expired');
-    expect((await candidates.findById(TalentPoolCandidateId('fresh')))!.status).toBe('available');
-    // A candidate that was already claimed (not available) is never
-    // touched by the expiry sweep, regardless of age.
-    expect((await candidates.findById(TalentPoolCandidateId('claimed')))!.status).toBe('claimed');
-
-    // No longer appears in the active/claimable list.
-    const stillAvailable = await candidates.findAvailable();
-    expect(stillAvailable.map((c) => c.id)).not.toContain('stale');
-    expect(stillAvailable.map((c) => c.id)).toContain('fresh');
+    expect(result).toEqual({ generated: 2 });
+    expect(players.all()).toHaveLength(2);
+    expect(players.all().map((p) => p.id)).toEqual(['generated-1', 'generated-2']);
   });
 
-  it('converts an expiring candidate into a real, permanent, fill-only Player — same id, no manager, still developable', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const players = new InMemoryPlayerRepository();
-    const events = new RecordingEventPublisher();
-    const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 4 }));
+  it('only adds new players and never removes or expires existing ones', async () => {
+    const { players, worldId, useCase } = await setup(1);
+    const existing = Player.generateFillOnly(PlayerId('existing'), 'Existing Free Agent', 20 * 52, 'prime', attributes(50), 'BR', 80, {
+      speed: 80,
+      stamina: 80,
+      strength: 80,
+    });
+    await players.save(existing);
 
-    const generated = new FixedGenerationPolicy().generate();
-    const stale = TalentPoolCandidate.generate(TalentPoolCandidateId('stale'), generated, { season: 1, week: 1 });
-    await candidates.save(stale);
+    const result = await useCase.execute({ worldId });
 
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new FixedGenerationPolicy(),
-      new NullRandomSource(),
-      new SequentialIdGenerator(),
-      players,
-      events,
-      new StandardAgingPolicy(),
-      0,
-    );
-
-    await useCase.execute({ worldId });
-
-    const converted = await players.findById(PlayerId('stale'));
-    expect(converted).not.toBeNull();
-    expect(converted!.fillOnly).toBe(true);
-    expect(converted!.managerId).toBeNull();
-    expect(converted!.name).toBe('Generated Player');
-    expect(converted!.ageInWeeks).toBe(750); // carried over unchanged from the candidate
-    expect(converted!.stage).toBe('youth'); // 750 weeks (~14.4yo) is well under the 20yr prime threshold
-    expect(converted!.attributes.attributeValue('serve')).toBe(30);
-
-    expect(events.published.some((e) => e.type === 'FillOnlyPlayerGenerated' && e.payload.playerId === 'stale')).toBe(true);
-  });
-
-  it('computes the fill-only player stage from the REAL age, not a hardcoded youth default — an older expiring candidate lands in the right lifecycle stage', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const players = new InMemoryPlayerRepository();
-    const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 4 }));
-
-    // 32 years old — StandardAgingPolicy's decline stage (30-38yo) —
-    // this is only reachable in practice via a genesis-seeded fillOnly
-    // player later re-entering... no, TALENT_POOL_AGE_RANGE keeps real
-    // candidates at 14-16yo; this test exists purely to prove the
-    // stage computation itself is correct for ANY age this method is
-    // ever handed, not to claim a real candidate reaches this age today.
-    const olderGenerated: GeneratedPlayer = { ...new FixedGenerationPolicy().generate(), ageInWeeks: 32 * 52 };
-    const stale = TalentPoolCandidate.generate(TalentPoolCandidateId('older'), olderGenerated, { season: 1, week: 1 });
-    await candidates.save(stale);
-
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new FixedGenerationPolicy(),
-      new NullRandomSource(),
-      new SequentialIdGenerator(),
-      players,
-      new RecordingEventPublisher(),
-      new StandardAgingPolicy(),
-      0,
-    );
-
-    await useCase.execute({ worldId });
-
-    expect((await players.findById(PlayerId('older')))!.stage).toBe('decline');
+    expect(result).toEqual({ generated: 1 });
+    expect(await players.findById(PlayerId('existing'))).toBe(existing);
+    expect(players.all().map((p) => p.id).sort()).toEqual(['existing', 'generated-1']);
   });
 
   it('throws when the target game world does not exist', async () => {
-    const candidates = new InMemoryTalentPoolCandidateRepository();
-    const worlds = new InMemoryGameWorldRepository();
-    const useCase = new RefreshTalentPoolUseCase(
-      candidates,
-      worlds,
-      new FixedGenerationPolicy(),
-      new NullRandomSource(),
-      new SequentialIdGenerator(),
-      new InMemoryPlayerRepository(),
-      new RecordingEventPublisher(),
-    );
+    const { useCase } = await setup();
 
     await expect(useCase.execute({ worldId: WorldId('missing') })).rejects.toThrow(/not found/);
   });

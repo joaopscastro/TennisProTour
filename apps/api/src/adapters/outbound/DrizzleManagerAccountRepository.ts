@@ -12,6 +12,11 @@ export class DrizzleManagerAccountRepository implements ManagerAccountRepository
     return rows.length === 0 ? null : toAccount(rows[0]);
   }
 
+  async findById(id: ManagerId): Promise<ManagerAccount | null> {
+    const rows = await this.db.select().from(managers).where(eq(managers.id, id)).limit(1);
+    return rows.length === 0 ? null : toAccount(rows[0]);
+  }
+
   async save(account: ManagerAccount): Promise<void> {
     await this.db
       .insert(managers)

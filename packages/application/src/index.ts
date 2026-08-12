@@ -5,7 +5,6 @@ export * from './use-cases/ClaimTalentPoolCandidateUseCase';
 export * from './use-cases/CreateCustomPlayerUseCase';
 export * from './use-cases/RefreshTalentPoolUseCase';
 export * from './use-cases/GenesisSeedFillOnlyPlayersUseCase';
-export * from './use-cases/fillOnlyConversion';
 export * from './use-cases/StartDueTournamentsUseCase';
 export * from './use-cases/SetTrainingScheduleUseCase';
 export * from './use-cases/ReleasePlayerUseCase';

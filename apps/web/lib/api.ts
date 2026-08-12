@@ -18,6 +18,7 @@ export interface PlayerDto {
   ageInWeeks: number;
   stage: 'youth' | 'prime' | 'decline' | 'retired';
   fatigue: number;
+  form: number;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -54,6 +55,9 @@ export interface RosterDashboardEntryDto {
    * StandardAgingPolicy thresholds (see DrizzleRosterDashboardQuery). */
   stageNote: string;
   fatigue: number;
+  /** Match rhythm (0–100). Both under- and over-playing hurt; a
+   * mid-band "match sharp" zone is ideal. See Player.form in the domain. */
+  form: number;
   overall: number;
   rank: number | null;
   /** See RankingBand's doc comment above — which of the three
@@ -85,34 +89,26 @@ export interface EntitlementDto {
  * RankingBand. */
 export type RankingBand = 'senior' | 'u14' | 'u16';
 
-export type PlayerRarityTier = 'common' | 'strong' | 'exceptional';
-
-/** A coarse, deliberately imperfect read on a candidate's hidden
- * potential ceiling — the real number is never sent to the client at
- * all (see talentPoolRoutes.ts on the API side). Every manager sees
- * the exact same noisy tier on the exact same candidate; there is no
- * per-manager scouting-accuracy system (see docs/CLAUDE.md). */
-export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';
-
-/** A generated player sitting unowned in the talent pool — see
- * DrizzleTalentPoolCandidateRepository on the API side. Hiring is
- * pool-based now: a manager browses/claims one of these instead of
- * hiring an arbitrary player on demand (see docs/CLAUDE.md). Current
- * attributes are exposed precisely (they're "observable"); potential
- * is deliberately only the coarse `potentialTier`, never a number. */
+/** A free agent: a real, unowned `Player` (managerId null, not retired)
+ * that lives in the world for its whole career whether or not anyone
+ * ever signs it — it never expires or vanishes (see docs/CLAUDE.md's
+ * candidate/player unification). A manager browses free agents and
+ * signs one, which transfers ownership and costs XP. Current attributes
+ * are exposed precisely (they're "observable"); rarity/potential are
+ * DELIBERATELY not sent at all — a manager judges value from observable
+ * attributes only, this being an RPG (enforced server-side in
+ * talentPoolRoutes.ts). */
 export interface TalentPoolCandidateDto {
   id: string;
   name: string;
   nationality: string;
-  tier: PlayerRarityTier;
-  potentialTier: PotentialTier;
-  /** The exact XP cost claiming this candidate would charge right now
-   * — see TalentClaimPricingPolicy on the API side. Never claimable
-   * for free; a candidate whose cost exceeds the manager's balance
-   * still appears in the list (see docs/ui-direction.md's "never hide
-   * unaffordable candidates" convention), just with Claim disabled. */
+  ageInWeeks: number;
+  /** The exact XP cost signing this free agent would charge right now
+   * — see TalentClaimPricingPolicy on the API side. Never free; a free
+   * agent whose cost exceeds the manager's balance still appears in the
+   * list (see docs/ui-direction.md's "never hide unaffordable" rule),
+   * just with Sign disabled. */
   claimCost: number;
-  generatedAtWeek: { season: number; week: number };
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -135,28 +131,43 @@ export interface TournamentDto {
    * — always present, never a placeholder/debug string or a bare id. */
   name: string;
   tier: string;
+  /** 'junior' for J-grades/juniorMasters, 'senior' otherwise — the
+   * circuit shown on the tournament profile. */
+  circuit: 'junior' | 'senior';
   /** null = senior tour. See docs/junior-circuit-research-and-proposal.md
    * — the same six tier grades work identically for both junior bands,
    * this is the field that distinguishes them. */
   ageBand: AgeBand | null;
   surface: string;
+  /** Host country (P6 home advantage). null = none recorded (pre-P6
+   * rows / tests), in which case no entrant is ever "home". A player
+   * whose nationality matches this gets a modest sim bonus in matches
+   * here — surfaced so the mechanic is legible, not hidden. */
+  hostCountry: string | null;
+  /** Points-per-round ladder for this tournament's actual draw size,
+   * Champion-first (matchesWon = number of matches that result requires).
+   * Straight from the domain points table. */
+  pointsBreakdown: Array<{ matchesWon: number; stageLabel: string; points: number }>;
+  /** True only for juniorMasters (unsourced placeholder points) — flag
+   * them honestly rather than as authoritative. */
+  pointsArePlaceholder: boolean;
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
   entrants: Array<{ playerId: string; seed: number | null }>;
-  /** Only present when GET /tournaments was called with ?playerId= AND
-   * this tournament is junior-tier — see fetchOpenTournaments and
-   * attachJuniorEntryInfo on the API side. Absent (not zero) for senior
-   * tournaments, since the weekly cap deliberately doesn't apply there. */
-  juniorEntryCountThisWeek?: number;
-  juniorEntryCapThisWeek?: number;
+  /** Only present when GET /tournaments was called with ?playerId=.
+   * Attached for BOTH bands now — see fetchOpenTournaments and
+   * attachEntryInfo on the API side. Junior tiers cap at 3/week, the
+   * senior tour at 1/week. Absent (not zero) only when no ?playerId=
+   * was supplied. */
+  weeklyEntryCountThisWeek?: number;
+  weeklyEntryCapThisWeek?: number;
   /** Whether the queried player's CURRENT age is eligible for this
    * tournament's band — see isAgeEligibleForTournamentBand on the API
    * side. "Playing up" into an older junior band is eligible; playing
-   * down, or a senior player entering either junior band, is not.
-   * Same presence rule as the two fields above: only set for junior
-   * tournaments when ?playerId= was supplied — the senior tour has no
-   * age restriction at all, so this is never attached there. */
+   * down, or a senior player entering either junior band, is not. The
+   * senior tour has no age restriction, so it's always true there.
+   * Only set when ?playerId= was supplied. */
   ageEligible?: boolean;
   rounds: Array<{
     roundNumber: number;
@@ -251,8 +262,8 @@ export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
   return getJson('/talent-pool');
 }
 
-export function claimTalentPoolCandidate(candidateId: string, managerId: string): Promise<PlayerDto> {
-  return sendJson('POST', `/talent-pool/${encodeURIComponent(candidateId)}/claim`, { managerId }, managerId);
+export function claimTalentPoolCandidate(playerId: string, managerId: string): Promise<PlayerDto> {
+  return sendJson('POST', `/talent-pool/${encodeURIComponent(playerId)}/claim`, { managerId }, managerId);
 }
 
 /** Pro-only, credit-gated: bypasses the talent pool (choose your own
@@ -331,10 +342,11 @@ export function convertPlayerToCoach(playerId: string, managerId?: string): Prom
   return sendJson('POST', `/players/${encodeURIComponent(playerId)}/convert-to-coach`, undefined, managerId);
 }
 
-/** playerId, when supplied, attaches juniorEntryCountThisWeek/CapThisWeek
- * to junior-tier tournaments in the response (see TournamentDto) — used
- * by EnterTournamentModal to disable an over-cap entry attempt up
- * front rather than only learning about it from a failed POST. */
+/** playerId, when supplied, attaches weeklyEntryCountThisWeek/CapThisWeek
+ * to every tournament in the response (both bands — junior 3/week,
+ * senior 1/week; see TournamentDto) — used by EnterTournamentModal to
+ * disable an over-cap entry attempt up front rather than only learning
+ * about it from a failed POST. */
 export function fetchOpenTournaments(playerId?: string): Promise<TournamentDto[]> {
   return getJson(`/tournaments?status=open${playerId ? `&playerId=${encodeURIComponent(playerId)}` : ''}`);
 }
@@ -456,11 +468,36 @@ export function createProCheckoutSession(managerId: string): Promise<{ url: stri
  * worldRoutes.ts on the API side for how nextTickAt is derived. */
 export interface WorldClockDto {
   currentWeek: { season: number; week: number };
+  currentDay: number;
+  daysPerWeek: number;
   nextTickAt: string;
+  nextWeekTickAt: string;
 }
 
 export function fetchWorldClock(): Promise<WorldClockDto> {
   return getJson('/world/clock');
+}
+
+export interface ManagerLadderRowDto {
+  rank: number;
+  managerId: string;
+  displayName: string;
+  score: number;
+  isSelf: boolean;
+}
+
+export interface ManagerLeaderboardDto {
+  standings: ManagerLadderRowDto[];
+  self: {
+    managerId: string;
+    displayName: string;
+    score: number;
+    rank: number | null;
+  };
+}
+
+export function fetchManagerLeaderboard(limit = 100): Promise<ManagerLeaderboardDto> {
+  return getJson(`/managers/leaderboard?limit=${limit}`);
 }
 
 export interface PlayerTournamentHistoryEntryDto {
@@ -499,8 +536,64 @@ export interface PlayerProfileDto {
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
   tournamentHistory: PlayerTournamentHistoryEntryDto[];
   titles: Array<{ tournamentId: string; name: string; tier: string; ageBand: AgeBand | null; weekEarned: { season: number; week: number } }>;
+  /** The profile-only "scout's projection" of upside (P5). Age-fuzzed,
+   * derived server-side from hidden ceilings — narrows toward truth as
+   * the player ages. Never present on any list/pool DTO. */
+  potential: PotentialProjectionDto;
+}
+
+export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';
+
+export interface AttributeProjectionDto {
+  current: number;
+  projected: number;
+  mature: boolean;
+}
+
+export interface PotentialProjectionDto {
+  projectedOverallLow: number;
+  projectedOverallMid: number;
+  projectedOverallHigh: number;
+  developmentPercent: number;
+  tier: PotentialTier;
+  confidence: number;
+  resolved: boolean;
+  growth: 'slow' | 'steady' | 'rapid';
+  attributes: {
+    technical: Record<string, AttributeProjectionDto>;
+    physical: Record<string, AttributeProjectionDto>;
+    mental: Record<string, AttributeProjectionDto>;
+  };
 }
 
 export function fetchPlayerProfile(playerId: string): Promise<PlayerProfileDto> {
   return getJson(`/players/${encodeURIComponent(playerId)}/profile`);
+}
+
+export interface PlayerMatchSummaryDto {
+  tournamentId: string;
+  tournamentName: string;
+  tier: string;
+  ageBand: AgeBand | null;
+  surface: string;
+  roundNumber: number;
+  drawSize: number;
+  weekScheduled: { season: number; week: number };
+  opponentId: string;
+  opponentName: string;
+  opponentNationality: string;
+  result: 'win' | 'loss' | 'pending';
+  setScores: Array<{ winnerGames: number; loserGames: number }> | null;
+}
+
+/** The profile page's "latest results + next match" strip. Carries no
+ * per-match countdown by design (matches are swept synchronously when
+ * due — see DrizzlePlayerMatchesQuery on the API side). */
+export interface PlayerMatchesDto {
+  recent: PlayerMatchSummaryDto[];
+  next: PlayerMatchSummaryDto | null;
+}
+
+export function fetchPlayerMatches(playerId: string): Promise<PlayerMatchesDto> {
+  return getJson(`/players/${encodeURIComponent(playerId)}/current-matches`);
 }

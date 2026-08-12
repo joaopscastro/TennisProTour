@@ -1,9 +1,10 @@
 import { FastifyInstance } from 'fastify';
 import { parseExpression } from 'cron-parser';
+import { DAYS_PER_WEEK } from '@tennis-manager/domain';
 import { Dependencies, WORLD_ID } from '../../../composition';
 
 /**
- * Audit finding (see CLAUDE.md): apps/worker schedules the weekly tick
+ * Audit finding (see CLAUDE.md): apps/worker schedules the daily tick
  * as a BullMQ repeatable job entirely internal to its own Redis
  * connection — apps/api has no Redis/BullMQ client and never did.
  * Rather than give the API a second connection to Redis purely to ask
@@ -37,21 +38,40 @@ export function registerWorldRoutes(app: FastifyInstance, deps: Dependencies): v
     const intervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
     const intervalMs = intervalMsRaw ? Number(intervalMsRaw) : null;
 
+    // The week rolls over on the tick applied when currentDay === 7
+    // (day 7 -> day 1). Weekly systems (aging, talent-pool refresh,
+    // junior generation, start-due-tournaments) fire ONLY on that
+    // rollover — see AdvanceWorldWeekUseCase — so screens that count
+    // down to a weekly event (e.g. the Scouting page's "next refresh")
+    // need the rollover time, not merely the next day tick.
+    const ticksToRollover = DAYS_PER_WEEK - world.currentDay + 1;
+
     let nextTickAt: Date;
+    let nextWeekTickAt: Date;
     if (intervalMs !== null && Number.isFinite(intervalMs) && intervalMs > 0) {
       const lastTickAt = (await deps.worlds.findLastTickAt(WORLD_ID)) ?? new Date();
       nextTickAt = new Date(lastTickAt.getTime() + intervalMs);
+      nextWeekTickAt = new Date(lastTickAt.getTime() + intervalMs * ticksToRollover);
     } else {
-      const cron = process.env.WORLD_TICK_CRON ?? '0 3 * * 1';
+      const cron = process.env.WORLD_TICK_CRON ?? '0 3 * * *';
       // No tz option: matches BullMQ's own default (cron-parser against the
       // process's local system time) since apps/worker's upsertJobScheduler
       // call doesn't pass a tz either — both processes run in UTC containers.
-      nextTickAt = parseExpression(cron).next().toDate();
+      const iterator = parseExpression(cron);
+      nextTickAt = iterator.next().toDate();
+      let rollover = nextTickAt;
+      for (let i = 1; i < ticksToRollover; i++) {
+        rollover = iterator.next().toDate();
+      }
+      nextWeekTickAt = rollover;
     }
 
     return {
       currentWeek: world.currentWeek,
+      currentDay: world.currentDay,
+      daysPerWeek: DAYS_PER_WEEK,
       nextTickAt: nextTickAt.toISOString(),
+      nextWeekTickAt: nextWeekTickAt.toISOString(),
     };
   });
 }

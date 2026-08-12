@@ -12,10 +12,15 @@ import {
   WorldId,
 } from '@tennis-manager/domain';
 import {
+  ManagerLadderPolicy,
+  PlayerDevelopmentPolicy,
+} from '@tennis-manager/domain';
+import {
   BillingPort,
   CoachRepository,
   EventPublisherPort,
   GameWorldRepository,
+  ManagerLadderRepository,
   PlayerRepository,
   RankingLedgerRepository,
   TrainingScheduleRepository,
@@ -29,8 +34,31 @@ export interface AdvanceWorldWeekCommand {
   tickKey: string;
 }
 
+/** Fatigue recovered per DAY tick (every advanced day, mid-week and on
+ * the weekly rollover alike) — the recovery half of the fatigue system
+ * whose accrual lives in SimulateMatchUseCase (fatigueCostForMatch).
+ * RR recovers 50/day on a ~0–500+ scale; scaled to our 0–100 fatigue
+ * scale and the per-match accrual (BASE_MATCH_FATIGUE = 8), 5/day makes
+ * a player who plays a match every day of a deep run slowly accumulate
+ * fatigue, while idle days bleed it back off — the scheduling tension
+ * that is the whole point. PLACEHOLDER, owned by the fatigue/form
+ * tuning pass (docs/rocking-rackets-competitive-analysis.md §5). */
+export const FATIGUE_RECOVERY_PER_DAY = 5;
+
+/** Multiplicative form decay applied once per WEEKLY rollover (0.85 =
+ * lose 15%/week). RR decays −8%/week in a faster-moving real-time
+ * world; a steeper weekly step keeps form responsive at our lower match
+ * volume. PLACEHOLDER, same tuning pass as above. */
+export const FORM_WEEKLY_DECAY = 0.85;
+
 export interface AdvanceWorldWeekResult {
   advanced: boolean;
+  /** True exactly when this day tick rolled the clock over to a new
+   * game week (day 7 -> 1). The weekly systems (aging, training,
+   * graduation carryover) only run on such a tick; a mid-week day tick
+   * advances the clock and paces tournaments but leaves the large
+   * weekly balance untouched. See docs/day-tick-and-scheduling.md. */
+  weekRolledOver: boolean;
   playersAged: number;
 }
 
@@ -118,14 +146,33 @@ export class AdvanceWorldWeekUseCase {
     private readonly coaches: CoachRepository,
     private readonly rankingLedger: RankingLedgerRepository,
     private readonly trainingSchedule: TrainingScheduleRepository,
+    private readonly managerLadder: ManagerLadderRepository,
+    private readonly managerLadderPolicy: ManagerLadderPolicy,
+    private readonly developmentPolicy: PlayerDevelopmentPolicy,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
 
-    if (!world.advanceWeek(command.tickKey)) {
-      return { advanced: false, playersAged: 0 };
+    // One tick = one game DAY now (see docs/day-tick-and-scheduling.md).
+    // The clock advances (idempotency aside); the heavy weekly work
+    // below runs ONLY when the day rolled over into a new week.
+    const { advanced, weekRolledOver } = world.advanceDay(command.tickKey);
+    if (!advanced) {
+      return { advanced: false, weekRolledOver: false, playersAged: 0 };
+    }
+
+    if (!weekRolledOver) {
+      // A mid-week day tick: the clock moved forward (persist it so
+      // tournament pacing and the day countdown see the new day), and
+      // fatigue recovers daily (rest days matter — see
+      // FATIGUE_RECOVERY_PER_DAY). Aging/training/graduation are weekly
+      // and must not fire today; form decays only on the weekly rollover
+      // below, not mid-week.
+      await this.recoverDailyFatigue();
+      await this.worlds.save(world);
+      return { advanced: true, weekRolledOver: false, playersAged: 0 };
     }
 
     const proStatusByManager = new Map<ManagerId, boolean>();
@@ -151,6 +198,11 @@ export class AdvanceWorldWeekUseCase {
 
     const allPlayers = await this.players.findAll();
     for (const player of allPlayers) {
+      // The weekly rollover is itself one day passing, so it recovers
+      // that day's fatigue too (same amount every advanced day); form
+      // decays once per week here (never mid-week).
+      player.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
+      player.decayForm(FORM_WEEKLY_DECAY);
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
       const bandBeforeAging = juniorEligibilityForAge(player.ageInWeeks);
       agingService.advance(player);
@@ -167,13 +219,21 @@ export class AdvanceWorldWeekUseCase {
       // applyTraining rejects retired players, so re-check after aging
       // rather than trusting a resolved focus was computed against a
       // live player.
+      // Weekly free player-development experience proportional to
+      // talent (docs/rocking-rackets-competitive-analysis.md §1c) —
+      // credited to EVERY player (managed, released, or fillOnly), since
+      // talent is innate and develops the player regardless of who, if
+      // anyone, owns them. A talent-0 legacy player earns nothing here
+      // and so only develops from match XP, exactly as before P4. This
+      // is the XP that funds this same tick's training below.
+      player.gainExperience(this.developmentPolicy.weeklyTalentIncome(player.talent));
       if (player.fillOnly) {
         // No manager, no schedule to resolve — see this class's doc
         // comment. A fillOnly player that aged into retirement this
         // same tick just stops training, same as anyone else.
         if (!player.isRetired()) {
           const focus = { kind: 'attribute' as const, attribute: weakestTrainableAttribute(player.attributes) };
-          player.applyTraining(focus, this.trainingPolicy, null);
+          player.applyTraining(focus, this.trainingPolicy, null, this.developmentPolicy);
         }
       } else if (!player.isRetired()) {
         // world.currentWeek here is the week THIS tick just advanced
@@ -186,14 +246,36 @@ export class AdvanceWorldWeekUseCase {
         const focus = resolveTrainingFocusForWeek(scheduleEntries, world.currentWeek);
         if (focus) {
           const coachRating = await coachRatingFor(player.managerId);
-          player.applyTraining(focus, this.trainingPolicy, coachRating);
+          player.applyTraining(focus, this.trainingPolicy, coachRating, this.developmentPolicy);
         }
       }
       await this.players.save(player);
       await this.events.publish(player.pullDomainEvents());
     }
 
+    // The decaying manager ladder erodes once per weekly rollover (never
+    // mid-week) — a single whole-table multiply, cost independent of how
+    // many managers played. This is the "come back tomorrow" pull: a
+    // score you must keep earning against or watch slide (see
+    // docs/rocking-rackets-competitive-analysis.md §1d).
+    await this.managerLadder.decayAll(this.managerLadderPolicy.weeklyDecayFactor());
+
     await this.worlds.save(world);
-    return { advanced: true, playersAged: allPlayers.length };
+    return { advanced: true, weekRolledOver: true, playersAged: allPlayers.length };
+  }
+
+  /** Recovers a day's worth of fatigue for every player carrying any,
+   * on a mid-week day tick. Skips players already fully rested (fatigue
+   * 0) so writes stay proportional to how many players are actually
+   * tired, not the whole population, every day. Deliberately does NOT
+   * touch form, aging, or training — those are weekly-rollover concerns
+   * (see execute()). */
+  private async recoverDailyFatigue(): Promise<void> {
+    const allPlayers = await this.players.findAll();
+    for (const player of allPlayers) {
+      if (player.fatigue === 0) continue;
+      player.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
+      await this.players.save(player);
+    }
   }
 }

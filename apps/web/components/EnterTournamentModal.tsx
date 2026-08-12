@@ -4,10 +4,10 @@ import { useEffect, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
 
 const SURFACE_COLOR: Record<string, string> = {
-  clay: 'oklch(58% 0.14 45)',
-  grass: 'oklch(52% 0.12 142)',
-  hard: 'oklch(55% 0.13 240)',
-  indoor: 'oklch(48% 0.05 300)',
+  clay: 'var(--sf-clay)',
+  grass: 'var(--sf-grass)',
+  hard: 'var(--sf-hard)',
+  indoor: 'var(--sf-indoor)',
 };
 
 interface Props {
@@ -57,17 +57,16 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
     }
   }
 
-  /** True once this player has already entered juniorEntryCapThisWeek
-   * junior tournaments in a given tournament's specific week — the
-   * real cap RegisterEntrantUseCase enforces (see
-   * juniorEntryCap.ts), surfaced here so the row is disabled up front
-   * rather than only failing after a click. Senior tournaments never
-   * carry these fields at all, so they're never blocked by this. */
+  /** True once this player has already entered weeklyEntryCapThisWeek
+   * same-band tournaments in a given tournament's specific week — the
+   * real cap RegisterEntrantUseCase enforces (junior 3/week, senior
+   * 1/week; see juniorEntryCap.ts), surfaced here so the row is
+   * disabled up front rather than only failing after a click. */
   function overCapFor(t: TournamentDto): boolean {
     return (
-      t.juniorEntryCountThisWeek !== undefined &&
-      t.juniorEntryCapThisWeek !== undefined &&
-      t.juniorEntryCountThisWeek >= t.juniorEntryCapThisWeek
+      t.weeklyEntryCountThisWeek !== undefined &&
+      t.weeklyEntryCapThisWeek !== undefined &&
+      t.weeklyEntryCountThisWeek >= t.weeklyEntryCapThisWeek
     );
   }
 
@@ -83,34 +82,34 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(20,18,16,0.45)' }}
+      style={{ background: 'rgba(6,10,8,0.66)', backdropFilter: 'blur(3px)' }}
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[480px] rounded-[10px] bg-white p-6 max-h-[80vh] flex flex-col"
+        className="w-full max-w-[480px] gc-card rounded-[14px] p-6 max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-[16px] font-bold" style={{ color: 'oklch(20% 0.006 75)' }}>
+        <div className="text-[16px] font-bold" style={{ color: 'var(--gc-ink)' }}>
           Enter {playerName} into a tournament
         </div>
-        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'oklch(50% 0.006 75)' }}>
+        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'var(--gc-ink-mute)' }}>
           Choose a tournament still open for registration.
         </div>
 
         {error && (
-          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
 
         <div className="flex flex-col gap-2 overflow-y-auto" style={{ minHeight: 60 }}>
           {tournaments === null && !error && (
-            <div className="text-[13px]" style={{ color: 'oklch(55% 0.006 75)' }}>
+            <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
               Loading open tournaments…
             </div>
           )}
           {tournaments?.length === 0 && (
-            <div className="text-[13px]" style={{ color: 'oklch(55% 0.006 75)' }}>
+            <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
               No tournaments are open for entries right now.
             </div>
           )}
@@ -126,8 +125,8 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
                 disabled={blocked}
                 className="text-left rounded-[8px] px-[14px] py-[10px] cursor-pointer disabled:cursor-not-allowed"
                 style={{
-                  border: selected ? '1.5px solid oklch(20% 0.006 75)' : '1px solid oklch(90% 0.005 75)',
-                  background: selected ? 'oklch(97% 0.003 75)' : 'white',
+                  border: selected ? '1.5px solid var(--gc-ball)' : '1px solid var(--gc-line)',
+                  background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
                   opacity: blocked ? 0.55 : 1,
                 }}
               >
@@ -135,35 +134,37 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
                   <div className="flex items-center gap-2 min-w-0">
                     <div
                       className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] text-white flex-none"
-                      style={{ background: SURFACE_COLOR[t.surface] ?? 'oklch(50% 0.006 75)' }}
+                      style={{ background: SURFACE_COLOR[t.surface] ?? 'var(--gc-ink-mute)' }}
                     >
                       {t.surface}
                     </div>
                     {t.ageBand && (
                       <div
                         className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
-                        style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
+                        style={{ background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)' }}
                       >
                         {t.ageBand}
                       </div>
                     )}
                     <div className="text-[13.5px] font-semibold truncate">{t.name}</div>
                   </div>
-                  <div className="text-[11.5px] flex-none" style={{ color: 'oklch(52% 0.006 75)' }}>
+                  <div className="text-[11.5px] flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
                     {t.entrants.length}/{t.drawSize}
                   </div>
                 </div>
-                <div className="text-[11.5px] mt-[3px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+                <div className="text-[11.5px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
                   {t.tier} · season {t.weekScheduled.season}, week {t.weekScheduled.week}
                 </div>
                 {ageIneligible && (
-                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
                     Too old for this {t.ageBand} draw — a player may play up into an older junior band, not down
                   </div>
                 )}
                 {!ageIneligible && overCap && (
-                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(50% 0.16 30)' }}>
-                    Already entered {t.juniorEntryCountThisWeek}/{t.juniorEntryCapThisWeek} junior tournaments this week
+                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
+                    {t.weeklyEntryCapThisWeek === 1
+                      ? 'Already entered a tournament this week — a player can only play one tournament per week'
+                      : `Already entered ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
                   </div>
                 )}
               </button>
@@ -175,7 +176,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
           <button
             onClick={onClose}
             className="px-[14px] py-[9px] rounded-[6px] bg-transparent text-[12.5px] font-semibold cursor-pointer"
-            style={{ border: '1px solid oklch(88% 0.006 75)', color: 'oklch(35% 0.006 75)' }}
+            style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
           >
             Cancel
           </button>
@@ -183,7 +184,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
             onClick={handleConfirm}
             disabled={!selectedId || submitting}
             className="px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: 'oklch(20% 0.006 75)' }}
+            style={{ background: 'var(--gc-ink)' }}
           >
             {submitting ? 'Entering…' : 'Enter tournament'}
           </button>

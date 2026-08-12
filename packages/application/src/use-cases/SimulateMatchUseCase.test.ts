@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import { GameWeek, GameWorld, ManagerId, MatchId, PeakRankingEntry, PlayerId, RankingBand, TitleRecord, TournamentId, RankingLedgerEntry, WorldId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
+import { StandardPlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawSize, MatchLog, TournamentTier } from '@tennis-manager/domain';
 import { MatchParticipant, MatchSimulator, SimulatedMatch } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy, StandardRankingPointsTable } from '@tennis-manager/domain';
+import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
   GameWorldRepository,
   ManagerXpRepository,
+  ManagerLadderRepository,
+  ManagerLadderStanding,
   PeakRankingRepository,
   RankingLedgerRepository,
   MatchLogStorePort,
@@ -65,6 +69,10 @@ class InMemoryPlayerRepository implements PlayerRepository {
     return [...this.store.values()];
   }
 
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
   async save(player: Player): Promise<void> {
     this.store.set(player.id, player);
   }
@@ -116,6 +124,39 @@ class InMemoryManagerXpRepository implements ManagerXpRepository {
     if (balance < amount) return false;
     this.balances.set(managerId, balance - amount);
     return true;
+  }
+}
+
+class InMemoryManagerLadderRepository implements ManagerLadderRepository {
+  readonly scores = new Map<ManagerId, number>();
+
+  async scoreFor(managerId: ManagerId): Promise<number> {
+    return this.scores.get(managerId) ?? 0;
+  }
+
+  async credit(managerId: ManagerId, amount: number): Promise<void> {
+    if (amount <= 0) return;
+    this.scores.set(managerId, (this.scores.get(managerId) ?? 0) + amount);
+  }
+
+  async decayAll(factor: number): Promise<void> {
+    for (const [id, score] of this.scores) this.scores.set(id, score * factor);
+  }
+
+  async topStandings(limit: number): Promise<ManagerLadderStanding[]> {
+    return [...this.scores.entries()]
+      .filter(([, score]) => score > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([managerId, score]) => ({ managerId, score }));
+  }
+
+  async rankFor(managerId: ManagerId): Promise<number | null> {
+    const score = this.scores.get(managerId) ?? 0;
+    if (score <= 0) return null;
+    let higher = 0;
+    for (const [, s] of this.scores) if (s > score) higher++;
+    return higher + 1;
   }
 }
 
@@ -250,10 +291,13 @@ describe('SimulateMatchUseCase', () => {
       new InMemoryRankingLedgerRepository(),
       new StandardManagerXpPolicy(),
       new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
       new InMemoryPeakRankingRepository(),
       new InMemoryTitleRepository(),
       makeTestWorld(),
       testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     const round1MatchCount = tournament.getRounds()[0].matches.length; // 8
@@ -300,10 +344,13 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       // Read the actual slot 0 pairing rather than assuming p1 vs p2 —
@@ -374,10 +421,13 @@ describe('SimulateMatchUseCase', () => {
       new InMemoryRankingLedgerRepository(),
       new StandardManagerXpPolicy(),
       new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
       new InMemoryPeakRankingRepository(),
       new InMemoryTitleRepository(),
       makeTestWorld(),
       testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ matchId: MatchId('final'), tournamentId, roundNumber: 4, matchIndex: 0 });
@@ -441,10 +491,13 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -489,10 +542,13 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -532,10 +588,13 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         managerXpPolicy,
         managerXp,
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await cascadeToRound(useCase, tournaments, tournamentId, 4);
@@ -625,10 +684,13 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         managerXpPolicy,
         managerXp,
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       // A first-round match only ever awards the loser (see the ranking
@@ -688,10 +750,13 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         managerXpPolicy,
         winManagerXp,
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await winUseCase.execute({ matchId: MatchId('final'), tournamentId: winTournamentId, roundNumber: 4, matchIndex: 0 });
@@ -733,10 +798,13 @@ describe('SimulateMatchUseCase', () => {
           new InMemoryRankingLedgerRepository(),
           new StandardManagerXpPolicy(),
           managerXp,
+          new StandardManagerLadderPolicy(),
+          new InMemoryManagerLadderRepository(),
           new InMemoryPeakRankingRepository(),
           new InMemoryTitleRepository(),
           makeTestWorld(),
           testWorldId,
+          new StandardPlayerDevelopmentPolicy(),
         );
 
         await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
@@ -777,15 +845,101 @@ describe('SimulateMatchUseCase', () => {
         new InMemoryRankingLedgerRepository(),
         new StandardManagerXpPolicy(),
         managerXp,
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
 
       expect(await managerXp.balanceFor(MANAGER)).toBe(0);
+    });
+  });
+
+  describe('manager ladder', () => {
+    const MANAGER = ManagerId('m1');
+
+    it('banks ranking points onto the manager ladder at the same event as the ranking ledger', async () => {
+      const tournamentId = TournamentId('t-ladder-loss');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, 'challenger');
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const ladderPolicy = new StandardManagerLadderPolicy();
+      const ladder = new InMemoryManagerLadderRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        rankingLedger,
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+        ladderPolicy,
+        ladder,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      // A first-round match awards the loser their (roundsWon=0) result.
+      const firstMatch = tournament.getRounds()[0].matches[0];
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const loserEntries = await rankingLedger.findByPlayer(firstMatch.entrantB);
+      const bankedPoints = loserEntries[0].points;
+      // The ladder score equals the ranking points that manager's
+      // player earned (RR: managers accumulate all their players' points).
+      expect(await ladder.scoreFor(MANAGER)).toBe(ladderPolicy.creditFor(bankedPoints));
+    });
+
+    it('never credits the ladder for a released (manager-less) player', async () => {
+      const tournamentId = TournamentId('t-ladder-released');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, 'challenger');
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+      const firstMatch = tournament.getRounds()[0].matches[0];
+      const loser = (await players.findById(firstMatch.entrantB))!;
+      loser.releaseFromManager();
+      await players.save(loser);
+
+      const ladder = new InMemoryManagerLadderRepository();
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        ladder,
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+      expect(await ladder.scoreFor(MANAGER)).toBe(0);
     });
   });
 
@@ -831,10 +985,13 @@ describe('SimulateMatchUseCase', () => {
         rankingLedger,
         new StandardManagerXpPolicy(),
         new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
         new InMemoryPeakRankingRepository(),
         new InMemoryTitleRepository(),
         makeTestWorld(),
         testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
       );
     }
 
@@ -1098,10 +1255,13 @@ describe('SimulateMatchUseCase — peak ranking and titles (docs/data-archival-p
       deps.rankingLedger,
       new StandardManagerXpPolicy(),
       new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
       deps.peakRankings,
       deps.titles,
       worlds,
       testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
     );
   }
 
@@ -1227,5 +1387,101 @@ describe('SimulateMatchUseCase — peak ranking and titles (docs/data-archival-p
 
     const allTitles = await Promise.all(fieldIds.map((id) => deps.titles.findByPlayer(id)));
     expect(allTitles.flat()).toHaveLength(0);
+  });
+});
+
+describe('SimulateMatchUseCase — home advantage (P6)', () => {
+  class CapturingSimulator implements MatchSimulator {
+    lastA: MatchParticipant | null = null;
+    lastB: MatchParticipant | null = null;
+    simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
+      this.lastA = playerA;
+      this.lastB = playerB;
+      return {
+        outcome: { winner: playerA.playerId, loser: playerB.playerId, setScores: [{ winnerGames: 6, loserGames: 0 }] },
+        log: { entries: [], points: [], totalDurationSeconds: 0 },
+      };
+    }
+  }
+
+  function makeUseCaseWith(
+    tournaments: InMemoryTournamentRepository,
+    players: InMemoryPlayerRepository,
+    simulator: MatchSimulator,
+  ): SimulateMatchUseCase {
+    return new SimulateMatchUseCase(
+      tournaments,
+      players,
+      simulator,
+      new FakeMatchLogStore(),
+      new RecordingEventPublisher(),
+      new BracketGenerator(),
+      new StandardRankingPointsTable(),
+      new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      makeTestWorld(),
+      testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
+    );
+  }
+
+  /** Seed 1 (entrantA) meets seed 16 (entrantB) at round 1, match 0. */
+  async function runFirstMatch(
+    hostCountry: string | null,
+    seed1Nationality: string,
+    seed16Nationality: string,
+  ): Promise<CapturingSimulator> {
+    const bracketGenerator = new BracketGenerator();
+    const tournament = Tournament.open({
+      name: 'Home Test Open',
+      id: TournamentId('home-t1'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      hostCountry,
+    });
+    for (let i = 1; i <= 16; i++) tournament.registerEntrant({ playerId: PlayerId(`hp${i}`), seed: i });
+    const [round1] = bracketGenerator.generate(tournament.entrants, 16);
+    tournament.startWithBracket([round1]);
+
+    const tournaments = new InMemoryTournamentRepository();
+    await tournaments.save(tournament);
+
+    const players = new InMemoryPlayerRepository();
+    for (let i = 1; i <= 16; i++) {
+      const nationality = i === 1 ? seed1Nationality : i === 16 ? seed16Nationality : 'ZZ';
+      await players.save(
+        Player.hire(PlayerId(`hp${i}`), `hp${i}`, 20 * 52, startingAttributes(), ManagerId('m1'), nationality),
+      );
+    }
+
+    const simulator = new CapturingSimulator();
+    const useCase = makeUseCaseWith(tournaments, players, simulator);
+    await useCase.execute({ matchId: MatchId('home-m1'), tournamentId: TournamentId('home-t1'), roundNumber: 1, matchIndex: 0 });
+    return simulator;
+  }
+
+  it('flags the player whose nationality matches the host country as home, and only them', async () => {
+    const simulator = await runFirstMatch('Spain', 'Spain', 'Italy');
+    expect(simulator.lastA?.homeAdvantage).toBe(true);
+    expect(simulator.lastB?.homeAdvantage).toBe(false);
+  });
+
+  it('flags neither player when the host country matches no one', async () => {
+    const simulator = await runFirstMatch('Spain', 'Italy', 'France');
+    expect(simulator.lastA?.homeAdvantage).toBe(false);
+    expect(simulator.lastB?.homeAdvantage).toBe(false);
+  });
+
+  it('flags no one when the tournament has no host country (pre-P6 rows, tests)', async () => {
+    const simulator = await runFirstMatch(null, 'Spain', 'Spain');
+    expect(simulator.lastA?.homeAdvantage).toBe(false);
+    expect(simulator.lastB?.homeAdvantage).toBe(false);
   });
 });

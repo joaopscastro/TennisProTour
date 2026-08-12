@@ -59,6 +59,10 @@ class InMemoryPlayerRepository implements PlayerRepository {
     return [...this.store.values()];
   }
 
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
   async save(player: Player): Promise<void> {
     this.store.set(player.id, player);
   }
@@ -233,7 +237,7 @@ describe('RegisterEntrantUseCase', () => {
     });
   });
 
-  describe('junior weekly entry cap', () => {
+  describe('weekly entry cap', () => {
     it(`rejects registering a player into a ${JUNIOR_WEEKLY_ENTRY_CAP + 1}th junior tournament in the same GameWeek`, async () => {
       const tournaments = new InMemoryTournamentRepository();
       const players = new InMemoryPlayerRepository();
@@ -410,21 +414,35 @@ describe('RegisterEntrantUseCase', () => {
       expect(week4Entries).toHaveLength(1);
     });
 
-    it('does not apply the junior cap to senior-tier registration — a player may enter more than the junior cap worth of senior tournaments in one week', async () => {
+    it('caps the senior tour at one tournament per week (SENIOR_WEEKLY_ENTRY_CAP) — a second same-week senior entry is rejected', async () => {
       const tournaments = new InMemoryTournamentRepository();
       const players = new InMemoryPlayerRepository();
       const week: GameWeek = { season: 1, week: 1 };
       const player = PlayerId('senior-player');
       const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
 
-      for (let i = 1; i <= JUNIOR_WEEKLY_ENTRY_CAP + 2; i++) {
-        const id = TournamentId(`senior${i}`);
-        await tournaments.save(openTournament(id, week));
-        await expect(useCase.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
-      }
+      // First senior entry this week succeeds.
+      const first = TournamentId('senior1');
+      await tournaments.save(openTournament(first, week));
+      await expect(useCase.execute({ tournamentId: first, playerId: player })).resolves.toBeUndefined();
 
-      const registrations = await tournaments.findByPlayerAndWeek(player, week);
-      expect(registrations).toHaveLength(JUNIOR_WEEKLY_ENTRY_CAP + 2);
+      // A second senior tournament the SAME week must be rejected — a
+      // player can only play one tournament per week.
+      const second = TournamentId('senior2');
+      await tournaments.save(openTournament(second, week));
+      await expect(useCase.execute({ tournamentId: second, playerId: player })).rejects.toThrow(
+        /already entered 1 senior tournaments/,
+      );
+
+      // The rejected registration must not have partially applied.
+      const rejected = await tournaments.findById(second);
+      expect(rejected!.entrants).toHaveLength(0);
+
+      // A DIFFERENT week is unaffected — the cap is per-week.
+      const nextWeek: GameWeek = { season: 1, week: 2 };
+      const third = TournamentId('senior3');
+      await tournaments.save(openTournament(third, nextWeek));
+      await expect(useCase.execute({ tournamentId: third, playerId: player })).resolves.toBeUndefined();
     });
 
     it('does not let a senior registration count against, or be blocked by, a junior weekly count', async () => {

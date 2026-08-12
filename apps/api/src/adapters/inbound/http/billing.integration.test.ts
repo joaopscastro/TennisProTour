@@ -7,7 +7,7 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import Stripe from 'stripe';
 import { FastifyInstance } from 'fastify';
-import { ManagerId, PlayerAttributes, Skill, SurfaceAffinities, TalentPoolCandidate, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { ManagerId, Player, PlayerAttributes, PlayerId, Skill, StandardAgingPolicy, SurfaceAffinities } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
 import { testConnectionString } from '../../../db/testConnection';
 import { buildDependencies, Dependencies } from '../../../composition';
@@ -58,7 +58,6 @@ beforeEach(async () => {
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
-  await db.delete(schema.talentPoolCandidates);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
 });
@@ -83,19 +82,23 @@ function fixedAttributes(base: number): PlayerAttributes {
  * ClaimTalentPoolCandidateUseCase.test.ts for pricing coverage). */
 const AMPLE_XP_FOR_TESTS = 100_000;
 
-/** Seeds a talent pool candidate at a fixed id, funds the claiming
- * manager with ample XP (claiming costs XP now — see
- * docs/manager-xp-and-coaching-system.md), then claims it via the real
- * HTTP endpoint — hiring is pool-based now (see docs/CLAUDE.md), so
- * this replaces the old direct POST /players helper while keeping the
- * same `hirePlayer(id, managerId)` call shape the roster-cap tests
- * below rely on. */
+/** Seeds a free-agent Player at a fixed id, funds the signing manager
+ * with ample XP (signing costs XP now — see
+ * docs/manager-xp-and-coaching-system.md), then signs it via the real
+ * HTTP endpoint while keeping the same `hirePlayer(id, managerId)` call
+ * shape the roster-cap tests below rely on. */
 async function hirePlayer(id: string, managerId: string): Promise<number> {
-  await deps.talentPoolCandidates.save(
-    TalentPoolCandidate.generate(
-      TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising', physicalCeilings: { speed: 100, stamina: 100, strength: 100 } },
-      { season: 1, week: 1 },
+  const agingPolicy = new StandardAgingPolicy();
+  await deps.players.save(
+    Player.generateFillOnly(
+      PlayerId(id),
+      `Player ${id}`,
+      750,
+      agingPolicy.stageForAge(750),
+      fixedAttributes(30),
+      'BR',
+      100,
+      { speed: 100, stamina: 100, strength: 100 },
     ),
   );
   await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);

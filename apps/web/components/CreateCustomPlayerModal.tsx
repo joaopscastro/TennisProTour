@@ -45,36 +45,36 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(20,18,16,0.45)' }}
+      style={{ background: 'rgba(6,10,8,0.66)', backdropFilter: 'blur(3px)' }}
       onClick={onClose}
     >
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-[420px] rounded-[10px] bg-white p-6"
+        className="w-full max-w-[420px] gc-card rounded-[14px] p-6"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="text-[16px] font-bold" style={{ color: 'oklch(20% 0.006 75)' }}>
+        <div className="text-[16px] font-bold" style={{ color: 'var(--gc-ink)' }}>
           Create a custom player
         </div>
-        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'oklch(50% 0.006 75)' }}>
+        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'var(--gc-ink-mute)' }}>
           Skip the talent pool and name your own player — attributes are still randomly generated the same way a pool
           candidate&apos;s are, no stat advantage.
         </div>
         <div
           className="mb-4 text-[12px] font-semibold rounded-[6px] px-3 py-2 inline-block"
-          style={{ background: 'oklch(93% 0.03 75)', color: 'oklch(38% 0.1 60)' }}
+          style={{ background: 'oklch(45% 0.13 80 / 0.28)', color: 'var(--gc-gold)' }}
         >
           {creditsRemaining} custom player credit{creditsRemaining === 1 ? '' : 's'} remaining
         </div>
 
         {error && (
-          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
 
         <label className="flex flex-col gap-[6px] mb-3">
-          <span className="text-[12px] font-semibold" style={{ color: 'oklch(35% 0.006 75)' }}>
+          <span className="text-[12px] font-semibold" style={{ color: 'var(--gc-ink-dim)' }}>
             Name
           </span>
           <input
@@ -83,12 +83,12 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Marta Vukovic"
             className="rounded-[6px] px-3 py-[9px] text-[13.5px]"
-            style={{ border: '1px solid oklch(85% 0.006 75)' }}
+            style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-bg-deep)', color: 'var(--gc-ink)' }}
           />
         </label>
 
         <label className="flex flex-col gap-[6px] mb-1">
-          <span className="text-[12px] font-semibold" style={{ color: 'oklch(35% 0.006 75)' }}>
+          <span className="text-[12px] font-semibold" style={{ color: 'var(--gc-ink-dim)' }}>
             Nationality (2-letter code)
           </span>
           <input
@@ -97,11 +97,11 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
             placeholder="e.g. BR"
             maxLength={2}
             className="rounded-[6px] px-3 py-[9px] text-[13.5px] w-[100px] uppercase"
-            style={{ border: '1px solid oklch(85% 0.006 75)' }}
+            style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-bg-deep)', color: 'var(--gc-ink)' }}
           />
         </label>
         {nationality.length > 0 && !nationalityValid && (
-          <div className="text-[11.5px] mb-2" style={{ color: 'oklch(50% 0.13 30)' }}>
+          <div className="text-[11.5px] mb-2" style={{ color: 'oklch(78% 0.14 35)' }}>
             Enter exactly 2 letters, e.g. "BR" or "US".
           </div>
         )}
@@ -111,7 +111,7 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
             type="button"
             onClick={onClose}
             className="px-[14px] py-[9px] rounded-[6px] bg-transparent text-[12.5px] font-semibold cursor-pointer"
-            style={{ border: '1px solid oklch(88% 0.006 75)', color: 'oklch(35% 0.006 75)' }}
+            style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
           >
             Cancel
           </button>
@@ -119,7 +119,7 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
             type="submit"
             disabled={!canSubmit || submitting}
             className="px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: 'oklch(20% 0.006 75)' }}
+            style={{ background: 'var(--gc-ink)' }}
           >
             {submitting ? 'Creating…' : 'Create player (1 credit)'}
           </button>

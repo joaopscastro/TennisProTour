@@ -27,12 +27,44 @@ import {
   CoachRepository,
   EventPublisherPort,
   GameWorldRepository,
+  ManagerLadderRepository,
+  ManagerLadderStanding,
   PlayerRepository,
   RankingLedgerRepository,
   TrainingScheduleRepository,
 } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
-import { AdvanceWorldWeekUseCase } from './AdvanceWorldWeekUseCase';
+import { AdvanceWorldWeekUseCase, AdvanceWorldWeekResult, FATIGUE_RECOVERY_PER_DAY, FORM_WEEKLY_DECAY } from './AdvanceWorldWeekUseCase';
+import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
+import { StandardPlayerDevelopmentPolicy } from '@tennis-manager/domain';
+
+class InMemoryManagerLadderRepository implements ManagerLadderRepository {
+  readonly scores = new Map<ManagerId, number>();
+  async scoreFor(managerId: ManagerId): Promise<number> {
+    return this.scores.get(managerId) ?? 0;
+  }
+  async credit(managerId: ManagerId, amount: number): Promise<void> {
+    if (amount <= 0) return;
+    this.scores.set(managerId, (this.scores.get(managerId) ?? 0) + amount);
+  }
+  async decayAll(factor: number): Promise<void> {
+    for (const [id, score] of this.scores) this.scores.set(id, score * factor);
+  }
+  async topStandings(limit: number): Promise<ManagerLadderStanding[]> {
+    return [...this.scores.entries()]
+      .filter(([, s]) => s > 0)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([managerId, score]) => ({ managerId, score }));
+  }
+  async rankFor(managerId: ManagerId): Promise<number | null> {
+    const score = this.scores.get(managerId) ?? 0;
+    if (score <= 0) return null;
+    let higher = 0;
+    for (const [, s] of this.scores) if (s > score) higher++;
+    return higher + 1;
+  }
+}
 
 class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
   private readonly entries: RankingLedgerEntry[] = [];
@@ -125,6 +157,10 @@ class InMemoryPlayerRepository implements PlayerRepository {
     return [...this.store.values()];
   }
 
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
   async save(player: Player): Promise<void> {
     this.saveCount += 1;
     this.store.set(player.id, player);
@@ -166,7 +202,7 @@ async function setup(playerCount: number) {
   const events = new RecordingEventPublisher();
   const schedule = new InMemoryTrainingScheduleRepository();
   const worldId = WorldId('main');
-  await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+  await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
   for (let i = 1; i <= playerCount; i++) {
     const player = Player.hire(PlayerId(`p${i}`), `Player ${i}`, 25 * 52, startingAttributes(), ManagerId('m1'));
     player.pullDomainEvents();
@@ -175,6 +211,8 @@ async function setup(playerCount: number) {
   players.saveCount = 0;
   const standardAging = new PlayerAgingService(new StandardAgingPolicy());
   const coaches = new InMemoryCoachRepository();
+  const ladder = new InMemoryManagerLadderRepository();
+  const ladderPolicy = new StandardManagerLadderPolicy();
   const useCase = new AdvanceWorldWeekUseCase(
     worlds,
     players,
@@ -186,8 +224,29 @@ async function setup(playerCount: number) {
     coaches,
     new InMemoryRankingLedgerRepository(),
     schedule,
+    ladder,
+    ladderPolicy,
+    new StandardPlayerDevelopmentPolicy(),
   );
-  return { worlds, players, events, worldId, useCase, coaches, schedule };
+  return { worlds, players, events, worldId, useCase, coaches, schedule, ladder, ladderPolicy };
+}
+
+// A game week is now 7 day-ticks (see docs/day-tick-and-scheduling.md).
+// The world clock advances one DAY per execute(); the weekly systems
+// (aging/training/graduation) fire only on the day-7 -> day-1 rollover.
+// Tests position their world at day 7 so the FIRST execute rolls the
+// week over; this helper advances a FULL further week for the few
+// multi-week tests, ticking (with unique keys) until the next rollover
+// and returning that rollover tick's result.
+let weeklyTickSeq = 0;
+async function advanceOneWeek(
+  useCase: AdvanceWorldWeekUseCase,
+  worldId: WorldId,
+): Promise<AdvanceWorldWeekResult> {
+  for (;;) {
+    const r = await useCase.execute({ worldId, tickKey: `auto-week-${++weeklyTickSeq}` });
+    if (r.weekRolledOver) return r;
+  }
 }
 
 describe('AdvanceWorldWeekUseCase', () => {
@@ -196,11 +255,128 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     const result = await useCase.execute({ worldId, tickKey: '2026-W31' });
 
-    expect(result).toEqual({ advanced: true, playersAged: 3 });
+    expect(result).toEqual({ advanced: true, weekRolledOver: true, playersAged: 3 });
     expect((await worlds.findById(worldId))!.currentWeek).toEqual({ season: 1, week: 2 });
     for (const player of await players.findAll()) {
       expect(player.ageInWeeks).toBe(25 * 52 + 1);
     }
+  });
+
+  it('decays every manager ladder score once per weekly rollover', async () => {
+    const { worldId, useCase, ladder, ladderPolicy } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 1000);
+    await ladder.credit(ManagerId('m2'), 500);
+
+    const result = await useCase.execute({ worldId, tickKey: 'decay-week-1' });
+    expect(result.weekRolledOver).toBe(true);
+
+    const factor = ladderPolicy.weeklyDecayFactor();
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor);
+    expect(await ladder.scoreFor(ManagerId('m2'))).toBeCloseTo(500 * factor);
+  });
+
+  it('does not decay the ladder on a mid-week day tick (no rollover)', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const worldId = WorldId('main');
+    // Position at day 3 so the next execute is a mid-week tick, not a rollover.
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 3, lastAppliedTick: null }));
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const ladder = new InMemoryManagerLadderRepository();
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new StandardTrainingPolicy(),
+      new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
+      new InMemoryTrainingScheduleRepository(),
+      ladder,
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
+    );
+    await ladder.credit(ManagerId('m1'), 1000);
+
+    const result = await useCase.execute({ worldId, tickKey: 'midweek-1' });
+    expect(result.weekRolledOver).toBe(false);
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBe(1000);
+  });
+
+  describe('fatigue recovery and form decay', () => {
+    it('recovers fatigue on a MID-WEEK day tick without decaying form or aging', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const worldId = WorldId('main');
+      // Day 3 of 7 — the next tick is a mid-week day, NOT a rollover.
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 3, lastAppliedTick: null }));
+      const player = Player.hire(PlayerId('p1'), 'Tired Player', 25 * 52, startingAttributes(), ManagerId('m1'));
+      player.applyMatchFatigue(50);
+      player.applyMatchForm(20);
+      player.pullDomainEvents();
+      await players.save(player);
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        new InMemoryRankingLedgerRepository(),
+        new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      const result = await useCase.execute({ worldId, tickKey: 'mid-week-tick' });
+
+      expect(result).toEqual({ advanced: true, weekRolledOver: false, playersAged: 0 });
+      const after = (await players.findById(PlayerId('p1')))!;
+      expect(after.fatigue).toBe(50 - FATIGUE_RECOVERY_PER_DAY);
+      expect(after.form).toBe(20); // form only decays on the weekly rollover
+      expect(after.ageInWeeks).toBe(25 * 52); // no aging mid-week
+    });
+
+    it('recovers a day of fatigue AND decays form on the weekly rollover', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
+      const player = Player.hire(PlayerId('p1'), 'Tired Player', 25 * 52, startingAttributes(), ManagerId('m1'));
+      player.applyMatchFatigue(50);
+      player.applyMatchForm(20);
+      player.pullDomainEvents();
+      await players.save(player);
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        new InMemoryRankingLedgerRepository(),
+        new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      const result = await useCase.execute({ worldId, tickKey: 'rollover-tick' });
+
+      expect(result.weekRolledOver).toBe(true);
+      const after = (await players.findById(PlayerId('p1')))!;
+      expect(after.fatigue).toBe(50 - FATIGUE_RECOVERY_PER_DAY);
+      expect(after.form).toBe(Math.round(20 * FORM_WEEKLY_DECAY));
+    });
   });
 
   it('is a no-op when run twice for the same tick', async () => {
@@ -211,7 +387,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const second = await useCase.execute({ worldId, tickKey: '2026-W31' });
 
     expect(first.advanced).toBe(true);
-    expect(second).toEqual({ advanced: false, playersAged: 0 });
+    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0 });
     // No player was touched or saved again, and the clock stayed put.
     expect(players.saveCount).toBe(savesAfterFirst);
     for (const player of await players.findAll()) {
@@ -224,7 +400,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const { worlds, worldId, useCase } = await setup(1);
 
     await useCase.execute({ worldId, tickKey: '2026-W31' });
-    const result = await useCase.execute({ worldId, tickKey: '2026-W32' });
+    const result = await advanceOneWeek(useCase, worldId);
 
     expect(result.advanced).toBe(true);
     expect((await worlds.findById(worldId))!.currentWeek).toEqual({ season: 1, week: 3 });
@@ -233,7 +409,7 @@ describe('AdvanceWorldWeekUseCase', () => {
   it('rolls the season over after week 52', async () => {
     const worlds = new InMemoryGameWorldRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 52 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 52 }, currentDay: 7, lastAppliedTick: null }));
     const standardAging = new PlayerAgingService(new StandardAgingPolicy());
     const useCase = new AdvanceWorldWeekUseCase(
       worlds,
@@ -246,6 +422,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       new InMemoryTrainingScheduleRepository(),
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -258,7 +437,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const events = new RecordingEventPublisher();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const player = Player.hire(PlayerId('old'), 'Old Timer', 38 * 52 - 1, startingAttributes(), ManagerId('m1'));
     player.pullDomainEvents();
     await players.save(player);
@@ -274,6 +453,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       new InMemoryTrainingScheduleRepository(),
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -286,7 +468,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const worlds = new InMemoryGameWorldRepository();
     const players = new InMemoryPlayerRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
     // Base policy with a decline delta large enough to survive Skill's
     // integer rounding, so the multiplier's effect is observable.
@@ -316,6 +498,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       new InMemoryTrainingScheduleRepository(),
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -339,9 +524,10 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const schedule = new InMemoryTrainingScheduleRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
     player.pullDomainEvents();
+    player.gainExperience(10000); // P4: training is now XP-funded; give ample balance so the standing-order mechanic under test applies fully
     await players.save(player);
     await schedule.save({ playerId: PlayerId('p1'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'surface', surface: 'grass' } });
 
@@ -357,6 +543,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -371,9 +560,10 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const schedule = new InMemoryTrainingScheduleRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
     player.pullDomainEvents();
+    player.gainExperience(10000); // P4: XP-funded training
     await players.save(player);
 
     // Standing order from week 1: clay. A future order for week 3: serve.
@@ -392,6 +582,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     // Tick 1: world moves to week 2 — still under the week-1 clay order.
@@ -401,7 +594,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     expect(p!.attributes.technical.serve.value).toBe(30); // untouched — week 3's order hasn't arrived
 
     // Tick 2: world moves to week 3 — the scheduled future entry now applies.
-    await useCase.execute({ worldId, tickKey: 'tick-2' });
+    await advanceOneWeek(useCase, worldId);
     p = await players.findById(PlayerId('p1'));
     expect(p!.attributes.technical.serve.value).toBe(36); // 30 + 6, week-3 order now in effect
     expect(p!.attributes.surfaceAffinities.get('clay')).toBe(26); // untouched this tick — no longer the standing order
@@ -417,10 +610,11 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const schedule = new InMemoryTrainingScheduleRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const attributes = startingAttributes().trainedOnAttribute('backhand', -10); // 30 -> 20
     const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 25 * 52, 'prime', attributes);
     fillOnly.pullDomainEvents();
+    fillOnly.gainExperience(10000); // P4: XP-funded training
     await players.save(fillOnly);
     // Even a stray schedule entry (should never really happen — no
     // manager exists to create one) must not override the fillOnly
@@ -439,6 +633,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -454,7 +651,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const worlds = new InMemoryGameWorldRepository();
     const players = new InMemoryPlayerRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     // backhand (20) starts weakest; a single +6 session brings it to 26,
     // which ties speed/stamina/strength at their own starting 30 only
     // if nothing else changes — set stamina lower (18) so it becomes
@@ -464,6 +661,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     attributes = attributes.trainedOnAttribute('stamina', -12); // 30 -> 18
     const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 25 * 52, 'prime', attributes);
     fillOnly.pullDomainEvents();
+    fillOnly.gainExperience(10000); // P4: XP-funded training
     await players.save(fillOnly);
 
     const standardAging = new PlayerAgingService(new StandardAgingPolicy());
@@ -478,6 +676,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       new InMemoryTrainingScheduleRepository(),
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -485,7 +686,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     expect(mid!.attributes.attributeValue('stamina')).toBe(24); // 18 + 6: this tick's weakest
     expect(mid!.attributes.attributeValue('backhand')).toBe(20); // untouched this tick
 
-    await useCase.execute({ worldId, tickKey: 'tick-2' });
+    await advanceOneWeek(useCase, worldId);
     const after = await players.findById(PlayerId('filler-1'));
     // backhand (20) is now the weakest, not stamina (24 after tick 1) —
     // confirms the target is recomputed fresh, not frozen from tick 1.
@@ -497,7 +698,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const worlds = new InMemoryGameWorldRepository();
     const players = new InMemoryPlayerRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const fillOnly = Player.generateFillOnly(PlayerId('filler-1'), 'Filler One', 38 * 52 - 1, 'decline', startingAttributes());
     fillOnly.pullDomainEvents();
     await players.save(fillOnly);
@@ -514,6 +715,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       new InMemoryTrainingScheduleRepository(),
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -528,9 +732,10 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const schedule = new InMemoryTrainingScheduleRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
     const player = Player.hire(PlayerId('p1'), 'Player 1', 25 * 52, startingAttributes(), ManagerId('m1'));
     player.pullDomainEvents();
+    player.gainExperience(10000); // P4: XP-funded training
     await players.save(player);
     await schedule.save({ playerId: PlayerId('p1'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'attribute', attribute: 'serve' } });
 
@@ -546,12 +751,15 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryCoachRepository(),
       new InMemoryRankingLedgerRepository(),
       schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
     const second = await useCase.execute({ worldId, tickKey: 'tick-1' });
 
-    expect(second).toEqual({ advanced: false, playersAged: 0 });
+    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0 });
     expect((await players.findById(PlayerId('p1')))!.attributes.technical.serve.value).toBe(33); // 30 + 3, not +6
   });
 
@@ -560,16 +768,18 @@ describe('AdvanceWorldWeekUseCase', () => {
     const players = new InMemoryPlayerRepository();
     const schedule = new InMemoryTrainingScheduleRepository();
     const worldId = WorldId('main');
-    await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
     const coachedManager = ManagerId('coached-m');
     const uncoachedManager = ManagerId('uncoached-m');
     const coachedPlayer = Player.hire(PlayerId('coached-p'), 'Coached', 25 * 52, startingAttributes(), coachedManager);
     coachedPlayer.pullDomainEvents();
+    coachedPlayer.gainExperience(10000); // P4: XP-funded training
     await players.save(coachedPlayer);
     await schedule.save({ playerId: PlayerId('coached-p'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'surface', surface: 'grass' } });
     const uncoachedPlayer = Player.hire(PlayerId('uncoached-p'), 'Uncoached', 25 * 52, startingAttributes(), uncoachedManager);
     uncoachedPlayer.pullDomainEvents();
+    uncoachedPlayer.gainExperience(10000); // P4: XP-funded training
     await players.save(uncoachedPlayer);
     await schedule.save({ playerId: PlayerId('uncoached-p'), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'surface', surface: 'grass' } });
 
@@ -588,6 +798,9 @@ describe('AdvanceWorldWeekUseCase', () => {
       coaches,
       new InMemoryRankingLedgerRepository(),
       schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -596,6 +809,63 @@ describe('AdvanceWorldWeekUseCase', () => {
     const uncoachedResult = (await players.findById(PlayerId('uncoached-p')))!.attributes.surfaceAffinities.get('grass');
     expect(coachedResult).toBeGreaterThan(uncoachedResult); // same base delta, coach pushes one higher
     expect(uncoachedResult).toBe(30); // 20 + 10, exactly the uncoached base delta
+  });
+
+  it('funds weekly training from talent income only: a higher-talent player grows more per tick, a zero-talent player not at all (P4)', async () => {
+    const worlds = new InMemoryGameWorldRepository();
+    const players = new InMemoryPlayerRepository();
+    const schedule = new InMemoryTrainingScheduleRepository();
+    const worldId = WorldId('main');
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
+
+    // Three players, identical starting attributes + identical standing
+    // training order, differing ONLY in talent. Crucially NO player is
+    // pre-funded with experience — the only thing that can pay for this
+    // tick's training is the weekly talent income credited on the tick
+    // itself, so growth is strictly a function of talent.
+    const mk = (id: string, talent: number) =>
+      Player.hire(PlayerId(id), id, 25 * 52, startingAttributes(), ManagerId('m1'), 'XX', 100, { speed: 100, stamina: 100, strength: 100 }, talent);
+    for (const [id, talent] of [['high-t', 95], ['low-t', 50], ['zero-t', 0]] as const) {
+      const p = mk(id, talent);
+      p.pullDomainEvents();
+      await players.save(p);
+      await schedule.save({ playerId: PlayerId(id), effectiveFrom: { season: 1, week: 1 }, focus: { kind: 'attribute', attribute: 'serve' } });
+    }
+
+    const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+    const useCase = new AdvanceWorldWeekUseCase(
+      worlds,
+      players,
+      new FakeBillingPort(),
+      standardAging,
+      standardAging,
+      new RecordingEventPublisher(),
+      new FixedTrainingPolicy(6),
+      new InMemoryCoachRepository(),
+      new InMemoryRankingLedgerRepository(),
+      schedule,
+      new InMemoryManagerLadderRepository(),
+      new StandardManagerLadderPolicy(),
+      new StandardPlayerDevelopmentPolicy(),
+    );
+
+    // Run several ticks so the slow weekly income accumulates into
+    // visible skill points. NOTE the disclosed integer-rounding plateau
+    // (see Player.applyTraining): a per-tick funded delta below ~0.5
+    // rounds away entirely, so talents are chosen here to clear that
+    // per-tick threshold; a talent-0 player earns nothing and never
+    // grows regardless of weeks.
+    await useCase.execute({ worldId, tickKey: 'tick-1' });
+    for (let i = 2; i <= 20; i++) await advanceOneWeek(useCase, worldId);
+
+    const serveOf = async (id: string) => (await players.findById(PlayerId(id)))!.attributes.technical.serve.value;
+    const high = await serveOf('high-t');
+    const low = await serveOf('low-t');
+    const zero = await serveOf('zero-t');
+
+    expect(zero).toBe(30); // no talent income, no match XP => no funding => no growth at all
+    expect(high).toBeGreaterThan(low); // more talent funds more training over the same weeks
+    expect(low).toBeGreaterThan(zero); // some talent still develops, just slower
   });
 
   describe('junior graduation carryover', () => {
@@ -615,7 +885,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository();
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
       // 14*52 (not 14*52 - 1) is the real, inclusive U14 upper edge —
       // "14-and-under" — so this player is still U14-eligible one tick
@@ -638,6 +908,9 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryCoachRepository(),
         rankingLedger,
         new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -660,7 +933,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository(); // empty
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
       const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52 - 1, startingAttributes(), ManagerId('m1'));
       player.pullDomainEvents();
@@ -678,6 +951,9 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryCoachRepository(),
         rankingLedger,
         new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -692,7 +968,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository();
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
       // Comfortably mid-U14, nowhere near the 14-year boundary.
       const player = Player.hire(PlayerId('p1'), 'Player 1', 10 * 52, startingAttributes(), ManagerId('m1'));
@@ -712,6 +988,9 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryCoachRepository(),
         rankingLedger,
         new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -724,7 +1003,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository();
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
 
       // See the first test in this describe block for why 14*52 (not
       // 14*52 - 1) is the correct starting age to cross on this tick.
@@ -745,6 +1024,9 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryCoachRepository(),
         rankingLedger,
         new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' }); // crosses U14 -> U16, records a dormant bonus
@@ -761,3 +1043,4 @@ describe('AdvanceWorldWeekUseCase', () => {
     });
   });
 });
+

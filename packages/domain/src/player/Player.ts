@@ -1,6 +1,7 @@
 import { PlayerId, ManagerId } from '../shared/ids';
 import { PlayerAttributes, Surface, isPhysicalAttribute } from './PlayerAttributes';
 import { PhysicalCeilings } from './PlayerGenerationPolicy';
+import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
@@ -41,6 +42,14 @@ export interface PlayerProps {
   attributes: PlayerAttributes;
   stage: PlayerLifecycleStage;
   fatigue: number; // 0 (fresh) – 100 (exhausted)
+  /** Match rhythm counter (see docs/rocking-rackets-competitive-analysis.md
+   * §1b). Accrues +FORM_PER_MATCH per real match played, decays a fixed
+   * fraction every weekly tick. Both under-playing (rusty) and
+   * over-playing (stale) sit OUTSIDE the sweet-spot band and cost
+   * effective rating in the sim — see formModifier in
+   * StatisticalMatchSimulator. Unlike fatigue (a pure debuff), form is a
+   * band the manager schedules a rhythm around. Clamped to [0, 100]. */
+  form: number;
   // NOTE: there is deliberately no `currentFocus` field here anymore.
   // A player's standing training focus used to be one mutable field
   // Player owned directly (set via a since-removed setTrainingFocus()
@@ -79,6 +88,24 @@ export interface PlayerProps {
    * against now (see that method's doc comment) — potentialCeiling
    * above is the one that's orphaned, not this one. */
   physicalCeilings: PhysicalCeilings;
+  /** Innate growth-rate stat (see
+   * PlayerGenerationPolicy.GeneratedPlayer.talent) — fixed for the
+   * player's whole career, drives how much free experience they accrue
+   * every weekly tick (PlayerDevelopmentPolicy.weeklyTalentIncome).
+   * Hidden like potentialCeiling — NEVER exposed via any DTO in P4 (the
+   * profile-only scouted read on it is P5's job). */
+  talent: number;
+  /** Earned, spendable player-development experience (see
+   * docs/rocking-rackets-competitive-analysis.md §1c and
+   * PlayerDevelopmentPolicy) — accrued from playing matches (scaled by
+   * how competitive they were) and weekly from `talent`, spent by
+   * applyTraining to fund skill growth. Distinct from MANAGER XP
+   * (ManagerXpRepository), which belongs to a manager, not a player: a
+   * free agent still earns and spends its own experience. Starts at 0
+   * for every newly generated/hired player — experience is earned, never
+   * generated. Only ever grows via gainExperience and shrinks via
+   * applyTraining's funding; never negative. */
+  experience: number;
   /** null = no pending graduation-carryover bonus. Set by
    * AdvanceWorldWeekUseCase the week this player crosses a junior
    * age-band boundary; cleared by SimulateMatchUseCase the moment it's
@@ -147,6 +174,14 @@ export class Player {
      * ceilings is unaffected. Real entry points (ClaimTalentPoolCandidateUseCase,
      * CreateCustomPlayerUseCase) always pass the real generated value. */
     physicalCeilings: PhysicalCeilings = { speed: 100, stamina: 100, strength: 100 },
+    /** Same "optional trailing param, real entry points always pass a
+     * real value" convention as physicalCeilings above. Defaults to 0 —
+     * "no innate growth-rate advantage," so every pre-existing call site
+     * that never heard of talent is unaffected (a talent-0 player simply
+     * earns no weekly talent income and develops only from match XP).
+     * Real entry points (ClaimTalentPoolCandidateUseCase,
+     * CreateCustomPlayerUseCase) always pass the real generated value. */
+    talent = 0,
   ): Player {
     const player = new Player({
       id,
@@ -157,8 +192,11 @@ export class Player {
       attributes,
       stage: 'youth',
       fatigue: 0,
+      form: 0,
       potentialCeiling,
       physicalCeilings,
+      talent,
+      experience: 0,
       dormantCarryoverBonus: null,
       fillOnly: false,
     });
@@ -193,6 +231,7 @@ export class Player {
     nationality = 'XX',
     potentialCeiling = 100,
     physicalCeilings: PhysicalCeilings = { speed: 100, stamina: 100, strength: 100 },
+    talent = 0,
   ): Player {
     const player = new Player({
       id,
@@ -203,8 +242,11 @@ export class Player {
       attributes,
       stage,
       fatigue: 0,
+      form: 0,
       potentialCeiling,
       physicalCeilings,
+      talent,
+      experience: 0,
       dormantCarryoverBonus: null,
       fillOnly: true,
     });
@@ -255,6 +297,10 @@ export class Player {
     return this.props.fatigue;
   }
 
+  get form() {
+    return this.props.form;
+  }
+
   /** Hidden — see PlayerProps.potentialCeiling's doc comment. Read by
    * applyTraining() and by repository adapters that need to persist
    * it; never by anything building an HTTP-facing DTO. */
@@ -266,6 +312,20 @@ export class Player {
    * read by anything building an HTTP-facing DTO. */
   get physicalCeilings() {
     return this.props.physicalCeilings;
+  }
+
+  /** Hidden — see PlayerProps.talent's doc comment. Read by
+   * AdvanceWorldWeekUseCase (weekly XP income) and repository adapters;
+   * never by anything building an HTTP-facing DTO in P4. */
+  get talent() {
+    return this.props.talent;
+  }
+
+  /** Earned player-development experience — see PlayerProps.experience.
+   * Read by repository adapters and by tests; the visible surface for it
+   * is P5's job, not a P4 DTO field. */
+  get experience() {
+    return this.props.experience;
   }
 
   get dormantCarryoverBonus() {
@@ -311,12 +371,32 @@ export class Player {
    * entry points pass a real value" convention as hire()'s
    * nationality/potentialCeiling params. The real caller
    * (AdvanceWorldWeekUseCase) looks up the manager's coach and passes
-   * its coachRating through. */
-  applyTraining(focus: TrainingFocus, policy: TrainingPolicy, coachRating: number | null = null): void {
+   * its coachRating through.
+   *
+   * `development` (P4 — docs/rocking-rackets-competitive-analysis.md
+   * §1c) is the SAME optional-trailing-param convention: when null (the
+   * legacy default, and what every pre-P4 test/call site passes), the
+   * full base delta is applied for free, exactly as before — training
+   * costs nothing. When a PlayerDevelopmentPolicy is passed (the real
+   * caller, AdvanceWorldWeekUseCase), training is instead FUNDED by this
+   * player's earned `experience`: the base delta is capped at what the
+   * player can currently afford (experienceCostPerSkillPoint per point),
+   * and that experience is spent. A player with no experience grows not
+   * at all — growth is earned by playing (match XP) and by talent
+   * (weekly income), never free. The funding gates the BASE delta;
+   * ceiling diminishing-returns and coach bonus then apply to whatever
+   * was funded, unchanged. */
+  applyTraining(
+    focus: TrainingFocus,
+    policy: TrainingPolicy,
+    coachRating: number | null = null,
+    development: PlayerDevelopmentPolicy | null = null,
+  ): void {
     if (this.isRetired()) {
       throw new Error(`Cannot train retired player ${this.props.id}`);
     }
-    const baseDelta = policy.computeDelta(focus, this.props.stage);
+    const baseDelta = this.fundBaseDelta(policy.computeDelta(focus, this.props.stage), development);
+    if (baseDelta <= 0) return;
     if (focus.kind === 'surface') {
       const delta = applyCoachBonus(baseDelta, coachRating);
       const updatedAttributes = this.props.attributes.trainedOnSurface(focus.surface, delta);
@@ -332,6 +412,36 @@ export class Player {
     this.props = { ...this.props, attributes: updatedAttributes };
   }
 
+  /** Caps a base training delta at what this player's earned experience
+   * can pay for and spends that experience, when a development policy is
+   * in effect; returns the base delta untouched (and spends nothing)
+   * when it isn't — see applyTraining's doc comment for the two modes.
+   * Only ever a debit of experience, never a credit; never drives
+   * experience negative. */
+  private fundBaseDelta(baseDelta: number, development: PlayerDevelopmentPolicy | null): number {
+    if (development === null || baseDelta <= 0) return baseDelta;
+    const costPerPoint = development.experienceCostPerSkillPoint();
+    if (costPerPoint <= 0) return baseDelta; // defensive: a free policy funds fully
+    const affordablePoints = this.props.experience / costPerPoint;
+    const fundedBase = Math.min(baseDelta, affordablePoints);
+    if (fundedBase <= 0) return 0;
+    this.props = { ...this.props, experience: Math.max(0, this.props.experience - fundedBase * costPerPoint) };
+    return fundedBase;
+  }
+
+  /** Credits earned player-development experience — called by
+   * SimulateMatchUseCase (match XP for both participants) and
+   * AdvanceWorldWeekUseCase (weekly talent income). Same "direct Player
+   * mutator, no policy indirection" shape as applyMatchFatigue/
+   * applyMatchForm; the amount is computed by PlayerDevelopmentPolicy at
+   * the call site, Player just banks it. Negative or zero amounts are
+   * ignored (experience is only ever earned here; it is spent only via
+   * applyTraining's funding). */
+  gainExperience(amount: number): void {
+    if (amount <= 0) return;
+    this.props = { ...this.props, experience: this.props.experience + amount };
+  }
+
   applyMatchFatigue(fatigueDelta: number): void {
     this.props = {
       ...this.props,
@@ -341,6 +451,29 @@ export class Player {
 
   recoverFatigue(amount: number): void {
     this.applyMatchFatigue(-amount);
+  }
+
+  /** Adds to this player's form counter after a real match — called by
+   * SimulateMatchUseCase for both participants, same "direct Player
+   * mutator, no policy indirection" shape as applyMatchFatigue. Clamped
+   * to [0, 100]. See PlayerProps.form's doc comment. */
+  applyMatchForm(formDelta: number): void {
+    this.props = {
+      ...this.props,
+      form: Math.max(0, Math.min(100, this.props.form + formDelta)),
+    };
+  }
+
+  /** Decays form toward zero by a multiplicative factor (e.g. 0.85 =
+   * lose 15%) — called once per weekly tick by AdvanceWorldWeekUseCase.
+   * A player who stops competing drifts out of the sweet spot into
+   * "rusty" over a few idle weeks; this is what makes under-playing a
+   * real cost, not just over-playing. */
+  decayForm(factor: number): void {
+    this.props = {
+      ...this.props,
+      form: Math.max(0, Math.min(100, Math.round(this.props.form * factor))),
+    };
   }
 
   /** Small, automatic surface-affinity growth from having actually

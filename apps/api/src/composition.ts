@@ -7,7 +7,10 @@ import { StandardRankingPointsTable } from '@tennis-manager/domain';
 import { StandardPlayerGenerationPolicy } from '@tennis-manager/domain';
 import { WorldId } from '@tennis-manager/domain';
 import { StandardTrainingPolicy } from '@tennis-manager/domain';
+import { StandardTournamentSchedulePolicy } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy } from '@tennis-manager/domain';
+import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
+import { StandardPlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { StandardTalentClaimPricingPolicy, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { StandardCoachConversionPolicy, CoachConversionPolicy } from '@tennis-manager/domain';
 import { RankingBand } from '@tennis-manager/domain';
@@ -37,9 +40,10 @@ import { DrizzlePeakRankingRepository } from './adapters/outbound/DrizzlePeakRan
 import { DrizzleTitleRepository } from './adapters/outbound/DrizzleTitleRepository';
 import { DrizzlePlayerTournamentHistoryQuery } from './adapters/outbound/DrizzlePlayerTournamentHistoryQuery';
 import { DrizzlePlayerProfileQuery } from './adapters/outbound/DrizzlePlayerProfileQuery';
-import { DrizzleTalentPoolCandidateRepository } from './adapters/outbound/DrizzleTalentPoolCandidateRepository';
-import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
+import { DrizzlePlayerMatchesQuery } from './adapters/outbound/DrizzlePlayerMatchesQuery';
 import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClaimAdapter';
+import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
+import { DrizzleManagerLadderRepository } from './adapters/outbound/DrizzleManagerLadderRepository';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { DrizzleTrainingScheduleRepository } from './adapters/outbound/DrizzleTrainingScheduleRepository';
@@ -95,6 +99,9 @@ export interface Dependencies {
   /** The single composed read behind the player profile page — see
    * DrizzlePlayerProfileQuery's own doc comment. */
   playerProfile: DrizzlePlayerProfileQuery;
+  /** The player-profile "latest results + next match" read — see
+   * DrizzlePlayerMatchesQuery's own doc comment. */
+  playerMatches: DrizzlePlayerMatchesQuery;
   /** The senior tour's rank-position query (band: 'senior') — what the
    * roster dashboard's rank column reads today. The two junior bands
    * (rankPositionU14/rankPositionU16) are wired below for the same
@@ -121,8 +128,8 @@ export interface Dependencies {
    * repository (see PlayerTrainingScheduleQuery's own doc comment on
    * why this isn't merged into one new backend concept). */
   trainingScheduleQuery: PlayerTrainingScheduleQuery;
-  talentPoolCandidates: DrizzleTalentPoolCandidateRepository;
   managerXp: DrizzleManagerXpRepository;
+  managerLadder: DrizzleManagerLadderRepository;
   coaches: DrizzleCoachRepository;
   /** Exposed on Dependencies (not just built inline in buildDependencies)
    * so routes can compute the exact same real numbers a use case would
@@ -193,6 +200,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   });
   const events = new LoggingEventPublisher(options.logEvent);
   const bracketGenerator = new BracketGenerator();
+  const tournamentSchedulePolicy = new StandardTournamentSchedulePolicy();
   const matchSimulator = new StatisticalMatchSimulator(new MathRandomSource());
 
   const stripeSettings = options.stripe ?? {
@@ -213,9 +221,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'senior');
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u16');
-  const talentPoolCandidates = new DrizzleTalentPoolCandidateRepository(options.db);
   const managerXp = new DrizzleManagerXpRepository(options.db);
   const managerXpPolicy = new StandardManagerXpPolicy();
+  const managerLadder = new DrizzleManagerLadderRepository(options.db);
+  const managerLadderPolicy = new StandardManagerLadderPolicy();
+  const developmentPolicy = new StandardPlayerDevelopmentPolicy();
   const talentClaim = new DrizzleTalentClaimAdapter(options.db);
   const talentClaimPricingPolicy = new StandardTalentClaimPricingPolicy();
   const coaches = new DrizzleCoachRepository(options.db);
@@ -257,10 +267,13 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankingLedger,
     managerXpPolicy,
     managerXp,
+    managerLadderPolicy,
+    managerLadder,
     peakRankings,
     titles,
     worlds,
     WORLD_ID,
+    developmentPolicy,
   );
 
   const standardAgingPolicy = new StandardAgingPolicy();
@@ -283,6 +296,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
   const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory);
+  const playerMatches = new DrizzlePlayerMatchesQuery(options.db);
 
   return {
     managers,
@@ -296,14 +310,15 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     peakRankings,
     titles,
     playerProfile,
+    playerMatches,
     rankPosition,
     rankPositionU14,
     rankPositionU16,
     entryPlanner,
     trainingSchedule,
     trainingScheduleQuery,
-    talentPoolCandidates,
     managerXp,
+    managerLadder,
     coaches,
     talentClaimPricingPolicy,
     coachConversionPolicy,
@@ -311,7 +326,6 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     billing,
     idGenerator,
     claimTalentPoolCandidate: new ClaimTalentPoolCandidateUseCase(
-      talentPoolCandidates,
       players,
       events,
       billing,
@@ -320,7 +334,6 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ),
     createCustomPlayer: new CreateCustomPlayerUseCase(players, events, billing, generationPolicy, generationRandom),
     refreshTalentPool: new RefreshTalentPoolUseCase(
-      talentPoolCandidates,
       worlds,
       generationPolicy,
       generationRandom,
@@ -334,18 +347,16 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy),
     generateJuniorTournaments,
     startDueTournaments: new StartDueTournamentsUseCase(
       tournaments,
       worlds,
       players,
-      talentPoolCandidates,
       bracketGenerator,
       rankPositionByBand,
-      standardAgingPolicy,
     ),
-    simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch),
+    simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy),
     setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),
     releasePlayer: new ReleasePlayerUseCase(players),
     convertPlayerToCoach: new ConvertPlayerToCoachUseCase(

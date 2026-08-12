@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
@@ -8,6 +8,7 @@ import {
   PlayerDto,
   TournamentDto,
   WorldClockDto,
+  fetchPlayerProfile,
   fetchPlayersByIds,
   fetchTournament,
   fetchWorldClock,
@@ -15,15 +16,18 @@ import {
   simulateMatch,
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
+import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
+import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
+import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatScoreline } from '../../../lib/format';
 
 const SURFACE_COLOR: Record<string, string> = {
-  clay: 'oklch(58% 0.14 45)',
-  grass: 'oklch(52% 0.12 142)',
-  hard: 'oklch(55% 0.13 240)',
-  indoor: 'oklch(48% 0.05 300)',
+  clay: 'var(--sf-clay)',
+  grass: 'var(--sf-grass)',
+  hard: 'var(--sf-hard)',
+  indoor: 'var(--sf-indoor)',
 };
-const MUTED = 'oklch(85% 0.008 75)';
+const MUTED = 'oklch(42% 0.008 75)';
 
 const CARD_H = 84;
 const GAP0 = 14;
@@ -72,6 +76,127 @@ function roundLabel(matchesInRound: number): string {
   if (matchesInRound === 4) return 'Quarterfinals';
   return `Round of ${matchesInRound * 2}`;
 }
+
+function tierLabel(tier: string): string {
+  if (/^j\d+$/.test(tier)) return tier.toUpperCase();
+  if (tier === 'juniorMasters') return 'Junior Masters';
+  return tier.charAt(0).toUpperCase() + tier.slice(1);
+}
+
+/** Tournament "profile" details — circuit, level, points-per-round
+ * ladder, and the logistical facts. Rendered both before the draw is
+ * made (in place of the useless blank bracket) and alongside it during
+ * play, so the profile is always available. Pure presentation. */
+function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
+  const th = surfaceTheme(tournament.surface);
+  const facts: Array<{ label: string; value: React.ReactNode }> = [
+    { label: 'Circuit', value: tournament.circuit === 'junior' ? `Junior${tournament.ageBand ? ` · ${tournament.ageBand.toUpperCase()}` : ''}` : 'Senior tour' },
+    { label: 'Level', value: tierLabel(tournament.tier) },
+    { label: 'Surface', value: <span style={{ textTransform: 'capitalize' }}>{tournament.surface}</span> },
+    { label: 'Draw', value: `${tournament.drawSize} players` },
+    { label: 'Host', value: tournament.hostCountry ? `🏠 ${tournament.hostCountry}` : '—' },
+    { label: 'Scheduled', value: `S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}` },
+  ];
+  return (
+    <Panel style={{ padding: 18 }}>
+      <SectionLabel>Tournament details</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12, marginTop: 12 }}>
+        {facts.map((f) => (
+          <div key={f.label}>
+            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)' }}>{f.label}</div>
+            <div style={{ fontSize: 14, fontWeight: 650, marginTop: 2, color: 'var(--gc-ink)' }}>{f.value}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+          Ranking points by result
+        </div>
+        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
+          {tournament.pointsBreakdown.map((row, i) => {
+            const isChampion = row.stageLabel === 'Champion';
+            const zero = row.points === 0;
+            return (
+              <div
+                key={row.matchesWon}
+                className="flex items-center justify-between px-[12px] py-[7px]"
+                style={{
+                  borderBottom: i < tournament.pointsBreakdown.length - 1 ? '1px solid var(--gc-line)' : undefined,
+                  background: isChampion ? 'linear-gradient(90deg, oklch(92% 0.09 85 / 0.5), transparent)' : undefined,
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: isChampion ? 800 : 550, color: zero ? 'var(--gc-ink-faint)' : 'var(--gc-ink)' }}>
+                  {isChampion ? '★ ' : ''}{row.stageLabel}
+                </div>
+                <div className="[font-variant-numeric:tabular-nums]" style={{ fontSize: 12.5, fontWeight: 750, color: zero ? 'var(--gc-ink-faint)' : th.deep }}>
+                  {zero ? 'No points' : `${row.points.toLocaleString()} pts`}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 7, lineHeight: 1.5 }}>
+          Points scale to this tournament's {tournament.drawSize}-player draw. A first-round loss earns nothing — a ranking is earned by winning.
+          {tournament.pointsArePlaceholder && ' Note: this tier\u2019s point values are a provisional placeholder, not a sourced figure.'}
+        </div>
+      </div>
+    </Panel>
+  );
+}
+
+/** The registered-entrant list — deliberately HUMAN-managed players
+ * only (managerId != null). Fill-only/free-agent players that pad a
+ * draw at start time are never real "entries" a manager chose, so they
+ * never appear here. Rendered before and during the tournament. */
+function EntryList({ tournament, players }: { tournament: TournamentDto; players: Map<string, PlayerDto> }) {
+  const humanEntrants = tournament.entrants
+    .map((e) => ({ entrant: e, player: players.get(e.playerId) }))
+    .filter((x): x is { entrant: { playerId: string; seed: number | null }; player: PlayerDto } => !!x.player && x.player.managerId != null)
+    .sort((a, b) => {
+      if (a.entrant.seed === null && b.entrant.seed === null) return a.player.name.localeCompare(b.player.name);
+      if (a.entrant.seed === null) return 1;
+      if (b.entrant.seed === null) return -1;
+      return a.entrant.seed - b.entrant.seed;
+    });
+
+  return (
+    <Panel style={{ padding: 18 }}>
+      <SectionLabel right={<span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>{humanEntrants.length}</span>}>
+        Entry list
+      </SectionLabel>
+      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10 }}>
+        Players entered by managers{tournament.hasStarted ? ' — the draw may also include filler players to complete the bracket.' : '.'}
+      </div>
+      {humanEntrants.length === 0 ? (
+        <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px' }}>
+          No managers have entered a player yet.
+        </div>
+      ) : (
+        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
+          {humanEntrants.map(({ entrant, player }, i) => (
+            <Link
+              key={entrant.playerId}
+              href={`/players/${encodeURIComponent(entrant.playerId)}`}
+              className="flex items-center gap-[10px] px-[12px] py-[8px] no-underline hover:bg-[var(--gc-s3)]"
+              style={{ borderBottom: i < humanEntrants.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'inherit' }}
+            >
+              <div className="[font-variant-numeric:tabular-nums] flex-none" style={{ width: 26, fontSize: 11, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+                {entrant.seed ? `#${entrant.seed}` : ''}
+              </div>
+              <span className="flex-none">{flagFor(player.nationality)}</span>
+              <div className="text-[13.5px] font-semibold min-w-0 flex-1 truncate" style={{ color: 'var(--gc-ink)' }}>
+                {player.name}
+              </div>
+              <div className="text-[11px] flex-none" style={{ color: 'var(--gc-ink-faint)' }}>View →</div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
 
 interface DisplaySlot {
   entrant: Entrant | null;
@@ -210,6 +335,8 @@ export default function TournamentBracketPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
+  const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
+  const firedTitleRef = useRef(false);
 
   useEffect(() => {
     fetchWorldClock()
@@ -250,12 +377,51 @@ export default function TournamentBracketPage() {
     try {
       await simulateMatch(tournamentId, roundNumber, matchIndex);
       await load();
+      void detectTitle();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(null);
     }
   }
+
+  // Title-win celebration (GC-16): fires from the existing "a champion is
+  // decided" signal — the final match transitioning to decided. Re-fetches
+  // the tournament fresh (state from load() isn't visible synchronously here),
+  // then reads the champion's profile to tell a maiden title from a repeat one
+  // (titles.length === 1). fire-once guarded so a reload never re-fires it.
+  const detectTitle = useCallback(async () => {
+    if (firedTitleRef.current) return;
+    try {
+      const t = await fetchTournament(tournamentId);
+      const dr = buildDisplayRounds(t);
+      const fr = dr[dr.length - 1];
+      const fm = fr?.matches[0];
+      if (!fm?.decided) return;
+      const winner = fm.outcome?.winner;
+      if (!winner) return;
+      firedTitleRef.current = true;
+      const [prof, pl] = await Promise.all([
+        fetchPlayerProfile(winner).catch(() => null),
+        fetchPlayersByIds(new Set([winner])).catch(() => new Map<string, PlayerDto>()),
+      ]);
+      const name = prof?.name ?? pl.get(winner)?.name ?? winner;
+      const nationality = prof?.nationality ?? pl.get(winner)?.nationality ?? '';
+      setCelebrations([
+        {
+          kind: 'title',
+          firstCareer: (prof?.titles.length ?? 0) <= 1,
+          playerId: winner,
+          playerName: name,
+          nationality,
+          tournamentName: t.name,
+          surface: t.surface,
+        },
+      ]);
+    } catch {
+      /* celebration is best-effort chrome; never block the bracket on it */
+    }
+  }, [tournamentId]);
 
   function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string } {
     if (!entrant) return { name: '', flag: '', seedLabel: '' };
@@ -269,6 +435,7 @@ export default function TournamentBracketPage() {
 
   const overallStatus = useMemo(() => {
     if (!tournament) return '';
+    if (!tournament.hasStarted) return 'Registration open — draw not yet made';
     const activeRound = rounds.find((r) => r.generated && r.matches.some((m) => !m.decided));
     if (activeRound) return `${activeRound.label} in progress`;
     const lastGenerated = [...rounds].reverse().find((r) => r.generated);
@@ -281,24 +448,24 @@ export default function TournamentBracketPage() {
 
   if (error && !tournament) {
     return (
-      <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+      <AppFrame>
         <Sidebar active="tournaments" />
-        <div className="flex-1 p-8">
-          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+        <div className="flex-1 p-8" style={{ background: 'var(--gc-bg)' }}>
+          <div className="text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         </div>
-      </div>
+      </AppFrame>
     );
   }
   if (!tournament) {
     return (
-      <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+      <AppFrame>
         <Sidebar active="tournaments" />
-        <div className="flex-1 p-8 text-[13.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
+        <div className="flex-1 p-8 text-[13.5px]" style={{ background: 'var(--gc-bg)', color: 'var(--gc-ink-mute)' }}>
           Loading bracket…
         </div>
-      </div>
+      </AppFrame>
     );
   }
 
@@ -309,76 +476,94 @@ export default function TournamentBracketPage() {
   const finalTop = positions[rounds.length - 1]?.[0] ?? 0;
   const finalMid = finalTop + CARD_H / 2;
 
+  const th = surfaceTheme(tournament.surface);
+  const championCopy = champDecided && champLabel
+    ? `${champLabel.name} lifts the trophy.`
+    : overallStatus;
+
   return (
-    <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+    <AppFrame>
+      {celebrations.length > 0 && (
+        <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
+      )}
       <Sidebar active="tournaments" />
 
-      <div className="flex-1 p-8 min-w-0">
-        <div className="flex items-start justify-between mb-1">
-          <div>
-            <div className="flex items-center gap-[10px]">
-              <div className="text-[23px] font-bold tracking-[-0.2px]">{tournament.name}</div>
-              <div
-                className="text-[11px] font-bold tracking-[0.4px] uppercase px-[9px] py-[4px] rounded-[4px] text-white"
-                style={{ background: accent }}
-              >
-                {tournament.surface}
-              </div>
-              {tournament.ageBand && (
-                <div
-                  className="text-[11px] font-bold tracking-[0.4px] uppercase px-[9px] py-[4px] rounded-[4px]"
-                  style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
-                >
-                  {tournament.ageBand}
+      <div className="flex-1 min-w-0" style={{ background: 'var(--gc-bg)', position: 'relative' }}>
+        <div style={{ position: 'relative', padding: '30px 34px 60px', maxWidth: 1400, margin: '0 auto' }}>
+          <Hero surface={tournament.surface} minHeight={148}>
+            <div className="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 6, color: 'white', background: `linear-gradient(180deg, ${th.color}, ${th.deep})`, boxShadow: '0 2px 8px oklch(0% 0 0 / 0.3)' }}>
+                    {tournament.surface}
+                  </div>
+                  {tournament.ageBand && (
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 6, background: 'oklch(100% 0 0 / 0.16)', color: 'white' }}>
+                      {tournament.ageBand}
+                    </div>
+                  )}
+                  {tournament.hostCountry && (
+                    <div title="Host country — a player of this nationality has home advantage here" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', padding: '4px 10px', borderRadius: 6, background: 'oklch(100% 0 0 / 0.16)', color: 'white' }}>
+                      🏠 {tournament.hostCountry}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-            <div className="text-[13.5px] mt-[5px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-              Single elimination · {tournament.entrants.length} players · {overallStatus}
-            </div>
-            {worldClock && (
-              <div className="text-[12px] mt-[3px]" style={{ color: 'oklch(58% 0.006 75)' }}>
-                Scheduled Season {tournament.weekScheduled.season}, Week {tournament.weekScheduled.week} · current
-                Season {worldClock.currentWeek.season}, Week {worldClock.currentWeek.week}
-                {/* Deliberately no per-match/round countdown here: match
-                    simulation (SimulateDueMatchesUseCase and the manual
-                    simulate route) isn't actually gated by weekScheduled
-                    vs. the world's currentWeek — see CLAUDE.md — so a
-                    fake "starts in Nd" timer would misrepresent how the
-                    system really behaves. */}
+                <div style={{ fontSize: 30, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 8, textShadow: '0 2px 10px oklch(0% 0 0 / 0.45)' }}>{tournament.name}</div>
+                <div style={{ fontSize: 13.5, color: 'white', opacity: 0.85, marginTop: 4 }}>
+                  Single elimination · {tournament.entrants.length} players · {championCopy}
+                </div>
+                {worldClock && (
+                  <div style={{ fontSize: 12, color: 'white', opacity: 0.6, marginTop: 3 }}>
+                    Scheduled S{tournament.weekScheduled.season} W{tournament.weekScheduled.week} · now S{worldClock.currentWeek.season} W{worldClock.currentWeek.week}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-          <div className="flex items-center gap-4 text-[12px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-            <div className="flex items-center gap-[6px]">
-              <div className="w-[10px] h-[10px] rounded-[2px]" style={{ background: accent }} />
-              Decided path
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'white', opacity: 0.9, alignItems: 'flex-end' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: th.color }} /> Decided path
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.75 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 2, background: 'oklch(100% 0 0 / 0.4)' }} /> Pending / TBD
+                </div>
+                <div style={{ opacity: 0.75 }}>Decided cards link to replay →</div>
+              </div>
             </div>
-            <div className="flex items-center gap-[6px]">
-              <div className="w-[10px] h-[10px] rounded-[2px]" style={{ background: MUTED }} />
-              Pending / TBD
-            </div>
-            <div className="flex items-center gap-[6px]" style={{ color: 'oklch(45% 0.12 240)' }}>
-              Decided cards link to match replay →
-            </div>
-          </div>
-        </div>
+          </Hero>
 
         {error && (
-          <div className="mt-3 text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div className="mt-3 text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
 
         {/* Net-line motif divider */}
         <div className="flex items-center gap-0 my-[18px] mb-[22px]">
-          <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
-          <div className="flex-1 h-[1.5px]" style={{ background: 'oklch(50% 0.006 75)' }} />
-          <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
-          <div className="flex-1 h-[1.5px]" style={{ background: 'oklch(50% 0.006 75)' }} />
-          <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
+          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
+          <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
+          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
+          <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
+          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
         </div>
 
+        {/* Tournament profile — details + entry list. Always available,
+            both before the draw is made and while the tournament plays. */}
+        <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)' }}>
+          <TournamentDetailsPanel tournament={tournament} />
+          <EntryList tournament={tournament} players={players} />
+        </div>
+
+        {!tournament.hasStarted ? (
+          <Panel style={{ padding: 28, textAlign: 'center' }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>🎾</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--gc-ink)' }}>The draw hasn&apos;t been made yet</div>
+            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', marginTop: 6, lineHeight: 1.5 }}>
+              Seeding happens when the tournament starts
+              {` — S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}`}
+              {worldClock ? ` (now S${worldClock.currentWeek.season} W${worldClock.currentWeek.week})` : ''}.
+              Until then, managers can keep entering players above.
+            </div>
+          </Panel>
+        ) : (
         <div className="overflow-x-auto pb-4">
           <div className="flex items-start" style={{ width: 'max-content' }}>
             {rounds.map((round, ri) => {
@@ -386,8 +571,8 @@ export default function TournamentBracketPage() {
               const allDecided = round.generated && decidedCount === round.matches.length;
               const noneDecided = decidedCount === 0;
               const statusLabel = !round.generated ? 'Upcoming' : allDecided ? 'Decided' : noneDecided ? 'Upcoming' : 'In progress';
-              const statusBg = allDecided ? 'oklch(20% 0.006 75)' : noneDecided ? 'transparent' : 'oklch(90% 0.03 60)';
-              const statusFg = allDecided ? 'white' : noneDecided ? 'oklch(50% 0.006 75)' : 'oklch(38% 0.08 60)';
+              const statusBg = allDecided ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
+              const statusFg = allDecided ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
               const subtitle = !round.generated
                 ? `${round.matches.length} match${round.matches.length === 1 ? '' : 'es'} scheduled`
                 : `${decidedCount} of ${round.matches.length} played`;
@@ -408,11 +593,11 @@ export default function TournamentBracketPage() {
                             {statusLabel}
                           </div>
                         </div>
-                        <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+                        <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
                           {subtitle}
                         </div>
                       </div>
-                      <div className="rounded-[8px] bg-white overflow-hidden" style={{ border: '1px solid oklch(90% 0.005 75)' }}>
+                      <div className="rounded-[8px] overflow-hidden" style={{ background: 'var(--gc-s1)', border: '1px solid var(--gc-line)' }}>
                         {round.matches.map((m, i) => {
                           const winnerLabel = m.a.isWinner ? playerLabel(m.a.entrant) : playerLabel(m.b.entrant);
                           const loserLabel = m.a.isWinner ? playerLabel(m.b.entrant) : playerLabel(m.a.entrant);
@@ -422,16 +607,16 @@ export default function TournamentBracketPage() {
                           const row = (
                             <div
                               className="px-[10px] py-[6px] text-[11px] flex justify-between gap-2 whitespace-nowrap overflow-hidden"
-                              style={{ borderBottom: i < round.matches.length - 1 ? '1px solid oklch(95% 0.004 75)' : undefined, color: 'oklch(30% 0.006 75)' }}
+                              style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}
                             >
                               <span className="overflow-hidden text-ellipsis">{text}</span>
-                              <span className="flex-none" style={{ color: 'oklch(52% 0.006 75)' }}>
+                              <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
                                 {score}
                               </span>
                             </div>
                           );
                           return slot ? (
-                            <Link key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[oklch(98%_0.006_75)]" style={{ color: 'inherit' }}>
+                            <Link key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
                               {row}
                             </Link>
                           ) : (
@@ -439,7 +624,7 @@ export default function TournamentBracketPage() {
                           );
                         })}
                       </div>
-                      <div className="text-[10.5px] mt-[6px] px-1" style={{ color: 'oklch(52% 0.006 75)' }}>
+                      <div className="text-[10.5px] mt-[6px] px-1" style={{ color: 'var(--gc-ink-faint)' }}>
                         Collapses automatically once decided — keeps large draws from growing the page taller.
                       </div>
                     </div>
@@ -450,12 +635,12 @@ export default function TournamentBracketPage() {
                           <div className="text-[13px] font-bold">{round.label}</div>
                           <div
                             className="text-[10.5px] font-bold tracking-[0.3px] px-[7px] py-[2px] rounded-[4px]"
-                            style={noneDecided ? { border: '1px solid oklch(85% 0.006 75)', color: statusFg } : { background: statusBg, color: statusFg }}
+                            style={noneDecided ? { border: '1px solid var(--gc-line)', color: statusFg } : { background: statusBg, color: statusFg }}
                           >
                             {statusLabel}
                           </div>
                         </div>
-                        <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+                        <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
                           {subtitle}
                         </div>
                       </div>
@@ -473,7 +658,7 @@ export default function TournamentBracketPage() {
                               {m.isBye && (
                                 <div
                                   className="absolute -top-2 right-2 text-[9px] font-bold tracking-[0.4px] uppercase px-[6px] py-[1px] rounded-[3px]"
-                                  style={{ background: 'oklch(96% 0.003 75)', border: '1px solid oklch(85% 0.006 75)', color: 'oklch(50% 0.006 75)' }}
+                                  style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
                                 >
                                   Bye
                                 </div>
@@ -487,25 +672,25 @@ export default function TournamentBracketPage() {
                                         className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
                                         style={{
                                           fontWeight: m.a.isWinner ? 700 : 500,
-                                          color: m.a.isWinner ? 'oklch(20% 0.006 75)' : m.a.isLoser ? 'oklch(60% 0.006 75)' : 'oklch(28% 0.006 75)',
+                                          color: m.a.isWinner ? 'var(--gc-ink)' : m.a.isLoser ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                                         }}
                                       >
-                                        {aLabel.name} <span style={{ color: 'oklch(55% 0.006 75)', fontWeight: 400 }}>{aLabel.seedLabel}</span>
+                                        {aLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{aLabel.seedLabel}</span>
                                       </div>
                                     </>
                                   ) : (
-                                    <div className="text-[13px]" style={{ color: 'oklch(65% 0.006 75)' }}>
+                                    <div className="text-[13px]" style={{ color: 'var(--gc-ink-faint)' }}>
                                       {m.isBye ? '— No opponent —' : 'TBD'}
                                     </div>
                                   )}
                                 </div>
                                 {m.a.isWinner && m.a.scoreline && (
-                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(30% 0.006 75)' }}>
+                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
                                     {m.a.scoreline}
                                   </div>
                                 )}
                               </div>
-                              <div className="h-px mx-[10px]" style={{ background: 'oklch(93% 0.005 75)' }} />
+                              <div className="h-px mx-[10px]" style={{ background: 'var(--gc-line)' }} />
                               <div className="flex items-center justify-between px-[10px] py-[7px] flex-1">
                                 <div className="flex items-center gap-[7px] min-w-0">
                                   {m.b.entrant ? (
@@ -515,20 +700,20 @@ export default function TournamentBracketPage() {
                                         className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
                                         style={{
                                           fontWeight: m.b.isWinner ? 700 : 500,
-                                          color: m.b.isWinner ? 'oklch(20% 0.006 75)' : m.b.isLoser ? 'oklch(60% 0.006 75)' : 'oklch(28% 0.006 75)',
+                                          color: m.b.isWinner ? 'var(--gc-ink)' : m.b.isLoser ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                                         }}
                                       >
-                                        {bLabel.name} <span style={{ color: 'oklch(55% 0.006 75)', fontWeight: 400 }}>{bLabel.seedLabel}</span>
+                                        {bLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{bLabel.seedLabel}</span>
                                       </div>
                                     </>
                                   ) : (
-                                    <div className="text-[13px]" style={{ color: 'oklch(65% 0.006 75)' }}>
+                                    <div className="text-[13px]" style={{ color: 'var(--gc-ink-faint)' }}>
                                       {m.isBye ? '— No opponent —' : 'TBD'}
                                     </div>
                                   )}
                                 </div>
                                 {m.b.isWinner && m.b.scoreline && (
-                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(30% 0.006 75)' }}>
+                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
                                     {m.b.scoreline}
                                   </div>
                                 )}
@@ -541,8 +726,8 @@ export default function TournamentBracketPage() {
                                       void onSimulate(round.roundNumber, m.matchIndex!);
                                     }}
                                     disabled={isBusy}
-                                    className="w-full text-white border-none py-[5px] rounded-[5px] text-[10.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-60"
-                                    style={{ background: 'oklch(20% 0.006 75)' }}
+                                    className="w-full border-none py-[5px] rounded-[5px] text-[10.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-60"
+                                    style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
                                   >
                                     {isBusy ? 'Simulating…' : 'Simulate'}
                                   </button>
@@ -557,8 +742,8 @@ export default function TournamentBracketPage() {
                             left: 0,
                             width: COL_W,
                             minHeight: CARD_H,
-                            background: 'white',
-                            border: '1px solid oklch(90% 0.005 75)',
+                            background: 'var(--gc-s1)',
+                            border: '1px solid var(--gc-line)',
                             borderTop: `3px solid ${accent}`,
                             borderRadius: 8,
                             display: 'flex',
@@ -662,21 +847,25 @@ export default function TournamentBracketPage() {
                         left: 0,
                         width: COL_W,
                         minHeight: CARD_H,
-                        background: 'white',
+                        background: champDecided ? 'linear-gradient(135deg, oklch(35% 0.06 85), oklch(24% 0.04 85))' : 'var(--gc-s1)',
                         borderRadius: 8,
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        border: champDecided ? `1px solid ${accent}` : '1.5px dashed oklch(85% 0.006 75)',
+                        border: champDecided ? `1px solid var(--gc-gold)` : '1.5px dashed var(--gc-line)',
+                        boxShadow: champDecided ? '0 6px 20px oklch(0% 0 0 / 0.4)' : 'none',
                       }}
                     >
                       {champDecided && champLabel ? (
-                        <div className="flex items-center gap-2 p-3">
-                          <span>{champLabel.flag}</span>
-                          <div className="font-bold text-[14px]">{champLabel.name}</div>
+                        <div className="flex flex-col items-center gap-1 p-3 text-center">
+                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--gc-gold)' }}>★ Champion</div>
+                          <div className="flex items-center gap-2">
+                            <span>{champLabel.flag}</span>
+                            <div className="font-bold text-[15px]" style={{ color: 'white' }}>{champLabel.name}</div>
+                          </div>
                         </div>
                       ) : (
-                        <div className="text-[12px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'oklch(60% 0.006 75)' }}>
+                        <div className="text-[12px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>
                           TBD
                         </div>
                       )}
@@ -687,7 +876,9 @@ export default function TournamentBracketPage() {
             )}
           </div>
         </div>
+        )}
+        </div>
       </div>
-    </div>
+    </AppFrame>
   );
 }

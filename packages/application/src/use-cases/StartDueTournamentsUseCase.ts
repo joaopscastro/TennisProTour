@@ -1,18 +1,14 @@
 import {
-  AgingPolicy,
   BracketGenerator,
   isAgeEligibleForTournamentBand,
   PlayerId,
   RankingBand,
-  StandardAgingPolicy,
-  TalentPoolCandidate,
   Tournament,
   TournamentEntrant,
   weeksBetween,
   WorldId,
 } from '@tennis-manager/domain';
-import { GameWorldRepository, PlayerRepository, TalentPoolCandidateRepository, TournamentRepository } from '../ports/ports';
-import { convertToFillOnlyPlayer } from './fillOnlyConversion';
+import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 
 export interface StartDueTournamentsCommand {
@@ -28,18 +24,13 @@ export interface StartDueTournamentsResult {
   filled: number;
 }
 
-/** A single unclaimed-player fill candidate, whichever pool it came
- * from — kept uniform so selection/ordering logic doesn't need to know
- * which repository it originated from until the moment it's actually
- * chosen. */
+/** A single unclaimed-player fill candidate — always a real fillOnly
+ * free-agent Player now (candidate/player unification, see
+ * docs/CLAUDE.md): there is no separate "fresh candidate" source to
+ * convert anymore, every prospect is already a Player. */
 interface FillCandidate {
   playerId: PlayerId;
   ageInWeeks: number;
-  /** 'fresh' candidates aren't Players yet and must be converted
-   * (`convertToFillOnlyPlayer`) the moment they're actually selected —
-   * not for every candidate merely considered, since most considered
-   * candidates never get picked. */
-  source: { kind: 'fillOnly' } | { kind: 'fresh'; candidate: TalentPoolCandidate };
 }
 
 /**
@@ -77,9 +68,8 @@ interface FillCandidate {
  * or register for it. Strict `> 0` guarantees at least one full tick's
  * worth of real open-registration window first.
  *
- * Fills the remaining slots from the unclaimed-player pool (both
- * still-actively-claimable "fresh" TalentPoolCandidate rows AND
- * long-term fillOnly Players), THEN generates the bracket — reusing
+ * Fills the remaining slots from the unclaimed-player pool (fillOnly
+ * free-agent Players), THEN generates the bracket — reusing
  * BracketGenerator exactly as any
  * other start path does (a still-short draw after filling gets byes,
  * same as OpenTournamentUseCase's own deliberately-partial demo case).
@@ -100,10 +90,7 @@ interface FillCandidate {
  * unclaimed player has by definition never played a ranked match, but
  * the query is still genuinely reused, not stubbed out, so this stays
  * correct if that ever changes. Everyone else eligible fills in next,
- * fillOnly players before fresh candidates (a fresh candidate is still
- * sitting in front of real managers in the Scouting list; consuming an
- * existing fillOnly player first minimizes collateral impact on that
- * economy), broken by id for a fully deterministic, testable order.
+ * broken by id for a fully deterministic, testable order.
  * `PlayerAttributes.overallRating()` or any other "how good is this
  * player" number is never read for ordering — that would be exactly
  * the "separate ranking approximation" this design deliberately avoids.
@@ -125,10 +112,8 @@ export class StartDueTournamentsUseCase {
     private readonly tournaments: TournamentRepository,
     private readonly worlds: GameWorldRepository,
     private readonly players: PlayerRepository,
-    private readonly talentPoolCandidates: TalentPoolCandidateRepository,
     private readonly bracketGenerator: BracketGenerator,
     private readonly rankPositionByBand: Record<RankingBand, RankPositionQuery>,
-    private readonly agingPolicy: AgingPolicy = new StandardAgingPolicy(),
   ) {}
 
   async execute(command: StartDueTournamentsCommand): Promise<StartDueTournamentsResult> {
@@ -182,21 +167,15 @@ export class StartDueTournamentsUseCase {
   private async fillSlots(tournament: Tournament, needed: number): Promise<number> {
     const band: RankingBand = tournament.ageBand ?? 'senior';
 
-    const [fillOnlyPlayers, freshCandidates, ranked] = await Promise.all([
+    const [fillOnlyPlayers, ranked] = await Promise.all([
       this.players.findAll().then((all) => all.filter((p) => p.fillOnly)),
-      this.talentPoolCandidates.findAvailable(),
       this.rankPositionByBand[band].sortedRankings(),
     ]);
     const rankOrder = new Map(ranked.map((r, index) => [r.playerId, index]));
 
-    const eligible: FillCandidate[] = [
-      ...fillOnlyPlayers
-        .filter((p) => isAgeEligibleForTournamentBand(p.ageInWeeks, tournament.ageBand))
-        .map((p): FillCandidate => ({ playerId: p.id, ageInWeeks: p.ageInWeeks, source: { kind: 'fillOnly' } })),
-      ...freshCandidates
-        .filter((c) => isAgeEligibleForTournamentBand(c.ageInWeeks, tournament.ageBand))
-        .map((c): FillCandidate => ({ playerId: PlayerId(c.id), ageInWeeks: c.ageInWeeks, source: { kind: 'fresh', candidate: c } })),
-    ];
+    const eligible: FillCandidate[] = fillOnlyPlayers
+      .filter((p) => isAgeEligibleForTournamentBand(p.ageInWeeks, tournament.ageBand))
+      .map((p): FillCandidate => ({ playerId: p.id, ageInWeeks: p.ageInWeeks }));
 
     const available: FillCandidate[] = [];
     for (const candidate of eligible) {
@@ -216,30 +195,12 @@ export class StartDueTournamentsUseCase {
         if (bRank === undefined) return -1;
         return aRank - bRank;
       }
-      // Then existing fillOnly players before fresh candidates still
-      // sitting in front of real managers in Scouting.
-      if (a.source.kind !== b.source.kind) return a.source.kind === 'fillOnly' ? -1 : 1;
       // Fully deterministic tie-break — never a skill/rating proxy.
       return a.playerId.localeCompare(b.playerId);
     });
 
     const selected = available.slice(0, needed);
     for (const candidate of selected) {
-      if (candidate.source.kind === 'fresh') {
-        // Same narrow, pre-existing read-then-write race
-        // RefreshTalentPoolUseCase's own expiry sweep already carries
-        // (see its doc comment): a real manager successfully claiming
-        // this exact candidate in the window between the read at the
-        // top of fillSlots() and this save() would get silently
-        // overwritten back to 'expired'. Disclosed there and here
-        // rather than fixed as a side effect of unrelated work — see
-        // docs/tournament-fill-system.md's "Known gap" section.
-        const fresh = candidate.source.candidate;
-        fresh.markExpired();
-        await this.talentPoolCandidates.save(fresh);
-        const fillOnlyPlayer = convertToFillOnlyPlayer(fresh, this.agingPolicy);
-        await this.players.save(fillOnlyPlayer);
-      }
       const entrant: TournamentEntrant = { playerId: candidate.playerId, seed: null };
       tournament.registerEntrant(entrant);
     }

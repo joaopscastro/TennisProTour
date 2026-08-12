@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   EntitlementDto,
-  PlayerRarityTier,
-  PotentialTier,
   TalentPoolCandidateDto,
   WorldClockDto,
   claimTalentPoolCandidate,
@@ -13,25 +11,11 @@ import {
   fetchWorldClock,
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
-import { flagFor } from '../../lib/format';
+import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel } from '../../components/ui/primitives';
+import { PlayerCard } from '../../components/ui/PlayerCard';
+import { AnimatedNumber, Delta } from '../../components/ui/motion';
+import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
-
-const RARITY_META: Record<PlayerRarityTier, { label: string; bg: string; fg: string }> = {
-  common: { label: 'Common', bg: 'oklch(93% 0.006 75)', fg: 'oklch(40% 0.006 75)' },
-  strong: { label: 'Strong', bg: 'oklch(90% 0.1 240)', fg: 'oklch(35% 0.14 240)' },
-  exceptional: { label: 'Exceptional', bg: 'oklch(88% 0.13 75)', fg: 'oklch(38% 0.16 60)' },
-};
-
-// Potential is a SEPARATE axis from rarity — a "Common" player right
-// now can still show "Elite" potential (see docs/CLAUDE.md's scouting
-// note) — so it gets its own distinct color language, not a reuse of
-// the rarity palette, to keep the two signals visually unambiguous.
-const POTENTIAL_META: Record<PotentialTier, { label: string; bg: string; fg: string }> = {
-  limited: { label: 'Limited', bg: 'oklch(93% 0.006 75)', fg: 'oklch(45% 0.006 75)' },
-  promising: { label: 'Promising', bg: 'oklch(91% 0.08 145)', fg: 'oklch(38% 0.12 145)' },
-  high: { label: 'High', bg: 'oklch(89% 0.1 200)', fg: 'oklch(36% 0.13 200)' },
-  elite: { label: 'Elite', bg: 'oklch(87% 0.15 320)', fg: 'oklch(38% 0.18 320)' },
-};
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -46,8 +30,11 @@ export default function ScoutingPage() {
   const [candidates, setCandidates] = useState<TalentPoolCandidateDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimedOutId, setClaimedOutId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
+  const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
+  const [shown, setShown] = useState(48);
 
   const load = useCallback(async () => {
     setError(null);
@@ -68,13 +55,11 @@ export default function ScoutingPage() {
       .catch(() => setWorldClock(null));
   }, []);
 
-  // Same nextTickAt the Sidebar's world clock counts down to — the
-  // weekly refresh handler (apps/worker/src/jobs/handlers.ts) runs
-  // RefreshTalentPoolUseCase inside the very same advance-world-week
-  // job, gated on the same `advanced` flag, so "next tick" and "next
-  // talent-pool refresh" are the same real timestamp, not two
-  // independently-computed guesses.
-  const refreshRemainingMs = useCountdown(worldClock?.nextTickAt ?? null);
+  // The talent pool refreshes on the weekly rollover only (the
+  // RefreshTalentPoolUseCase runs inside advance-world-week, gated on
+  // weekRolledOver), NOT on every day tick — so this counts down to
+  // nextWeekTickAt (the next day-7 -> day-1 rollover), not nextTickAt.
+  const refreshRemainingMs = useCountdown(worldClock?.nextWeekTickAt ?? null);
 
   useEffect(() => {
     fetchEntitlement(managerId)
@@ -88,203 +73,164 @@ export default function ScoutingPage() {
   }
 
   async function handleClaim(candidateId: string, name: string) {
+    const claimed = candidates?.find((c) => c.id === candidateId) ?? null;
     setClaimingId(candidateId);
     setError(null);
     try {
       await claimTalentPoolCandidate(candidateId, managerId);
-      showNotice(`Claimed ${name} for ${managerId}.`);
+      // Play the card's exit animation before it leaves the board, so the
+      // sign never happens as a silent list mutation.
+      setClaimedOutId(candidateId);
+      const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
+      showNotice(`Signed ${name} — welcome to the academy.`);
       await load();
       await fetchEntitlement(managerId).then(setEntitlement).catch(() => {});
+      // A signing is a real event, not a silent list row — fire a claim
+      // celebration (GC-16), scaled off the OBSERVABLE current OVR only
+      // (potential is hidden in this RPG and must never leak, even here).
+      if (claimed) {
+        setCelebrations([
+          {
+            kind: 'claim',
+            playerId: claimed.id,
+            playerName: claimed.name,
+            nationality: claimed.nationality,
+            overall: overallOf(claimed),
+          },
+        ]);
+      }
     } catch (e) {
-      // A 409 most likely means someone else claimed it first — refresh
-      // so the (now-stale) candidate disappears rather than leaving a
-      // dead entry a manager could click again.
       setError(e instanceof Error ? e.message : String(e));
       await load();
     } finally {
       setClaimingId(null);
+      setClaimedOutId(null);
     }
   }
 
   const xpBalance = entitlement?.xpBalance ?? 0;
 
   return (
-    <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+    <AppFrame>
+      {celebrations.length > 0 && (
+        <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
+      )}
       <Sidebar active="scouting" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
-      <div className="flex-1 p-8 max-w-[1180px] min-w-0">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <div className="text-[23px] font-bold tracking-[-0.2px]">Scouting</div>
-            <div className="text-[13.5px] mt-[3px] max-w-[560px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-              A shared talent pool, refreshed weekly — every manager sees the same candidates and races to claim
-              them. Unclaimed candidates expire after 2 weeks.
-              {worldClock && (
-                <>
-                  {' '}
-                  Next refresh in{' '}
-                  <span className="font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(38% 0.006 75)' }}>
-                    {formatCountdown(refreshRemainingMs)}
-                  </span>
-                  .
-                </>
-              )}
+      <PageShell wash="radial-gradient(120% 60% at 85% -10%, oklch(45% 0.13 320 / 0.14), transparent 60%)">
+        <Hero minHeight={140}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.05 320)', opacity: 0.9 }}>The Talent Pool</div>
+              <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Scouting</div>
+              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 320)', opacity: 0.85, marginTop: 5, maxWidth: 560, lineHeight: 1.5 }}>
+                One shared pool. Every manager sees the same faces and races to sign them first — and free agents never vanish, they keep training and ageing in the world until someone signs them.
+                {worldClock && (
+                  <> Fresh young talent arrives in <span style={{ fontWeight: 700, color: 'white', fontVariantNumeric: 'tabular-nums' }}>{formatCountdown(refreshRemainingMs)}</span>.</>
+                )}
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, background: 'oklch(100% 0 0 / 0.1)', border: '1px solid oklch(100% 0 0 / 0.16)' }}>
+                <span style={{ fontSize: 11, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'oklch(90% 0.02 320)', opacity: 0.8 }}>Your XP</span>
+                <span style={{ position: 'relative', display: 'inline-flex' }}>
+                  <AnimatedNumber value={xpBalance} mountFrom={xpBalance} style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ball)' }} />
+                  <Delta value={xpBalance} suffix="XP" side="left" />
+                </span>
+              </div>
             </div>
           </div>
-          {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <form
-            className="flex items-center gap-[6px] text-[11.5px]"
-            style={{ color: 'oklch(52% 0.006 75)' }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              setManagerId(managerIdInput.trim() || managerId);
-            }}
+        </Hero>
+
+        {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
+          <form
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--gc-ink-faint)', marginTop: 12 }}
+            onSubmit={(e) => { e.preventDefault(); setManagerId(managerIdInput.trim() || managerId); }}
           >
             Manager ID (dev)
-            <input
-              value={managerIdInput}
-              onChange={(e) => setManagerIdInput(e.target.value)}
-              className="rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
-              style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
-            />
-          </form>}
-        </div>
+            <input className="gc-input" style={{ padding: '5px 9px', fontSize: 12 }} value={managerIdInput} onChange={(e) => setManagerIdInput(e.target.value)} />
+          </form>
+        )}
 
-        <div
-          className="mb-6 rounded-[8px] px-4 py-3 text-[12.5px] leading-[1.5]"
-          style={{ background: 'oklch(95% 0.02 75)', color: 'oklch(42% 0.02 75)' }}
-        >
-          Current attributes/OVR shown below are exactly what the player has right now. <strong>Potential</strong> is
-          a coarse scouting read, not a guarantee — it&apos;s deliberately noisy, so treat it as a lean, not a
-          promise.
+        <div style={{ marginTop: 16, fontSize: 12.5, lineHeight: 1.5, color: 'var(--gc-ink-mute)', borderRadius: 10, padding: '11px 15px', background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)' }}>
+          A scout can tell you what a prospect can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Open a player&apos;s profile to study the full breakdown.
         </div>
 
         {error && (
-          <div className="mb-4 text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div style={{ marginTop: 14, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
 
         {candidates === null && !error && (
-          <div className="text-[13.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
-            Loading talent pool…
-          </div>
+          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--gc-ink-mute)' }}>Loading talent pool…</div>
         )}
 
         {candidates?.length === 0 && (
-          <div
-            className="rounded-[10px] p-[60px_40px] text-center flex flex-col items-center gap-[10px] mt-[10px]"
-            style={{ border: '1.5px dashed oklch(85% 0.006 75)' }}
-          >
-            <div className="text-[15px] font-bold" style={{ color: 'oklch(25% 0.006 75)' }}>
-              No candidates available right now
-            </div>
-            <div className="text-[13px]" style={{ color: 'oklch(50% 0.006 75)' }}>
-              Check back after the next weekly refresh.
-            </div>
-          </div>
+          <Panel grain style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents right now</div>
+            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)' }}>Fresh young talent arrives at the next weekly refresh.</div>
+          </Panel>
         )}
 
         {candidates && candidates.length > 0 && (
-          <div className="flex flex-col gap-[10px]">
-            {candidates.map((c) => {
-              const rarity = RARITY_META[c.tier];
-              const potential = POTENTIAL_META[c.potentialTier];
-              const busy = claimingId === c.id;
-              const affordable = xpBalance >= c.claimCost;
-              return (
-                <div
-                  key={c.id}
-                  className="grid gap-[14px] items-center bg-white rounded-[8px] px-4 py-[14px]"
-                  style={{
-                    gridTemplateColumns:
-                      'minmax(0,2.2fr) minmax(60px,0.6fr) minmax(0,1.4fr) minmax(0,1.4fr) minmax(80px,0.8fr) minmax(120px,1.2fr)',
-                    border: '1px solid oklch(90% 0.005 75)',
-                    opacity: busy ? 0.6 : 1,
-                  }}
-                >
-                  <div className="flex items-center gap-[10px] min-w-0">
-                    <span className="flex-none text-[18px]">{flagFor(c.nationality)}</span>
-                    <div className="min-w-0">
-                      <div className="font-semibold text-[14px] truncate">{c.name}</div>
-                      <div className="text-[11.5px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-                        Generated season {c.generatedAtWeek.season}, week {c.generatedAtWeek.week}
+          <>
+            <SectionLabel>{candidates.length} free agent{candidates.length === 1 ? '' : 's'} available · youngest first</SectionLabel>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
+              {candidates.slice(0, shown).map((c, idx) => {
+                const busy = claimingId === c.id;
+                const claimedOut = claimedOutId === c.id;
+                const affordable = xpBalance >= c.claimCost;
+                return (
+                  <PlayerCard
+                    key={c.id}
+                    id={c.id}
+                    name={c.name}
+                    nationality={c.nationality}
+                    avatarSize={72}
+                    ovr={overallOf(c)}
+                    subtitle={`${Math.floor(c.ageInWeeks / 52)} yrs old`}
+                    hover
+                    href={`/players/${c.id}`}
+                    className={`gc-rise${claimedOut ? ' gc-claimed-out' : ''}`}
+                    style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
+                    footer={
+                      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
+                        <div>
+                          <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>Sign for</div>
+                          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: affordable ? 'var(--gc-ball)' : 'var(--gc-ink-mute)' }}>
+                            {c.claimCost.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>XP</span>
+                          </div>
+                          {!affordable && (
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {(c.claimCost - xpBalance).toLocaleString()} more</div>
+                          )}
+                        </div>
+                        <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '9px 18px' }}>
+                          {busy ? 'Signing…' : 'Sign'}
+                        </Button>
                       </div>
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[18px] font-bold [font-variant-numeric:tabular-nums]">{overallOf(c)}</div>
-                    <div className="text-[10.5px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-                      OVR
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'oklch(55% 0.006 75)' }}>
-                      Rarity
-                    </div>
-                    <div
-                      className="inline-block px-[9px] py-[3px] rounded-[4px] text-[11px] font-bold tracking-[0.3px]"
-                      style={{ background: rarity.bg, color: rarity.fg }}
-                    >
-                      {rarity.label}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'oklch(55% 0.006 75)' }}>
-                      Potential
-                    </div>
-                    <div
-                      className="inline-block px-[9px] py-[3px] rounded-[4px] text-[11px] font-bold tracking-[0.3px]"
-                      style={{ background: potential.bg, color: potential.fg }}
-                    >
-                      {potential.label}
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'oklch(55% 0.006 75)' }}>
-                      Cost
-                    </div>
-                    <div
-                      className="text-[14px] font-bold [font-variant-numeric:tabular-nums]"
-                      style={{ color: affordable ? 'oklch(30% 0.006 75)' : 'oklch(60% 0.006 75)' }}
-                    >
-                      {c.claimCost} XP
-                    </div>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-[4px]">
-                    <button
-                      onClick={() => handleClaim(c.id, c.name)}
-                      disabled={claimingId !== null || !affordable}
-                      className="justify-self-end px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed w-full"
-                      style={{ background: 'oklch(20% 0.006 75)' }}
-                    >
-                      {busy ? 'Claiming…' : 'Claim'}
-                    </button>
-                    {!affordable && (
-                      <div className="text-[10.5px] font-semibold text-right" style={{ color: 'oklch(50% 0.16 30)' }}>
-                        Need {c.claimCost - xpBalance} more XP
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                    }
+                  />
+                );
+              })}
+            </div>
+            {shown < candidates.length && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+                <Button variant="ghost" onClick={() => setShown((n) => n + 48)} style={{ padding: '10px 22px' }}>
+                  Show more ({candidates.length - shown} older free agents)
+                </Button>
+              </div>
+            )}
+          </>
         )}
-      </div>
+      </PageShell>
 
       {notice && (
-        <div
-          className="fixed bottom-6 right-6 z-40 text-white text-[13px] font-semibold px-4 py-3 rounded-[8px]"
-          style={{ background: 'oklch(20% 0.006 75)', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }}
-        >
+        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--gc-ball-d)' }}>
           {notice}
         </div>
       )}
-    </div>
+    </AppFrame>
   );
 }

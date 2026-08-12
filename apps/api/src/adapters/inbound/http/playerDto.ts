@@ -13,6 +13,7 @@ export function toPlayerDto(player: Player) {
     ageInWeeks: player.ageInWeeks,
     stage: player.stage,
     fatigue: player.fatigue,
+    form: player.form,
     attributes: {
       technical: {
         serve: technical.serve.value,

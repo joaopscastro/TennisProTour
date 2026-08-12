@@ -1,7 +1,7 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
-import { countJuniorEntriesForWeek, JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
+import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -40,19 +40,18 @@ export interface RegisterEntrantCommand {
  * player entering the senior tour is a normal, unrestricted case in
  * real tennis (and in this game), not a second gap to close here.
  *
- * **Junior weekly entry cap**: if the tournament being entered is a
- * junior tier, a player may not already be registered in
- * `JUNIOR_WEEKLY_ENTRY_CAP` other tournaments the same GameWeek — the
- * real ITF "up to three tournaments a week" rule (see
- * juniorEntryCap.ts). Deliberately NOT applied to the senior tour:
- * there's no real-world or design-doc precedent for a senior weekly
- * entry limit (the junior cap exists specifically because real junior
- * players choose a priority order among clashing weekly options, per
- * the research doc's "Real scheduling constraints" section — nothing
- * analogous was ever proposed for futures/challenger/tour/major). If a
- * senior-side pacing problem shows up later, that's a decision to make
- * deliberately then, not something to bundle into this junior-specific
- * fix now.
+ * **Weekly entry cap**: a player may not enter more than the tier's
+ * weekly cap worth of same-band tournaments in one GameWeek — junior
+ * tiers cap at `JUNIOR_WEEKLY_ENTRY_CAP` (the real ITF "up to three
+ * tournaments a week" rule), the senior tour at
+ * `SENIOR_WEEKLY_ENTRY_CAP` = 1 (a pro plays one tournament per week;
+ * see weeklyEntryCapForTier / juniorEntryCap.ts). The two bands are
+ * counted independently — a junior-age player on the senior tour (a
+ * normal, allowed case) has their senior entries counted only against
+ * the senior cap, never the junior one. The senior cap was previously
+ * absent; under the day-tick clock, same-week tournaments run their
+ * rounds on the same days, so entering two at once is a literal
+ * scheduling impossibility, not just unrealistic.
  */
 export class RegisterEntrantUseCase {
   constructor(
@@ -83,15 +82,17 @@ export class RegisterEntrantUseCase {
             `into a younger one, and a senior player may not enter a junior tournament at all`,
         );
       }
+    }
 
-      const juniorEntryCount = await countJuniorEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled);
-      if (juniorEntryCount >= JUNIOR_WEEKLY_ENTRY_CAP) {
-        throw new Error(
-          `Player ${command.playerId} has already entered ${juniorEntryCount} junior tournaments in ` +
-            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
-            `(cap: ${JUNIOR_WEEKLY_ENTRY_CAP})`,
-        );
-      }
+    const entryCount = await countSameBandEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled, tournament.tier);
+    const cap = weeklyEntryCapForTier(tournament.tier);
+    if (entryCount >= cap) {
+      const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+      throw new Error(
+        `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
+          `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+          `(cap: ${cap})`,
+      );
     }
 
     tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null });

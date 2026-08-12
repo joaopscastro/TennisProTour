@@ -155,6 +155,62 @@
       "when": 1786362396857,
       "tag": "0021_dark_logan",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786529995556,
+      "tag": "0022_wide_psynapse",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786534710007,
+      "tag": "0023_add_world_current_day",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786535058563,
+      "tag": "0024_chunky_vampiro",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786537636275,
+      "tag": "0025_outstanding_bill_hollister",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786539340568,
+      "tag": "0026_smooth_midnight",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1786542001392,
+      "tag": "0027_faulty_gwen_stacy",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1786542481294,
+      "tag": "0028_brainy_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1786544331214,
+      "tag": "0029_fluffy_luckman",
+      "breakpoints": true
     }
   ]
 }

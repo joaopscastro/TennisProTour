@@ -6,8 +6,10 @@ import { useParams } from 'next/navigation';
 import {
   MatchLogDto,
   PlayerDto,
+  PlayerTournamentHistoryEntryDto,
   TournamentDto,
   fetchMatchLog,
+  fetchPlayerProfile,
   fetchPlayersByIds,
   fetchTournament,
   matchIdForSlot,
@@ -15,13 +17,15 @@ import {
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
 import { MatchReplayPlayer } from '../../../components/MatchReplayPlayer';
+import { AppFrame } from '../../../components/ui/primitives';
+import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
 import { flagFor, matchRoundLabel } from '../../../lib/format';
 
 const SURFACE_COLOR: Record<string, string> = {
-  clay: 'oklch(58% 0.14 45)',
-  grass: 'oklch(52% 0.12 142)',
-  hard: 'oklch(55% 0.13 240)',
-  indoor: 'oklch(48% 0.05 300)',
+  clay: 'var(--sf-clay)',
+  grass: 'var(--sf-grass)',
+  hard: 'var(--sf-hard)',
+  indoor: 'var(--sf-indoor)',
 };
 
 interface MatchContext {
@@ -32,6 +36,10 @@ interface MatchContext {
   entrantB: string;
   playerA: PlayerDto | null;
   playerB: PlayerDto | null;
+  rankA: PlayerCardRank | null;
+  rankB: PlayerCardRank | null;
+  formA: PlayerTournamentHistoryEntryDto[];
+  formB: PlayerTournamentHistoryEntryDto[];
   nextReplayHref: string | null;
   nextRoundHref: string | null;
   nextRoundLabel: string | null;
@@ -62,6 +70,22 @@ export default function ReplayPage() {
         if (!match) return;
         const players = await fetchPlayersByIds([match.entrantA, match.entrantB]);
 
+        // Best-effort identity enrichment (rank + recent form) for the
+        // facing participant cards — the replay must still render if
+        // either profile fetch fails, so both degrade to null/empty.
+        const [profA, profB] = await Promise.all([
+          fetchPlayerProfile(match.entrantA).catch(() => null),
+          fetchPlayerProfile(match.entrantB).catch(() => null),
+        ]);
+        const bestRank = (p: typeof profA): PlayerCardRank | null => {
+          if (!p) return null;
+          const ranked = p.currentRankings
+            .filter((r) => r.rank !== null)
+            .sort((a, b) => (a.rank as number) - (b.rank as number))[0];
+          if (!ranked) return null;
+          return { rank: ranked.rank, points: ranked.totalPoints };
+        };
+
         let nextReplayHref: string | null = null;
         let nextRoundHref: string | null = null;
         let nextRoundLabel: string | null = null;
@@ -86,6 +110,10 @@ export default function ReplayPage() {
           entrantB: match.entrantB,
           playerA: players.get(match.entrantA) ?? null,
           playerB: players.get(match.entrantB) ?? null,
+          rankA: bestRank(profA),
+          rankB: bestRank(profB),
+          formA: profA?.tournamentHistory ?? [],
+          formB: profB?.tournamentHistory ?? [],
           nextReplayHref,
           nextRoundHref,
           nextRoundLabel,
@@ -101,23 +129,23 @@ export default function ReplayPage() {
   const accent = context ? (SURFACE_COLOR[context.tournament.surface] ?? undefined) : undefined;
 
   return (
-    <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+    <AppFrame>
       <Sidebar active="tournaments" />
 
-      <div className="flex-1 p-8 max-w-[1040px] min-w-0">
-        <div className="flex items-center gap-2 text-[13px] mb-[14px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-          <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'oklch(45% 0.12 240)' }}>
+      <div className="flex-1 p-8 max-w-[1040px] min-w-0" style={{ background: 'var(--gc-bg)' }}>
+        <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--gc-ink-mute)' }}>
+          <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
             ← Back to bracket
           </Link>
           {context && (
             <>
               <span>·</span>
-              <span>{context.tournament.name}</span>
+              <span style={{ color: 'var(--gc-ink-dim)' }}>{context.tournament.name}</span>
               <span>·</span>
               <span>{matchRoundLabel(context.tournament.drawSize / 2 ** context.roundNumber)}</span>
               <div
                 className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"
-                style={{ background: accent ?? 'oklch(50% 0.006 75)' }}
+                style={{ background: accent ?? 'var(--gc-s3)' }}
               >
                 {context.tournament.surface}
               </div>
@@ -126,13 +154,46 @@ export default function ReplayPage() {
         </div>
 
         {error && !log && (
-          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
         {!log && !error && (
-          <div className="text-[13.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
+          <div className="text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
             Loading replay…
+          </div>
+        )}
+
+        {context && (context.playerA || context.playerB) && (
+          <div
+            className="grid gap-[10px] mb-[14px] items-stretch"
+            style={{ gridTemplateColumns: '1fr auto 1fr' }}
+          >
+            <VersusPlayer
+              id={context.entrantA}
+              name={playerAName}
+              nationality={context.playerA?.nationality ?? '—'}
+              rank={context.rankA ?? undefined}
+              form={context.formA}
+              accent={accent}
+            />
+            <div className="flex items-center justify-center px-[6px]">
+              <span
+                className="text-[13px] font-black tracking-[1px] uppercase"
+                style={{ color: 'var(--gc-ink-mute)' }}
+              >
+                vs
+              </span>
+            </div>
+            <VersusPlayer
+              id={context.entrantB}
+              name={playerBName}
+              nationality={context.playerB?.nationality ?? '—'}
+              rank={context.rankB ?? undefined}
+              form={context.formB}
+              accent={accent}
+              mirror
+            />
           </div>
         )}
 
@@ -151,6 +212,6 @@ export default function ReplayPage() {
           />
         )}
       </div>
-    </div>
+    </AppFrame>
   );
 }

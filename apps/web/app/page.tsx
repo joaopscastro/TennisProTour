@@ -17,7 +17,12 @@ import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { WEEKS_PER_SEASON, avatarColorFor, flagFor, initialsFor, stageLabel, stageMeta } from '../lib/format';
+import { WEEKS_PER_SEASON, flagFor, stageLabel } from '../lib/format';
+import { Avatar } from '../components/ui/Avatar';
+import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
+import { AnimatedNumber, AnimatedOvrRing, Delta, RankShift, FlashOnGain, usePersistedPrevious } from '../components/ui/motion';
+import { CelebrationMoment, CelebrationOverlay } from '../components/ui/Celebration';
+import { surfaceTheme } from '../lib/surfaces';
 
 // ---------------------------------------------------------------------------
 // Static reference data — mirrors the surface-color system and training-focus
@@ -70,9 +75,27 @@ const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus
 // the real StandardAgingPolicy, not duplicated here.
 
 function fatigueMeta(f: number): { color: string; label: string } {
-  if (f >= 70) return { color: 'oklch(55% 0.16 25)', label: `${f}% — high, rest recommended` };
-  if (f >= 40) return { color: 'oklch(62% 0.13 75)', label: `${f}% — moderate` };
-  return { color: 'oklch(55% 0.12 142)', label: `${f}% — fresh` };
+  if (f >= 70) return { color: 'oklch(65% 0.18 25)', label: `${f}% · high, rest recommended` };
+  if (f >= 40) return { color: 'oklch(75% 0.15 85)', label: `${f}% · moderate` };
+  return { color: 'oklch(72% 0.15 150)', label: `${f}% · fresh` };
+}
+
+// Mirrors the domain form bands (see StatisticalMatchSimulator.formModifier
+// / Player.form): rusty < 8, warming 8–11, sharp 12–25, well-played 26–30,
+// overplayed > 30. Both extremes cost effective rating in the sim.
+function formMeta(f: number): { color: string; label: string } {
+  if (f > 30) return { color: 'oklch(65% 0.18 25)', label: `${f} · overplayed, needs rest` };
+  if (f >= 12 && f <= 25) return { color: 'oklch(72% 0.15 150)', label: `${f} · match sharp` };
+  if (f >= 26) return { color: 'oklch(75% 0.15 85)', label: `${f} · well-played` };
+  if (f >= 8) return { color: 'oklch(75% 0.15 85)', label: `${f} · warming up` };
+  return { color: 'oklch(70% 0.14 30)', label: `${f} · rusty, needs matches` };
+}
+
+function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
+  if (stage === 'prime') return { bg: 'oklch(45% 0.13 150 / 0.3)', fg: 'oklch(85% 0.14 150)', noteColor: 'var(--gc-ink-mute)' };
+  if (stage === 'decline') return { bg: 'oklch(50% 0.15 40 / 0.28)', fg: 'oklch(80% 0.14 45)', noteColor: 'oklch(72% 0.13 45)' };
+  if (stage === 'retired') return { bg: 'var(--gc-s3)', fg: 'var(--gc-ink-mute)', noteColor: 'var(--gc-ink-faint)' };
+  return { bg: 'oklch(45% 0.1 240 / 0.28)', fg: 'oklch(83% 0.1 240)', noteColor: 'var(--gc-ink-mute)' };
 }
 
 function trainingFocusLabel(focus: TrainingFocus | null): string {
@@ -90,6 +113,52 @@ function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
 const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, prime: 1, youth: 2, retired: 3 };
 
 type SortBy = 'fatigue' | 'stage' | 'overall' | 'name';
+
+// ---------------------------------------------------------------------------
+// Animated roster cells (GC-15). Each owns its own persisted-previous hooks so
+// hook order stays stable regardless of how the roster is sorted/reordered.
+// ---------------------------------------------------------------------------
+
+/** Rank plate: points count up from last seen, a ▲/▼ shift chip shows how many
+ *  positions the player moved, and a floating +/− points delta rises off it. */
+function AnimatedRankPlate({ playerId, rank, points }: { playerId: string; rank: number | null; points: number }) {
+  const prevRank = usePersistedPrevious(`roster:rank:${playerId}`, rank ?? -1);
+  const prevPoints = usePersistedPrevious(`roster:pts:${playerId}`, points);
+  const nr = rank == null;
+  const fromRank = prevRank != null && prevRank > 0 ? prevRank : null;
+  return (
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>#</span>
+      <span style={{ fontSize: 26, fontWeight: 850, lineHeight: 1, letterSpacing: '-0.5px', color: nr ? 'var(--gc-ink-faint)' : 'var(--gc-gold)', fontVariantNumeric: 'tabular-nums' }}>
+        {nr ? 'NR' : rank}
+      </span>
+      {!nr && fromRank != null && <RankShift from={fromRank} to={rank} />}
+      {!nr && (
+        <span style={{ position: 'relative', fontSize: 11.5, color: 'var(--gc-ink-mute)' }}>
+          <AnimatedNumber value={points} from={prevPoints ?? points} mountFrom={prevPoints ?? points} format={(n) => `${Math.round(n).toLocaleString()} pts`} style={{ fontSize: 11.5, color: 'var(--gc-ink-mute)' }} />
+          <Delta value={points} />
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** A single surface-affinity bar that grows from its previously-seen height and
+ *  flashes green when the affinity has risen since last seen. */
+function AnimatedAffinityBar({ playerId, surfaceKey, value, letter }: { playerId: string; surfaceKey: Surface; value: number; letter: string }) {
+  const pct = Math.round((value / 60) * 100);
+  const t = surfaceTheme(surfaceKey);
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+      <FlashOnGain value={value} radius={4}>
+        <div style={{ width: 11, height: 34, borderRadius: 4, display: 'flex', alignItems: 'flex-end', overflow: 'hidden', background: 'oklch(0% 0 0 / 0.35)' }} title={`${surfaceKey}: ${value}`}>
+          <div className="gc-bar-fill" style={{ width: '100%', height: `${pct}%`, background: `linear-gradient(180deg, ${t.color}, ${t.deep})`, transition: 'height 700ms cubic-bezier(.2,.8,.2,1)' }} />
+        </div>
+      </FlashOnGain>
+      <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>{letter}</span>
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 
@@ -177,6 +246,55 @@ export default function RosterDashboardPage() {
   const [customPlayerModalOpen, setCustomPlayerModalOpen] = useState(false);
   const [coachModalPlayer, setCoachModalPlayer] = useState<{ id: string; name: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
+
+  // Ranking-milestone + band-graduation celebrations (GC-16). Both are derived
+  // client-side by comparing this load's values against the last-seen values in
+  // localStorage — no new backend concept. Milestones only ever fire on the
+  // FIRST crossing into top 100/10/1 (the best milestone already celebrated is
+  // persisted, so re-renders/reloads never re-fire), and graduation only when a
+  // player's live band actually changes to a higher one.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !players) return;
+    const bandOrder: Record<string, number> = { u14: 0, u16: 1, senior: 2 };
+    const queued: CelebrationMoment[] = [];
+    for (const p of players) {
+      // --- rank milestone ---
+      const mileKey = `gc-cele-rankmile-${p.id}`;
+      const storedMile = window.localStorage.getItem(mileKey);
+      const prevBest = storedMile === null ? null : Number(storedMile);
+      const curBest = p.rank == null ? 0 : p.rank <= 1 ? 1 : p.rank <= 10 ? 10 : p.rank <= 100 ? 100 : 0;
+      // smaller nonzero = stronger milestone; fire when we reach a stronger one
+      const isStronger = curBest !== 0 && (prevBest === null || prevBest === 0 || curBest < prevBest);
+      if (prevBest !== null && isStronger) {
+        queued.push({
+          kind: 'rank',
+          milestone: curBest as 1 | 10 | 100,
+          band: p.rankBand,
+          playerId: p.id,
+          playerName: p.name,
+          nationality: p.nationality,
+        });
+      }
+      if (prevBest === null || curBest !== 0) window.localStorage.setItem(mileKey, String(curBest || prevBest || 0));
+
+      // --- band graduation ---
+      const bandKey = `gc-cele-band-${p.id}`;
+      const storedBand = window.localStorage.getItem(bandKey);
+      if (storedBand !== null && storedBand !== p.rankBand && bandOrder[p.rankBand] > (bandOrder[storedBand] ?? 0)) {
+        queued.push({
+          kind: 'graduation',
+          from: storedBand as 'u14' | 'u16',
+          to: p.rankBand as 'u16' | 'senior',
+          playerId: p.id,
+          playerName: p.name,
+          nationality: p.nationality,
+        });
+      }
+      window.localStorage.setItem(bandKey, p.rankBand);
+    }
+    if (queued.length > 0) setCelebrations((cur) => [...cur, ...queued]);
+  }, [players]);
 
   const customPlayerCredits = entitlement?.customPlayerCredits ?? 0;
   const canCreateCustomPlayer = tier === 'pro' && customPlayerCredits > 0;
@@ -187,381 +305,215 @@ export default function RosterDashboardPage() {
   }
 
   return (
-    <div className="flex min-h-screen text-[oklch(22%_0.006_75)] font-sans" style={{ background: 'oklch(98% 0.004 75)' }}>
+    <AppFrame>
+      {celebrations.length > 0 && (
+        <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
+      )}
       <Sidebar active="roster" tier={tier} xpBalance={entitlement?.xpBalance} />
 
-      {/* MAIN CONTENT */}
-      <div className="flex-1 p-8 max-w-[1180px] min-w-0">
-        <div className="flex items-start justify-between mb-3">
-          <div>
-            <div className="text-[23px] font-bold tracking-[-0.2px]">Roster</div>
-            <div className="text-[13.5px] mt-[3px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-              Manage your players, training focus, and tournament entries.
+      <PageShell wash="radial-gradient(120% 60% at 90% -10%, oklch(40% 0.05 122 / 0.16), transparent 60%)">
+        {/* HERO */}
+        <Hero minHeight={140}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(90% 0.02 150)', opacity: 0.85 }}>Your Academy</div>
+              <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Roster</div>
+              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 150)', opacity: 0.8, marginTop: 4 }}>
+                Shape careers, set training, and send your players onto the circuit.
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {canCreateCustomPlayer && (
+                  <Button variant="ghost" onClick={() => setCustomPlayerModalOpen(true)} style={{ background: 'oklch(100% 0 0 / 0.12)', color: 'white', borderColor: 'oklch(100% 0 0 / 0.25)' }}>
+                    Create custom player ({customPlayerCredits})
+                  </Button>
+                )}
+                <Link href="/scouting" style={{ textDecoration: 'none' }}>
+                  <Button variant="primary">Browse talent pool →</Button>
+                </Link>
+              </div>
+              {/* Slot pips */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 11.5, color: 'oklch(92% 0.01 150)', opacity: 0.85, fontWeight: 600 }}>
+                  {usedSlots} / {slotCount} slots
+                </span>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {Array.from({ length: slotCount }, (_, i) => (
+                    <div key={i} style={{
+                      width: 20, height: 6, borderRadius: 3,
+                      background: i < usedSlots ? 'var(--gc-ball)' : 'oklch(100% 0 0 / 0.2)',
+                      boxShadow: i < usedSlots ? '0 0 6px var(--gc-ball)' : 'none',
+                    }} />
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
-          {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <form
-            className="flex items-center gap-[6px] text-[11.5px]"
-            style={{ color: 'oklch(52% 0.006 75)' }}
-            onSubmit={(e) => {
-              e.preventDefault();
-              setManagerId(managerIdInput.trim() || managerId);
-            }}
+        </Hero>
+
+        {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
+          <form
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--gc-ink-faint)', marginTop: 12 }}
+            onSubmit={(e) => { e.preventDefault(); setManagerId(managerIdInput.trim() || managerId); }}
           >
             Manager ID (dev)
-            <input
-              value={managerIdInput}
-              onChange={(e) => setManagerIdInput(e.target.value)}
-              className="rounded px-2 py-1 text-[12px] text-[oklch(22%_0.006_75)]"
-              style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
-            />
-          </form>}
-        </div>
-
-        <div className="flex items-start justify-between mb-7">
-          <div />
-          <div className="flex flex-col items-end gap-[6px]">
-            <div className="flex items-center gap-2">
-              {canCreateCustomPlayer && (
-                <button
-                  onClick={() => setCustomPlayerModalOpen(true)}
-                  className="px-[16px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
-                  style={{ border: '1px solid oklch(85% 0.006 75)', color: 'oklch(28% 0.006 75)' }}
-                >
-                  Create custom player ({customPlayerCredits})
-                </button>
-              )}
-              <Link
-                href="/scouting"
-                className="text-white border-none px-[18px] py-[10px] rounded-[6px] text-[13.5px] font-semibold cursor-pointer hover:opacity-90 no-underline"
-                style={{ background: 'oklch(20% 0.006 75)' }}
-              >
-                Browse talent pool
-              </Link>
-            </div>
-            <div className="text-[11.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
-              {tier === 'pro'
-                ? `Roster ${usedSlots} of ${slotCount} slots used`
-                : `Roster ${usedSlots} of ${slotCount} slots used · Manager Pro adds 2 more (faster point decay applies)`}
-            </div>
-          </div>
-        </div>
+            <input className="gc-input" style={{ padding: '5px 9px', fontSize: 12 }} value={managerIdInput} onChange={(e) => setManagerIdInput(e.target.value)} />
+          </form>
+        )}
 
         {error && (
-          <div className="mb-4 text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(45% 0.16 25)', background: 'oklch(95% 0.03 25)' }}>
+          <div style={{ marginTop: 16, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
           </div>
         )}
 
         {hasPlayers && (
-          <div>
-            {/* Toolbar: slot indicator + sort */}
-            <div className="flex items-center justify-between mb-[14px]">
-              <div className="flex items-center gap-2">
-                <div className="text-[12.5px] font-semibold" style={{ color: 'oklch(30% 0.006 75)' }}>
-                  Roster {usedSlots}/{slotCount}
-                </div>
-                <div className="flex gap-1">
-                  {Array.from({ length: slotCount }, (_, i) => (
-                    <div
-                      key={i}
-                      className="w-2 h-2 rounded-[2px]"
-                      style={{ background: i < usedSlots ? 'oklch(20% 0.006 75)' : 'oklch(88% 0.006 75)' }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <div className="flex items-center gap-2 text-[12.5px]" style={{ color: 'oklch(48% 0.006 75)' }}>
-                Sort by
-                <select
-                  value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value as SortBy)}
-                  className="font-semibold text-[12.5px] rounded-[6px] px-2 py-[6px] cursor-pointer text-[oklch(22%_0.006_75)]"
-                  style={{ background: 'white', border: '1px solid oklch(88% 0.006 75)' }}
-                >
-                  <option value="fatigue">Fatigue (highest first)</option>
-                  <option value="stage">Stage / age (nearest decline)</option>
-                  <option value="overall">Overall rating</option>
-                  <option value="name">Name</option>
-                </select>
-              </div>
-            </div>
+          <>
+            <SectionLabel right={
+              <select className="gc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}>
+                <option value="fatigue">Sort: Fatigue</option>
+                <option value="stage">Sort: Nearest decline</option>
+                <option value="overall">Sort: Overall rating</option>
+                <option value="name">Sort: Name</option>
+              </select>
+            }>Squad · {usedSlots} player{usedSlots === 1 ? '' : 's'}</SectionLabel>
 
-            {/* Net-line motif divider */}
-            <div className="flex items-center gap-0 my-[2px] mb-[14px]">
-              <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
-              <div className="flex-1 h-[1.5px]" style={{ background: 'oklch(50% 0.006 75)' }} />
-              <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
-              <div className="flex-1 h-[1.5px]" style={{ background: 'oklch(50% 0.006 75)' }} />
-              <div className="w-px h-[9px]" style={{ background: 'oklch(35% 0.006 75)' }} />
-            </div>
-
-            {/* Table header */}
-            <div
-              className="grid gap-[14px] px-4 pb-2 text-[11px] font-semibold tracking-[0.5px] uppercase"
-              style={{
-                gridTemplateColumns: 'minmax(0,2.6fr) minmax(46px,0.6fr) minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1.3fr) minmax(80px,1fr)',
-                color: 'oklch(52% 0.006 75)',
-              }}
-            >
-              <div>Player</div>
-              <div>Rank</div>
-              <div>Stage</div>
-              <div>Fatigue</div>
-              <div>Surfaces</div>
-              <div>Training focus</div>
-              <div className="text-right">Actions</div>
-            </div>
-
-            <div className="flex flex-col gap-[10px]">
-              {sortedPlayers.map((p) => {
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {sortedPlayers.map((p, idx) => {
                 const fat = fatigueMeta(p.fatigue);
+                const frm = formMeta(p.form);
                 const stg = stageMeta(p.stage);
                 const busy = busyPlayerId === p.id;
                 return (
-                  <div
-                    key={p.id}
-                    className="grid gap-[14px] items-center bg-white rounded-[8px] px-4 py-[14px]"
-                    style={{
-                      gridTemplateColumns:
-                        'minmax(0,2.6fr) minmax(46px,0.6fr) minmax(0,1.1fr) minmax(0,1.1fr) minmax(0,1.3fr) minmax(0,1.3fr) minmax(80px,1fr)',
-                      border: '1px solid oklch(90% 0.005 75)',
-                      opacity: busy ? 0.6 : 1,
-                    }}
-                  >
-                    {/* Player */}
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className="w-[42px] h-[42px] flex-none rounded-[6px] flex items-center justify-center text-white font-bold text-[14px]"
-                        style={{ background: avatarColorFor(p.id) }}
-                      >
-                        {initialsFor(p.name)}
-                      </div>
-                      <div className="min-w-0">
-                        <Link
-                          href={`/players/${p.id}`}
-                          className="font-semibold text-[14px] flex items-center gap-[7px] overflow-hidden text-ellipsis no-underline hover:underline"
-                          style={{ color: 'inherit' }}
-                        >
-                          <span className="flex-none">{flagFor(p.nationality)}</span>
-                          {p.name}
-                        </Link>
-                        <div className="text-[12px]" style={{ color: 'oklch(50% 0.006 75)' }}>
-                          Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)}
-                        </div>
-                        <div className="text-[11px] mt-px" style={{ color: 'oklch(52% 0.006 75)' }}>
-                          Last: {p.lastResult ?? 'No matches yet'}
+                  <Panel key={p.id} hover grain className="gc-rise" style={{ padding: 0, opacity: busy ? 0.55 : 1, animationDelay: `${idx * 55}ms`, overflow: 'visible' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2.5fr) auto minmax(0,1.1fr) minmax(0,1.15fr) auto minmax(150px,1.2fr) auto', gap: 16, alignItems: 'center', padding: '15px 18px' }}>
+                      {/* Identity */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
+                        <Avatar id={p.id} name={p.name} size={52} />
+                        <div style={{ minWidth: 0 }}>
+                          <Link href={`/players/${p.id}`} style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', color: 'var(--gc-ink)', fontWeight: 750, fontSize: 15.5 }}>
+                            <Flag code={p.nationality} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                          </Link>
+                          <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 2 }}>
+                            Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)} · <span style={{ color: 'var(--gc-ink-faint)' }}>{p.lastResult ?? 'No matches yet'}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Rank */}
-                    <div>
-                      <div className="flex items-center gap-[6px]">
-                        <div className="text-[19px] font-bold [font-variant-numeric:tabular-nums]">
-                          {p.rank !== null ? `#${p.rank}` : '—'}
-                        </div>
+                      {/* OVR */}
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                        <AnimatedOvrRing value={p.overall} size={46} persistKey={`roster:ovr:${p.id}`} />
+                        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--gc-ink-faint)' }}>OVR</span>
+                      </div>
+
+                      {/* Rank */}
+                      <div>
+                        <AnimatedRankPlate playerId={p.id} rank={p.rank} points={p.points} />
                         {p.rankBand !== 'senior' && (
-                          <div
-                            className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px]"
-                            style={{ background: 'oklch(90% 0.1 240)', color: 'oklch(35% 0.14 240)' }}
-                          >
-                            {p.rankBand}
+                          <span className="gc-badge" style={{ marginTop: 4, background: 'oklch(45% 0.1 240 / 0.3)', color: 'oklch(84% 0.09 240)' }}>{p.rankBand}</span>
+                        )}
+                      </div>
+
+                      {/* Stage + fatigue + form */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <span style={{ alignSelf: 'flex-start', padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 750, background: stg.bg, color: stg.fg }}>
+                          {stageLabel(p.stage)}
+                        </span>
+                        <div className="gc-bar" style={{ width: '100%', maxWidth: 130 }}><i style={{ width: `${p.fatigue}%`, background: fat.color }} /></div>
+                        <span style={{ fontSize: 10.5, color: fat.color, fontWeight: 600 }}>{fat.label}</span>
+                        <div className="gc-bar" style={{ width: '100%', maxWidth: 130 }}><i style={{ width: `${Math.min(100, p.form)}%`, background: frm.color }} /></div>
+                        <span style={{ fontSize: 10.5, color: frm.color, fontWeight: 600 }}>Form {frm.label}</span>
+                      </div>
+
+                      {/* Surfaces */}
+                      <div style={{ display: 'flex', gap: 7 }}>
+                        {SURFACES.map((s) => (
+                          <AnimatedAffinityBar key={s.key} playerId={p.id} surfaceKey={s.key} value={p.surfaceAffinities[s.key]} letter={s.letter} />
+                        ))}
+                      </div>
+
+                      {/* Training focus */}
+                      <div style={{ position: 'relative' }}>
+                        <button
+                          onClick={() => setOpenFocusMenu(openFocusMenu === p.id ? null : p.id)}
+                          disabled={busy || p.stage === 'retired'}
+                          className="gc-select"
+                          style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundImage: 'none' }}
+                        >
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ width: 6, height: 6, borderRadius: 999, background: p.trainingFocus ? 'var(--gc-ball)' : 'var(--gc-ink-faint)' }} />
+                            {trainingFocusLabel(p.trainingFocus)}
+                          </span>
+                          <span style={{ fontSize: 10, color: 'var(--gc-ink-mute)' }}>▾</span>
+                        </button>
+                        {openFocusMenu === p.id && (
+                          <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, minWidth: 180, maxHeight: 320, overflowY: 'auto', zIndex: 20, padding: 5 }}>
+                            {FOCUS_GROUPS.map((grp, i) => (
+                              <div key={grp.label} style={i > 0 ? { borderTop: '1px solid var(--gc-line)', marginTop: 4, paddingTop: 4 } : undefined}>
+                                <div style={{ padding: '5px 9px 3px', fontSize: 10, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>{grp.label}</div>
+                                {grp.options.map((opt) => {
+                                  const on = focusEquals(p.trainingFocus, opt.focus);
+                                  return (
+                                    <div key={opt.label} onClick={() => handleSelectFocus(p.id, opt.focus)}
+                                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)', background: on ? 'var(--gc-s3)' : 'transparent' }}>
+                                      {opt.label}{on && <span style={{ color: 'var(--gc-ball)', fontWeight: 800 }}>✓</span>}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ))}
                           </div>
                         )}
                       </div>
-                      <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
-                        {p.overall} OVR
-                      </div>
-                    </div>
 
-                    {/* Stage */}
-                    <div className="flex flex-col gap-1 items-start">
-                      <div
-                        className="inline-block px-[9px] py-[3px] rounded-[4px] text-[11px] font-bold tracking-[0.3px]"
-                        style={{ background: stg.bg, color: stg.fg }}
-                      >
-                        {stageLabel(p.stage)}
-                      </div>
-                      <div className="text-[11px]" style={{ color: stg.noteColor }}>
-                        {p.stageNote}
-                      </div>
-                    </div>
-
-                    {/* Fatigue */}
-                    <div className="flex flex-col gap-[5px]">
-                      <div className="w-full max-w-[110px] h-[7px] rounded-[4px] overflow-hidden" style={{ background: 'oklch(92% 0.004 75)' }}>
-                        <div className="h-full rounded-[4px]" style={{ background: fat.color, width: `${p.fatigue}%` }} />
-                      </div>
-                      <div className="text-[11px] font-semibold" style={{ color: fat.color }}>
-                        {fat.label}
-                      </div>
-                    </div>
-
-                    {/* Surfaces */}
-                    <div className="flex gap-[6px]">
-                      {SURFACES.map((s) => {
-                        const val = p.surfaceAffinities[s.key];
-                        const pct = Math.round((val / 60) * 100);
-                        return (
-                          <div key={s.key} className="flex flex-col items-center gap-[3px]">
-                            <div className="w-[11px] h-8 rounded-[3px] flex items-end overflow-hidden" style={{ background: 'oklch(93% 0.004 75)' }}>
-                              <div className="w-full" style={{ height: `${pct}%`, background: s.color }} />
-                            </div>
-                            <div className="text-[9.5px] font-semibold" style={{ color: 'oklch(52% 0.006 75)' }}>
-                              {s.letter}
-                            </div>
+                      {/* Actions */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative', width: 92 }}>
+                        <Button variant="primary" onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })} disabled={busy || p.stage === 'retired'} style={{ padding: '7px 10px', fontSize: 12 }}>Enter</Button>
+                        <Button variant="ghost" onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)} disabled={busy} style={{ padding: '6px 10px', fontSize: 12 }}>More ···</Button>
+                        {openActionsMenu === p.id && (
+                          <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 160, zIndex: 20, padding: 5, overflow: 'hidden' }}>
+                            <div onClick={() => { setOpenActionsMenu(null); setCoachModalPlayer({ id: p.id, name: p.name }); }} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)' }}>Convert to coach</div>
+                            <div onClick={() => handleRelease(p.id, p.name)} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'oklch(72% 0.16 25)' }}>Release player</div>
                           </div>
-                        );
-                      })}
+                        )}
+                      </div>
                     </div>
-
-                    {/* Training focus */}
-                    <div className="relative">
-                      <button
-                        onClick={() => setOpenFocusMenu(openFocusMenu === p.id ? null : p.id)}
-                        disabled={busy || p.stage === 'retired'}
-                        className="w-full text-left rounded-[6px] px-[10px] py-2 text-[12.5px] font-semibold cursor-pointer flex items-center justify-between gap-[6px] disabled:cursor-not-allowed"
-                        style={{ background: 'oklch(97% 0.003 75)', border: '1px solid oklch(88% 0.006 75)', color: 'oklch(28% 0.006 75)' }}
-                      >
-                        {trainingFocusLabel(p.trainingFocus)}
-                        <span className="text-[10px]" style={{ color: 'oklch(55% 0.006 75)' }}>
-                          ▾
-                        </span>
-                      </button>
-                      {openFocusMenu === p.id && (
-                        <div
-                          className="absolute top-[calc(100%+4px)] left-0 right-0 min-w-[170px] max-h-[300px] overflow-y-auto bg-white rounded-[6px] z-10 py-1"
-                          style={{ border: '1px solid oklch(88% 0.006 75)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
-                        >
-                          {FOCUS_GROUPS.map((grp, i) => (
-                            <div key={grp.label} style={i > 0 ? { borderTop: '1px solid oklch(93% 0.004 75)' } : undefined}>
-                              <div
-                                className="px-[10px] pt-[6px] pb-[3px] text-[10px] font-bold tracking-[0.5px] uppercase"
-                                style={{ color: 'oklch(55% 0.006 75)' }}
-                              >
-                                {grp.label}
-                              </div>
-                              {grp.options.map((opt) => (
-                                <div
-                                  key={opt.label}
-                                  onClick={() => handleSelectFocus(p.id, opt.focus)}
-                                  className="flex items-center justify-between px-[10px] py-[6px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
-                                  style={{ color: 'oklch(28% 0.006 75)' }}
-                                >
-                                  {opt.label}
-                                  {focusEquals(p.trainingFocus, opt.focus) && (
-                                    <span className="font-bold" style={{ color: 'oklch(55% 0.13 240)' }}>
-                                      ✓
-                                    </span>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-col gap-[5px] relative">
-                      <button
-                        onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })}
-                        disabled={busy || p.stage === 'retired'}
-                        className="w-full text-white border-none px-2 py-[6px] rounded-[6px] text-[11px] font-semibold cursor-pointer leading-[1.25] hover:opacity-90 disabled:cursor-not-allowed"
-                        style={{ background: 'oklch(20% 0.006 75)' }}
-                      >
-                        Enter
-                      </button>
-                      <button
-                        onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)}
-                        disabled={busy}
-                        className="w-full bg-transparent px-2 py-[5px] rounded-[6px] text-[11px] font-semibold cursor-pointer hover:bg-[oklch(96%_0.003_75)] disabled:cursor-not-allowed"
-                        style={{ color: 'oklch(45% 0.006 75)', border: '1px solid oklch(88% 0.006 75)' }}
-                      >
-                        More···
-                      </button>
-                      {openActionsMenu === p.id && (
-                        <div
-                          className="absolute top-[calc(100%+4px)] right-0 min-w-[150px] bg-white rounded-[6px] z-10 overflow-hidden py-1"
-                          style={{ border: '1px solid oklch(88% 0.006 75)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
-                        >
-                          <div
-                            onClick={() => {
-                              setOpenActionsMenu(null);
-                              setCoachModalPlayer({ id: p.id, name: p.name });
-                            }}
-                            className="px-[10px] py-[7px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
-                            style={{ color: 'oklch(28% 0.006 75)' }}
-                          >
-                            Convert to coach
-                          </div>
-                          <div
-                            onClick={() => handleRelease(p.id, p.name)}
-                            className="px-[10px] py-[7px] text-[12.5px] cursor-pointer hover:bg-[oklch(96%_0.003_75)]"
-                            style={{ color: 'oklch(55% 0.16 25)' }}
-                          >
-                            Release player
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  </Panel>
                 );
               })}
 
               {showOpenSlot && (
-                <Link
-                  href="/scouting"
-                  className="flex items-center justify-center gap-2 rounded-[8px] p-4 text-[13px] font-semibold cursor-pointer hover:bg-[oklch(97%_0.003_75)] no-underline"
-                  style={{ border: '1.5px dashed oklch(85% 0.006 75)', color: 'oklch(50% 0.006 75)' }}
-                >
-                  + Open roster slot — Browse talent pool
+                <Link href="/scouting" style={{ textDecoration: 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, padding: 18, fontSize: 13, fontWeight: 650, color: 'var(--gc-ink-mute)', border: '1.5px dashed var(--gc-line)', background: 'oklch(100% 0 0 / 0.02)' }}>
+                    + Open roster slot — browse the talent pool
+                  </div>
                 </Link>
               )}
             </div>
-          </div>
+          </>
         )}
 
         {showEmpty && (
-          <div
-            className="rounded-[10px] p-[70px_40px] text-center flex flex-col items-center gap-[14px] mt-[10px]"
-            style={{ border: '1.5px dashed oklch(85% 0.006 75)' }}
-          >
-            <div
-              className="w-[52px] h-[52px] rounded-[8px] flex items-center justify-center text-[22px] font-bold"
-              style={{ background: 'oklch(93% 0.006 75)', color: 'oklch(55% 0.006 75)' }}
-            >
-              ?
-            </div>
-            <div className="text-[16px] font-bold" style={{ color: 'oklch(25% 0.006 75)' }}>
-              Your roster is empty
-            </div>
-            <div className="text-[13.5px] max-w-[340px] leading-[1.5]" style={{ color: 'oklch(50% 0.006 75)' }}>
-              Claim your first player from the talent pool to start entering tournaments. You have {slotCount} roster
-              slot{slotCount === 1 ? '' : 's'} available.
-            </div>
-            <Link
-              href="/scouting"
-              className="mt-[6px] text-white border-none px-[22px] py-[11px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90 no-underline"
-              style={{ background: 'oklch(20% 0.006 75)' }}
-            >
-              Browse talent pool
-            </Link>
+          <div style={{ marginTop: 20, textAlign: 'center' }}>
+            <Panel grain style={{ padding: '64px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+              <Avatar id="empty-roster-slot" size={72} />
+              <div style={{ fontSize: 19, fontWeight: 800 }}>Your academy has no players yet</div>
+              <div style={{ fontSize: 14, maxWidth: 380, lineHeight: 1.55, color: 'var(--gc-ink-mute)' }}>
+                Claim your first prospect from the talent pool to start entering tournaments. You have {slotCount} roster slot{slotCount === 1 ? '' : 's'} waiting.
+              </div>
+              <Link href="/scouting" style={{ textDecoration: 'none', marginTop: 4 }}><Button variant="primary" style={{ padding: '12px 24px', fontSize: 14 }}>Browse talent pool →</Button></Link>
+            </Panel>
           </div>
         )}
 
         {players === null && !error && (
-          <div className="text-[13.5px]" style={{ color: 'oklch(50% 0.006 75)' }}>
-            Loading roster…
-          </div>
+          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--gc-ink-mute)' }}>Loading roster…</div>
         )}
-      </div>
+      </PageShell>
 
       {notice && (
-        <div
-          className="fixed bottom-6 right-6 z-40 text-white text-[13px] font-semibold px-4 py-3 rounded-[8px]"
-          style={{ background: 'oklch(20% 0.006 75)', boxShadow: '0 6px 20px rgba(0,0,0,0.2)' }}
-        >
+        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--gc-ball-d)' }}>
           {notice}
         </div>
       )}
@@ -606,6 +558,6 @@ export default function RosterDashboardPage() {
           }}
         />
       )}
-    </div>
+    </AppFrame>
   );
 }

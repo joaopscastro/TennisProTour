@@ -5,7 +5,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import IORedis from 'ioredis';
 import { Queue, QueueEvents, Worker } from 'bullmq';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
-import { ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId } from '@tennis-manager/domain';
+import { GameWorld, ManagerId, Player, PlayerId, StandardAgingPolicy, StandardPlayerGenerationPolicy, TournamentId, WorldId } from '@tennis-manager/domain';
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { buildDependencies, createDb, Dependencies, schema, testConnectionString } from '@tennis-manager/api';
 import { makeSimulateDueMatchesHandler } from './jobs/handlers';
@@ -33,6 +33,7 @@ import { makeSimulateDueMatchesHandler } from './jobs/handlers';
 const connectionString = testConnectionString();
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const QUEUE_NAME = 'e2e-smoke-matches';
+const WORLD_ID = 'main';
 const TOURNAMENT_ID = TournamentId('e2e-smoke-t1');
 const PLAYER_COUNT = 16; // fills the whole draw: every round-1 pairing is a real match, no byes to reason about
 const DRAW_SIZE = 16;
@@ -59,17 +60,22 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
     await db.delete(schema.tournamentEntries);
     await db.delete(schema.tournaments);
     await db.delete(schema.players);
-    await db.delete(schema.talentPoolCandidates);
 
     matchLogDirectory = await mkdtemp(join(tmpdir(), 'e2e-smoke-'));
     deps = buildDependencies({ db, matchLogDirectory, logEvent: () => {} });
+
+    // SimulateDueMatchesUseCase reads the world clock to day-gate each
+    // round (see docs/day-tick-and-scheduling.md). Put the world a week
+    // AHEAD of the tournament's week-1 schedule so every round is due,
+    // keeping this smoke test's single-sweep expectation intact.
+    await deps.worlds.save(GameWorld.create(WorldId(WORLD_ID), { season: 1, week: 2 }));
 
     connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
     queue = new Queue(QUEUE_NAME, { connection });
     queueEvents = new QueueEvents(QUEUE_NAME, { connection: connection.duplicate() });
     await queueEvents.waitUntilReady();
 
-    const simulateDueMatches = makeSimulateDueMatchesHandler(deps);
+    const simulateDueMatches = makeSimulateDueMatchesHandler(deps, WORLD_ID);
     worker = new Worker(QUEUE_NAME, async () => simulateDueMatches(), { connection });
     await worker.waitUntilReady();
   });
@@ -86,15 +92,16 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
   it(
     'drives the full path end to end',
     async () => {
-      // 1. Populate the talent pool with fixed-id candidates, then
-      // claim each one — via the same use case the HTTP layer calls
+      // 1. Populate the free-agent pool with fixed-id Player rows, then
+      // sign each one — via the same use case the HTTP layer calls
       // (ClaimTalentPoolCandidateUseCase). Hiring is pool-based now
       // (see docs/CLAUDE.md), so there's no more direct "hire any
-      // player" use case; seeding fixed candidate ids directly (rather
+      // player" use case; seeding fixed player ids directly (rather
       // than a real RefreshTalentPoolUseCase random batch) keeps this
       // test's downstream ids predictable, exactly like apps/api's own
       // seed script does for the same reason.
       const generationPolicy = new StandardPlayerGenerationPolicy();
+      const agingPolicy = new StandardAgingPolicy();
       const random = { next: () => Math.random() };
       // Claiming costs XP (TalentClaimPricingPolicy) — fund each
       // manager before their first claim, same pattern
@@ -104,22 +111,27 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
       const AMPLE_XP_FOR_TESTS = 100_000;
       const fundedManagers = new Set<string>();
       for (let i = 1; i <= PLAYER_COUNT; i++) {
-        const candidateId = TalentPoolCandidateId(`e2e-p${i}`);
+        const playerId = PlayerId(`e2e-p${i}`);
         const managerId = `e2e-m${Math.ceil(i / 2)}`; // 2/manager: within the free-tier cap
         if (!fundedManagers.has(managerId)) {
           await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
           fundedManagers.add(managerId);
         }
         const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
-        await deps.talentPoolCandidates.save(
-          TalentPoolCandidate.generate(
-            candidateId,
-            { ...generated, name: `E2E Player ${i}`, nationality: 'BR' },
-            { season: 1, week: 1 },
+        await deps.players.save(
+          Player.generateFillOnly(
+            playerId,
+            `E2E Player ${i}`,
+            generated.ageInWeeks,
+            agingPolicy.stageForAge(generated.ageInWeeks),
+            generated.attributes,
+            'BR',
+            generated.potentialCeiling,
+            generated.physicalCeilings,
           ),
         );
         await deps.claimTalentPoolCandidate.execute({
-          candidateId,
+          playerId,
           managerId: ManagerId(managerId),
         });
       }

@@ -5,15 +5,19 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { RankingPointsTable } from '@tennis-manager/domain';
 import { RankingLedgerEntry } from '@tennis-manager/domain';
 import { ManagerXpPolicy } from '@tennis-manager/domain';
+import { ManagerLadderPolicy } from '@tennis-manager/domain';
+import { PlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { applyGraduationCarryover, RankingBand } from '@tennis-manager/domain';
 import { RankingCalculationService, bestResultsCapFor, matchesRankingBand } from '@tennis-manager/domain';
 import { isNewPeak, PeakRankingEntry, TitleRecord } from '@tennis-manager/domain';
+import { fatigueCostForMatch } from '@tennis-manager/domain';
 import {
   EventPublisherPort,
   GameWorldRepository,
   PeakRankingRepository,
   RankingLedgerRepository,
   ManagerXpRepository,
+  ManagerLadderRepository,
   MatchLogStorePort,
   PlayerRepository,
   TitleRepository,
@@ -133,10 +137,13 @@ export class SimulateMatchUseCase {
     private readonly rankingLedger: RankingLedgerRepository,
     private readonly managerXpPolicy: ManagerXpPolicy,
     private readonly managerXp: ManagerXpRepository,
+    private readonly managerLadderPolicy: ManagerLadderPolicy,
+    private readonly managerLadder: ManagerLadderRepository,
     private readonly peakRankings: PeakRankingRepository,
     private readonly titles: TitleRepository,
     private readonly worlds: GameWorldRepository,
     private readonly worldId: WorldId,
+    private readonly developmentPolicy: PlayerDevelopmentPolicy,
   ) {}
 
   async execute(command: SimulateMatchCommand): Promise<{ replayUrl: string }> {
@@ -154,8 +161,8 @@ export class SimulateMatchUseCase {
     const scheduledMatch = tournament.getScheduledMatch(command.roundNumber, command.matchIndex);
 
     const [playerA, playerB] = await Promise.all([
-      this.loadParticipant(scheduledMatch.entrantA),
-      this.loadParticipant(scheduledMatch.entrantB),
+      this.loadParticipant(scheduledMatch.entrantA, tournament.hostCountry),
+      this.loadParticipant(scheduledMatch.entrantB, tournament.hostCountry),
     ]);
 
     const { outcome, log } = this.matchSimulator.simulate(playerA, playerB, tournament.surface);
@@ -187,13 +194,36 @@ export class SimulateMatchUseCase {
     // Apply resulting fatigue AND automatic surface-affinity growth to
     // both players, for the surface actually played, and persist. See
     // MATCH_SURFACE_AFFINITY_GAIN's doc comment for why the latter is
-    // here at all.
+    // here at all. Fatigue accrual is stamina-modulated (higher stamina
+    // tires less — see fatigueCostForMatch); form accrues a flat +1 per
+    // real match (both players), the accrual half of the rhythm system
+    // that AdvanceWorldWeekUseCase decays weekly.
     const winnerPlayer = await this.players.findById(outcome.winner);
     const loserPlayer = await this.players.findById(outcome.loser);
-    winnerPlayer?.applyMatchFatigue(8);
-    loserPlayer?.applyMatchFatigue(8);
-    winnerPlayer?.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
-    loserPlayer?.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
+    // Player-development XP (docs/rocking-rackets-competitive-analysis.md
+    // §1c): both participants learn from the match, scaled by how
+    // competitive it was — the MATCH loser's total games won across all
+    // sets. A 6-0 6-0 blowout teaches almost nothing; a 7-6 7-6 war
+    // teaches a lot. The winner earns a fixed fraction of the loser's
+    // share (see PlayerDevelopmentPolicy.matchExperience). setScores are
+    // recorded relative to the match winner/loser, so summing loserGames
+    // across sets is the loser's whole-match games total directly. This
+    // XP is what applyTraining later spends — every player develops by
+    // playing, free agents and fillOnly players included (they have no
+    // manager to earn manager XP for, but still grow their own game).
+    const loserGames = outcome.setScores.reduce((sum, set) => sum + set.loserGames, 0);
+    if (winnerPlayer) {
+      winnerPlayer.applyMatchFatigue(fatigueCostForMatch(winnerPlayer.attributes.physical.stamina.value));
+      winnerPlayer.applyMatchForm(1);
+      winnerPlayer.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
+      winnerPlayer.gainExperience(this.developmentPolicy.matchExperience({ loserGames, isWinner: true }));
+    }
+    if (loserPlayer) {
+      loserPlayer.applyMatchFatigue(fatigueCostForMatch(loserPlayer.attributes.physical.stamina.value));
+      loserPlayer.applyMatchForm(1);
+      loserPlayer.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
+      loserPlayer.gainExperience(this.developmentPolicy.matchExperience({ loserGames, isWinner: false }));
+    }
     if (winnerPlayer) await this.players.save(winnerPlayer);
     if (loserPlayer) await this.players.save(loserPlayer);
 
@@ -271,6 +301,17 @@ export class SimulateMatchUseCase {
     const entry: RankingLedgerEntry = { playerId: player.id, tournamentId, tier, ageBand, points, weekEarned };
     await this.rankingLedger.append(entry);
 
+    // The decaying manager ladder (the public competitive standing —
+    // docs/rocking-rackets-competitive-analysis.md §1d) banks the same
+    // points here, at the exact event that writes the ranking ledger,
+    // for the player's manager (fillOnly/free-agent players have no
+    // manager to credit). A 0-point result banks 0 (creditFor / the
+    // adapter's amount<=0 guard make it a no-op) — the ladder, like the
+    // ledger, only ever grows on a real, points-earning win.
+    if (player.managerId) {
+      await this.managerLadder.credit(player.managerId, this.managerLadderPolicy.creditFor(points));
+    }
+
     await this.updatePeakIfExceeded(player.id, entryBand, currentWeek);
   }
 
@@ -304,13 +345,18 @@ export class SimulateMatchUseCase {
     await this.managerXp.credit(player.managerId, xp);
   }
 
-  private async loadParticipant(playerId: PlayerId) {
+  private async loadParticipant(playerId: PlayerId, hostCountry: string | null) {
     const player = await this.players.findById(playerId);
     if (!player) throw new Error(`Player ${playerId} not found`);
     return {
       playerId: player.id,
       attributes: player.attributes,
       fatigue: player.fatigue,
+      form: player.form,
+      // Home advantage (P6): a real, non-empty host country matching the
+      // player's own nationality. A tournament with no recorded host
+      // country (pre-P6 rows, tests) never makes anyone "home".
+      homeAdvantage: hostCountry != null && hostCountry === player.nationality,
     };
   }
 }

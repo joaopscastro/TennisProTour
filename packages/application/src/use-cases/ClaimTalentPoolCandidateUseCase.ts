@@ -1,52 +1,49 @@
-import { ManagerId, Player, PlayerId, TalentClaimPricingPolicy, TalentPoolCandidateId } from '@tennis-manager/domain';
-import {
-  BillingPort,
-  EventPublisherPort,
-  PlayerRepository,
-  TalentClaimPort,
-  TalentPoolCandidateRepository,
-} from '../ports/ports';
+import { ManagerId, Player, PlayerId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { BillingPort, EventPublisherPort, PlayerRepository, TalentClaimPort } from '../ports/ports';
 import { maxRosterSizeFor } from './rosterCap';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 export interface ClaimTalentPoolCandidateCommand {
-  candidateId: TalentPoolCandidateId;
+  playerId: PlayerId;
   managerId: ManagerId;
 }
 
 /**
- * Replaces HirePlayerUseCase: a manager no longer hires an
- * instant/on-demand player of their own specification — they claim a
- * specific, already-generated candidate out of the shared talent pool
- * (see docs/CLAUDE.md's "hiring is pool-based and scarce" note), and
- * that claim now COSTS XP (docs/manager-xp-and-coaching-system.md
- * section 3) rather than being free.
+ * Signing a free agent out of the shared talent pool. As of the
+ * candidate/player unification (see docs/CLAUDE.md's "hiring is
+ * pool-based and scarce" note), a talent-pool "candidate" is no longer a
+ * separate aggregate that gets converted into a Player on claim — every
+ * prospect IS already a real Player (managerId: null) living in the
+ * world for their whole career whether or not anyone ever signs them.
+ * Signing is therefore an ownership transfer on an existing player, not
+ * the creation of a new one: it sets manager_id and flips fillOnly off
+ * (a signed player trains from its manager's schedule, not the auto
+ * weakest-attribute path). It still COSTS XP
+ * (docs/manager-xp-and-coaching-system.md section 3).
  *
- * Race safety has two dimensions to protect now, not one:
- *  1. Two managers claiming the same candidate — only one may win.
+ * Race safety has two dimensions to protect, not one:
+ *  1. Two managers signing the same free agent — only one may win.
  *  2. A manager's XP balance check and the deduction can't be separate
- *     steps, or two near-simultaneous claims could both pass the
+ *     steps, or two near-simultaneous signings could both pass the
  *     balance check before either deducts.
  * The roster-cap check below protects neither of these — it only ever
- * knows about ITS OWN caller's roster, same documented, accepted gap
- * as before this feature. The actual guarantee for both dimensions is
+ * knows about ITS OWN caller's roster, same documented, accepted gap as
+ * before. The actual guarantee for both dimensions is
  * TalentClaimPort.claimAndCharge()'s single real DB transaction (see
  * DrizzleTalentClaimAdapter) — this use case deliberately does NOT
- * compose a claim from separate candidate-lookup + XP-check + XP-spend
- * + candidate-claim calls, since that would reopen exactly the races
- * the port exists to close.
+ * compose a signing from separate player-lookup + XP-check + XP-spend +
+ * manager-set calls, since that would reopen exactly the races the port
+ * exists to close.
  *
- * The XP price itself is computed here, before the atomic
- * claimAndCharge call, by reading the candidate's current
- * overallRating() — safe because a candidate's attributes never change
- * after generation (only status/claimedBy do), so pricing off this
- * pre-fetched read stays correct even though the actual claim+charge
+ * The XP price is computed here, before the atomic claimAndCharge call,
+ * by reading the free agent's current overallRating() — safe because a
+ * player's attributes barely move week-to-week, so pricing off this
+ * pre-fetched read stays correct even though the actual sign+charge
  * happens moments later, atomically, possibly against a since-changed
- * status.
+ * owner.
  */
 export class ClaimTalentPoolCandidateUseCase {
   constructor(
-    private readonly candidates: TalentPoolCandidateRepository,
     private readonly players: PlayerRepository,
     private readonly events: EventPublisherPort,
     private readonly billing: BillingPort,
@@ -64,45 +61,33 @@ export class ClaimTalentPoolCandidateUseCase {
       );
     }
 
-    const candidate = await this.candidates.findById(command.candidateId);
-    if (!candidate) {
-      throw new Error(`Talent pool candidate ${command.candidateId} is no longer available`);
+    const player = await this.players.findById(command.playerId);
+    if (!player || player.managerId !== null || player.isRetired()) {
+      throw new Error(`Free agent ${command.playerId} is no longer available to sign`);
     }
     // TALENT_POOL_AGE_RANGE: the same call-site age window every
-    // candidate-generating flow already imports (RefreshTalentPoolUseCase,
-    // CreateCustomPlayerUseCase) — pricing's age-blend is scoped to
-    // that exact same range so "youngest"/"oldest" mean the same thing
-    // here as everywhere else a generated candidate's age is judged
-    // against it (e.g. scouting's own noiseProbabilityForAge).
-    const xpCost = this.pricingPolicy.priceFor(candidate.attributes.overallRating(), candidate.ageInWeeks, TALENT_POOL_AGE_RANGE);
+    // player-generating flow already imports (RefreshTalentPoolUseCase,
+    // CreateCustomPlayerUseCase) — pricing's age-blend is scoped to that
+    // exact same range so "youngest"/"oldest" mean the same thing here
+    // as everywhere else a generated player's age is judged against it.
+    const xpCost = this.pricingPolicy.priceFor(player.attributes.overallRating(), player.ageInWeeks, TALENT_POOL_AGE_RANGE);
 
-    const outcome = await this.talentClaim.claimAndCharge(command.candidateId, command.managerId, xpCost);
-    if (outcome.kind === 'candidate-unavailable') {
-      throw new Error(`Talent pool candidate ${command.candidateId} is no longer available`);
+    const outcome = await this.talentClaim.claimAndCharge(command.playerId, command.managerId, xpCost);
+    if (outcome.kind === 'player-unavailable') {
+      throw new Error(`Free agent ${command.playerId} is no longer available to sign`);
     }
     if (outcome.kind === 'insufficient-xp') {
       throw new Error(
-        `Manager ${command.managerId} has insufficient XP to claim this candidate ` +
+        `Manager ${command.managerId} has insufficient XP to sign this free agent ` +
           `(needs ${outcome.required}, has ${outcome.balance})`,
       );
     }
 
-    const claimed = outcome.candidate;
-    // The candidate's own id becomes the resulting player's id — a
-    // claimed candidate IS that player from here on, so there's no
-    // reason to mint a second, unrelated identity for the same entity.
-    const player = Player.hire(
-      PlayerId(claimed.id),
-      claimed.name,
-      claimed.ageInWeeks,
-      claimed.attributes,
-      command.managerId,
-      claimed.nationality,
-      claimed.potentialCeiling,
-      claimed.physicalCeilings,
-    );
-    await this.players.save(player);
-    await this.events.publish(player.pullDomainEvents());
-    return player;
+    const signed = outcome.player;
+    // The atomic sign path reconstitutes the player straight from the
+    // updated row (emitting no aggregate events), so publish the signing
+    // fact here rather than pulling it off the aggregate.
+    await this.events.publish([{ type: 'PlayerSigned', payload: { playerId: signed.id, managerId: command.managerId } }]);
+    return signed;
   }
 }

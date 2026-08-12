@@ -10,25 +10,28 @@ import IORedis from 'ioredis';
 import { Queue, Worker } from 'bullmq';
 import { GameWorld, WorldId } from '@tennis-manager/domain';
 import { buildDependencies, createDb } from '@tennis-manager/api';
-import { AdvanceWorldJobData, makeAdvanceWorldHandler, makeSimulateDueMatchesHandler } from './jobs/handlers';
+import { AdvanceWorldJobData, makeAdvanceWorldHandler } from './jobs/handlers';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const matchLogDirectory = process.env.MATCH_LOG_DIR ?? './data/match-logs';
 const worldId = process.env.WORLD_ID ?? 'main';
-// Weekly world tick: Mondays 03:00 UTC. Every-5-min match sweep.
-const worldTickCron = process.env.WORLD_TICK_CRON ?? '0 3 * * 1';
-const matchSweepCron = process.env.MATCH_SWEEP_CRON ?? '*/5 * * * *';
+// World tick is now one game DAY per firing (see
+// docs/day-tick-and-scheduling.md). Default: daily 03:00 UTC. Match
+// simulation and weekly work are both folded into this single tick — a
+// week is 7 day-ticks, and the heavy weekly systems fire on the 7->1
+// rollover only. There is no separate match-sweep job anymore.
+const worldTickCron = process.env.WORLD_TICK_CRON ?? '0 3 * * *';
 
 /**
  * Dev/test override: fire the world tick every N milliseconds instead
  * of the real-week cron above — e.g. WORLD_TICK_INTERVAL_MS=3600000
  * for an hourly cadence so aging/training/tournament generation are
- * actually observable in a normal working session, instead of taking
- * a real week to show anything. Unset (the production default) keeps
- * worldTickCron in full control, byte-for-byte the same behavior as
- * before this override existed. See README.md's "Fast local tick
- * cadence" section.
+ * actually observable in a normal working session. With the day tick,
+ * this is now MS-PER-DAY: a dev game-week is 7 x this value. Unset (the
+ * production default) keeps worldTickCron in full control, byte-for-byte
+ * the same behavior as before this override existed. See README.md's
+ * "Fast local tick cadence" section.
  */
 const worldTickIntervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
 const worldTickIntervalMs = worldTickIntervalMsRaw ? Number(worldTickIntervalMsRaw) : null;
@@ -37,7 +40,6 @@ if (worldTickIntervalMsRaw !== undefined && (!Number.isFinite(worldTickIntervalM
 }
 
 const WORLD_QUEUE = 'world';
-const MATCHES_QUEUE = 'matches';
 
 async function main(): Promise<void> {
   const db = createDb(connectionString);
@@ -58,26 +60,21 @@ async function main(): Promise<void> {
   const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 
   const worldQueue = new Queue(WORLD_QUEUE, { connection });
-  const matchesQueue = new Queue(MATCHES_QUEUE, { connection });
 
-  // Repeatable schedules (upsert = safe across restarts/deploys).
+  // Repeatable schedule (upsert = safe across restarts/deploys).
   // worldTickIntervalMs set = dev/test override (every: ms); unset =
-  // production default (pattern: worldTickCron), unchanged behavior.
+  // production default (pattern: worldTickCron). One firing = one game
+  // day; match simulation + weekly work are folded into the handler.
   const worldRepeatOptions = worldTickIntervalMs !== null ? { every: worldTickIntervalMs } : { pattern: worldTickCron };
-  await worldQueue.upsertJobScheduler('advance-world-week', worldRepeatOptions, {
-    name: 'advance-world-week',
+  await worldQueue.upsertJobScheduler('advance-world-day', worldRepeatOptions, {
+    name: 'advance-world-day',
     data: { worldId } satisfies AdvanceWorldJobData,
-  });
-  await matchesQueue.upsertJobScheduler('simulate-due-matches', { pattern: matchSweepCron }, {
-    name: 'simulate-due-matches',
   });
 
   const advanceWorld = makeAdvanceWorldHandler(deps, worldTickIntervalMs);
-  const simulateDue = makeSimulateDueMatchesHandler(deps);
 
   const workers = [
     new Worker<AdvanceWorldJobData>(WORLD_QUEUE, async (job) => advanceWorld(job.data), { connection }),
-    new Worker(MATCHES_QUEUE, async () => simulateDue(), { connection }),
   ];
 
   for (const worker of workers) {
@@ -95,15 +92,14 @@ async function main(): Promise<void> {
   console.log(
     JSON.stringify({
       msg: 'worker up',
-      worldTick: worldTickIntervalMs !== null ? { mode: 'interval', everyMs: worldTickIntervalMs } : { mode: 'cron', pattern: worldTickCron },
-      matchSweepCron,
+      worldTick: worldTickIntervalMs !== null ? { mode: 'interval', everyMsPerDay: worldTickIntervalMs } : { mode: 'cron', pattern: worldTickCron },
       worldId,
     }),
   );
 
   const shutdown = async () => {
     await Promise.all(workers.map((worker) => worker.close()));
-    await Promise.all([worldQueue.close(), matchesQueue.close()]);
+    await worldQueue.close();
     connection.disconnect();
     process.exit(0);
   };

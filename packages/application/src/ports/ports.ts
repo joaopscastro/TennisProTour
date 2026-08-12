@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, TalentPoolCandidateId, CoachId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, RankingLedgerEntry, TalentPoolCandidate, Coach } from '@tennis-manager/domain';
+import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, CoachId } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, RankingLedgerEntry, Coach } from '@tennis-manager/domain';
 import { PeakRankingEntry, RankingBand, TitleRecord } from '@tennis-manager/domain';
 import { TrainingScheduleEntry } from '@tennis-manager/domain';
 
@@ -15,6 +15,7 @@ export interface ManagerAccount {
 
 export interface ManagerAccountRepository {
   findByAuthSubject(authSubject: string): Promise<ManagerAccount | null>;
+  findById(id: ManagerId): Promise<ManagerAccount | null>;
   save(account: ManagerAccount): Promise<void>;
 }
 
@@ -36,6 +37,13 @@ export interface PlayerRepository {
   /** Every player in the game-world. Becomes world-scoped when
    * multi-world arrives; today there is a single implicit world. */
   findAll(): Promise<Player[]>;
+  /** Every unowned, non-retired player — the "talent pool" a manager
+   * browses and signs from (see docs/CLAUDE.md's "hiring is pool-based
+   * and scarce" note). A free agent is now a real Player with
+   * managerId: null, not a separate TalentPoolCandidate aggregate: a
+   * generated player lives in the world for their whole career whether
+   * or not a manager ever signs them, so they never "expire" or vanish. */
+  findFreeAgents(): Promise<Player[]>;
   save(player: Player): Promise<void>;
 }
 
@@ -138,36 +146,6 @@ export interface BillingPort {
   consumeCustomPlayerCredit(managerId: ManagerId): Promise<boolean>;
 }
 
-/**
- * A generated player sitting unowned in the talent pool. One narrow
- * repository per aggregate (ISP), same as every other repository port
- * here — findAvailable()/save() cover ordinary reads/writes (browsing
- * the pool, expiring old candidates on the weekly sweep), while
- * claimIfAvailable() is a SEPARATE method specifically because it must
- * be one atomic, DB-level conditional operation, not composed from
- * findById() + save(): two managers racing to claim the same candidate
- * must never both succeed, and a read-then-write composed from this
- * port's other methods could never guarantee that (see
- * DrizzleTalentPoolCandidateRepository for the actual conditional
- * UPDATE this compiles down to).
- */
-export interface TalentPoolCandidateRepository {
-  findById(id: TalentPoolCandidateId): Promise<TalentPoolCandidate | null>;
-  /** Every candidate still sitting unclaimed and unexpired — what the
-   * pool browse screen shows, and what the weekly expiry sweep reads
-   * to find candidates to age out. */
-  findAvailable(): Promise<TalentPoolCandidate[]>;
-  save(candidate: TalentPoolCandidate): Promise<void>;
-  /** Atomically claims a candidate for a manager: succeeds (returns
-   * the now-claimed candidate) only if it was still 'available' at
-   * claim time, via a single conditional UPDATE ... WHERE
-   * status = 'available' RETURNING *. Returns null if the candidate
-   * doesn't exist, or was already claimed/expired by the time this
-   * ran — the caller (ClaimTalentPoolCandidateUseCase) treats null as
-   * "no longer available," not an error to retry. */
-  claimIfAvailable(id: TalentPoolCandidateId, managerId: ManagerId): Promise<TalentPoolCandidate | null>;
-}
-
 /** Generates opaque unique ids for aggregates the application layer
  * creates (not the domain — domain/ stays framework-free, and even
  * Node's crypto module is infrastructure). Kept as a one-method port
@@ -261,43 +239,91 @@ export interface ManagerXpRepository {
   spendXpIfSufficient(managerId: ManagerId, amount: number): Promise<boolean>;
 }
 
+/** One manager's public standing on the decaying ladder. */
+export interface ManagerLadderStanding {
+  managerId: ManagerId;
+  /** Current decayed score. Fractional (decay produces non-integers);
+   * callers round only for display. */
+  score: number;
+}
+
 /**
- * Outcome of an atomic claim+charge attempt — a discriminated union
+ * The decaying manager LADDER — the public competitive standing
+ * (docs/rocking-rackets-competitive-analysis.md §1d/P3), a DIFFERENT
+ * store from ManagerXpRepository (the spendable, non-decaying wallet).
+ * See ManagerLadderPolicy for why the two coexist rather than one
+ * replacing the other. Stored as a running fractional total (the weekly
+ * decay multiply produces non-integers), so this port intentionally
+ * does NOT reuse the integer-balance ManagerXpRepository.
+ */
+export interface ManagerLadderRepository {
+  /** Current decayed score, 0 if the manager has never banked any
+   * (same "absence means zero" convention as ManagerXpRepository). */
+  scoreFor(managerId: ManagerId): Promise<number>;
+
+  /** Adds points to a manager's ladder score (creating the row on
+   * first credit). Commutative like ManagerXpRepository.credit — two
+   * racing credits both safely add; no read-then-write. A non-positive
+   * amount is a no-op. */
+  credit(managerId: ManagerId, amount: number): Promise<void>;
+
+  /** Multiplies EVERY manager's score by `factor` in one set-based
+   * statement (the weekly erosion). Applied once per weekly rollover,
+   * not per credit — a whole-table `UPDATE ... SET score = score *
+   * factor`, so its cost is independent of how many matches were
+   * played that week. */
+  decayAll(factor: number): Promise<void>;
+
+  /** The public leaderboard: the top `limit` managers by score,
+   * descending, excluding zero/negative scores (a manager who has
+   * never earned a point isn't "ranked"). */
+  topStandings(limit: number): Promise<ManagerLadderStanding[]>;
+
+  /** The caller's own 1-based position on the public ladder, or null
+   * if they've never banked a point (genuinely unranked, not "last").
+   * Counts managers with a strictly higher score, so ties share the
+   * lower rank number. */
+  rankFor(managerId: ManagerId): Promise<number | null>;
+}
+
+/**
+ * Outcome of an atomic sign+charge attempt — a discriminated union
  * rather than a boolean/null, since ClaimTalentPoolCandidateUseCase
  * needs to distinguish two different, user-facing failure reasons (the
- * candidate was already claimed by someone else vs. this manager
+ * free agent was already signed by someone else vs. this manager
  * simply can't afford it) instead of collapsing both into one generic
- * "claim failed."
+ * "sign failed."
  */
 export type TalentClaimOutcome =
-  | { kind: 'claimed'; candidate: TalentPoolCandidate; xpSpent: number }
-  | { kind: 'candidate-unavailable' }
+  | { kind: 'claimed'; player: Player; xpSpent: number }
+  | { kind: 'player-unavailable' }
   | { kind: 'insufficient-xp'; required: number; balance: number };
 
 /**
  * Cross-aggregate port for the one operation in this codebase that
- * needs genuine multi-table atomicity: claiming a talent-pool candidate
- * AND debiting the manager's XP balance must succeed or fail together,
- * with no window where one has happened but not the other (see
- * docs/manager-xp-and-coaching-system.md section 3 — a balance check
- * and the deduction can't be two separate steps, or two near-
- * simultaneous claims could both pass the check before either
- * deducts). TalentPoolCandidateRepository.claimIfAvailable() and
- * ManagerXpRepository.spendXpIfSufficient() each solve this within
- * their OWN table via a single conditional UPDATE, but neither can
- * reach across to the other's table — hence this separate port,
- * deliberately NOT composed from calling both of those in sequence
- * from application code (that would reopen exactly the race window
- * this port exists to close). The real adapter wraps both conditional
- * UPDATEs in one actual DB transaction (see DrizzleTalentClaimAdapter).
+ * needs genuine multi-table atomicity: signing a free-agent player
+ * (transferring ownership) AND debiting the manager's XP balance must
+ * succeed or fail together, with no window where one has happened but
+ * not the other (see docs/manager-xp-and-coaching-system.md section 3 —
+ * a balance check and the deduction can't be two separate steps, or two
+ * near-simultaneous signings could both pass the check before either
+ * deducts). ManagerXpRepository.spendXpIfSufficient() solves this within
+ * its OWN table via a single conditional UPDATE, but it can't reach
+ * across to the players table — hence this separate port, deliberately
+ * NOT composed from calling XP-spend then player-update in sequence from
+ * application code (that would reopen exactly the race window this port
+ * exists to close). The real adapter wraps a conditional XP UPDATE and a
+ * conditional `UPDATE players ... WHERE manager_id IS NULL` in one
+ * actual DB transaction (see DrizzleTalentClaimAdapter).
  */
 export interface TalentClaimPort {
   /** xpCost is computed by the caller (via TalentClaimPricingPolicy,
-   * reading the candidate's overallRating() BEFORE this call) since a
-   * candidate's attributes are immutable post-generation — only
-   * status/claimedBy ever change, so pricing off a pre-fetched read is
-   * safe even though the actual claim+charge happens atomically later. */
-  claimAndCharge(candidateId: TalentPoolCandidateId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome>;
+   * reading the free agent's overallRating() BEFORE this call) since a
+   * player's attributes barely move week-to-week — pricing off a
+   * pre-fetched read stays accurate even though the actual sign+charge
+   * happens atomically moments later. Succeeds only if the player is
+   * still a free agent (manager_id IS NULL) at sign time. */
+  claimAndCharge(playerId: PlayerId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome>;
 }
 
 /**

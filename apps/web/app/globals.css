@@ -1,1 +1,365 @@
 @import "tailwindcss";
+
+/* ============================================================================
+   Grand Circuit — game-feel design language (ui-direction-v2-game-feel.md)
+   Whole-app atmospheric dark theme: deep "night broadcast" base, layered
+   panels that read as objects, environmental surface color, net-line motif,
+   illustrated identity. NOT a flat SaaS admin panel.
+   ============================================================================ */
+
+:root {
+  /* Base atmosphere — warm near-black, faint green cast (a court at night) */
+  --gc-bg:        oklch(16% 0.012 150);
+  --gc-bg-deep:   oklch(12% 0.010 150);
+  --gc-ink:       oklch(96% 0.006 95);
+  --gc-ink-dim:   oklch(78% 0.008 95);
+  --gc-ink-mute:  oklch(62% 0.010 95);
+  --gc-ink-faint: oklch(48% 0.010 95);
+
+  /* Elevated surfaces (objects, not text-on-background) */
+  --gc-s1: oklch(21% 0.013 150);
+  --gc-s2: oklch(25% 0.014 150);
+  --gc-s3: oklch(30% 0.015 150);
+
+  /* Hairlines + top highlight that make a panel read as a raised object */
+  --gc-line:      oklch(100% 0 0 / 0.08);
+  --gc-line-soft: oklch(100% 0 0 / 0.05);
+  --gc-line-hi:   oklch(100% 0 0 / 0.16);
+  --gc-hi:        oklch(100% 0 0 / 0.10);
+
+  /* Accents */
+  --gc-ball:   oklch(88% 0.19 122);   /* tennis-ball chartreuse — the brand */
+  --gc-ball-d: oklch(72% 0.17 122);
+  --gc-gold:   oklch(83% 0.15 90);    /* rank / XP / trophies */
+  --gc-warn:   oklch(70% 0.17 40);
+
+  /* Surface environments (clay / grass / hard / indoor) */
+  --sf-clay:   oklch(64% 0.155 46);
+  --sf-clay-d: oklch(46% 0.13 42);
+  --sf-grass:  oklch(66% 0.15 148);
+  --sf-grass-d:oklch(44% 0.12 150);
+  --sf-hard:   oklch(64% 0.14 245);
+  --sf-hard-d: oklch(44% 0.12 255);
+  --sf-indoor: oklch(62% 0.13 305);
+  --sf-indoor-d:oklch(42% 0.11 310);
+
+  --gc-shadow:  0 1px 0 var(--gc-hi) inset, 0 2px 4px oklch(0% 0 0 / 0.25), 0 8px 24px oklch(0% 0 0 / 0.28);
+  --gc-shadow-lg: 0 1px 0 var(--gc-hi) inset, 0 8px 20px oklch(0% 0 0 / 0.35), 0 24px 60px oklch(0% 0 0 / 0.4);
+  --gc-radius: 14px;
+}
+
+html, body {
+  background: var(--gc-bg-deep);
+  color: var(--gc-ink);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+/* Faint film-grain + vignette over the whole app so flat fills gain texture */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(120% 80% at 50% -10%, oklch(30% 0.03 150 / 0.35), transparent 60%),
+    radial-gradient(100% 100% at 50% 120%, oklch(8% 0.01 150 / 0.5), transparent 55%);
+}
+
+/* Reusable grain texture (SVG noise) — applied via .gc-grain */
+.gc-grain { position: relative; }
+.gc-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0.5;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/* ---- Panels / cards -------------------------------------------------------- */
+.gc-panel {
+  background:
+    linear-gradient(180deg, var(--gc-s2), var(--gc-s1));
+  border: 1px solid var(--gc-line);
+  border-radius: var(--gc-radius);
+  box-shadow: var(--gc-shadow);
+}
+
+.gc-card {
+  background: linear-gradient(180deg, var(--gc-s2), var(--gc-s1));
+  border: 1px solid var(--gc-line);
+  border-radius: var(--gc-radius);
+  box-shadow: var(--gc-shadow);
+  transition: transform 160ms cubic-bezier(.2,.7,.3,1), box-shadow 160ms, border-color 160ms;
+}
+.gc-card--hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--gc-shadow-lg);
+  border-color: var(--gc-line);
+}
+.gc-identity-link:hover span { text-decoration: none; }
+.gc-identity-link:hover { color: var(--gc-ball); }
+
+/* ---- Net-line motif -------------------------------------------------------- */
+.gc-net {
+  display: flex; align-items: center; gap: 6px;
+  color: var(--gc-line);
+}
+.gc-net::before, .gc-net::after {
+  content: ""; height: 1px; flex: 1;
+  background: repeating-linear-gradient(90deg, var(--gc-hi) 0 6px, transparent 6px 12px);
+}
+.gc-net > span { width: 1px; height: 9px; background: var(--gc-hi); }
+
+/* ---- Buttons --------------------------------------------------------------- */
+.gc-btn {
+  --_bg: var(--gc-s3);
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  padding: 10px 16px; border-radius: 10px;
+  font-size: 13.5px; font-weight: 650; letter-spacing: 0.2px;
+  color: var(--gc-ink); cursor: pointer; user-select: none;
+  border: 1px solid var(--gc-line);
+  background: linear-gradient(180deg, color-mix(in oklch, var(--_bg), white 6%), var(--_bg));
+  box-shadow: 0 1px 0 var(--gc-hi) inset, 0 1px 2px oklch(0% 0 0 / 0.3);
+  transition: transform 90ms, box-shadow 90ms, filter 120ms;
+}
+.gc-btn:hover { filter: brightness(1.08); }
+.gc-btn:active { transform: translateY(1px); box-shadow: 0 1px 2px oklch(0% 0 0 / 0.3) inset; }
+.gc-btn:disabled { opacity: 0.45; cursor: not-allowed; filter: none; transform: none; }
+.gc-btn--primary {
+  --_bg: var(--gc-ball-d);
+  color: oklch(20% 0.05 150); border-color: oklch(100% 0 0 / 0.18);
+  background: linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d));
+  text-shadow: 0 1px 0 oklch(100% 0 0 / 0.2);
+}
+.gc-btn--ghost { background: transparent; border-color: var(--gc-line); box-shadow: none; }
+.gc-btn--ghost:hover { background: var(--gc-s2); }
+
+/* ---- Badges ---------------------------------------------------------------- */
+.gc-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 750; letter-spacing: 0.6px; text-transform: uppercase;
+  border: 1px solid var(--gc-line-soft);
+  background: var(--gc-s3); color: var(--gc-ink-dim);
+}
+
+/* Surface chips glow with their environment color */
+.gc-surface-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px 3px 7px; border-radius: 6px;
+  font-size: 10.5px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
+  color: oklch(98% 0.01 95);
+  border: 1px solid oklch(100% 0 0 / 0.2);
+  text-shadow: 0 1px 1px oklch(0% 0 0 / 0.35);
+}
+.gc-surface-chip .dot { width: 7px; height: 7px; border-radius: 999px; background: oklch(100% 0 0 / 0.9); box-shadow: 0 0 6px oklch(100% 0 0 / 0.6); }
+
+/* ---- Stat bars ------------------------------------------------------------- */
+.gc-bar { height: 7px; border-radius: 999px; background: oklch(0% 0 0 / 0.35); overflow: hidden; box-shadow: 0 1px 0 var(--gc-hi); }
+.gc-bar > i { display: block; height: 100%; border-radius: 999px; transition: width 700ms cubic-bezier(.2,.8,.2,1); }
+
+/* ---- Environmental hero ---------------------------------------------------- */
+.gc-hero {
+  position: relative; overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid var(--gc-line);
+  box-shadow: var(--gc-shadow-lg);
+}
+.gc-hero::after { /* net stripes across the hero */
+  content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0.5;
+  background:
+    repeating-linear-gradient(90deg, oklch(100% 0 0 / 0.05) 0 1px, transparent 1px 46px),
+    radial-gradient(120% 140% at 85% -20%, oklch(100% 0 0 / 0.18), transparent 55%);
+}
+
+/* ---- Animations ------------------------------------------------------------ */
+@keyframes gc-rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes gc-pop  { 0% { transform: scale(.9); opacity: 0; } 60% { transform: scale(1.03); } 100% { transform: scale(1); opacity: 1; } }
+@keyframes gc-shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+@keyframes gc-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
+.gc-rise { animation: gc-rise 420ms cubic-bezier(.2,.8,.2,1) both; }
+.gc-pop  { animation: gc-pop 360ms cubic-bezier(.2,.8,.2,1) both; }
+.gc-live-dot { width: 8px; height: 8px; border-radius: 999px; background: oklch(65% 0.2 25); box-shadow: 0 0 8px oklch(65% 0.2 25); animation: gc-pulse 1.4s ease-in-out infinite; }
+
+/* ---- Motion & feedback system (GC-15) -------------------------------------- */
+/* A rising, fading +/− delta that floats off a number when it changes. */
+@keyframes gc-delta-rise {
+  0%   { opacity: 0; transform: translateY(4px) scale(.85); }
+  18%  { opacity: 1; transform: translateY(0) scale(1); }
+  70%  { opacity: 1; transform: translateY(-9px) scale(1); }
+  100% { opacity: 0; transform: translateY(-18px) scale(1); }
+}
+.gc-delta {
+  position: absolute; left: 100%; top: 50%; margin-left: 7px;
+  transform: translateY(-50%);
+  display: inline-flex; align-items: center; gap: 2px;
+  font-size: 11.5px; font-weight: 850; letter-spacing: 0.2px;
+  white-space: nowrap; pointer-events: none; z-index: 5;
+  font-variant-numeric: tabular-nums;
+  animation: gc-delta-rise 1500ms cubic-bezier(.2,.8,.2,1) both;
+}
+.gc-delta[data-dir="up"]   { color: oklch(82% 0.17 145); text-shadow: 0 0 10px oklch(72% 0.17 145 / 0.55); }
+.gc-delta[data-dir="down"] { color: oklch(74% 0.16 30);  text-shadow: 0 0 10px oklch(64% 0.16 30 / 0.5); }
+
+/* A brief highlight pulse when a value gains (attribute up, score won). */
+@keyframes gc-gain-flash {
+  0%   { box-shadow: 0 0 0 0 oklch(82% 0.17 145 / 0.5); filter: brightness(1); }
+  35%  { box-shadow: 0 0 0 4px oklch(82% 0.17 145 / 0.22); filter: brightness(1.35); }
+  100% { box-shadow: 0 0 0 0 oklch(82% 0.17 145 / 0); filter: brightness(1); }
+}
+.gc-gain-flash { animation: gc-gain-flash 900ms cubic-bezier(.2,.8,.2,1); }
+
+/* Score cell pop when a game/set number changes in the replay. */
+@keyframes gc-score-pop {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.22); }
+  100% { transform: scale(1); }
+}
+.gc-score-pop { animation: gc-score-pop 520ms cubic-bezier(.2,.8,.2,1); }
+
+/* Number lands with a subtle emphasis pop. */
+@keyframes gc-num-pop { 0% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.gc-num-pop { animation: gc-num-pop 360ms ease-out; display: inline-block; }
+
+/* Rank-shift arrow that eases into place. */
+@keyframes gc-shift-in { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+.gc-shift { display: inline-flex; align-items: center; gap: 2px; font-weight: 850; font-variant-numeric: tabular-nums; animation: gc-shift-in 500ms cubic-bezier(.2,.8,.2,1) both; }
+.gc-shift[data-dir="up"]   { color: oklch(82% 0.17 145); }
+.gc-shift[data-dir="down"] { color: oklch(74% 0.16 30); }
+
+/* Skeleton loading blocks (skeleton → content reveal). */
+.gc-skeleton {
+  position: relative; overflow: hidden; border-radius: 8px;
+  background: linear-gradient(90deg, var(--gc-s1) 0%, var(--gc-s2) 20%, var(--gc-s1) 40%, var(--gc-s1) 100%);
+  background-size: 200% 100%;
+  animation: gc-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes gc-reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.gc-reveal { animation: gc-reveal 460ms cubic-bezier(.2,.8,.2,1) both; }
+
+/* Exit animation when a claimed card leaves the board. */
+@keyframes gc-claimed-out {
+  0%   { opacity: 1; transform: scale(1); }
+  30%  { opacity: 1; transform: scale(1.02); box-shadow: 0 0 0 2px var(--gc-ball); }
+  100% { opacity: 0; transform: scale(.9) translateY(-6px); }
+}
+.gc-claimed-out { animation: gc-claimed-out 620ms cubic-bezier(.4,0,.2,1) both; pointer-events: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-delta { animation: none; opacity: 1; }
+  .gc-gain-flash, .gc-score-pop, .gc-num-pop, .gc-shift, .gc-reveal, .gc-claimed-out { animation: none !important; }
+  .gc-skeleton { animation: none !important; }
+}
+
+/* ---- Celebration moments (GC-16) ------------------------------------------- */
+.gc-cele-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  display: grid; place-items: center; padding: 24px;
+  background: radial-gradient(120% 90% at 50% 0%, oklch(24% 0.03 150 / 0.86), oklch(8% 0.01 150 / 0.94));
+  backdrop-filter: blur(6px);
+  animation: gc-cele-fade 320ms ease-out both;
+}
+@keyframes gc-cele-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* The framed, fixed-size node a future share pipeline screenshots. */
+.gc-share-card {
+  position: relative; overflow: hidden;
+  width: 460px; max-width: 92vw;
+  border-radius: 22px;
+  border: 1px solid var(--gc-line-hi);
+  box-shadow: var(--gc-shadow-lg), 0 0 80px -20px var(--_glow, oklch(70% 0.15 90 / 0.5));
+  animation: gc-card-reveal 620ms cubic-bezier(.2,.9,.25,1) both;
+}
+@keyframes gc-card-reveal {
+  0%   { opacity: 0; transform: perspective(1200px) rotateX(14deg) translateY(26px) scale(.94); }
+  100% { opacity: 1; transform: perspective(1200px) rotateX(0) translateY(0) scale(1); }
+}
+
+@keyframes gc-trophy-rise {
+  0%   { opacity: 0; transform: translateY(18px) scale(.6) rotate(-8deg); }
+  60%  { transform: translateY(-4px) scale(1.06) rotate(2deg); }
+  100% { opacity: 1; transform: none; }
+}
+.gc-trophy-rise { animation: gc-trophy-rise 720ms cubic-bezier(.2,.9,.25,1) both; animation-delay: 240ms; }
+
+@keyframes gc-slam {
+  0%   { opacity: 0; transform: scale(2.4); filter: blur(6px); letter-spacing: 8px; }
+  70%  { opacity: 1; transform: scale(.94); filter: blur(0); }
+  100% { transform: scale(1); }
+}
+.gc-slam { animation: gc-slam 620ms cubic-bezier(.2,.8,.2,1) both; animation-delay: 200ms; }
+
+@keyframes gc-seal-pop {
+  0%   { opacity: 0; transform: scale(0) rotate(-40deg); }
+  65%  { transform: scale(1.15) rotate(6deg); }
+  100% { opacity: 1; transform: scale(1) rotate(-8deg); }
+}
+.gc-seal-pop { animation: gc-seal-pop 640ms cubic-bezier(.3,1.3,.5,1) both; animation-delay: 360ms; }
+
+@keyframes gc-spotlight {
+  0%   { opacity: 0; transform: translateY(-40%) scaleY(.4); }
+  100% { opacity: .8; transform: none; }
+}
+.gc-spotlight { animation: gc-spotlight 700ms ease-out both; }
+
+@keyframes gc-step-fill { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+.gc-step-fill { transform-origin: left; animation: gc-step-fill 700ms cubic-bezier(.5,0,.2,1) both; animation-delay: 320ms; }
+
+/* Confetti */
+@keyframes gc-confetti-fall {
+  0%   { opacity: 0; transform: translateY(-30px) rotate(0deg); }
+  8%   { opacity: 1; }
+  100% { opacity: 0; transform: translateY(560px) rotate(720deg); }
+}
+.gc-confetti-piece { position: absolute; top: -20px; width: 9px; height: 14px; border-radius: 2px; animation: gc-confetti-fall linear both; }
+
+@keyframes gc-glow-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
+.gc-cele-glow { animation: gc-glow-pulse 2.6s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gc-cele-backdrop, .gc-share-card, .gc-trophy-rise, .gc-slam, .gc-seal-pop, .gc-spotlight, .gc-step-fill, .gc-cele-glow { animation: none !important; }
+  .gc-share-card { opacity: 1 !important; transform: none !important; }
+  .gc-step-fill { transform: none !important; }
+}
+
+/* ---- Form controls --------------------------------------------------------- */
+.gc-select {
+  appearance: none; -webkit-appearance: none;
+  background: var(--gc-s3); color: var(--gc-ink);
+  border: 1px solid var(--gc-line); border-radius: 9px;
+  padding: 9px 30px 9px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23cbb' stroke-width='1.6'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+}
+.gc-input {
+  background: var(--gc-bg-deep); color: var(--gc-ink);
+  border: 1px solid var(--gc-line); border-radius: 9px;
+  padding: 9px 12px; font-size: 13px;
+}
+.gc-input:focus, .gc-select:focus { outline: 2px solid var(--gc-ball-d); outline-offset: 1px; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-thumb { background: var(--gc-s3); border-radius: 999px; border: 3px solid var(--gc-bg-deep); }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* Filter chip (kept dense for comparison screens) */
+.gc-chip {
+  padding: 6px 12px; border-radius: 999px; font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--gc-line); background: var(--gc-s1); color: var(--gc-ink-dim);
+  cursor: pointer; transition: background 120ms, color 120ms, border-color 120ms;
+}
+.gc-chip:hover { background: var(--gc-s2); color: var(--gc-ink); }
+.gc-chip[data-active="true"] { background: var(--gc-ball); color: oklch(22% 0.05 150); border-color: transparent; font-weight: 750; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

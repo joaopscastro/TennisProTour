@@ -2,14 +2,14 @@ import 'dotenv/config';
 import {
   GameWorld,
   ManagerId,
+  Player,
   PlayerAttributes,
   PlayerId,
   RandomSource,
   Skill,
+  StandardAgingPolicy,
   StandardPlayerGenerationPolicy,
   SurfaceAffinities,
-  TalentPoolCandidate,
-  TalentPoolCandidateId,
   TournamentId,
   WorldId,
   juniorEligibilityForAge,
@@ -46,12 +46,12 @@ import { buildDependencies } from '../composition';
  * things are still pre-seeded rather than left to real randomness, for
  * a controllable, repeatable demo (the exact same shortcut seed.ts and
  * apps/worker/src/e2e.smoke.test.ts already take):
- *   1. Candidate ids are fixed/sequential, not real UUIDs.
- *   2. The "star" candidate's exact age is pinned near the top of
+ *   1. Free-agent player ids are fixed/sequential, not real UUIDs.
+ *   2. The "star" player's exact age is pinned near the top of
  *      TALENT_POOL_AGE_RANGE so the U16->senior graduation boundary is
  *      only 2 weekly ticks away, not up to ~103.
  * The CLAIM itself — XP pricing, the atomic claim+charge, the roster
- * cap check, Player.hire() reading the candidate's own generated
+ * cap check, signing the free agent with its own generated
  * ageInWeeks — is exactly what a real manager triggers via
  * POST /talent-pool/:id/claim.
  *
@@ -126,6 +126,37 @@ async function main(): Promise<void> {
   });
   const random: RandomSource = { next: () => Math.random() };
   const generationPolicy = new StandardPlayerGenerationPolicy();
+  const agingPolicy = new StandardAgingPolicy();
+
+  async function saveFreeAgent(
+    id: PlayerId,
+    name: string,
+    ageInWeeks: number,
+    attributes: PlayerAttributes,
+    nationality: string,
+    potentialCeiling: number,
+    physicalCeilings: { speed: number; stamina: number; strength: number },
+  ): Promise<void> {
+    if (await deps.players.findById(id)) return;
+    await deps.players.save(
+      Player.generateFillOnly(
+        id,
+        name,
+        ageInWeeks,
+        agingPolicy.stageForAge(ageInWeeks),
+        attributes,
+        nationality,
+        potentialCeiling,
+        physicalCeilings,
+      ),
+    );
+  }
+
+  async function signFreeAgent(id: PlayerId, managerId: ManagerId): Promise<Player> {
+    const existing = await deps.players.findById(id);
+    if (existing?.managerId !== null && existing !== null) return existing;
+    return deps.claimTalentPoolCandidate.execute({ playerId: id, managerId });
+  }
 
   log('=== 0. World setup ===');
   if (!(await deps.worlds.findById(worldId))) {
@@ -135,15 +166,29 @@ async function main(): Promise<void> {
     log(`World "${worldId}" already exists (rerun) — using its current state.`);
   }
 
+  async function advanceOneDayForPacing(reason: string): Promise<void> {
+    // Matches are now day-paced (SimulateDueMatchesUseCase only plays a
+    // round once its scheduled day arrives). This walkthrough isn't
+    // testing pacing, so it advances ONLY the day clock — directly on
+    // the aggregate, bypassing AdvanceWorldWeekUseCase — so no aging /
+    // junior-generation / weekly side effects fire mid-draw and perturb
+    // the ranking/graduation assertions later in the script.
+    const w = (await deps.worlds.findById(worldId))!;
+    w.advanceDay(`walkthrough-${reason}-${Date.now()}`);
+    await deps.worlds.save(w);
+  }
+
   log('\n=== 1. Real weekly talent-pool batch generation (RefreshTalentPoolUseCase, the actual worker-tick wiring) ===');
   const refreshResult = await deps.refreshTalentPool.execute({ worldId });
-  log(`RefreshTalentPoolUseCase: generated=${refreshResult.generated}, expired=${refreshResult.expired}`);
-  const availableAfterRefresh = await deps.talentPoolCandidates.findAvailable();
+  log(`RefreshTalentPoolUseCase: generated=${refreshResult.generated}`);
+  const availableAfterRefresh = (await deps.players.findFreeAgents()).filter(
+    (p) => p.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && p.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
+  );
   const sample = availableAfterRefresh.slice(0, 5);
-  log(`Sample of ${sample.length} of the ${availableAfterRefresh.length} available candidates (proving the real 14-16yo range):`);
+  log(`Sample of ${sample.length} of the ${availableAfterRefresh.length} available free agents (proving the real 14-16yo range):`);
   for (const c of sample) {
     const years = (c.ageInWeeks / 52).toFixed(2);
-    log(`  ${c.name}: age ${c.ageInWeeks}wk (${years}y), tier ${c.tier}, band ${juniorEligibilityForAge(c.ageInWeeks)}`);
+    log(`  ${c.name}: age ${c.ageInWeeks}wk (${years}y), band ${juniorEligibilityForAge(c.ageInWeeks)}`);
   }
   const allInRange = availableAfterRefresh.every(
     (c) => c.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && c.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
@@ -160,18 +205,14 @@ async function main(): Promise<void> {
   log('\n=== 2. Claim the "star" through the REAL ClaimTalentPoolCandidateUseCase ===');
   const starManagerId = managerIdFor(1);
   await deps.managerXp.credit(starManagerId, AMPLE_XP);
-  const starCandidateId = TalentPoolCandidateId('jw-star');
-  if (!(await deps.talentPoolCandidates.findById(starCandidateId))) {
-    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
-    await deps.talentPoolCandidates.save(
-      TalentPoolCandidate.generate(
-        starCandidateId,
-        { ...generated, name: 'Young Star', ageInWeeks: STAR_AGE_WEEKS, tier: 'exceptional', attributes: strongAttributes() },
-        { season: 1, week: 1 },
-      ),
-    );
-  }
-  const star = await deps.claimTalentPoolCandidate.execute({ candidateId: starCandidateId, managerId: starManagerId });
+  const starPlayerId = PlayerId('jw-star');
+  const starGenerated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+  await saveFreeAgent(starPlayerId, 'Young Star', STAR_AGE_WEEKS, strongAttributes(), starGenerated.nationality, 100, {
+    speed: 100,
+    stamina: 100,
+    strength: 100,
+  });
+  const star = await signFreeAgent(starPlayerId, starManagerId);
   log(
     `Claimed "${star.name}" (${star.id}) for manager ${starManagerId} — age ${star.ageInWeeks}wk ` +
       `(${(star.ageInWeeks / 52).toFixed(2)}y), currently ${juniorEligibilityForAge(star.ageInWeeks)}-eligible. ` +
@@ -185,18 +226,18 @@ async function main(): Promise<void> {
   // reusing it here would silently eat the roster slot step 6 expects).
   const prodigyManagerId = ManagerId('jw-m-prodigy');
   await deps.managerXp.credit(prodigyManagerId, AMPLE_XP);
-  const prodigyCandidateId = TalentPoolCandidateId('jw-prodigy');
-  if (!(await deps.talentPoolCandidates.findById(prodigyCandidateId))) {
-    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
-    await deps.talentPoolCandidates.save(
-      TalentPoolCandidate.generate(
-        prodigyCandidateId,
-        { ...generated, name: 'Young Prodigy', ageInWeeks: PRODIGY_AGE_WEEKS },
-        { season: 1, week: 1 },
-      ),
-    );
-  }
-  const prodigy = await deps.claimTalentPoolCandidate.execute({ candidateId: prodigyCandidateId, managerId: prodigyManagerId });
+  const prodigyPlayerId = PlayerId('jw-prodigy');
+  const prodigyGenerated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+  await saveFreeAgent(
+    prodigyPlayerId,
+    'Young Prodigy',
+    PRODIGY_AGE_WEEKS,
+    prodigyGenerated.attributes,
+    prodigyGenerated.nationality,
+    prodigyGenerated.potentialCeiling,
+    prodigyGenerated.physicalCeilings,
+  );
+  const prodigy = await signFreeAgent(prodigyPlayerId, prodigyManagerId);
   const prodigyBand = juniorEligibilityForAge(prodigy.ageInWeeks);
   log(
     `Claimed "${prodigy.name}" (${prodigy.id}) — age ${prodigy.ageInWeeks}wk (exactly ${(prodigy.ageInWeeks / 52).toFixed(2)}y, ` +
@@ -248,14 +289,18 @@ async function main(): Promise<void> {
   for (let i = 2; i <= COHORT_SIZE; i++) {
     const managerId = managerIdFor(i);
     await deps.managerXp.credit(managerId, AMPLE_XP);
-    const candidateId = TalentPoolCandidateId(`jw-p${i}`);
-    if (!(await deps.talentPoolCandidates.findById(candidateId))) {
-      const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
-      await deps.talentPoolCandidates.save(
-        TalentPoolCandidate.generate(candidateId, { ...generated, name: `Junior Player ${i}` }, { season: 1, week: 1 }),
-      );
-    }
-    const player = await deps.claimTalentPoolCandidate.execute({ candidateId, managerId });
+    const playerId = PlayerId(`jw-p${i}`);
+    const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
+    await saveFreeAgent(
+      playerId,
+      `Junior Player ${i}`,
+      generated.ageInWeeks,
+      generated.attributes,
+      generated.nationality,
+      generated.potentialCeiling,
+      generated.physicalCeilings,
+    );
+    const player = await signFreeAgent(playerId, managerId);
     await deps.registerEntrant.execute({ tournamentId: fillTarget.id, playerId: player.id });
     cohortIds.push(player.id);
   }
@@ -263,8 +308,9 @@ async function main(): Promise<void> {
   log(`Draw filled: hasStarted=${filled!.hasStarted}, entrants=${filled!.entrants.length}`);
 
   log('Cascading SimulateDueMatchesUseCase until the tournament is finished...');
-  for (let round = 1; round <= 5; round++) {
-    const result = await deps.simulateDueMatches.execute();
+  for (let round = 1; round <= 8; round++) {
+    await advanceOneDayForPacing(`j-sweep-${round}`);
+    const result = await deps.simulateDueMatches.execute({ worldId });
     log(`  sweep ${round}: simulated=${result.simulated.length}, failed=${result.failed.length}`);
     for (const f of result.failed) log(`    FAILED: ${f.matchId} - ${f.reason}`);
     if (result.simulated.length === 0) break;
@@ -284,16 +330,23 @@ async function main(): Promise<void> {
   log(`Star player's U16 ranking right now: rank=${starRankU16.rank}, totalPoints=${starRankU16.totalPoints}`);
 
   log('\n=== 9. Advance the world week-by-week until the star crosses U16 -> senior ===');
-  for (let tick = 1; tick <= 3; tick++) {
-    const advanceResult = await deps.advanceWorldWeek.execute({ worldId, tickKey: `jw-tick-${Date.now()}-${tick}` });
-    if (advanceResult.advanced) {
-      await deps.generateJuniorTournaments.execute({ worldId });
+  // A week is now 7 day-ticks; aging/graduation fire only on the day-7
+  // rollover. Advance FULL weeks so the star actually ages a week per
+  // "tick" of this section, as it did before the day clock existed.
+  for (let week = 1; week <= 3; week++) {
+    let rolled = false;
+    for (let day = 1; day <= 7 && !rolled; day++) {
+      const advanceResult = await deps.advanceWorldWeek.execute({ worldId, tickKey: `jw-tick-${Date.now()}-${week}-${day}` });
+      rolled = advanceResult.weekRolledOver;
+      if (rolled) {
+        await deps.generateJuniorTournaments.execute({ worldId });
+      }
     }
     const w = (await deps.worlds.findById(worldId))!;
     const starNow = (await deps.players.findById(star.id))!;
     const band = juniorEligibilityForAge(starNow.ageInWeeks);
     log(
-      `  Tick ${tick}: week=${JSON.stringify(w.currentWeek)}, star age=${starNow.ageInWeeks} weeks, ` +
+      `  Week ${week}: week=${JSON.stringify(w.currentWeek)}, star age=${starNow.ageInWeeks} weeks, ` +
         `band=${band}, dormantCarryoverBonus=${JSON.stringify(starNow.dormantCarryoverBonus)}`,
     );
     if (band === 'senior') break;
@@ -330,8 +383,9 @@ async function main(): Promise<void> {
   }
 
   log('  Simulating until the draw is finished (so winners get a second match, giving carryover a real chance to fire)...');
-  for (let sweep = 1; sweep <= 5; sweep++) {
-    const simResult = await deps.simulateDueMatches.execute();
+  for (let sweep = 1; sweep <= 8; sweep++) {
+    await advanceOneDayForPacing(`senior-sweep-${sweep}`);
+    const simResult = await deps.simulateDueMatches.execute({ worldId });
     log(`    sweep ${sweep}: simulated=${simResult.simulated.length}, failed=${simResult.failed.length}`);
     for (const f of simResult.failed) log(`      FAILED: ${f.matchId} - ${f.reason}`);
     if (simResult.simulated.length === 0) break;
@@ -364,3 +418,4 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+

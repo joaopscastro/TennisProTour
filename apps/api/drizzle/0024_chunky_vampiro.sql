@@ -1,0 +1,1 @@
+ALTER TABLE "tournaments" ADD COLUMN "start_day" integer DEFAULT 1 NOT NULL;

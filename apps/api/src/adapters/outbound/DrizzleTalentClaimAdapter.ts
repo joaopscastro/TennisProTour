@@ -1,16 +1,17 @@
-import { and, eq, gte, sql } from 'drizzle-orm';
-import { ManagerId, TalentPoolCandidateId } from '@tennis-manager/domain';
+import { and, eq, gte, isNull, sql } from 'drizzle-orm';
+import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { TalentClaimOutcome, TalentClaimPort } from '@tennis-manager/application';
 import { Db } from '../../db/client';
-import { managerProgression, talentPoolCandidates } from '../../db/schema';
-import { toDomain } from './DrizzleTalentPoolCandidateRepository';
+import { managerProgression, players } from '../../db/schema';
+import { toDomain } from './DrizzlePlayerRepository';
 
 /** Thrown only to trigger Postgres transaction rollback from inside the
  * db.transaction() callback below — never escapes claimAndCharge()
  * itself, which catches it and converts it back into a typed
  * TalentClaimOutcome. Not a real error condition from the caller's
- * perspective (a candidate being unavailable or a manager being short
- * on XP are both ordinary, expected outcomes, not exceptional ones). */
+ * perspective (a free agent already being signed or a manager being
+ * short on XP are both ordinary, expected outcomes, not exceptional
+ * ones). */
 class ClaimRollback extends Error {
   constructor(readonly outcome: TalentClaimOutcome) {
     super('claim rollback');
@@ -18,27 +19,36 @@ class ClaimRollback extends Error {
 }
 
 /**
- * See TalentClaimPort's doc comment for why this needs to exist at
- * all: claiming a candidate and debiting XP must succeed or fail
- * together. This is the one place in the codebase (besides
- * AdvanceWorldWeekUseCase's documented, accepted gap) that reaches for
- * a real db.transaction() rather than a single conditional UPDATE,
- * because the guarantee spans two separate tables that no single
- * UPDATE's WHERE clause can cover at once.
+ * See TalentClaimPort's doc comment for why this needs to exist at all:
+ * signing a free agent (transferring ownership on the players row) and
+ * debiting XP must succeed or fail together. This is the one place in
+ * the codebase (besides AdvanceWorldWeekUseCase's documented, accepted
+ * gap) that reaches for a real db.transaction() rather than a single
+ * conditional UPDATE, because the guarantee spans two separate tables
+ * that no single UPDATE's WHERE clause can cover at once.
  *
- * Order of operations matters: XP is debited FIRST (cheapest failure
- * to detect, and avoids ever writing to talent_pool_candidates for a
- * manager who can't afford the claim at all), then the candidate claim
- * is attempted. If the candidate turns out to already be claimed, a
- * ClaimRollback is thrown to undo the XP debit that already
- * succeeded — Postgres's transaction rollback is what makes "undo an
- * already-applied UPDATE" trivial and correct here, instead of hand-
- * rolling a compensating write.
+ * As of the candidate/player unification (see docs/CLAUDE.md) there is
+ * no talent_pool_candidates table involved anymore: the free agent is
+ * already a real Player row, and signing it is a conditional
+ * `UPDATE players SET manager_id = :mid, fill_only = false
+ * WHERE id = :id AND manager_id IS NULL` — the `manager_id IS NULL`
+ * predicate is what makes two managers racing for the same free agent
+ * safe (exactly one UPDATE affects a row). fill_only is flipped off so
+ * a signed player trains from its manager's schedule rather than the
+ * auto weakest-attribute path.
+ *
+ * Order of operations matters: XP is debited FIRST (cheapest failure to
+ * detect, and avoids ever touching the players row for a manager who
+ * can't afford the signing at all), then the signing is attempted. If
+ * the player turns out to already be owned, a ClaimRollback is thrown to
+ * undo the XP debit that already succeeded — Postgres's transaction
+ * rollback is what makes "undo an already-applied UPDATE" trivial and
+ * correct here, instead of hand-rolling a compensating write.
  */
 export class DrizzleTalentClaimAdapter implements TalentClaimPort {
   constructor(private readonly db: Db) {}
 
-  async claimAndCharge(candidateId: TalentPoolCandidateId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome> {
+  async claimAndCharge(playerId: PlayerId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome> {
     try {
       return await this.db.transaction(async (tx) => {
         const spendRows = await tx
@@ -57,17 +67,17 @@ export class DrizzleTalentClaimAdapter implements TalentClaimPort {
           throw new ClaimRollback({ kind: 'insufficient-xp', required: xpCost, balance });
         }
 
-        const claimRows = await tx
-          .update(talentPoolCandidates)
-          .set({ status: 'claimed', claimedByManagerId: managerId, updatedAt: new Date() })
-          .where(and(eq(talentPoolCandidates.id, candidateId), eq(talentPoolCandidates.status, 'available')))
+        const signRows = await tx
+          .update(players)
+          .set({ managerId, fillOnly: false, updatedAt: new Date() })
+          .where(and(eq(players.id, playerId), isNull(players.managerId)))
           .returning();
 
-        if (claimRows.length === 0) {
-          throw new ClaimRollback({ kind: 'candidate-unavailable' });
+        if (signRows.length === 0) {
+          throw new ClaimRollback({ kind: 'player-unavailable' });
         }
 
-        return { kind: 'claimed', candidate: toDomain(claimRows[0]), xpSpent: xpCost };
+        return { kind: 'claimed', player: toDomain(signRows[0]), xpSpent: xpCost };
       });
     } catch (error) {
       if (error instanceof ClaimRollback) return error.outcome;

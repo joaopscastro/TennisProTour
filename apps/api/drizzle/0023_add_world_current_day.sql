@@ -1,0 +1,1 @@
+ALTER TABLE "game_worlds" ADD COLUMN "current_day" integer DEFAULT 1 NOT NULL;

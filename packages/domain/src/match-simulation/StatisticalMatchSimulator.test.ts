@@ -31,6 +31,7 @@ function equalParticipant(id: string): MatchParticipant {
   return {
     playerId: PlayerId(id),
     fatigue: 0,
+    form: 0,
     attributes: new PlayerAttributes({
       technical: { serve: Skill.of(50), forehand: Skill.of(50), backhand: Skill.of(50), volley: Skill.of(50) },
       physical: { speed: Skill.of(50), stamina: Skill.of(50), strength: Skill.of(50) },
@@ -203,4 +204,28 @@ describe('StatisticalMatchSimulator', () => {
     const set2 = log.entries.filter((e) => e.setNumber === 2);
     expect(set2[0].server).toBe('A');
   });
+
+  it('gives a home player an edge that flips coin-flip points a level opponent would otherwise win (P6)', () => {
+    // Both participants are identically rated, so without any home bonus
+    // pointWinProbabilityA is exactly 0.5. A scripted RNG that always
+    // returns 0.52 therefore hands EVERY point to B (0.52 >= 0.5). With
+    // the home-advantage bonus applied to A, A's point probability rises
+    // above 0.52, so the very same RNG stream now hands every point to A
+    // instead — an isolated, deterministic demonstration that the bonus
+    // is the only thing that changed the outcome.
+    const COIN_FLIP = 0.52;
+    const scriptedAway = new ScriptedRandomSource([COIN_FLIP]);
+    const scriptedHome = new ScriptedRandomSource([COIN_FLIP]);
+
+    const away = simulateOutcome(scriptedAway, equalParticipant('pA'), equalParticipant('pB'));
+    expect(away.winner).toBe(PlayerId('pB'));
+
+    const homeA: MatchParticipant = { ...equalParticipant('pA'), homeAdvantage: true };
+    const home = simulateOutcome(scriptedHome, homeA, equalParticipant('pB'));
+    expect(home.winner).toBe(PlayerId('pA'));
+  });
 });
+
+function simulateOutcome(random: RandomSource, a: MatchParticipant, b: MatchParticipant) {
+  return new StatisticalMatchSimulator(random).simulate(a, b, 'hard').outcome;
+}

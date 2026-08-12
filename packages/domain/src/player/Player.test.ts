@@ -3,6 +3,23 @@ import { ManagerId, PlayerId } from '../shared/ids';
 import { Player } from './Player';
 import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
 import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
+import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
+
+/** Deterministic development policy for Player's own funding tests —
+ * only experienceCostPerSkillPoint matters here (the match/weekly XP
+ * formulas are covered in PlayerDevelopmentPolicy.test.ts). */
+class FixedDevelopmentPolicy implements PlayerDevelopmentPolicy {
+  constructor(private readonly costPerPoint: number) {}
+  matchExperience(): number {
+    return 0;
+  }
+  weeklyTalentIncome(): number {
+    return 0;
+  }
+  experienceCostPerSkillPoint(): number {
+    return this.costPerPoint;
+  }
+}
 
 /** Fixed, deterministic stand-in for StandardTrainingPolicy — Player's
  * own tests only need to verify it delegates and applies correctly,
@@ -71,6 +88,33 @@ describe('Player', () => {
 
     player.recoverFatigue(1000);
     expect(player.fatigue).toBe(0);
+  });
+
+  it('starts with zero form, accrues per match, and clamps to [0, 100]', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    expect(player.form).toBe(0);
+
+    player.applyMatchForm(1);
+    player.applyMatchForm(1);
+    expect(player.form).toBe(2);
+
+    player.applyMatchForm(1000);
+    expect(player.form).toBe(100);
+
+    player.applyMatchForm(-1000);
+    expect(player.form).toBe(0);
+  });
+
+  it('decays form multiplicatively toward zero', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    player.applyMatchForm(20);
+
+    player.decayForm(0.85);
+    expect(player.form).toBe(17); // 20 * 0.85
+
+    // Repeated decay eventually rounds/clamps toward 0 but never negative.
+    for (let i = 0; i < 100; i++) player.decayForm(0.85);
+    expect(player.form).toBeGreaterThanOrEqual(0);
   });
 
   it('applyMatchSurfaceGrowth bumps only the played surface, leaves the other three and every skill untouched', () => {
@@ -394,6 +438,66 @@ describe('Player', () => {
       expect(() => player.applyTraining({ kind: 'attribute', attribute: 'serve' }, new FixedTrainingPolicy(5))).toThrow(
         /Cannot train retired player/,
       );
+    });
+  });
+
+  describe('experience-funded training (P4)', () => {
+    it('starts every hired player at zero experience', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      expect(player.experience).toBe(0);
+    });
+
+    it('gainExperience banks earned XP; zero/negative amounts are ignored', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.gainExperience(50);
+      expect(player.experience).toBe(50);
+      player.gainExperience(0);
+      player.gainExperience(-10);
+      expect(player.experience).toBe(50);
+    });
+
+    it('when a development policy is supplied, training is funded by experience and spends it', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.gainExperience(100);
+      const focus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+
+      // costPerPoint 10, base delta 4 => affordable, costs 40 XP.
+      player.applyTraining(focus, new FixedTrainingPolicy(4), null, new FixedDevelopmentPolicy(10));
+
+      expect(player.attributes.attributeValue('serve')).toBe(34); // 30 + 4
+      expect(player.experience).toBe(60); // 100 - 4*10
+    });
+
+    it('caps the funded delta at what the player can afford and never drives experience negative', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.gainExperience(25); // only enough for 2.5 points at cost 10
+      const focus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+
+      player.applyTraining(focus, new FixedTrainingPolicy(4), null, new FixedDevelopmentPolicy(10));
+
+      // Skill.of rounds; 30 + 2.5 = 32.5 -> 33.
+      expect(player.attributes.attributeValue('serve')).toBe(33);
+      expect(player.experience).toBe(0);
+    });
+
+    it('a player with no experience does not train at all under a development policy', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      const focus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+
+      player.applyTraining(focus, new FixedTrainingPolicy(4), null, new FixedDevelopmentPolicy(10));
+
+      expect(player.attributes.attributeValue('serve')).toBe(30); // unchanged
+      expect(player.experience).toBe(0);
+    });
+
+    it('without a development policy (legacy default), training is free and applies the full delta', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      const focus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+
+      player.applyTraining(focus, new FixedTrainingPolicy(4));
+
+      expect(player.attributes.attributeValue('serve')).toBe(34);
+      expect(player.experience).toBe(0); // nothing spent
     });
   });
 });

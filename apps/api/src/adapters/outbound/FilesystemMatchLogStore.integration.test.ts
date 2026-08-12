@@ -32,6 +32,7 @@ function participant(id: string, base: number): MatchParticipant {
   return {
     playerId: PlayerId(id),
     fatigue: 10,
+    form: 0,
     attributes: new PlayerAttributes({
       technical: { serve: Skill.of(base), forehand: Skill.of(base), backhand: Skill.of(base), volley: Skill.of(base) },
       physical: { speed: Skill.of(base), stamina: Skill.of(base), strength: Skill.of(base) },

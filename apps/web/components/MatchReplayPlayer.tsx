@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { ScorePop } from './ui/motion';
 import { MatchLogDto } from '../lib/api';
 
 /**
@@ -29,8 +30,8 @@ const SPEEDS = [
   { multiplier: 960, label: 'Very fast (~5s)' },
 ] as const;
 
-const ACCENT = 'oklch(58% 0.14 45)';
-const DARK = 'oklch(20% 0.006 75)';
+const ACCENT = 'var(--sf-clay)';
+const DARK = 'oklch(30% 0.012 150)';
 
 /** The wall-clock-synced "Premiere" live edge: in-game seconds since
  * `simulatedAt`, capped to the match's actual length. A missing/
@@ -257,20 +258,20 @@ export function MatchReplayPlayer({
   let statusLabel: string;
   let statusDotColor: string | null = null;
   let statusPulse = false;
-  let statusBg = 'oklch(93% 0.006 75)';
-  let statusFg = 'oklch(40% 0.006 75)';
+  let statusBg = 'var(--gc-s3)';
+  let statusFg = 'var(--gc-ink-mute)';
   if (!started) {
     statusLabel = 'Ready to watch';
   } else if (finished) {
     statusLabel = 'Replay complete';
     statusDotColor = DARK;
-    statusBg = 'oklch(90% 0.006 75)';
+    statusBg = 'var(--gc-s3)';
   } else if (caughtUp) {
     statusLabel = "You're caught up — waiting for the next point";
-    statusDotColor = 'oklch(55% 0.13 240)';
+    statusDotColor = 'oklch(70% 0.14 245)';
     statusPulse = true;
-    statusBg = 'oklch(93% 0.02 240)';
-    statusFg = 'oklch(38% 0.1 240)';
+    statusBg = 'oklch(45% 0.1 240 / 0.28)';
+    statusFg = 'oklch(82% 0.1 240)';
   } else {
     statusLabel = playing ? 'Replay in progress' : 'Replay paused';
     statusDotColor = surfaceColor;
@@ -284,7 +285,7 @@ export function MatchReplayPlayer({
       <style>{`@keyframes replay-pulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
 
       {/* SCORE PANEL */}
-      <div className="relative bg-white rounded-[10px] p-[22px_24px]" style={{ border: '1px solid oklch(90% 0.005 75)' }}>
+      <div className="relative gc-grain rounded-[12px] p-[22px_24px]" style={{ border: '1px solid var(--gc-line-hi)', background: 'linear-gradient(180deg, oklch(26% 0.012 150), oklch(18% 0.01 150))', boxShadow: '0 12px 40px -12px rgba(0,0,0,0.6)' }}>
         <div className="flex items-center justify-between mb-4">
           <div
             className="flex items-center gap-[7px] text-[12.5px] font-semibold px-[10px] py-[5px] rounded-full"
@@ -299,7 +300,7 @@ export function MatchReplayPlayer({
             )}
             {statusLabel}
           </div>
-          <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+          <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
             {started ? `${visibleEntries.length} of ${log.entries.length} games` : `${log.entries.length} games simulated`}
           </div>
         </div>
@@ -307,7 +308,7 @@ export function MatchReplayPlayer({
         <div className="grid gap-[10px_16px] items-center" style={{ gridTemplateColumns: '1fr auto' }} data-testid="set-scoreboard">
           <div className="flex items-center gap-[10px]">
             {playerAFlag && <span>{playerAFlag}</span>}
-            <div className="text-[15px]" style={{ fontWeight: finished && aLeading ? 700 : 600, color: 'oklch(22% 0.006 75)' }}>
+            <div className="text-[15px]" style={{ fontWeight: finished && aLeading ? 700 : 600, color: 'var(--gc-ink)' }}>
               {playerAName}
             </div>
           </div>
@@ -316,7 +317,7 @@ export function MatchReplayPlayer({
               <div key={c.setNumber} className="flex flex-col items-center gap-[3px]">
                 <div
                   className="text-[8.5px] font-bold tracking-[0.4px]"
-                  style={{ color: c.completed || c.active ? 'oklch(52% 0.006 75)' : 'oklch(80% 0.006 75)' }}
+                  style={{ color: c.completed || c.active ? 'var(--gc-ink-mute)' : 'var(--gc-ink-faint)' }}
                 >
                   SET {c.setNumber}
                   {c.active && ' · PREMIERE'}
@@ -325,11 +326,11 @@ export function MatchReplayPlayer({
                   className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-[15px] [font-variant-numeric:tabular-nums]"
                   style={{
                     fontWeight: c.active ? 700 : 500,
-                    background: c.active ? 'oklch(93% 0.02 45)' : 'oklch(96% 0.003 75)',
-                    color: c.completed || c.active ? 'oklch(22% 0.006 75)' : 'oklch(75% 0.006 75)',
+                    background: c.active ? 'oklch(55% 0.14 45 / 0.3)' : 'var(--gc-s3)',
+                    color: c.completed || c.active ? 'var(--gc-ink)' : 'var(--gc-ink-faint)',
                   }}
                 >
-                  {c.gamesForA ?? '–'}
+                  {c.active ? <ScorePop value={c.gamesForA ?? '–'}>{c.gamesForA ?? '–'}</ScorePop> : (c.gamesForA ?? '–')}
                   {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'A' && (
                     <sup className="text-[9px] ml-[1px]">{c.tieLoserPoints}</sup>
                   )}
@@ -340,7 +341,7 @@ export function MatchReplayPlayer({
 
           <div className="flex items-center gap-[10px]">
             {playerBFlag && <span>{playerBFlag}</span>}
-            <div className="text-[15px]" style={{ fontWeight: finished && !aLeading ? 700 : 600, color: 'oklch(22% 0.006 75)' }}>
+            <div className="text-[15px]" style={{ fontWeight: finished && !aLeading ? 700 : 600, color: 'var(--gc-ink)' }}>
               {playerBName}
             </div>
           </div>
@@ -351,11 +352,11 @@ export function MatchReplayPlayer({
                   className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-[15px] [font-variant-numeric:tabular-nums]"
                   style={{
                     fontWeight: c.active ? 700 : 500,
-                    background: c.active ? 'oklch(93% 0.02 45)' : 'oklch(96% 0.003 75)',
-                    color: c.completed || c.active ? 'oklch(22% 0.006 75)' : 'oklch(75% 0.006 75)',
+                    background: c.active ? 'oklch(55% 0.14 45 / 0.3)' : 'var(--gc-s3)',
+                    color: c.completed || c.active ? 'var(--gc-ink)' : 'var(--gc-ink-faint)',
                   }}
                 >
-                  {c.gamesForB ?? '–'}
+                  {c.active ? <ScorePop value={c.gamesForB ?? '–'}>{c.gamesForB ?? '–'}</ScorePop> : (c.gamesForB ?? '–')}
                   {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'B' && (
                     <sup className="text-[9px] ml-[1px]">{c.tieLoserPoints}</sup>
                   )}
@@ -367,7 +368,7 @@ export function MatchReplayPlayer({
 
         {currentPoint && (
           <div className="mt-[14px] flex items-center gap-2">
-            <div className="text-[11px]" style={{ color: 'oklch(55% 0.006 75)' }}>
+            <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
               Current game
             </div>
             {(() => {
@@ -379,20 +380,20 @@ export function MatchReplayPlayer({
                     fontWeight: pl.state === 'normal' ? 600 : 700,
                     background:
                       pl.state === 'deuce'
-                        ? 'oklch(91% 0.04 240)'
+                        ? 'oklch(50% 0.13 240 / 0.4)'
                         : pl.state === 'advantage'
-                          ? 'oklch(90% 0.05 60)'
-                          : 'oklch(96% 0.003 75)',
+                          ? 'oklch(50% 0.14 60 / 0.4)'
+                          : 'var(--gc-s3)',
                     color:
                       pl.state === 'deuce'
-                        ? 'oklch(38% 0.1 240)'
+                        ? 'oklch(82% 0.1 240)'
                         : pl.state === 'advantage'
-                          ? 'oklch(40% 0.12 45)'
-                          : 'oklch(45% 0.006 75)',
+                          ? 'oklch(82% 0.13 55)'
+                          : 'var(--gc-ink-mute)',
                   }}
                   data-testid="current-point"
                 >
-                  {pl.label}
+                  <ScorePop value={pl.label}>{pl.label}</ScorePop>
                 </div>
               );
             })()}
@@ -401,13 +402,13 @@ export function MatchReplayPlayer({
 
         {!started && (
           <div
-            className="absolute inset-0 rounded-[10px] flex flex-col items-center justify-center gap-[14px] text-center p-5"
-            style={{ background: 'rgba(255,255,255,0.96)' }}
+            className="absolute inset-0 rounded-[12px] flex flex-col items-center justify-center gap-[14px] text-center p-5 gc-grain"
+            style={{ background: 'linear-gradient(180deg, oklch(24% 0.012 150 / 0.94), oklch(15% 0.01 150 / 0.97))', backdropFilter: 'blur(2px)' }}
           >
-            <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'oklch(52% 0.006 75)' }}>
+            <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
               Premieres at {premiereTime} · Result already decided
             </div>
-            <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'oklch(35% 0.006 75)' }}>
+            <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'var(--gc-ink-dim)' }}>
               This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled
               slot — you can skip ahead to catch up any time.
             </div>
@@ -416,10 +417,9 @@ export function MatchReplayPlayer({
                 setStarted(true);
                 setPlaying(true);
               }}
-              className="flex items-center gap-2 text-white border-none px-[22px] py-[12px] rounded-[6px] text-[14px] font-semibold cursor-pointer hover:opacity-90"
-              style={{ background: DARK }}
+              className="gc-btn gc-btn--primary flex items-center gap-2 px-[22px] py-[12px] text-[14px] font-bold cursor-pointer"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
                 <path d="M6 4l14 8-14 8V4z" />
               </svg>
               Watch replay
@@ -430,7 +430,7 @@ export function MatchReplayPlayer({
 
       {/* PLAYBACK CONTROLS */}
       {started && (
-        <div className="mt-4 bg-white rounded-[10px] p-[16px_20px]" style={{ border: '1px solid oklch(90% 0.005 75)' }}>
+        <div className="mt-4 gc-card rounded-[10px] p-[16px_20px]" style={{ border: '1px solid var(--gc-line)' }}>
           <div className="relative h-5 mb-[6px]" data-testid="scrub-bar">
             <input
               type="range"
@@ -446,7 +446,7 @@ export function MatchReplayPlayer({
               <div
                 key={i}
                 className="absolute top-0 w-[2px] h-2"
-                style={{ left: `${(m.offsetSeconds / log.totalDurationSeconds) * 100}%`, background: 'oklch(65% 0.006 75)', transform: 'translateX(-1px)' }}
+                style={{ left: `${(m.offsetSeconds / log.totalDurationSeconds) * 100}%`, background: 'var(--gc-ball)', transform: 'translateX(-1px)' }}
                 data-testid="scrub-tick"
               />
             ))}
@@ -464,7 +464,7 @@ export function MatchReplayPlayer({
               <button
                 onClick={prevMoment}
                 className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer"
-                style={{ border: '1px solid oklch(88% 0.006 75)', color: 'oklch(35% 0.006 75)' }}
+                style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
               >
                 ← Prev moment
               </button>
@@ -473,15 +473,15 @@ export function MatchReplayPlayer({
                 disabled={caughtUp}
                 className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer disabled:cursor-not-allowed"
                 style={{
-                  border: `1px solid ${caughtUp ? 'oklch(92% 0.006 75)' : 'oklch(88% 0.006 75)'}`,
-                  color: caughtUp ? 'oklch(78% 0.006 75)' : 'oklch(35% 0.006 75)',
+                  border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : 'var(--gc-line)'}`,
+                  color: caughtUp ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                 }}
               >
                 Next moment →
               </button>
             </div>
             <div className="flex items-center gap-2">
-              <div className="text-[11px]" style={{ color: 'oklch(52% 0.006 75)' }}>
+              <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
                 Speed
               </div>
               {SPEEDS.map(({ multiplier, label }) => (
@@ -491,9 +491,9 @@ export function MatchReplayPlayer({
                   disabled={caughtUp}
                   className="px-[9px] py-[6px] rounded-[5px] text-[11.5px] font-bold cursor-pointer disabled:cursor-not-allowed"
                   style={{
-                    border: `1px solid ${caughtUp ? 'oklch(92% 0.006 75)' : speed === multiplier ? DARK : 'oklch(88% 0.006 75)'}`,
+                    border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : speed === multiplier ? DARK : 'var(--gc-line)'}`,
                     background: !caughtUp && speed === multiplier ? DARK : 'transparent',
-                    color: caughtUp ? 'oklch(78% 0.006 75)' : speed === multiplier ? 'white' : 'oklch(40% 0.006 75)',
+                    color: caughtUp ? 'var(--gc-ink-faint)' : speed === multiplier ? 'white' : 'var(--gc-ink-mute)',
                   }}
                 >
                   {label}
@@ -504,8 +504,8 @@ export function MatchReplayPlayer({
                 disabled={caughtUp}
                 className="ml-1 px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer disabled:cursor-not-allowed"
                 style={{
-                  border: `1px solid ${caughtUp ? 'oklch(92% 0.006 75)' : 'oklch(88% 0.006 75)'}`,
-                  color: caughtUp ? 'oklch(78% 0.006 75)' : 'oklch(35% 0.006 75)',
+                  border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : 'var(--gc-line)'}`,
+                  color: caughtUp ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                 }}
               >
                 {caughtUp ? 'Caught up' : 'Skip to now'}
@@ -517,23 +517,23 @@ export function MatchReplayPlayer({
 
       {/* MATCH COMPLETE BANNER */}
       {finished && (
-        <div className="mt-4 text-white rounded-[10px] p-[18px_22px] flex items-center justify-between flex-wrap gap-3" style={{ background: DARK }} data-testid="completion-banner">
+        <div className="mt-4 text-white rounded-[12px] p-[18px_22px] flex items-center justify-between flex-wrap gap-3" style={{ background: 'linear-gradient(120deg, oklch(30% 0.05 150), oklch(20% 0.02 150))', border: '1px solid var(--gc-line-hi)' }} data-testid="completion-banner">
           <div>
             <div className="text-[13px] font-bold tracking-[0.3px]">
               {overallWinnerSide === 'A' ? playerAName : playerBName} wins {formatMatchScoreline(log, overallWinnerSide ?? 'A')}
             </div>
-            <div className="text-[12px] mt-[3px]" style={{ color: 'oklch(75% 0.006 75)' }}>
+            <div className="text-[12px] mt-[3px]" style={{ color: 'var(--gc-ink-faint)' }}>
               Replay complete{nextRoundLabel ? ` · advances to ${nextRoundLabel}` : ''}
             </div>
           </div>
           <div className="flex gap-2">
             {backToBracketHref && (
-              <Link href={backToBracketHref} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'oklch(30% 0.008 75)' }}>
+              <Link href={backToBracketHref} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'var(--gc-s3)' }}>
                 Back to bracket
               </Link>
             )}
             {(nextReplayHref || nextRoundHref) && nextRoundLabel && (
-              <Link href={nextReplayHref ?? nextRoundHref!} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'oklch(76% 0.19 122)' }}>
+              <Link href={nextReplayHref ?? nextRoundHref!} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'var(--gc-ball)' }}>
                 View {nextRoundLabel} →
               </Link>
             )}
@@ -546,24 +546,24 @@ export function MatchReplayPlayer({
         <div className="text-[13px] font-bold mb-2">Commentary</div>
         <div className="flex flex-col gap-2 overflow-y-auto pr-1" style={{ maxHeight: 360 }}>
           {visibleMoments.map((m, i) => {
-            const accent = m.type === 'match' ? DARK : m.type === 'tiebreak' ? 'oklch(55% 0.13 240)' : m.type === 'set' ? 'oklch(30% 0.006 75)' : surfaceColor;
+            const accent = m.type === 'match' ? DARK : m.type === 'tiebreak' ? 'oklch(70% 0.14 245)' : m.type === 'set' ? 'var(--gc-ink-faint)' : surfaceColor;
             return (
               <div
                 key={i}
                 className="flex gap-3 px-3 py-[10px] rounded-r-[6px]"
-                style={{ borderLeft: `3px solid ${accent}`, background: 'oklch(97% 0.003 75)' }}
+                style={{ borderLeft: `3px solid ${accent}`, background: 'var(--gc-s2)' }}
               >
-                <div className="text-[10.5px] font-bold whitespace-nowrap" style={{ color: 'oklch(50% 0.006 75)', minWidth: 88 }}>
+                <div className="text-[10.5px] font-bold whitespace-nowrap" style={{ color: 'var(--gc-ink-mute)', minWidth: 88 }}>
                   {formatElapsed(m.offsetSeconds)}
                 </div>
-                <div className="text-[13px] leading-[1.4]" style={{ color: 'oklch(28% 0.006 75)' }}>
+                <div className="text-[13px] leading-[1.4]" style={{ color: 'var(--gc-ink-dim)' }}>
                   {m.text}
                 </div>
               </div>
             );
           })}
           {visibleMoments.length === 0 && (
-            <div className="text-[13px] py-[10px]" style={{ color: 'oklch(55% 0.006 75)' }}>
+            <div className="text-[13px] py-[10px]" style={{ color: 'var(--gc-ink-mute)' }}>
               {started ? 'Nothing notable yet — keep watching' : 'Commentary will appear here once you press play.'}
             </div>
           )}

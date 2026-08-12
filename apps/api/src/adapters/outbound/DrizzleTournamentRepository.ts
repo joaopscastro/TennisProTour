@@ -70,7 +70,9 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       surface: tournament.surface,
       seasonScheduled: tournament.weekScheduled.season,
       weekScheduled: tournament.weekScheduled.week,
+      startDay: tournament.startDay,
       drawSize: tournament.drawSize,
+      hostCountry: tournament.hostCountry,
       hasStarted: tournament.hasStarted,
     };
 
@@ -149,7 +151,9 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       ageBand: row.ageBand as AgeBand | null,
       surface: row.surface as Surface,
       weekScheduled: { season: row.seasonScheduled, week: row.weekScheduled },
+      startDay: row.startDay,
       drawSize: row.drawSize as DrawSize,
+      hostCountry: row.hostCountry,
       entrants: entryRows.map(toEntrant),
       rounds: toRounds(matchRows),
     });

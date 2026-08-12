@@ -69,6 +69,7 @@ export class CreateCustomPlayerUseCase {
       command.nationality,
       generated.potentialCeiling,
       generated.physicalCeilings,
+      generated.talent,
     );
     await this.players.save(player);
     await this.events.publish(player.pullDomainEvents());

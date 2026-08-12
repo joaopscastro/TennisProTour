@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { PlayerId, TournamentId } from '../shared/ids';
 import { BracketGenerator } from './BracketGenerator';
 import { Tournament, TournamentOpenProps } from './Tournament';
+import { StandardTournamentSchedulePolicy } from './TournamentSchedulePolicy';
 
 function baseProps(overrides: Partial<TournamentOpenProps> = {}): TournamentOpenProps {
   return {
@@ -14,6 +15,34 @@ function baseProps(overrides: Partial<TournamentOpenProps> = {}): TournamentOpen
     ...overrides,
   };
 }
+
+describe('Tournament.roundScheduledDay', () => {
+  const policy = new StandardTournamentSchedulePolicy();
+
+  it('defaults startDay to 1 and maps a one-week round to the same week', () => {
+    const t = Tournament.open(baseProps({ tier: 'challenger', drawSize: 16 }));
+    expect(t.startDay).toBe(1);
+    expect(t.roundScheduledDay(1, policy)).toEqual({ season: 1, week: 1, day: 1 });
+    expect(t.roundScheduledDay(4, policy)).toEqual({ season: 1, week: 1, day: 4 });
+  });
+
+  it('honors a non-default startDay, rolling into the next week', () => {
+    const t = Tournament.open(baseProps({ tier: 'challenger', drawSize: 16, startDay: 5 }));
+    expect(t.roundScheduledDay(1, policy)).toEqual({ season: 1, week: 1, day: 5 });
+    expect(t.roundScheduledDay(4, policy)).toEqual({ season: 1, week: 2, day: 1 });
+  });
+
+  it('spreads a two-week major across a fortnight', () => {
+    const t = Tournament.open(baseProps({ tier: 'major', ageBand: null, drawSize: 128, startDay: 1 }));
+    expect(t.roundScheduledDay(1, policy)).toEqual({ season: 1, week: 1, day: 2 });
+    expect(t.roundScheduledDay(7, policy)).toEqual({ season: 1, week: 2, day: 7 });
+  });
+
+  it('rejects an invalid startDay', () => {
+    expect(() => Tournament.open(baseProps({ startDay: 0 }))).toThrow(/startDay/);
+    expect(() => Tournament.open(baseProps({ startDay: 8 }))).toThrow(/startDay/);
+  });
+});
 
 describe('Tournament.open — ageBand invariant', () => {
   it('defaults ageBand to null for a senior tier and accepts it', () => {

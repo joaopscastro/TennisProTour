@@ -1,0 +1,1 @@
+ALTER TABLE "players" ALTER COLUMN "experience" SET DATA TYPE double precision;

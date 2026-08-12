@@ -9,12 +9,13 @@ import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
 import {
   ManagerId,
+  Player,
   PlayerAttributes,
+  PlayerId,
   Skill,
+  StandardAgingPolicy,
   StandardRankingPointsTable,
   SurfaceAffinities,
-  TalentPoolCandidate,
-  TalentPoolCandidateId,
 } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
 import { testConnectionString } from '../../../db/testConnection';
@@ -38,7 +39,15 @@ beforeAll(async () => {
   // window (see composition.ts's WORLD_ID default). Seeded comfortably
   // past every test tournament's weekScheduled so freshly-earned
   // points always land inside the window, not before it.
-  await db.insert(schema.gameWorlds).values({ id: 'main', season: 1, week: 52 }).onConflictDoNothing();
+  // Upsert (not onConflictDoNothing) so this suite always controls the
+  // shared game_worlds row's exact state — season 1, week 52, day 1 —
+  // regardless of what another suite (e.g. the worker e2e smoke, which
+  // also uses the 'main' world id) may have left behind in the shared
+  // test database.
+  await db
+    .insert(schema.gameWorlds)
+    .values({ id: 'main', season: 1, week: 52, currentDay: 1 })
+    .onConflictDoUpdate({ target: schema.gameWorlds.id, set: { season: 1, week: 52, currentDay: 1, lastAppliedTick: null } });
   matchLogDirectory = await mkdtemp(join(tmpdir(), 'api-match-logs-'));
   deps = buildDependencies({
     db,
@@ -61,7 +70,6 @@ beforeEach(async () => {
   await db.delete(schema.tournamentEntries);
   await db.delete(schema.tournaments);
   await db.delete(schema.players);
-  await db.delete(schema.talentPoolCandidates);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
 });
@@ -97,17 +105,22 @@ function fixedAttributes(base: number): PlayerAttributes {
  * ClaimTalentPoolCandidateUseCase.test.ts. */
 const AMPLE_XP_FOR_TESTS = 100_000;
 
-/** Seeds a talent pool candidate at a fixed id/attribute baseline,
- * funds the claiming manager with ample XP, then claims it through the
- * real HTTP endpoint (POST /talent-pool/:id/claim) — the candidate's
- * id becomes the resulting player's id, so callers can keep using the
- * same `p1`-style ids the old direct-hire helper used. */
+/** Seeds a free-agent Player at a fixed id/attribute baseline, funds
+ * the claiming manager with ample XP, then signs it through the real
+ * HTTP endpoint (POST /talent-pool/:id/claim), so callers can keep
+ * using the same `p1`-style ids the old direct-hire helper used. */
 async function hirePlayer(id: string, managerId: string): Promise<number> {
-  await deps.talentPoolCandidates.save(
-    TalentPoolCandidate.generate(
-      TalentPoolCandidateId(id),
-      { name: `Player ${id}`, nationality: 'BR', tier: 'common', ageInWeeks: 750, attributes: fixedAttributes(30), potentialCeiling: 100, potentialTier: 'promising', physicalCeilings: { speed: 100, stamina: 100, strength: 100 } },
-      { season: 1, week: 1 },
+  const agingPolicy = new StandardAgingPolicy();
+  await deps.players.save(
+    Player.generateFillOnly(
+      PlayerId(id),
+      `Player ${id}`,
+      750,
+      agingPolicy.stageForAge(750),
+      fixedAttributes(30),
+      'BR',
+      100,
+      { speed: 100, stamina: 100, strength: 100 },
     ),
   );
   await deps.managerXp.credit(ManagerId(managerId), AMPLE_XP_FOR_TESTS);
@@ -127,7 +140,7 @@ describe('API', () => {
     expect(response.json()).toEqual({ status: 'ok' });
   });
 
-  it('serves the world clock: the real seeded GameWeek plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
+  it('serves the world clock: the real seeded GameWeek + day plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
     const response = await app.inject({ method: 'GET', url: '/world/clock' });
     expect(response.statusCode).toBe(200);
     const body = response.json();
@@ -135,13 +148,21 @@ describe('API', () => {
     // reads the same "main" GameWorld row apps/worker advances, not a
     // second, independently-tracked notion of the current week.
     expect(body.currentWeek).toEqual({ season: 1, week: 52 });
+    // Day clock: the seeded row defaults to day 1 of a 7-day week.
+    expect(body.currentDay).toBe(1);
+    expect(body.daysPerWeek).toBe(7);
     const nextTickAt = new Date(body.nextTickAt);
     expect(nextTickAt.getTime()).toBeGreaterThan(Date.now());
-    // Default WORLD_TICK_CRON ('0 3 * * 1') fires Mondays at 03:00 —
+    // Default WORLD_TICK_CRON ('0 3 * * *') fires daily at 03:00 —
     // asserted structurally rather than pinned to a literal date so
     // this doesn't rot with the passage of time.
-    expect(nextTickAt.getUTCDay()).toBe(1);
-    expect(nextTickAt.getUTCHours()).toBe(3);
+    expect(nextTickAt.getHours()).toBe(3);
+    // nextWeekTickAt is the next weekly rollover (day 7 -> day 1), which
+    // weekly systems (talent-pool refresh, aging) fire on. From day 1
+    // that's 7 day-ticks out — strictly after the next daily tick.
+    const nextWeekTickAt = new Date(body.nextWeekTickAt);
+    expect(nextWeekTickAt.getTime()).toBeGreaterThan(nextTickAt.getTime());
+    expect(nextWeekTickAt.getHours()).toBe(3);
   });
 
   it('serves an interval-mode next-tick timestamp anchored to the last applied tick when WORLD_TICK_INTERVAL_MS is set', async () => {
@@ -158,6 +179,8 @@ describe('API', () => {
       expect(response.statusCode).toBe(200);
       const body = response.json();
       expect(new Date(body.nextTickAt).getTime()).toBe(lastTickAt.getTime() + 3_600_000);
+      // Seeded world is at day 1 -> 7 day-ticks to the weekly rollover.
+      expect(new Date(body.nextWeekTickAt).getTime()).toBe(lastTickAt.getTime() + 3_600_000 * 7);
     } finally {
       delete process.env.WORLD_TICK_INTERVAL_MS;
     }
@@ -370,6 +393,25 @@ describe('API', () => {
     expect(championId).toBeDefined();
     const championRanking = await app.inject({ method: 'GET', url: `/players/${championId}/ranking` });
     expect(championRanking.json().rank).toBe(1);
+
+    // The manager ladder must have credited the same event: managers
+    // whose players earned points appear on the leaderboard, ordered by
+    // score descending. This asserts the credit path end-to-end through
+    // the real HTTP route, not just the use case.
+    const leaderboard = await app.inject({ method: 'GET', url: '/managers/leaderboard', headers: { 'x-dev-manager-id': 'rm1' } });
+    expect(leaderboard.statusCode).toBe(200);
+    const board = leaderboard.json();
+    expect(board.standings.length).toBeGreaterThan(0);
+    for (let i = 1; i < board.standings.length; i++) {
+      expect(board.standings[i - 1].score).toBeGreaterThanOrEqual(board.standings[i].score);
+    }
+    expect(board.standings[0].rank).toBe(1);
+    // The champion's manager banked the single largest per-player result
+    // (pointsFor(4)), so they must appear somewhere on the board.
+    const championManager = `rm${Math.ceil(Number(championId!.replace('rp', '')) / 2)}`;
+    expect(board.standings.some((r: { managerId: string }) => r.managerId === championManager)).toBe(true);
+    // The caller (rm1) is echoed back with a self entry.
+    expect(board.self.managerId).toBe('rm1');
   });
 
   it("defaults a player's ranking to unranked (rank: null, 0 points) when they haven't earned any yet", async () => {
@@ -472,23 +514,20 @@ describe('API', () => {
     expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 0 });
   });
 
-  it('lists available talent pool candidates with a coarse potentialTier, and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {
-    await deps.talentPoolCandidates.save(
-      TalentPoolCandidate.generate(
-        TalentPoolCandidateId('tp1'),
-        {
-          name: 'Pool Player',
-          nationality: 'ES',
-          tier: 'strong',
-          ageInWeeks: 750,
-          attributes: fixedAttributes(50),
-          potentialCeiling: 91, // the real hidden number — must never appear in any response below
-          potentialTier: 'elite',
-          // Distinctive, individually-identifiable values — must never
-          // appear in any response below either.
-          physicalCeilings: { speed: 77, stamina: 83, strength: 89 },
-        },
-        { season: 1, week: 1 },
+  it('lists available free-agent players and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    await deps.players.save(
+      Player.generateFillOnly(
+        PlayerId('tp1'),
+        'Pool Player',
+        750,
+        agingPolicy.stageForAge(750),
+        fixedAttributes(50),
+        'ES',
+        91, // the real hidden number — must never appear in any response below
+        // Distinctive, individually-identifiable values — must never
+        // appear in any response below either.
+        { speed: 77, stamina: 83, strength: 89 },
       ),
     );
 
@@ -496,7 +535,9 @@ describe('API', () => {
     expect(listed.statusCode).toBe(200);
     const candidates = listed.json();
     expect(candidates).toHaveLength(1);
-    expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', tier: 'strong', potentialTier: 'elite' });
+    expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', ageInWeeks: 750 });
+    expect(candidates[0]).not.toHaveProperty('tier');
+    expect(candidates[0]).not.toHaveProperty('potentialTier');
     expect(candidates[0].attributes.technical.serve).toBe(50); // current attributes stay precise, unfuzzed
     expect(listed.body).not.toContain('potentialCeiling');
     expect(listed.body).not.toContain('91'); // the real ceiling value itself, nowhere in the payload

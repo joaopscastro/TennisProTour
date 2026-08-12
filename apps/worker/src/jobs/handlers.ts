@@ -1,6 +1,6 @@
 import { WorldId } from '@tennis-manager/domain';
 import { Dependencies } from '@tennis-manager/api';
-import { intervalTickKey, isoWeekTickKey } from '../tickKey';
+import { intervalTickKey, isoDayTickKey } from '../tickKey';
 
 /**
  * Thin BullMQ handlers — parse the job, call the use case, log the
@@ -26,35 +26,43 @@ export interface AdvanceWorldJobData {
  */
 export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: number | null) {
   return async (data: AdvanceWorldJobData) => {
-    const tickKey = data.tickKey ?? (tickIntervalMs !== null ? intervalTickKey(new Date(), tickIntervalMs) : isoWeekTickKey(new Date()));
+    const tickKey = data.tickKey ?? (tickIntervalMs !== null ? intervalTickKey(new Date(), tickIntervalMs) : isoDayTickKey(new Date()));
     const worldId = WorldId(data.worldId);
     const result = await deps.advanceWorldWeek.execute({ worldId, tickKey });
-    // Talent pool refresh piggybacks on the SAME weekly tick as aging,
-    // gated on `advanced` rather than carrying its own idempotency
-    // key — a duplicate/retried tick that didn't actually move the
-    // world clock forward shouldn't refresh the pool either. See
-    // RefreshTalentPoolUseCase's doc comment.
-    if (result.advanced) {
+
+    // Weekly systems fire ONLY on a week rollover (day 7 -> 1). A
+    // mid-week day tick still advances the clock (result.advanced) but
+    // must not refresh the pool / generate junior tournaments / start
+    // due tournaments — those stay weekly (see
+    // docs/day-tick-and-scheduling.md and each use case's doc comment).
+    if (result.advanced && result.weekRolledOver) {
+      // Talent pool refresh piggybacks on the SAME weekly rollover as
+      // aging, gated on `weekRolledOver` rather than carrying its own
+      // idempotency key. See RefreshTalentPoolUseCase's doc comment.
       await deps.refreshTalentPool.execute({ worldId });
-      // Weekly junior-tournament generation piggybacks on the same
-      // tick/gate as the talent pool refresh above, for the same
-      // reason: a duplicate/retried tick that didn't actually move
-      // the world clock forward shouldn't generate a fresh batch of
-      // tournaments either. See GenerateJuniorTournamentsUseCase.
+      // Weekly junior-tournament generation, same rollover/gate.
       await deps.generateJuniorTournaments.execute({ worldId });
-      // Runs AFTER junior generation, same tick/gate, for a load-bearing
-      // reason, not just consistency: StartDueTournamentsUseCase's due
-      // check is strictly `weeksBetween(weekScheduled, currentWeek) > 0`
-      // specifically so a junior tournament opened moments ago THIS
-      // tick (weekScheduled: currentWeek) is never force-started before
-      // any manager had a chance to register — see that use case's own
-      // doc comment.
+      // Runs AFTER junior generation, same rollover/gate, for a
+      // load-bearing reason: StartDueTournamentsUseCase's due check is
+      // strictly `weeksBetween(weekScheduled, currentWeek) > 0` so a
+      // junior tournament opened moments ago THIS rollover
+      // (weekScheduled: currentWeek) is never force-started before any
+      // manager had a chance to register — see that use case's doc.
       await deps.startDueTournaments.execute({ worldId });
+    }
+
+    // Match simulation is folded into EVERY day tick (not just
+    // rollovers) and paced by the schedule policy: it plays only the
+    // rounds whose scheduled day has arrived, one round per tournament
+    // per day. See SimulateDueMatchesUseCase.
+    if (result.advanced) {
+      const sim = await deps.simulateDueMatches.execute({ worldId });
+      return { ...result, matchesSimulated: sim.simulated.length, matchesFailed: sim.failed.length };
     }
     return result;
   };
 }
 
-export function makeSimulateDueMatchesHandler(deps: Dependencies) {
-  return async () => deps.simulateDueMatches.execute();
+export function makeSimulateDueMatchesHandler(deps: Dependencies, worldId: string) {
+  return async () => deps.simulateDueMatches.execute({ worldId: WorldId(worldId) });
 }

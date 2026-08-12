@@ -169,6 +169,26 @@ describe('StandardPlayerGenerationPolicy', () => {
   const PRE_HEADROOM_EXCEPTIONAL = [0, 0, ...Array(16).fill(0)]; // roll 1 age (pinned), roll 2 (0) -> exceptional tier (band max 94)
   const MID_AGE = fixedAge(800); // arbitrary fixed age -> FIXED_AGE_NOISE_PROBABILITY (0.15), same as this policy's old flat noise
 
+  describe('talent', () => {
+    it('rolls talent within the 25-95 band, independent of rarity tier, across many seeds', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      for (let seed = 1; seed <= 500; seed++) {
+        const generated = policy.generate(new SeededRandomSource(seed), REAL_AGE_RANGE);
+        expect(generated.talent).toBeGreaterThanOrEqual(25);
+        expect(generated.talent).toBeLessThanOrEqual(95);
+      }
+    });
+
+    it('produces a real spread of talent values, not a single constant', () => {
+      const policy = new StandardPlayerGenerationPolicy();
+      const values = new Set<number>();
+      for (let seed = 1; seed <= 200; seed++) {
+        values.add(policy.generate(new SeededRandomSource(seed), REAL_AGE_RANGE).talent);
+      }
+      expect(values.size).toBeGreaterThan(50);
+    });
+  });
+
   describe('potentialCeiling / potentialTier', () => {
     it('anchors the ceiling to the tier band max plus a headroom roll, never below the band max', () => {
       const policy = new StandardPlayerGenerationPolicy();

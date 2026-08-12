@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { GameWorld, ManagerId, PlayerId, StandardPlayerGenerationPolicy, TalentPoolCandidate, TalentPoolCandidateId, TournamentId, WorldId } from '@tennis-manager/domain';
+import { GameWorld, ManagerId, Player, PlayerId, StandardAgingPolicy, StandardPlayerGenerationPolicy, TournamentId, WorldId } from '@tennis-manager/domain';
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
@@ -83,11 +83,10 @@ async function main(): Promise<void> {
   // Hiring is pool-based now (see docs/CLAUDE.md) — there's no more
   // "hire any player on demand" use case. This script still needs
   // predictable ids for the demo instructions below (bracket URLs,
-  // "manager id seed-m1"), so it seeds talent pool candidates directly
-  // with fixed ids rather than going through RefreshTalentPoolUseCase's
-  // random batch/random-id generation, then claims each one through
-  // the REAL ClaimTalentPoolCandidateUseCase — the actual
-  // ownership-transfer step this script cares about demonstrating.
+  // "manager id seed-m1"), so it seeds free-agent Player rows directly
+  // with fixed ids, then signs each one through the REAL
+  // ClaimTalentPoolCandidateUseCase — the actual ownership-transfer
+  // step this script cares about demonstrating.
   const worldId = WorldId(process.env.WORLD_ID ?? 'main');
   if (!(await deps.worlds.findById(worldId))) {
     await deps.worlds.save(GameWorld.create(worldId, { season: 1, week: 1 }));
@@ -102,7 +101,7 @@ async function main(): Promise<void> {
   // failure this script's own top-of-file doc comment promises. Detect
   // that up front and skip cleanly instead: seed-m1's roster is the
   // one piece of state a rerun can't just overwrite (unlike the
-  // talent-pool candidate rows below, which upsert harmlessly), so its
+  // free-agent player rows below, which upsert harmlessly), so its
   // presence is an unambiguous signal this database was already seeded.
   const existingRoster = await deps.players.findByManager(ManagerId('seed-m1'));
   if (existingRoster.length > 0) {
@@ -114,10 +113,11 @@ async function main(): Promise<void> {
   }
 
   const generationPolicy = new StandardPlayerGenerationPolicy();
+  const agingPolicy = new StandardAgingPolicy();
   const random = new MathRandomSource();
 
   // eslint-disable-next-line no-console
-  console.log(`Seeding and claiming ${PLAYER_COUNT} talent pool candidates...`);
+  console.log(`Seeding and signing ${PLAYER_COUNT} free-agent players...`);
   // Claiming costs XP (TalentClaimPricingPolicy) — fund every manager
   // this script is about to claim on behalf of BEFORE the first claim,
   // same pattern api.integration.test.ts's hirePlayer() helper already
@@ -137,31 +137,41 @@ async function main(): Promise<void> {
       fundedManagers.add(managerId);
     }
     const generated = generationPolicy.generate(random, TALENT_POOL_AGE_RANGE);
-    await deps.talentPoolCandidates.save(
-      TalentPoolCandidate.generate(
-        TalentPoolCandidateId(playerId),
-        { ...generated, name: `Seed Player ${i}`, nationality: NATIONALITIES[(i - 1) % NATIONALITIES.length] },
-        { season: 1, week: 1 },
+    await deps.players.save(
+      Player.generateFillOnly(
+        PlayerId(playerId),
+        `Seed Player ${i}`,
+        generated.ageInWeeks,
+        agingPolicy.stageForAge(generated.ageInWeeks),
+        generated.attributes,
+        NATIONALITIES[(i - 1) % NATIONALITIES.length],
+        generated.potentialCeiling,
+        generated.physicalCeilings,
       ),
     );
     await deps.claimTalentPoolCandidate.execute({
-      candidateId: TalentPoolCandidateId(playerId),
+      playerId: PlayerId(playerId),
       managerId: ManagerId(managerId),
     });
     entrants.push({ playerId, seed: i, managerId });
     // eslint-disable-next-line no-console
-    console.log(`  claimed ${playerId} (manager ${managerId}, tier: ${generated.tier})`);
+    console.log(`  signed ${playerId} (manager ${managerId})`);
   }
 
   // eslint-disable-next-line no-console
-  console.log(`\nSeeding ${FREE_AGENT_COUNT} unclaimed free-agent talent pool candidates (ages 14-37)...`);
+  console.log(`\nSeeding ${FREE_AGENT_COUNT} unclaimed free-agent players (ages 14-37)...`);
   for (let i = 1; i <= FREE_AGENT_COUNT; i++) {
     const generated = generationPolicy.generate(random, SEED_FREE_AGENT_AGE_RANGE);
-    await deps.talentPoolCandidates.save(
-      TalentPoolCandidate.generate(
-        TalentPoolCandidateId(`seed-free-${i}`),
-        { ...generated, name: `Free Agent ${i}`, nationality: NATIONALITIES[i % NATIONALITIES.length] },
-        { season: 1, week: 1 },
+    await deps.players.save(
+      Player.generateFillOnly(
+        PlayerId(`seed-free-${i}`),
+        `Free Agent ${i}`,
+        generated.ageInWeeks,
+        agingPolicy.stageForAge(generated.ageInWeeks),
+        generated.attributes,
+        NATIONALITIES[i % NATIONALITIES.length],
+        generated.potentialCeiling,
+        generated.physicalCeilings,
       ),
     );
   }
