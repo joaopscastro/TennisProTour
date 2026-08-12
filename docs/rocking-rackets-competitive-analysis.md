@@ -133,8 +133,8 @@ systems** that turn "which tournaments do I enter?" into the real game:
 | 5 | **Doubles** | ❌ none | Doubles roster utility & content from the *same* players, own ranking. Big scope, high payoff. |
 | 6 | **Home advantage** | ❌ none | Trivial (we already generate host countries), high flavor, ties nationality to strategy. |
 | 7 | **Special formats** (Masters Cup groups, Team Cup, Practice) | ❌ none | Content depth + a no-form training outlet (Practice) that pairs perfectly with fatigue/form. |
-| 8 | **Obligatory-tournament ranking rule** | ❌ none | The "you must count the Slam even if you skip it" rule is what forces top players into the big events. |
-| 9 | **Qualification rounds `[Q]`** | ❌ none | Lets lower-ranked players earn a main-draw spot; deepens the ladder. |
+| 8 | **Obligatory-tournament ranking rule** | ✅ built & live (P9 — see `docs/ranking-realism-proposal.md`) | The "you must count the Slam even if you skip it" rule is what forces top players into the big events. |
+| 9 | **Qualification rounds `[Q]`** | ✅ light model built (a fully simulated qualifying draw is still deferred) | Lets lower-ranked players earn a main-draw spot; deepens the ladder. |
 
 ### Attribute-model reconciliation note
 RR: skill / service / doubles / surface (trainable); strength / speed /
@@ -266,8 +266,10 @@ first". Each phase is shippable on its own.
 - **P8. Special formats.** Practice Sessions first (pairs with fatigue/form
   as a no-form training + manager-points outlet), then Masters Cup
   (round-robin groups), then World Team Cup.
-- **P9. Ranking realism.** Obligatory-tournament counting rule; qualification
-  rounds `[Q]`.
+- **P9. Ranking realism.** ✅ DONE. Obligatory-tournament counting rule (live
+  on the weekly rollover) and the light qualification-rounds `[Q]` model —
+  see `docs/ranking-realism-proposal.md`. Only the full, genuinely simulated
+  qualifying draw remains deferred.
 
 ### Deliberately NOT copying RR
 - RR's grey-table UI and per-page ad slots (our differentiator is the

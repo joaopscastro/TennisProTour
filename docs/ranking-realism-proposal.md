@@ -1,10 +1,13 @@
 # Ranking-realism proposal (P9)
 
-Status: **partially built.** The obligatory-tournament rule's domain
-core ships in this pass (real, tested code — see §3). The live wiring of
-that rule (§4) and qualification rounds `[Q]` (§5) are designed here but
-NOT yet built. This doc is the plan the next session builds from, in the
-same spirit as `docs/junior-circuit-research-and-proposal.md`.
+Status: **BUILT — both rules are live.** The obligatory-tournament
+rule's domain core (§3) shipped first; its live wiring (§4) and the
+light qualification-rounds `[Q]` model (§5) are now built, tested, and
+verified against real Postgres. The only deliberately deferred piece is
+the FULL qualifying model (a genuinely simulated qualifying draw — §5's
+second half), which stays a separate future effort. See each section's
+own "Built" note for exactly what shipped and what it does differently
+from the original plan (and why).
 
 Source of the requirement: `docs/rocking-rackets-competitive-analysis.md`
 §P9 ("Obligatory-tournament counting rule; qualification rounds `[Q]`")
@@ -99,14 +102,57 @@ preserving for every existing call site:
 Tests after this pass: domain 260 (was 252), application 140, api 64 —
 all green.
 
-**Deliberately NOT built this pass** (needs a migration + a new
-tick dependency + live verification, i.e. its own budgeted pass): the
-persistence and injection wiring in §4. The domain core is ready to wire
-with zero further domain changes.
+**Was deliberately NOT built in that first pass** (it needed a migration
++ a new tick dependency + live verification, i.e. its own budgeted
+pass): the persistence and injection wiring in §4. That has since been
+built — see §4 — and needed exactly zero further domain changes, as
+predicted. Test counts after the live-wiring pass: domain 269,
+application 151, api 65, worker 8 — all green.
 
 ---
 
-## 4. Remaining work to make rule (A) LIVE
+## 4. Making rule (A) LIVE — BUILT
+
+**Built as `ApplyObligatoryTournamentZerosUseCase`**
+(`packages/application/src/use-cases/`), wired into the worker's weekly
+rollover branch (`apps/worker/src/jobs/handlers.ts`) as the LAST weekly
+system, after `startDueTournaments` — so it always sees this rollover's
+own finished tournaments. Two deliberate departures from the plan below,
+both documented in the class itself:
+
+- **A sibling use case, not a branch inside `AdvanceWorldWeekUseCase`.**
+  It needs two dependencies (`TournamentRepository`, the senior
+  `RankPositionQuery`) that class has no other reason to hold, and it is
+  a whole-population ranking correction rather than a per-player aging
+  step — the same "separate weekly use case, gated on the same rollover"
+  shape `RefreshTalentPoolUseCase`/`GenerateJuniorTournamentsUseCase`
+  already use.
+- **No DB unique constraint was added** (step 3 below only said
+  "consider" one). Idempotency is already structural without it: a
+  written skip-zero IS a `ranking_ledger` row for that
+  (player, tournament), so the next run sees it in the player's own
+  played set and produces nothing. A unique `(player_id, tournament_id)`
+  constraint was NOT added because it isn't verified safe for every
+  legitimate write path, and adding an unverified constraint would be a
+  worse trade than relying on a property that is already proven by test.
+- `RANKING_WINDOW_WEEKS` (52) is now EXPORTED from
+  `RankingCalculationService` and imported by the use case, rather than a
+  second 52 being declared — the "held inside the window" filter and the
+  scoring window can't drift.
+
+**Verification actually performed** (step 4): 8 unit tests
+(`ApplyObligatoryTournamentZerosUseCase.test.ts`) covering the skip-zero
+write, idempotency on re-run, played-event (including R1-loss)
+suppression, unranked/below-cutoff exemption at the exact cutoff
+boundary, non-obligatory tiers, an undecided final, the aged-out window,
+and a real best-18 total dropping by exactly one counted result; a real
+Postgres round-trip test for the `obligatory` column
+(`DrizzleRepositories.integration.test.ts`); and a live run against the
+real dev database through the real composition — 2 held majors, 100
+direct-acceptance-eligible players, 15 skip-zeros written on the first
+run and 0 on an immediate second run.
+
+The original plan, kept for the reasoning:
 
 The pure core produces the right entries; making them affect real
 rankings needs four wiring steps. Recommended injection point: the
@@ -178,7 +224,45 @@ snapshot the tick already has in hand when it computes rankings.
 
 ---
 
-## 5. Qualification rounds `[Q]` — design (not yet built)
+## 5. Qualification rounds `[Q]` — LIGHT MODEL BUILT
+
+**Built** as `packages/domain/src/ranking/QualifyingPolicy.ts`
+(`hasQualifying`, `qualifierSlotsFor`, `resolveEntryType`) +
+`EntryType`/`entryTypeOf` on `TournamentEntrant`
+(`CompetitionTypes.ts`), applied in `RegisterEntrantUseCase`, persisted
+via `tournament_entries.entry_type` (migration
+`0030_short_randall.sql`), and surfaced on `TournamentDto`
+(`entryType`, `qualifierSlots`, `obligatory`) and the tournament page (a
+`[Q]` tag next to a qualifier's name, a "Qualifiers: N [Q] slots" fact,
+and an honest note on a mandatory event's points panel).
+
+Decisions made while building it, differing from the sketch below:
+- **Qualifying tiers are `{major, tour}`, deliberately NOT the same set
+  as the obligatory tiers** (`{major}`). An event can run qualifying
+  without being mandatory to enter — real ATP 500s do exactly that — so
+  these are two separate PLACEHOLDER sets, not one shared flag.
+- **Slots are derived, not stored**: `qualifierSlotsFor` = an eighth of
+  the draw (a real Slam's 16-of-128), so `Tournament` gained no
+  `qualifierSlots` field and no migration for one.
+- **A below-cutoff registrant is REFUSED once the reserved slots are
+  full**, rather than silently downgraded to a direct acceptance —
+  otherwise the cutoff would hand them exactly the place it exists to
+  withhold.
+- `entryType` is optional/additive and left ABSENT wherever the rule is
+  inert (any tier without qualifying), so no entrant in the game gets a
+  redundant `'DA'` stamped on them; `entryTypeOf` owns the default. One
+  disclosed round-trip detail: the DB column is `NOT NULL DEFAULT 'da'`,
+  so a persisted entrant always reads back with an explicit `'DA'` (see
+  `persistedEntrants` in the integration test).
+- `'WC'` (wildcard) exists as a value — a draw sheet has no third state
+  — but nothing awards one; no code path produces it.
+- Fill-only players added by `StartDueTournamentsUseCase` are NOT
+  classified as qualifiers: they're bracket padding, not an entry anyone
+  earned, and the entry list already excludes them. This means `[Q]`
+  only ever appears on a real manager's registration — a known, accepted
+  consequence of the light model.
+
+The original design, kept for the reasoning:
 
 Larger than rule (A); scoped here so it can be picked up cleanly. Two
 possible depths — recommend starting with the LIGHT model.
@@ -223,7 +307,8 @@ same pass so the cutoff has both of its consequences at once.
 - Which tiers are obligatory — currently only `'major'`. Adding the
   game's Masters-equivalent (likely `'tour'`) is a one-line change to
   `OBLIGATORY_TIER_SET`, but is a balance decision, not made yet.
-- `[Q]` slot count per tier/draw size — unset; part of the light-model
-  build.
+- `[Q]` slot count per tier/draw size — now `QUALIFIER_SLOT_FRACTION`
+  (1/8 of the draw) and `QUALIFYING_TIER_SET` (`{major, tour}`) in
+  `QualifyingPolicy.ts`; both explicit placeholders.
 - The current-rank-vs-rank-at-time simplification (§4) — revisit only if
   exploited.

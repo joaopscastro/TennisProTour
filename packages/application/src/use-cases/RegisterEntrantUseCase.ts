@@ -1,6 +1,8 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
+import { entryTypeOf, EntryType, hasQualifying, resolveEntryType, Tournament } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 
 export interface RegisterEntrantCommand {
@@ -52,12 +54,32 @@ export interface RegisterEntrantCommand {
  * absent; under the day-tick clock, same-week tournaments run their
  * rounds on the same days, so entering two at once is a literal
  * scheduling impossibility, not just unrealistic.
+ *
+ * **Qualifying (`[Q]`)**: at a tier that holds qualifying (see
+ * QualifyingPolicy — `major`/`tour` today) a registrant inside
+ * `DIRECT_ACCEPTANCE_CUTOFF` takes their guaranteed direct-acceptance
+ * place, while anyone below the cutoff (or unranked) can only enter
+ * through one of the event's reserved `[Q]` slots, and is refused once
+ * those run out. This is the LIGHT model from
+ * docs/ranking-realism-proposal.md §5: no qualifying draw is simulated,
+ * the qualifier is assumed to have come through and earns ordinary
+ * main-draw points. It is the deliberate mirror of the obligatory rule
+ * — the same cutoff that OBLIGATES the top to show up is what makes
+ * everyone else earn their place — and it is inert at every tier below
+ * `tour`, which must stay freely enterable since that's the route up.
  */
 export class RegisterEntrantUseCase {
   constructor(
     private readonly tournaments: TournamentRepository,
     private readonly players: PlayerRepository,
     private readonly bracketGenerator: BracketGenerator,
+    /** The SENIOR rank query — only senior tiers hold qualifying, so
+     * there's no per-band record to pass. Optional: omitted (as in the
+     * many pre-qualifying unit tests) every entrant is a plain direct
+     * acceptance and the `[Q]` rule is simply inert, exactly as it is
+     * at a tier that holds no qualifying at all. The composition root
+     * always passes it. */
+    private readonly seniorRankPosition?: RankPositionQuery,
   ) {}
 
   async execute(command: RegisterEntrantCommand): Promise<void> {
@@ -95,7 +117,8 @@ export class RegisterEntrantUseCase {
       );
     }
 
-    tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null });
+    const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);
+    tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType });
 
     if (tournament.entrants.length === tournament.drawSize) {
       const bracket = this.bracketGenerator.generate(tournament.entrants, tournament.drawSize);
@@ -103,5 +126,37 @@ export class RegisterEntrantUseCase {
     }
 
     await this.tournaments.save(tournament);
+  }
+
+  /** Direct acceptance vs. `[Q]` for this registrant — see the class doc
+   * comment. Reads the player's live senior rank only when the tier
+   * actually holds qualifying, so an ordinary futures/junior entry
+   * costs no extra ranking read. Returns `undefined` when the rule is
+   * inert (a tier without qualifying, or no rank query injected),
+   * leaving the entrant's `entryType` absent exactly as before this
+   * feature existed rather than stamping a redundant 'DA' on every
+   * entrant in the game. */
+  private async resolveEntryTypeFor(
+    tournament: Tournament,
+    playerId: PlayerId,
+  ): Promise<EntryType | undefined> {
+    if (!this.seniorRankPosition) return undefined;
+    if (!hasQualifying(tournament.tier)) return undefined;
+
+    const { rank } = await this.seniorRankPosition.rankFor(playerId);
+    const qualifierSlotsTaken = tournament.entrants.filter((entrant) => entryTypeOf(entrant) === 'Q').length;
+    const decision = resolveEntryType({
+      tier: tournament.tier,
+      drawSize: tournament.drawSize,
+      rank,
+      qualifierSlotsTaken,
+    });
+    if (decision.kind === 'qualifying-full') {
+      throw new Error(
+        `Player ${playerId} is outside direct acceptance for tournament ${tournament.id} and all ` +
+          `${decision.qualifierSlots} qualifier slots are already taken`,
+      );
+    }
+    return decision.entryType;
   }
 }

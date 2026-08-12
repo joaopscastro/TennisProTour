@@ -1,17 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   GameWeek,
+  GameWorld,
   ManagerId,
   Player,
   PlayerAttributes,
   PlayerId,
+  RankingLedgerEntry,
   Skill,
   SurfaceAffinities,
   Tournament,
   TournamentId,
+  WorldId,
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
+import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 import { RegisterEntrantUseCase } from './RegisterEntrantUseCase';
 
@@ -65,6 +69,34 @@ class InMemoryPlayerRepository implements PlayerRepository {
 
   async save(player: Player): Promise<void> {
     this.store.set(player.id, player);
+  }
+}
+
+class InMemoryGameWorldRepository implements GameWorldRepository {
+  private readonly store = new Map<WorldId, GameWorld>();
+
+  async findById(id: WorldId): Promise<GameWorld | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async save(world: GameWorld): Promise<void> {
+    this.store.set(world.id, world);
+  }
+}
+
+class InMemoryRankingLedgerRepository implements RankingLedgerRepository {
+  private readonly entries: RankingLedgerEntry[] = [];
+
+  async append(entry: RankingLedgerEntry): Promise<void> {
+    this.entries.push(entry);
+  }
+
+  async findByPlayer(playerId: PlayerId): Promise<RankingLedgerEntry[]> {
+    return this.entries.filter((e) => e.playerId === playerId);
+  }
+
+  async findAll(): Promise<RankingLedgerEntry[]> {
+    return [...this.entries];
   }
 }
 
@@ -464,6 +496,82 @@ describe('RegisterEntrantUseCase', () => {
       const seniorId = TournamentId('senior-same-week');
       await tournaments.save(openTournament(seniorId, week));
       await expect(useCase.execute({ tournamentId: seniorId, playerId: player })).resolves.toBeUndefined();
+    });
+  });
+
+  describe('qualifying / direct acceptance (the light [Q] model)', () => {
+    /** A real RankPositionQuery over in-memory fakes — the same query
+     * the composition root injects, never a stub, so what these tests
+     * exercise is the actual ranking read the rule depends on. */
+    async function qualifyingSetup(rankedPoints: Array<{ playerId: string; points: number }>) {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const worlds = new InMemoryGameWorldRepository();
+      await worlds.save(
+        GameWorld.reconstitute({ id: WorldId('main'), currentWeek: { season: 1, week: 1 }, lastAppliedTick: null }),
+      );
+      const ledger = new InMemoryRankingLedgerRepository();
+      for (const [index, ranked] of rankedPoints.entries()) {
+        await ledger.append({
+          playerId: PlayerId(ranked.playerId),
+          tournamentId: TournamentId(`past-${index}`),
+          tier: 'challenger',
+          ageBand: null,
+          points: ranked.points,
+          weekEarned: { season: 1, week: 1 },
+        });
+      }
+      const rankPosition = new RankPositionQuery(ledger, worlds, WorldId('main'), 'senior');
+      const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), rankPosition);
+      return { tournaments, useCase };
+    }
+
+    function openTourTournament(id: TournamentId): Tournament {
+      return Tournament.open({
+        name: 'Qualifying Test Open',
+        id,
+        tier: 'tour',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 1 },
+        drawSize: 16,
+      });
+    }
+
+    it('marks an above-cutoff registrant as a direct acceptance', async () => {
+      const { tournaments, useCase } = await qualifyingSetup([{ playerId: 'top', points: 5000 }]);
+      const tournamentId = TournamentId('tour-da');
+      await tournaments.save(openTourTournament(tournamentId));
+
+      await useCase.execute({ tournamentId, playerId: PlayerId('top') });
+
+      const saved = await tournaments.findById(tournamentId);
+      expect(saved!.entrants[0].entryType).toBe('DA');
+    });
+
+    it('marks an unranked registrant as a qualifier, and refuses one past the reserved slots', async () => {
+      const { tournaments, useCase } = await qualifyingSetup([]);
+      const tournamentId = TournamentId('tour-q');
+      await tournaments.save(openTourTournament(tournamentId));
+
+      // A 16-draw reserves 2 qualifier slots (an eighth of the draw).
+      await useCase.execute({ tournamentId, playerId: PlayerId('q1') });
+      await useCase.execute({ tournamentId, playerId: PlayerId('q2') });
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('q3') })).rejects.toThrow(
+        /outside direct acceptance/,
+      );
+
+      const saved = await tournaments.findById(tournamentId);
+      expect(saved!.entrants.map((e) => e.entryType)).toEqual(['Q', 'Q']);
+    });
+
+    it('never gates a tier that holds no qualifying — the lower ladder stays freely enterable', async () => {
+      const { tournaments, useCase } = await qualifyingSetup([]);
+      const tournamentId = TournamentId('challenger-open');
+      await tournaments.save(openTournament(tournamentId));
+
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('nobody') })).resolves.toBeUndefined();
+      const saved = await tournaments.findById(tournamentId);
+      expect(saved!.entrants[0].entryType).toBeUndefined();
     });
   });
 });

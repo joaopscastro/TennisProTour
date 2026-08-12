@@ -25,4 +25,18 @@ export interface RankingLedgerEntry {
   readonly ageBand: AgeBand | null;
   readonly points: number;
   readonly weekEarned: GameWeek;
+  /**
+   * True only for a MANDATORY-SKIP zero: a `points: 0` entry recorded
+   * because the player was eligible for an obligatory event
+   * (`isObligatoryTier`) that week and did NOT enter it — the "0 that
+   * burns a best-N slot" rule (see docs/ranking-realism-proposal.md).
+   * Optional and defaulting to undefined so every existing construction
+   * site (and every persisted row predating this field) is unchanged: a
+   * real played result — including a genuine first-round loss at a major,
+   * which also scores 0 — always leaves this absent/false. The flag
+   * exists to tell those two 0-point major entries apart for honest
+   * display/audit ("skipped" vs "lost R1"); the ranking TOTAL treats
+   * both identically, since an obligatory tier always counts either way.
+   */
+  readonly obligatory?: boolean;
 }

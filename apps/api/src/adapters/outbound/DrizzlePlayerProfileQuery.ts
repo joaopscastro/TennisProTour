@@ -1,4 +1,4 @@
-import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, PotentialProjection, projectPotential, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
@@ -37,6 +37,16 @@ export interface PlayerProfileDto {
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
   tournamentHistory: PlayerTournamentHistoryEntry[];
   titles: Array<{ tournamentId: TournamentId; name: string; tier: TournamentTier; ageBand: AgeBand | null; weekEarned: GameWeek }>;
+  /** The profile-only "scout's projection" of this player's upside (P5,
+   * docs/rocking-rackets-competitive-analysis.md §3). This is a DERIVED,
+   * age-fuzzed read computed server-side from the HIDDEN
+   * potentialCeiling/physicalCeilings/talent via projectPotential — the
+   * raw hidden numbers are NEVER placed on this DTO (grep them in this
+   * file: they only ever appear as arguments into projectPotential,
+   * never in the returned object). It appears ONLY here on the profile,
+   * never on any list/pool query, so potential stays a per-player
+   * investigation, not a sortable column. */
+  potential: PotentialProjection;
 }
 
 /**
@@ -101,6 +111,14 @@ export class DrizzlePlayerProfileQuery {
       peakRankings: peaks.map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
       tournamentHistory,
       titles: titleList,
+      potential: projectPotential({
+        playerId: player.id,
+        ageInWeeks: player.ageInWeeks,
+        attributes: player.attributes,
+        potentialCeiling: player.potentialCeiling,
+        physicalCeilings: player.physicalCeilings,
+        talent: player.talent,
+      }),
     };
   }
 }

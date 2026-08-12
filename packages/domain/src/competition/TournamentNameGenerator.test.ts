@@ -52,8 +52,11 @@ describe('TournamentNameGenerator', () => {
   it('produces a non-empty name for every real tournament tier', () => {
     const random = new SeededRandomSource(1);
     for (const tier of ALL_TOURNAMENT_TIERS) {
-      const name = generator.generate(random, tier, 'hard');
-      expect(name.trim().length).toBeGreaterThan(0);
+      const generated = generator.generate(random, tier, 'hard');
+      expect(generated.name.trim().length).toBeGreaterThan(0);
+      // The picked host country is always surfaced structurally (P6),
+      // even when the display name doesn't visibly include it.
+      expect(generated.hostCountry.trim().length).toBeGreaterThan(0);
     }
   });
 
@@ -63,17 +66,19 @@ describe('TournamentNameGenerator', () => {
     for (let i = 0; i < 500; i++) {
       const tier = ALL_TOURNAMENT_TIERS[i % ALL_TOURNAMENT_TIERS.length];
       const surface = surfaces[i % surfaces.length];
-      const name = generator.generate(random, tier, surface);
-      const lower = name.toLowerCase();
+      const generated = generator.generate(random, tier, surface);
+      const lower = generated.name.toLowerCase();
+      const hostLower = generated.hostCountry.toLowerCase();
       for (const fragment of REAL_TOURNAMENT_FRAGMENTS) {
         expect(lower).not.toContain(fragment);
       }
       // The four real Grand Slam host countries must never appear —
-      // this is the structural exclusion HOST_COUNTRIES relies on.
-      expect(lower).not.toContain('australia');
-      expect(lower).not.toContain('france');
-      expect(lower).not.toContain('united kingdom');
-      expect(lower).not.toContain('united states');
+      // this is the structural exclusion HOST_COUNTRIES relies on,
+      // in the display name OR the structured host country.
+      for (const banned of ['australia', 'france', 'united kingdom', 'united states']) {
+        expect(lower).not.toContain(banned);
+        expect(hostLower).not.toContain(banned);
+      }
       // Real Grand-Slam-adjacent words this generator deliberately
       // never uses in a tier suffix.
       expect(lower).not.toContain('masters');
@@ -86,7 +91,7 @@ describe('TournamentNameGenerator', () => {
     const random = new SeededRandomSource(3);
     const names = new Set<string>();
     for (let i = 0; i < 50; i++) {
-      names.add(generator.generate(random, 'challenger', 'clay'));
+      names.add(generator.generate(random, 'challenger', 'clay').name);
     }
     expect(names.size).toBeGreaterThan(5);
   });
@@ -94,6 +99,6 @@ describe('TournamentNameGenerator', () => {
   it('is deterministic for a given RandomSource sequence (same seed -> same name)', () => {
     const nameA = generator.generate(new SeededRandomSource(99), 'major', 'grass');
     const nameB = generator.generate(new SeededRandomSource(99), 'major', 'grass');
-    expect(nameA).toBe(nameB);
+    expect(nameA).toEqual(nameB);
   });
 });

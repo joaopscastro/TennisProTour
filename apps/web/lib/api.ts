@@ -154,7 +154,21 @@ export interface TournamentDto {
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
-  entrants: Array<{ playerId: string; seed: number | null }>;
+  entrants: Array<{
+    playerId: string;
+    seed: number | null;
+    /** How this entrant got their place — 'DA' (direct acceptance by
+     * ranking), 'Q' (came through qualifying), 'WC' (wildcard, not
+     * awarded by anything yet). Only ever 'Q' at a tier that holds
+     * qualifying. */
+    entryType: 'DA' | 'Q' | 'WC';
+  }>;
+  /** Main-draw places reserved for qualifiers — 0 at every tier that
+   * holds no qualifying (see QualifyingPolicy on the API side). */
+  qualifierSlots: number;
+  /** True when a top-ranked player must count this event even if they
+   * skip it (the obligatory-tournament rule). */
+  obligatory: boolean;
   /** Only present when GET /tournaments was called with ?playerId=.
    * Attached for BOTH bands now — see fetchOpenTournaments and
    * attachEntryInfo on the API side. Junior tiers cap at 3/week, the

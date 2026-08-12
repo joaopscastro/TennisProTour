@@ -82,6 +82,18 @@ interface NameParts {
   suffix: string;
 }
 
+/** A generated tournament identity: the display name AND the structured
+ * host country that flavored it. The country is ALWAYS chosen (and
+ * returned) even when the picked template doesn't put it in the visible
+ * name — it's a real structured attribute of the tournament (used by the
+ * home-advantage rule, P6), not merely a naming ingredient, so callers
+ * persist it as its own field rather than trying to parse it back out of
+ * the name string. */
+export interface GeneratedTournamentName {
+  name: string;
+  hostCountry: string;
+}
+
 /** Several different shapes so the same word pools don't always
  * combine the same way — picked per-generation, not fixed. */
 const TEMPLATES: ReadonlyArray<(parts: NameParts) => string> = [
@@ -109,13 +121,14 @@ const TEMPLATES: ReadonlyArray<(parts: NameParts) => string> = [
  * other half of that structural guarantee.
  */
 export class TournamentNameGenerator {
-  generate(random: RandomSource, tier: TournamentTier, surface: Surface): string {
+  generate(random: RandomSource, tier: TournamentTier, surface: Surface): GeneratedTournamentName {
     const parts: NameParts = {
       country: pick(HOST_COUNTRIES, random),
       sponsor: pick(SPONSOR_WORDS, random),
       surface: SURFACE_WORDS[surface],
       suffix: pick(SUFFIXES_BY_PRESTIGE[TIER_PRESTIGE[tier]], random),
     };
-    return pick(TEMPLATES, random)(parts);
+    const name = pick(TEMPLATES, random)(parts);
+    return { name, hostCountry: parts.country };
   }
 }

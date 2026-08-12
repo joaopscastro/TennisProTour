@@ -97,6 +97,9 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
     { label: 'Host', value: tournament.hostCountry ? `🏠 ${tournament.hostCountry}` : '—' },
     { label: 'Scheduled', value: `S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}` },
   ];
+  if (tournament.qualifierSlots > 0) {
+    facts.push({ label: 'Qualifiers', value: `${tournament.qualifierSlots} [Q] slots` });
+  }
   return (
     <Panel style={{ padding: 18 }}>
       <SectionLabel>Tournament details</SectionLabel>
@@ -139,6 +142,9 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
         <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 7, lineHeight: 1.5 }}>
           Points scale to this tournament's {tournament.drawSize}-player draw. A first-round loss earns nothing — a ranking is earned by winning.
           {tournament.pointsArePlaceholder && ' Note: this tier\u2019s point values are a provisional placeholder, not a sourced figure.'}
+          {tournament.obligatory
+            ? ' This is a mandatory event: a top-100 player counts it toward their ranking even if they skip it \u2014 a skipped edition records a zero that still uses one of their counted results.'
+            : ''}
         </div>
       </div>
     </Panel>
@@ -152,7 +158,7 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
 function EntryList({ tournament, players }: { tournament: TournamentDto; players: Map<string, PlayerDto> }) {
   const humanEntrants = tournament.entrants
     .map((e) => ({ entrant: e, player: players.get(e.playerId) }))
-    .filter((x): x is { entrant: { playerId: string; seed: number | null }; player: PlayerDto } => !!x.player && x.player.managerId != null)
+    .filter((x): x is { entrant: TournamentDto['entrants'][number]; player: PlayerDto } => !!x.player && x.player.managerId != null)
     .sort((a, b) => {
       if (a.entrant.seed === null && b.entrant.seed === null) return a.player.name.localeCompare(b.player.name);
       if (a.entrant.seed === null) return 1;
@@ -187,6 +193,14 @@ function EntryList({ tournament, players }: { tournament: TournamentDto; players
               <span className="flex-none">{flagFor(player.nationality)}</span>
               <div className="text-[13.5px] font-semibold min-w-0 flex-1 truncate" style={{ color: 'var(--gc-ink)' }}>
                 {player.name}
+                {entrant.entryType === 'Q' && (
+                  <span
+                    title="Qualifier — came through qualifying rather than being accepted directly by ranking"
+                    style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: 'var(--gc-ink-mute)' }}
+                  >
+                    [Q]
+                  </span>
+                )}
               </div>
               <div className="text-[11px] flex-none" style={{ color: 'var(--gc-ink-faint)' }}>View →</div>
             </Link>

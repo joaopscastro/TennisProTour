@@ -5,6 +5,8 @@ import {
   AgeBand,
   BracketRound,
   DrawSize,
+  EntryType,
+  entryTypeOf,
   MatchOutcome,
   TournamentEntrant,
   TournamentTier,
@@ -92,6 +94,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
             tournamentId: tournament.id,
             playerId: entrant.playerId,
             seed: entrant.seed,
+            entryType: toEntryTypeRow(entryTypeOf(entrant)),
           })),
         );
       }
@@ -161,7 +164,33 @@ export class DrizzleTournamentRepository implements TournamentRepository {
 }
 
 function toEntrant(row: EntryRow): TournamentEntrant {
-  return { playerId: PlayerId(row.playerId), seed: row.seed };
+  return { playerId: PlayerId(row.playerId), seed: row.seed, entryType: toEntryType(row.entryType) };
+}
+
+/** The db enum is lowercase like every other enum in this schema; the
+ * domain's own labels are the real draw-sheet ones ('DA'/'Q'/'WC').
+ * Both directions live here, in the adapter, so neither side has to
+ * know about the other's casing convention. */
+function toEntryType(value: EntryRow['entryType']): EntryType {
+  switch (value) {
+    case 'q':
+      return 'Q';
+    case 'wc':
+      return 'WC';
+    default:
+      return 'DA';
+  }
+}
+
+function toEntryTypeRow(value: EntryType): 'da' | 'q' | 'wc' {
+  switch (value) {
+    case 'Q':
+      return 'q';
+    case 'WC':
+      return 'wc';
+    default:
+      return 'da';
+  }
 }
 
 function toRounds(rows: MatchRow[]): BracketRound[] {

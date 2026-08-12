@@ -16,6 +16,7 @@ export class DrizzleRankingLedgerRepository implements RankingLedgerRepository {
       tier: entry.tier,
       ageBand: entry.ageBand,
       points: entry.points,
+      obligatory: entry.obligatory ?? false,
       seasonEarned: entry.weekEarned.season,
       weekEarned: entry.weekEarned.week,
     });
@@ -39,6 +40,7 @@ function toRankingLedgerEntry(row: typeof rankingLedger.$inferSelect): RankingLe
     tier: row.tier,
     ageBand: row.ageBand as AgeBand | null,
     points: row.points,
+    obligatory: row.obligatory,
     weekEarned: { season: row.seasonEarned, week: row.weekEarned },
   };
 }

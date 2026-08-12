@@ -148,9 +148,59 @@ export function isUnsourcedPlaceholderTier(tier: TournamentTier): boolean {
   return UNSOURCED_PLACEHOLDER_TIER_SET.has(tier);
 }
 
+/**
+ * "Obligatory" (mandatory) tiers — the real-tennis rule that a top
+ * player's ranking MUST count these events even if they skip them: a
+ * skipped obligatory tournament you were entitled to enter counts as a
+ * 0 that still burns one of your best-N slots, which is precisely what
+ * forces the top of the field into the big events instead of cherry-
+ * picking soft draws (see docs/ranking-realism-proposal.md).
+ *
+ * Currently just `'major'` (our Grand Slam equivalent). A set, not a
+ * single literal, so the game's "Masters"-equivalent tier can join the
+ * obligatory list later without touching RankingCalculationService —
+ * the calc service asks `isObligatoryTier`, never a hardcoded literal.
+ * No junior tier is obligatory (the ITF junior circuit has no mandatory-
+ * event rule), so this is always empty of junior tiers by construction.
+ */
+const OBLIGATORY_TIER_SET: ReadonlySet<TournamentTier> = new Set<TournamentTier>(['major']);
+
+export function isObligatoryTier(tier: TournamentTier): boolean {
+  return OBLIGATORY_TIER_SET.has(tier);
+}
+
+/**
+ * How an entrant got their main-draw place — the real tennis
+ * convention a draw sheet prints next to a name (see
+ * docs/ranking-realism-proposal.md §5's light `[Q]` model):
+ *
+ * - `'DA'` — direct acceptance, earned by ranking (or simply the
+ *   default for every tier that has no qualifying at all).
+ * - `'Q'` — came through qualifying: a registrant outside
+ *   `DIRECT_ACCEPTANCE_CUTOFF` who took one of the event's reserved
+ *   qualifier slots. No qualifying matches are simulated in the light
+ *   model — the qualifier is *assumed* to have come through, and earns
+ *   ordinary main-draw points for whatever they then do.
+ * - `'WC'` — wildcard. Modelled as a value here (a draw sheet has no
+ *   third state) but nothing in the game awards one yet; no code path
+ *   produces it, deliberately, rather than inventing a wildcard
+ *   mechanic this pass didn't scope.
+ */
+export type EntryType = 'DA' | 'Q' | 'WC';
+
 export interface TournamentEntrant {
   playerId: PlayerId;
   seed: number | null;
+  /** Optional/additive: absent means direct acceptance (`'DA'`), so
+   * every pre-qualifying entrant, persisted row, and test call site is
+   * unchanged. Read through `entryTypeOf` rather than defaulted at each
+   * call site. */
+  entryType?: EntryType;
+}
+
+/** The one place the "absent means direct acceptance" default lives. */
+export function entryTypeOf(entrant: Pick<TournamentEntrant, 'entryType'>): EntryType {
+  return entrant.entryType ?? 'DA';
 }
 
 export type MatchOutcome = {

@@ -112,4 +112,30 @@ describe('RankingCalculationService', () => {
         .reduce((sum, p) => sum + p, 0),
     );
   });
+
+  it('lets a mandatory-skip zero (obligatory: true, 0 points) burn a best-18 slot — the punitive core of the obligatory rule', () => {
+    const service = new RankingCalculationService();
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+
+    // 18 strong non-major results already filling the cap on points.
+    const strongNonMajors: RankingLedgerEntry[] = Array.from({ length: 18 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 500, tournamentId: TournamentId(`t${i}`) }),
+    );
+    const skipZero = entry({
+      weekEarned: currentWeek,
+      points: 0,
+      tier: 'major',
+      obligatory: true,
+      tournamentId: TournamentId('skipped-slam'),
+    });
+
+    const withoutSkip = service.calculateTotal(strongNonMajors, currentWeek);
+    const withSkip = service.calculateTotal([...strongNonMajors, skipZero], currentWeek);
+
+    // The skip is a major-tier (obligatory) entry, so it always occupies
+    // a slot — pushing exactly one 500-point non-major out of the best-18
+    // and contributing 0 itself. The total drops by exactly one result.
+    expect(withoutSkip).toBe(18 * 500);
+    expect(withSkip).toBe(17 * 500);
+  });
 });

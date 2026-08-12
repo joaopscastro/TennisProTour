@@ -90,6 +90,12 @@ export const trainableAttribute = pgEnum('trainable_attribute', [
  * values, never freeform data. */
 export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'attribute']);
 export const managerStatus = pgEnum('manager_status', ['active', 'suspended']);
+/** How an entrant got into a main draw (real tennis convention — see
+ * EntryType in the domain / docs/ranking-realism-proposal.md §5): 'da'
+ * = direct acceptance by ranking, 'q' = came through qualifying, 'wc'
+ * = wildcard. Lowercase values to match every other enum here; the
+ * domain's own 'DA'/'Q'/'WC' labels are mapped in the adapter. */
+export const tournamentEntryType = pgEnum('tournament_entry_type', ['da', 'q', 'wc']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -162,6 +168,16 @@ export const rankingLedger = pgTable(
      * of a player's independent rankings — see RankingBand (domain). */
     ageBand: ageBand('age_band'),
     points: doublePrecision('points').notNull(),
+    /** Marks a MANDATORY-SKIP zero (see ObligatoryTournamentPolicy /
+     * docs/ranking-realism-proposal.md): an obligatory event this
+     * player was entitled to enter by ranking but didn't play, which
+     * still burns one of their best-N counted slots at 0 points. Kept
+     * distinguishable from a genuine first-round major loss (also 0
+     * points, but obligatory = false) for honest display/audit; the
+     * ranking TOTAL treats the two identically. Defaults false, so
+     * every pre-existing row reads back exactly as the domain's own
+     * default — no backfill needed. */
+    obligatory: boolean('obligatory').notNull().default(false),
     /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
     seasonEarned: integer('season_earned').notNull(),
     weekEarned: integer('week_earned').notNull(),
@@ -482,6 +498,11 @@ export const tournamentEntries = pgTable(
       .references(() => players.id),
     /** Null = unseeded entrant. */
     seed: integer('seed'),
+    /** Direct acceptance / qualifier / wildcard (see
+     * tournamentEntryType above). Defaults to 'da' so every row written
+     * before qualifying existed reads back as a direct acceptance,
+     * matching the domain's own default. */
+    entryType: tournamentEntryType('entry_type').notNull().default('da'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

@@ -49,6 +49,15 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // (weekScheduled: currentWeek) is never force-started before any
       // manager had a chance to register — see that use case's doc.
       await deps.startDueTournaments.execute({ worldId });
+      // The obligatory-tournament ranking rule (P9 —
+      // docs/ranking-realism-proposal.md §4), LAST of the weekly
+      // systems and deliberately so: it reads every concluded
+      // obligatory event and every player's live senior rank, so it
+      // must see this rollover's own tournament state, not a
+      // half-updated one. Idempotent by construction (a written
+      // skip-zero is itself a ledger row for that player+tournament),
+      // so it carries no tick key of its own — see the use case.
+      await deps.applyObligatoryTournamentZeros.execute({ worldId });
     }
 
     // Match simulation is folded into EVERY day tick (not just

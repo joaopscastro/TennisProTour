@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { isAgeEligibleForTournamentBand, isJuniorTier, isUnsourcedPlaceholderTier, PlayerId, StandardRankingPointsTable, TournamentId } from '@tennis-manager/domain';
+import { entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, qualifierSlotsFor, StandardRankingPointsTable, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -88,7 +88,22 @@ export function toTournamentDto(
     weekScheduled: tournament.weekScheduled,
     drawSize: tournament.drawSize,
     hasStarted: tournament.hasStarted,
-    entrants: tournament.entrants.map((entrant) => ({ playerId: entrant.playerId, seed: entrant.seed })),
+    entrants: tournament.entrants.map((entrant) => ({
+      playerId: entrant.playerId,
+      seed: entrant.seed,
+      /** 'DA' | 'Q' | 'WC' — how this entrant got their place. The
+       * draw sheet's real convention; only ever 'Q' at a tier that
+       * holds qualifying (see QualifyingPolicy). */
+      entryType: entryTypeOf(entrant),
+    })),
+    /** How many of this draw's places are reserved for qualifiers — 0
+     * at every tier that holds no qualifying, which is what lets the UI
+     * stay silent about `[Q]` there instead of showing an empty rule. */
+    qualifierSlots: qualifierSlotsFor(tournament.tier, tournament.drawSize),
+    /** True when a top-ranked player is OBLIGATED to count this event
+     * even if they skip it (ObligatoryTournamentPolicy) — surfaced so
+     * the rule is legible to managers rather than a hidden penalty. */
+    obligatory: isObligatoryTier(tournament.tier),
     ...(playerScopedInfo ?? {}),
     rounds: tournament.getRounds().map((round) => ({
       roundNumber: round.roundNumber,

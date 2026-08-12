@@ -24,6 +24,7 @@ import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
 import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
+import { ApplyObligatoryTournamentZerosUseCase } from '@tennis-manager/application';
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
@@ -167,6 +168,12 @@ export interface Dependencies {
    * before seeding its bracket. Run from the same weekly worker tick as
    * advanceWorldWeek/generateJuniorTournaments, gated the same way. */
   startDueTournaments: StartDueTournamentsUseCase;
+  /** The obligatory-tournament ranking rule, live (P9 —
+   * docs/ranking-realism-proposal.md §4): records the mandatory-skip
+   * zeros a direct-acceptance-eligible player owes for every obligatory
+   * event they skipped. Run once per weekly rollover from the same
+   * worker handler as the siblings above, AFTER startDueTournaments. */
+  applyObligatoryTournamentZeros: ApplyObligatoryTournamentZerosUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingSchedule: SetTrainingScheduleUseCase;
   releasePlayer: ReleasePlayerUseCase;
@@ -345,7 +352,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     genesisSeedFillOnlyPlayers: new GenesisSeedFillOnlyPlayersUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
     openTournament,
     openRegistration,
-    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy),
     generateJuniorTournaments,
@@ -355,6 +362,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       players,
       bracketGenerator,
       rankPositionByBand,
+    ),
+    applyObligatoryTournamentZeros: new ApplyObligatoryTournamentZerosUseCase(
+      worlds,
+      tournaments,
+      rankingLedger,
+      rankPosition,
     ),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy),
     setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),

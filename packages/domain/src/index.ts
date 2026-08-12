@@ -21,6 +21,7 @@ export * from './world/GameWorld';
 export * from './ranking/RankingLedgerEntry';
 export * from './ranking/RankingCalculationService';
 export * from './ranking/ObligatoryTournamentPolicy';
+export * from './ranking/QualifyingPolicy';
 export * from './ranking/RankingBand';
 export * from './ranking/GraduationCarryover';
 export * from './ranking/PeakRanking';

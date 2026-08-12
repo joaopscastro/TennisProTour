@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
-import { ManagerId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { entryTypeOf, ManagerId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
@@ -64,6 +64,16 @@ beforeEach(async () => {
  * off `seed`, never array position). */
 function byPlayerId(a: { playerId: string }, b: { playerId: string }): number {
   return a.playerId.localeCompare(b.playerId);
+}
+
+/** What an in-memory entrant list looks like once it has been through
+ * the database: sorted (see byPlayerId) and with an EXPLICIT entryType,
+ * since tournament_entries.entry_type is NOT NULL DEFAULT 'da' — a
+ * plain `{ playerId, seed }` entrant reads back as a direct acceptance
+ * rather than with the field absent. A real, disclosed round-trip
+ * detail, not a normalization that hides a difference. */
+function persistedEntrants(entrants: ReadonlyArray<TournamentEntrant>): TournamentEntrant[] {
+  return [...entrants].sort(byPlayerId).map((entrant) => ({ ...entrant, entryType: entryTypeOf(entrant) }));
 }
 
 afterAll(async () => {
@@ -288,7 +298,7 @@ describe('DrizzleTournamentRepository', () => {
     // (BracketGenerator seeds off `seed`, never off array position;
     // see DrizzleTournamentRepository.load()'s doc comment on why
     // read order is deterministic but not necessarily insertion order).
-    expect([...loaded!.entrants].sort(byPlayerId)).toEqual([...original.entrants].sort(byPlayerId));
+    expect([...loaded!.entrants].sort(byPlayerId)).toEqual(persistedEntrants(original.entrants));
     // Deep bracket equality: same rounds, same match order, the one
     // recorded outcome intact with its set scores, the rest null.
     expect(loaded!.getRounds()).toEqual(original.getRounds());
@@ -404,7 +414,7 @@ describe('DrizzleTournamentRepository', () => {
     expect(open[0].hasStarted).toBe(false);
     // Same set of entrants, not asserting on array order — see the
     // other round-trip test's comment on why.
-    expect([...open[0].entrants].sort(byPlayerId)).toEqual([...original.entrants].sort(byPlayerId));
+    expect([...open[0].entrants].sort(byPlayerId)).toEqual(persistedEntrants(original.entrants));
     expect(open[0].getRounds()).toHaveLength(0);
 
     // Saving again after it starts flips it out of the open list.
@@ -466,6 +476,54 @@ describe('DrizzleRankingLedgerRepository', () => {
 
     const seniorEntry = entries.find((e) => e.tournamentId === TournamentId('t-senior-ledger'));
     expect(seniorEntry?.ageBand).toBeNull();
+  });
+
+  it("round-trips the mandatory-skip `obligatory` flag, and reads an entry written without it as false", async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-obl'), 'Obligated Player', 24 * 52, attributes(30), ManagerId('m1')));
+    const major = Tournament.open({
+      name: 'Obligatory Test Major',
+      id: TournamentId('t-major-obl'),
+      tier: 'major',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 128,
+    });
+    const challenger = Tournament.open({
+      name: 'Ordinary Test Challenger',
+      id: TournamentId('t-ch-obl'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(major);
+    await tournamentRepository.save(challenger);
+
+    // A mandatory-SKIP zero (what ApplyObligatoryTournamentZerosUseCase
+    // writes) …
+    await ledgerRepository.append({
+      playerId: PlayerId('p-obl'),
+      tournamentId: TournamentId('t-major-obl'),
+      tier: 'major',
+      ageBand: null,
+      points: 0,
+      weekEarned: { season: 1, week: 1 },
+      obligatory: true,
+    });
+    // … and an ordinary result, written with the field absent exactly
+    // as every pre-existing call site does.
+    await ledgerRepository.append({
+      playerId: PlayerId('p-obl'),
+      tournamentId: TournamentId('t-ch-obl'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 45,
+      weekEarned: { season: 1, week: 1 },
+    });
+
+    const entries = await ledgerRepository.findByPlayer(PlayerId('p-obl'));
+    expect(entries.find((e) => e.tournamentId === TournamentId('t-major-obl'))?.obligatory).toBe(true);
+    expect(entries.find((e) => e.tournamentId === TournamentId('t-ch-obl'))?.obligatory).toBe(false);
   });
 });
 

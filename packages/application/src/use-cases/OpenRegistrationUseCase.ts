@@ -51,9 +51,11 @@ export class OpenRegistrationUseCase {
   ) {}
 
   async execute(command: OpenRegistrationCommand): Promise<void> {
+    const generated = this.nameGenerator.generate(this.random, command.tier, command.surface);
     const tournament = Tournament.open({
       id: command.tournamentId,
-      name: this.nameGenerator.generate(this.random, command.tier, command.surface),
+      name: generated.name,
+      hostCountry: generated.hostCountry,
       tier: command.tier,
       surface: command.surface,
       weekScheduled: command.weekScheduled,
