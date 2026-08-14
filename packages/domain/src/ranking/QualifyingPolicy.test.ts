@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { DIRECT_ACCEPTANCE_CUTOFF } from './ObligatoryTournamentPolicy';
-import { hasQualifying, qualifierSlotsFor, resolveEntryType } from './QualifyingPolicy';
+import {
+  hasQualifying,
+  qualifierSlotsFor,
+  qualifyingDrawSizeFor,
+  qualifyingPlayersPerSlot,
+  qualifyingPointsFor,
+  qualifyingRoundCountFor,
+  resolveEntryType,
+} from './QualifyingPolicy';
 
 describe('QualifyingPolicy — which tiers hold qualifying', () => {
-  it('holds qualifying at the two biggest senior tiers and nowhere else', () => {
+  it('holds qualifying at the three upper senior tiers, but never at the freely-enterable bottom rung', () => {
     expect(hasQualifying('major')).toBe(true);
     expect(hasQualifying('tour')).toBe(true);
-    expect(hasQualifying('challenger')).toBe(false);
+    expect(hasQualifying('challenger')).toBe(true);
     expect(hasQualifying('futures')).toBe(false);
   });
 
@@ -24,14 +32,89 @@ describe('QualifyingPolicy — which tiers hold qualifying', () => {
   });
 
   it('reserves nothing at a tier without qualifying, however large the draw', () => {
-    expect(qualifierSlotsFor('challenger', 128)).toBe(0);
+    expect(qualifierSlotsFor('futures', 128)).toBe(0);
+  });
+});
+
+describe('QualifyingPolicy — the qualifying field itself (full model)', () => {
+  it("sizes a major's qualifying like the real thing: 128 players for 16 places, 3 rounds", () => {
+    expect(qualifierSlotsFor('major', 128)).toBe(16);
+    expect(qualifyingDrawSizeFor('major', 128)).toBe(128);
+    expect(qualifyingRoundCountFor('major', 128)).toBe(3);
+  });
+
+  it('runs a shorter two-round qualifying at the tiers below a major', () => {
+    expect(qualifyingDrawSizeFor('tour', 32)).toBe(16);
+    expect(qualifyingRoundCountFor('tour', 32)).toBe(2);
+    expect(qualifyingDrawSizeFor('challenger', 32)).toBe(16);
+    expect(qualifyingRoundCountFor('challenger', 32)).toBe(2);
+  });
+
+  it('has no qualifying field at all at a tier that holds none', () => {
+    expect(qualifyingPlayersPerSlot('futures')).toBe(0);
+    expect(qualifyingDrawSizeFor('futures', 32)).toBe(0);
+    expect(qualifyingRoundCountFor('futures', 32)).toBe(0);
+    expect(qualifyingRoundCountFor('j100', 32)).toBe(0);
+  });
+
+  it('never runs a one-round qualifying draw — a structural requirement, not a balance choice', () => {
+    // A single round could produce winners who advanced on a bye and so
+    // have no match at all; Tournament.qualifyingWinners() deliberately
+    // reads outcomes only. See QUALIFYING_PLAYERS_PER_SLOT's doc comment.
+    for (const tier of ['major', 'tour', 'challenger'] as const) {
+      for (const drawSize of [16, 32, 64, 128] as const) {
+        if (qualifierSlotsFor(tier, drawSize) === 0) continue;
+        expect(qualifyingPlayersPerSlot(tier)).toBeGreaterThanOrEqual(4);
+        expect(qualifyingRoundCountFor(tier, drawSize)).toBeGreaterThanOrEqual(2);
+        expect(Number.isInteger(qualifyingRoundCountFor(tier, drawSize))).toBe(true);
+      }
+    }
+  });
+
+  it('pays nothing for losing a first qualifying match, and a little for winning one', () => {
+    expect(qualifyingPointsFor('major', 0)).toBe(0);
+    expect(qualifyingPointsFor('major', 1)).toBeGreaterThan(0);
+    expect(qualifyingPointsFor('major', 2)).toBeGreaterThan(qualifyingPointsFor('major', 1));
+    expect(qualifyingPointsFor('futures', 1)).toBe(0);
+    expect(qualifyingPointsFor('j100', 1)).toBe(0);
+  });
+
+  it('never pays a qualifying result anywhere near a main-draw result at the same tier', () => {
+    // Coming through qualifying is worth a main-draw place, not points.
+    expect(qualifyingPointsFor('major', 2)).toBeLessThan(45); // major, one main-draw win
+    expect(qualifyingPointsFor('tour', 2)).toBeLessThan(11);
   });
 });
 
 describe('QualifyingPolicy — resolveEntryType', () => {
   it('accepts everyone as a direct acceptance at a tier without qualifying', () => {
-    const decision = resolveEntryType({ tier: 'challenger', drawSize: 32, rank: null, qualifierSlotsTaken: 0 });
+    const decision = resolveEntryType({ tier: 'futures', drawSize: 32, rank: null, qualifierSlotsTaken: 0 });
     expect(decision).toEqual({ kind: 'accepted', entryType: 'DA', qualifierSlots: 0 });
+  });
+
+  it('refuses a below-cutoff registrant only once the whole qualifying FIELD is full, not merely its slots', () => {
+    // The full model's key difference from the light one: several players
+    // compete for each reserved slot, so the field holds many more `[Q]`
+    // registrants than there are places at stake.
+    const stillRoom = resolveEntryType({
+      tier: 'tour',
+      drawSize: 32,
+      rank: 500,
+      qualifierSlotsTaken: 4,
+      qualifierSlots: 4,
+      qualifyingCapacity: 16,
+    });
+    expect(stillRoom).toEqual({ kind: 'accepted', entryType: 'Q', qualifierSlots: 4 });
+
+    const fieldFull = resolveEntryType({
+      tier: 'tour',
+      drawSize: 32,
+      rank: 500,
+      qualifierSlotsTaken: 16,
+      qualifierSlots: 4,
+      qualifyingCapacity: 16,
+    });
+    expect(fieldFull.kind).toBe('qualifying-full');
   });
 
   it('grants direct acceptance exactly at the cutoff, and qualifying one place below it', () => {
@@ -57,7 +140,7 @@ describe('QualifyingPolicy — resolveEntryType', () => {
     expect(decision).toEqual({ kind: 'accepted', entryType: 'Q', qualifierSlots: 16 });
   });
 
-  it('refuses a below-cutoff registrant once every reserved slot is taken', () => {
+  it('falls back to the reserved-slot count as capacity when none is supplied', () => {
     const decision = resolveEntryType({ tier: 'tour', drawSize: 32, rank: 500, qualifierSlotsTaken: 4 });
     expect(decision.kind).toBe('qualifying-full');
     expect(decision.qualifierSlots).toBe(4);

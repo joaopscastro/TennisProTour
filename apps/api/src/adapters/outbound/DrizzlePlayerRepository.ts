@@ -105,6 +105,7 @@ export function toDomain(row: PlayerRow): Player {
         consistency: Skill.of(row.consistency),
         clutch: Skill.of(row.clutch),
       },
+      doubles: Skill.of(row.doubles),
       surfaceAffinities: SurfaceAffinities.of({
         clay: row.affinityClay,
         grass: row.affinityGrass,
@@ -143,6 +144,7 @@ function toRow(player: Player): typeof players.$inferInsert {
     strength: physical.strength.value,
     consistency: mental.consistency.value,
     clutch: mental.clutch.value,
+    doubles: player.attributes.doubles.value,
     affinityClay: surfaceAffinities.get('clay'),
     affinityGrass: surfaceAffinities.get('grass'),
     affinityHard: surfaceAffinities.get('hard'),

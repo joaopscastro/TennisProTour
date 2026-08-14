@@ -11,6 +11,7 @@ export type TournamentId = Brand<string, 'TournamentId'>;
 export type MatchId = Brand<string, 'MatchId'>;
 export type WorldId = Brand<string, 'WorldId'>;
 export type CoachId = Brand<string, 'CoachId'>;
+export type PairId = Brand<string, 'PairId'>;
 
 export const PlayerId = (value: string): PlayerId => value as PlayerId;
 export const ManagerId = (value: string): ManagerId => value as ManagerId;
@@ -18,6 +19,7 @@ export const TournamentId = (value: string): TournamentId => value as Tournament
 export const MatchId = (value: string): MatchId => value as MatchId;
 export const WorldId = (value: string): WorldId => value as WorldId;
 export const CoachId = (value: string): CoachId => value as CoachId;
+export const PairId = (value: string): PairId => value as PairId;
 
 /** A single point in in-game time. Kept as a value object so the domain
  * never depends on wall-clock Date directly (see ClockPort). */

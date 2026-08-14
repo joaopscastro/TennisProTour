@@ -3,6 +3,7 @@ import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { RandomSource, TournamentNameGenerator } from '@tennis-manager/domain';
+import { qualifierSlotsFor, qualifyingDrawSizeFor, doublesDrawSizeFor, doublesQualifierSlotsFor, doublesQualifyingDrawSizeFor } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
 export interface OpenRegistrationCommand {
@@ -36,6 +37,12 @@ export interface OpenRegistrationCommand {
  * tournament simply stays open until RegisterEntrantUseCase fills the
  * draw, at which point it auto-starts (see RegisterEntrantUseCase).
  *
+ * At a tier that holds qualifying, the tournament is opened with a real
+ * qualifying field alongside its main draw (see QualifyingPolicy): part
+ * of the main draw's places are reserved for whoever survives it, and
+ * below-cutoff registrants enter the qualifying field instead of the
+ * main one. This is the only place those two numbers are decided.
+ *
  * The tournament's display name is ALWAYS generated internally via
  * TournamentNameGenerator, never accepted from the caller — see
  * OpenTournamentUseCase's doc comment for why this (together with
@@ -61,6 +68,21 @@ export class OpenRegistrationUseCase {
       weekScheduled: command.weekScheduled,
       drawSize: command.drawSize,
       ageBand: command.ageBand,
+      // Qualifying (docs/ranking-realism-proposal.md §5). Derived ONCE,
+      // here, from the tier/draw size and then stored on the aggregate
+      // — see TournamentOpenProps.qualifyingDrawSize for why it isn't
+      // re-derived per read. Both are 0 at every tier that holds no
+      // qualifying (futures, every junior grade), which is exactly the
+      // pre-qualifying behaviour.
+      qualifyingDrawSize: qualifyingDrawSizeFor(command.tier, command.drawSize),
+      qualifierSlots: qualifierSlotsFor(command.tier, command.drawSize),
+      // Doubles (P7b + junior doubles) — derived once, stored, like
+      // qualifying. Every tier holds a doubles draw.
+      doublesDrawSize: doublesDrawSizeFor(command.tier, command.drawSize),
+      // Doubles qualifying (P8) — derived once from the doubles draw
+      // size, stored. 0 when the doubles draw is too small to hold one.
+      doublesQualifyingDrawSize: doublesQualifyingDrawSizeFor(doublesDrawSizeFor(command.tier, command.drawSize)),
+      doublesQualifierSlots: doublesQualifierSlotsFor(doublesDrawSizeFor(command.tier, command.drawSize)),
     });
 
     await this.tournaments.save(tournament);

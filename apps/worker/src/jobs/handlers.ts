@@ -2,6 +2,12 @@ import { WorldId } from '@tennis-manager/domain';
 import { Dependencies } from '@tennis-manager/api';
 import { intervalTickKey, isoDayTickKey } from '../tickKey';
 
+/** The season week the Masters Cup (P8b) is generated on — placeholder,
+ * alongside the other capstone scheduling constants. */
+const MASTERS_CUP_WEEK = 40;
+/** The season week the World Team Cup (P8c) is generated on — placeholder. */
+const WORLD_TEAM_CUP_WEEK = 42;
+
 /**
  * Thin BullMQ handlers — parse the job, call the use case, log the
  * result. All idempotency guards live below the handlers: the tick
@@ -58,6 +64,27 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // skip-zero is itself a ledger row for that player+tournament),
       // so it carries no tick key of its own — see the use case.
       await deps.applyObligatoryTournamentZeros.execute({ worldId });
+
+      // The Masters Cup (P8b) is generated once per season, on its
+      // capstone week. Idempotent (one cup per season — the use case
+      // no-ops if it already exists).
+      const world = await deps.worlds.findById(worldId);
+      if (world && world.currentWeek.week === MASTERS_CUP_WEEK) {
+        await deps.generateMastersCup.execute({
+          worldId,
+          season: world.currentWeek.season,
+          weekScheduled: { ...world.currentWeek },
+          surface: 'hard',
+        });
+      }
+      if (world && world.currentWeek.week === WORLD_TEAM_CUP_WEEK) {
+        await deps.generateWorldTeamCup.execute({
+          worldId,
+          season: world.currentWeek.season,
+          weekScheduled: { ...world.currentWeek },
+          surface: 'clay',
+        });
+      }
     }
 
     // Match simulation is folded into EVERY day tick (not just
@@ -66,12 +93,59 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
     // per day. See SimulateDueMatchesUseCase.
     if (result.advanced) {
       const sim = await deps.simulateDueMatches.execute({ worldId });
-      return { ...result, matchesSimulated: sim.simulated.length, matchesFailed: sim.failed.length };
+      // Straight after the sweep, on the SAME day tick: any tournament
+      // whose qualifying draw just finished gets its main draw seeded
+      // from the qualifiers who came through (deferred main-draw
+      // seeding — see PromoteQualifiersUseCase). Ordered after, not
+      // before, so the qualifying final decided moments ago counts;
+      // nothing is played too early either way, since the main draw's
+      // own first round is scheduled for a later day.
+      const promoted = await deps.promoteQualifiers.execute({ worldId });
+      const doublesPromoted = await deps.promoteDoublesQualifiers.execute({ worldId });
+      const world = await deps.worlds.findById(worldId);
+      if (world) {
+        // The Masters Cup's own sweep + group→knockout advancement, on the
+        // same day tick (its matches are paced day-by-day).
+        await deps.simulateDueMastersCupMatches.execute({ season: world.currentWeek.season, worldId });
+        await deps.advanceMastersCup.execute({ season: world.currentWeek.season });
+        await deps.simulateDueWorldTeamCupRubbers.execute({ season: world.currentWeek.season, worldId });
+        await deps.advanceWorldTeamCup.execute({ season: world.currentWeek.season });
+      }
+      return {
+        ...result,
+        matchesSimulated: sim.simulated.length,
+        matchesFailed: sim.failed.length,
+        qualifiersPromoted: promoted.promoted,
+        mainDrawsSeeded: promoted.mainDrawsSeeded,
+        doublesQualifiersPromoted: doublesPromoted.promoted,
+        doublesMainDrawsSeeded: doublesPromoted.mainDrawsSeeded,
+      };
     }
     return result;
   };
 }
 
 export function makeSimulateDueMatchesHandler(deps: Dependencies, worldId: string) {
-  return async () => deps.simulateDueMatches.execute({ worldId: WorldId(worldId) });
+  return async () => {
+    const sim = await deps.simulateDueMatches.execute({ worldId: WorldId(worldId) });
+    // Same pairing as the day tick above: this standalone sweep is the
+    // other place matches get played, so it must also be able to move a
+    // finished qualifying draw on to its main draw — otherwise a
+    // tournament could sit qualified-but-unseeded until the next day
+    // tick.
+    const promoted = await deps.promoteQualifiers.execute({ worldId: WorldId(worldId) });
+    const doublesPromoted = await deps.promoteDoublesQualifiers.execute({ worldId: WorldId(worldId) });
+    const world = await deps.worlds.findById(WorldId(worldId));
+    if (world) {
+      await deps.simulateDueMastersCupMatches.execute({ season: world.currentWeek.season, worldId: WorldId(worldId) });
+      await deps.advanceMastersCup.execute({ season: world.currentWeek.season });
+    }
+    return {
+      ...sim,
+      qualifiersPromoted: promoted.promoted,
+      mainDrawsSeeded: promoted.mainDrawsSeeded,
+      doublesQualifiersPromoted: doublesPromoted.promoted,
+      doublesMainDrawsSeeded: doublesPromoted.mainDrawsSeeded,
+    };
+  };
 }

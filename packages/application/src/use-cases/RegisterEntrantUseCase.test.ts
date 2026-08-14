@@ -14,6 +14,7 @@ import {
   WorldId,
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
+import { qualifierSlotsFor, qualifyingDrawSizeFor } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
@@ -499,7 +500,7 @@ describe('RegisterEntrantUseCase', () => {
     });
   });
 
-  describe('qualifying / direct acceptance (the light [Q] model)', () => {
+  describe('qualifying / direct acceptance (the full [Q] model)', () => {
     /** A real RankPositionQuery over in-memory fakes — the same query
      * the composition root injects, never a stub, so what these tests
      * exercise is the actual ranking read the rule depends on. */
@@ -526,6 +527,9 @@ describe('RegisterEntrantUseCase', () => {
       return { tournaments, useCase };
     }
 
+    /** A real qualifying event, sized by the real policy exactly as
+     * OpenRegistrationUseCase does it — a 16-draw `tour` reserves 2
+     * places and runs an 8-player qualifying field for them. */
     function openTourTournament(id: TournamentId): Tournament {
       return Tournament.open({
         name: 'Qualifying Test Open',
@@ -534,6 +538,8 @@ describe('RegisterEntrantUseCase', () => {
         surface: 'hard',
         weekScheduled: { season: 1, week: 1 },
         drawSize: 16,
+        qualifyingDrawSize: qualifyingDrawSizeFor('tour', 16),
+        qualifierSlots: qualifierSlotsFor('tour', 16),
       });
     }
 
@@ -546,32 +552,89 @@ describe('RegisterEntrantUseCase', () => {
 
       const saved = await tournaments.findById(tournamentId);
       expect(saved!.entrants[0].entryType).toBe('DA');
+      // A direct acceptance goes straight into the main draw.
+      expect(saved!.mainEntrants).toHaveLength(1);
+      expect(saved!.qualifyingEntrants).toHaveLength(0);
     });
 
-    it('marks an unranked registrant as a qualifier, and refuses one past the reserved slots', async () => {
+    it('puts an unranked registrant into the QUALIFYING field, not the main draw', async () => {
       const { tournaments, useCase } = await qualifyingSetup([]);
       const tournamentId = TournamentId('tour-q');
       await tournaments.save(openTourTournament(tournamentId));
 
-      // A 16-draw reserves 2 qualifier slots (an eighth of the draw).
       await useCase.execute({ tournamentId, playerId: PlayerId('q1') });
-      await useCase.execute({ tournamentId, playerId: PlayerId('q2') });
-      await expect(useCase.execute({ tournamentId, playerId: PlayerId('q3') })).rejects.toThrow(
-        /outside direct acceptance/,
+
+      const saved = await tournaments.findById(tournamentId);
+      expect(saved!.entrants[0].entryType).toBe('Q');
+      // The whole point of the full model: they have NOT been handed a
+      // main-draw place, they have to win their way in.
+      expect(saved!.mainEntrants).toHaveLength(0);
+      expect(saved!.qualifyingEntrants.map((e) => e.playerId)).toEqual([PlayerId('q1')]);
+    });
+
+    it('refuses a below-cutoff registrant only once the whole qualifying field is full', async () => {
+      const { tournaments, useCase } = await qualifyingSetup([]);
+      const tournamentId = TournamentId('tour-q-full');
+      await tournaments.save(openTourTournament(tournamentId));
+
+      // The field is 8 deep (2 reserved places x 4 players each), so the
+      // first 8 below-cutoff registrants all get in — far more than the
+      // 2 places at stake.
+      const fieldSize = qualifyingDrawSizeFor('tour', 16);
+      for (let i = 1; i <= fieldSize; i++) {
+        await useCase.execute({ tournamentId, playerId: PlayerId(`q${i}`) });
+      }
+      await expect(useCase.execute({ tournamentId, playerId: PlayerId('one-too-many') })).rejects.toThrow(
+        /qualifying field is already full/,
       );
 
       const saved = await tournaments.findById(tournamentId);
-      expect(saved!.entrants.map((e) => e.entryType)).toEqual(['Q', 'Q']);
+      expect(saved!.qualifyingEntrants).toHaveLength(fieldSize);
+    });
+
+    it('starts the QUALIFYING bracket once both fields are full, leaving the main draw unmade', async () => {
+      // The 14 direct acceptances are given real ranked results, so they
+      // are genuinely inside the cutoff rather than being routed into
+      // qualifying like an unranked player would be.
+      const ranked = Array.from({ length: 14 }, (_, i) => ({ playerId: `da${i + 1}`, points: 5000 - i }));
+      const { tournaments, useCase } = await qualifyingSetup(ranked);
+      const tournamentId = TournamentId('tour-q-start');
+      await tournaments.save(openTourTournament(tournamentId));
+
+      // 8 qualifying-field places, then the 14 directly-accepted ones
+      // (16-draw minus 2 reserved for whoever comes through qualifying).
+      for (let i = 1; i <= qualifyingDrawSizeFor('tour', 16); i++) {
+        await useCase.execute({ tournamentId, playerId: PlayerId(`q${i}`) });
+      }
+      const beforeDa = await tournaments.findById(tournamentId);
+      expect(beforeDa!.hasStarted).toBe(false);
+
+      for (let i = 1; i <= 14; i++) {
+        await useCase.execute({ tournamentId, playerId: PlayerId(`da${i}`) });
+      }
+
+      const saved = await tournaments.findById(tournamentId);
+      expect(saved!.hasStarted).toBe(true);
+      // Qualifying is seeded; the main draw deliberately is not yet —
+      // PromoteQualifiersUseCase makes it once qualifying is played out.
+      expect(saved!.getQualifyingRounds()).toHaveLength(1);
+      expect(saved!.getQualifyingRounds()[0].matches).toHaveLength(4);
+      expect(saved!.hasMainDraw).toBe(false);
+      expect(saved!.getRounds()).toHaveLength(0);
     });
 
     it('never gates a tier that holds no qualifying — the lower ladder stays freely enterable', async () => {
       const { tournaments, useCase } = await qualifyingSetup([]);
       const tournamentId = TournamentId('challenger-open');
+      // openTournament() opens a plain challenger with no qualifying
+      // configured, i.e. exactly how every pre-qualifying tournament
+      // (and every admin-seeded draw) is opened.
       await tournaments.save(openTournament(tournamentId));
 
       await expect(useCase.execute({ tournamentId, playerId: PlayerId('nobody') })).resolves.toBeUndefined();
       const saved = await tournaments.findById(tournamentId);
       expect(saved!.entrants[0].entryType).toBeUndefined();
+      expect(saved!.mainEntrants).toHaveLength(1);
     });
   });
 });

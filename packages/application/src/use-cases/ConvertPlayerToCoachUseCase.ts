@@ -1,5 +1,5 @@
 import { Coach, CoachConversionPolicy, CoachId, ManagerId, PlayerId } from '@tennis-manager/domain';
-import { BillingPort, CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
+import { BillingPort, CoachRepository, DoublesPairRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
 import { maxCoachCountFor } from './coachCap';
 
 export interface ConvertPlayerToCoachCommand {
@@ -52,6 +52,7 @@ export class ConvertPlayerToCoachUseCase {
     private readonly idGenerator: IdGeneratorPort,
     private readonly events: EventPublisherPort,
     private readonly billing: BillingPort,
+    private readonly pairs: DoublesPairRepository,
   ) {}
 
   async execute(command: ConvertPlayerToCoachCommand): Promise<Coach> {
@@ -90,6 +91,15 @@ export class ConvertPlayerToCoachUseCase {
     // again (see Coach's doc comment on why this is a one-way move).
     player.releaseFromManager();
     await this.players.save(player);
+
+    // Same doubles cascade as ReleasePlayerUseCase (P7a): a converted
+    // player becomes a free agent, so any pair they were in can no
+    // longer stand. dissolve() is idempotent.
+    const involving = await this.pairs.findByPlayer(player.id);
+    for (const pair of involving) {
+      pair.dissolve();
+      await this.pairs.save(pair);
+    }
 
     const coach = Coach.convert(CoachId(this.idGenerator.generate()), command.managerId, coachRating, player.id, player.name);
     await this.coaches.save(coach);

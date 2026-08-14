@@ -3,14 +3,20 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
+  DoublesPairDto,
   EntitlementDto,
   PlayerLifecycleStage,
   RosterDashboardEntryDto,
   Surface,
   TrainingFocus,
+  acceptDoublesPair,
+  createDoublesPair,
+  dissolveDoublesPair,
+  fetchDoublesPairs,
   fetchEntitlement,
   fetchRosterDashboard,
   releasePlayer,
+  runPractice,
   setTrainingFocus,
 } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
@@ -176,12 +182,14 @@ export default function RosterDashboardPage() {
   const load = useCallback(async (id: string) => {
     setError(null);
     try {
-      const [roster, ent] = await Promise.all([fetchRosterDashboard(id), fetchEntitlement(id)]);
+      const [roster, ent, pairs] = await Promise.all([fetchRosterDashboard(id), fetchEntitlement(id), fetchDoublesPairs(id)]);
       setPlayers(roster);
       setEntitlement(ent);
+      setDoublesPairs(pairs);
     } catch (e) {
       setPlayers(null);
       setEntitlement(null);
+      setDoublesPairs([]);
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
@@ -242,11 +250,87 @@ export default function RosterDashboardPage() {
     [load, managerId],
   );
 
+  const handlePractice = useCallback(
+    async (playerId: string, name: string) => {
+      setBusyPlayerId(playerId);
+      try {
+        const result = await runPractice(playerId, managerId);
+        showNotice(`${name} practiced (+${result.experience} XP, +${result.ladderPoints} ladder, +${result.fatigue} fatigue).`);
+        await load(managerId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusyPlayerId(null);
+      }
+    },
+    [load, managerId],
+  );
+
   const [enterModalPlayer, setEnterModalPlayer] = useState<{ id: string; name: string } | null>(null);
   const [customPlayerModalOpen, setCustomPlayerModalOpen] = useState(false);
   const [coachModalPlayer, setCoachModalPlayer] = useState<{ id: string; name: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
+
+  // Doubles partnerships (P7a) — form a same-manager pair, list pairs +
+  // incoming invites, accept/decline. Pairs are loaded as part of `load`.
+  const [doublesPairs, setDoublesPairs] = useState<DoublesPairDto[] | null>(null);
+  const [pairA, setPairA] = useState<string | null>(null);
+  const [pairB, setPairB] = useState<string | null>(null);
+  const [doublesBusy, setDoublesBusy] = useState(false);
+
+  const reloadDoubles = useCallback(async () => {
+    try {
+      setDoublesPairs(await fetchDoublesPairs(managerId));
+    } catch {
+      setDoublesPairs([]);
+    }
+  }, [managerId]);
+
+  const handleFormPair = useCallback(async () => {
+    if (!pairA || !pairB) return;
+    setDoublesBusy(true);
+    try {
+      await createDoublesPair(pairA, pairB, managerId);
+      setPairA(null);
+      setPairB(null);
+      await reloadDoubles();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDoublesBusy(false);
+    }
+  }, [pairA, pairB, managerId, reloadDoubles]);
+
+  const handleAcceptPair = useCallback(
+    async (pairId: string) => {
+      setDoublesBusy(true);
+      try {
+        await acceptDoublesPair(pairId, managerId);
+        await reloadDoubles();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDoublesBusy(false);
+      }
+    },
+    [managerId, reloadDoubles],
+  );
+
+  const handleDissolvePair = useCallback(
+    async (pairId: string) => {
+      setDoublesBusy(true);
+      try {
+        await dissolveDoublesPair(pairId, managerId);
+        await reloadDoubles();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setDoublesBusy(false);
+      }
+    },
+    [managerId, reloadDoubles],
+  );
 
   // Ranking-milestone + band-graduation celebrations (GC-16). Both are derived
   // client-side by comparing this load's values against the last-seen values in
@@ -470,6 +554,7 @@ export default function RosterDashboardPage() {
                       {/* Actions */}
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative', width: 92 }}>
                         <Button variant="primary" onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })} disabled={busy || p.stage === 'retired'} style={{ padding: '7px 10px', fontSize: 12 }}>Enter</Button>
+                        <Button variant="ghost" onClick={() => handlePractice(p.id, p.name)} disabled={busy || p.stage === 'retired'} style={{ padding: '6px 10px', fontSize: 12 }} title="Practice — no form change, small fatigue, grants development XP + ladder">Practice</Button>
                         <Button variant="ghost" onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)} disabled={busy} style={{ padding: '6px 10px', fontSize: 12 }}>More ···</Button>
                         {openActionsMenu === p.id && (
                           <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 160, zIndex: 20, padding: 5, overflow: 'hidden' }}>
@@ -492,6 +577,104 @@ export default function RosterDashboardPage() {
               )}
             </div>
           </>
+        )}
+
+        {/* Doubles partnerships (P7a) — form a same-manager pair, and
+            manage incoming/outgoing invitations. Pull-based: the other
+            manager accepts from their own board. */}
+        {doublesPairs !== null && (
+          <div style={{ marginTop: 26 }}>
+            <SectionLabel right={
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+                {doublesPairs.filter((p) => p.status !== 'dissolved').length} open
+              </span>
+            }>Doubles</SectionLabel>
+
+            {/* Form a same-manager pair from two of my own players. */}
+            {hasPlayers && usedSlots >= 2 && (
+              <Panel grain style={{ padding: 14, marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gc-ink)', marginBottom: 10 }}>Form a doubles pair</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <select className="gc-select" value={pairA ?? ''} onChange={(e) => setPairA(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
+                    <option value="">Select player…</option>
+                    {sortedPlayers.filter((p) => p.id !== pairB).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: 12, color: 'var(--gc-ink-mute)' }}>+</span>
+                  <select className="gc-select" value={pairB ?? ''} onChange={(e) => setPairB(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
+                    <option value="">Select player…</option>
+                    {sortedPlayers.filter((p) => p.id !== pairA).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <Button variant="primary" onClick={handleFormPair} disabled={!pairA || !pairB || doublesBusy} style={{ padding: '7px 14px', fontSize: 12.5 }}>
+                    {doublesBusy ? 'Working…' : 'Form pair'}
+                  </Button>
+                </div>
+              </Panel>
+            )}
+
+            {/* Active pairs + pending invites. */}
+            {doublesPairs.filter((p) => p.status !== 'dissolved').length === 0 && (
+              <div style={{ fontSize: 12.5, color: 'var(--gc-ink-faint)', padding: '8px 2px' }}>
+                No pairs yet — form one above, or invite a rival&apos;s player from their profile.
+              </div>
+            )}
+
+            {doublesPairs
+              .filter((p) => p.status !== 'dissolved')
+              .map((pair) => {
+                const incoming = pair.status === 'pending' && pair.playerB.managerId === managerId;
+                const outgoing = pair.status === 'pending' && pair.playerA.managerId === managerId;
+                return (
+                  <Panel key={pair.id} style={{ padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                      <span
+                        className="gc-badge"
+                        style={{
+                          background: pair.status === 'active' ? 'oklch(45% 0.13 150 / 0.3)' : 'oklch(45% 0.1 240 / 0.3)',
+                          color: pair.status === 'active' ? 'oklch(85% 0.14 150)' : 'oklch(84% 0.09 240)',
+                        }}
+                      >
+                        {pair.status === 'active' ? 'Active' : incoming ? 'Invite for you' : 'Awaiting reply'}
+                      </span>
+                      {incoming ? (
+                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
+                          <Flag code={pair.playerA.nationality} /> {pair.playerA.name} wants to partner with your player{' '}
+                          <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--gc-ball)', textDecoration: 'none' }}>{pair.playerB.name}</Link>
+                        </span>
+                      ) : outgoing ? (
+                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
+                          You invited <Flag code={pair.playerB.nationality} />{' '}
+                          <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--gc-ball)', textDecoration: 'none' }}>{pair.playerB.name}</Link>{' '}
+                          to partner with {pair.playerA.name}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
+                          {pair.playerA.name} <span style={{ color: 'var(--gc-ink-mute)' }}>·</span> {pair.playerB.name}
+                          {pair.chemistry > 0 && (
+                            <span className="gc-badge" style={{ marginLeft: 8, background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }}>
+                              chem {pair.chemistry}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                      {incoming && (
+                        <Button variant="primary" onClick={() => handleAcceptPair(pair.id)} disabled={doublesBusy} style={{ padding: '6px 12px', fontSize: 12 }}>
+                          Accept
+                        </Button>
+                      )}
+                      <Button variant="ghost" onClick={() => handleDissolvePair(pair.id)} disabled={doublesBusy} style={{ padding: '6px 12px', fontSize: 12 }}>
+                        {incoming ? 'Decline' : outgoing ? 'Cancel' : 'Dissolve'}
+                      </Button>
+                    </div>
+                  </Panel>
+                );
+              })}
+          </div>
         )}
 
         {showEmpty && (

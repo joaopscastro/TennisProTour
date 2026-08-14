@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   Coach,
+  DoublesPair,
   ManagerId,
+  PairId,
   Player,
   PlayerAttributes,
   PlayerId,
@@ -12,6 +14,7 @@ import {
 import { BillingPort, CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
 import { ConvertPlayerToCoachUseCase } from './ConvertPlayerToCoachUseCase';
 import { FREE_COACH_CAP, PRO_COACH_CAP } from './coachCap';
+import { InMemoryDoublesPairRepository } from './doublesTestHelpers';
 
 class InMemoryPlayerRepository implements PlayerRepository {
   private readonly store = new Map<PlayerId, Player>();
@@ -125,6 +128,7 @@ function makeUseCase(
   managerXp: InMemoryManagerXpRepository,
   events: EventPublisherPort = new RecordingEventPublisher(),
   billing: BillingPort = new FakeBillingPort(), // free tier by default
+  pairs: InMemoryDoublesPairRepository = new InMemoryDoublesPairRepository(),
 ): ConvertPlayerToCoachUseCase {
   return new ConvertPlayerToCoachUseCase(
     players,
@@ -134,6 +138,7 @@ function makeUseCase(
     new SequentialIdGenerator(),
     events,
     billing,
+    pairs,
   );
 }
 
@@ -286,5 +291,24 @@ describe('ConvertPlayerToCoachUseCase', () => {
       /already has/,
     );
     expect(await coaches.findByManager(freeManagerId)).toHaveLength(FREE_COACH_CAP);
+  });
+
+  it('dissolves any pair the converted player was part of (the P7a cascade)', async () => {
+    const players = new InMemoryPlayerRepository();
+    const coaches = new InMemoryCoachRepository();
+    const managerXp = new InMemoryManagerXpRepository();
+    const pairs = new InMemoryDoublesPairRepository();
+    const managerId = ManagerId('m1');
+    await players.save(makePlayer(PlayerId('p1'), managerId));
+    await players.save(makePlayer(PlayerId('p2'), managerId));
+    await managerXp.credit(managerId, AMPLE_XP);
+
+    const pair = DoublesPair.activate(PairId('pair-1'), PlayerId('p1'), PlayerId('p2'));
+    await pairs.save(pair);
+
+    const useCase = makeUseCase(players, coaches, managerXp, new RecordingEventPublisher(), new FakeBillingPort(), pairs);
+    await useCase.execute({ playerId: PlayerId('p1'), managerId });
+
+    expect((await pairs.findById(PairId('pair-1')))!.isDissolved).toBe(true);
   });
 });

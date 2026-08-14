@@ -32,6 +32,11 @@ interface MatchContext {
   tournament: TournamentDto;
   roundNumber: number;
   matchIndex: number;
+  /** Which bracket this match belongs to — the replay of a qualifying
+   * match and one from the main draw are indistinguishable from the
+   * matchId alone, so parseMatchId recovers it and everything below
+   * reads the right rounds array. */
+  draw: 'main' | 'qualifying';
   entrantA: string;
   entrantB: string;
   playerA: PlayerDto | null;
@@ -43,6 +48,7 @@ interface MatchContext {
   nextReplayHref: string | null;
   nextRoundHref: string | null;
   nextRoundLabel: string | null;
+  roundLabel: string;
 }
 
 export default function ReplayPage() {
@@ -63,10 +69,11 @@ export default function ReplayPage() {
 
     const parsed = parseMatchId(matchId);
     if (!parsed) return;
-    const { tournamentId, roundNumber, matchIndex } = parsed;
+    const { tournamentId, roundNumber, matchIndex, draw } = parsed;
     fetchTournament(tournamentId)
       .then(async (tournament) => {
-        const match = tournament.rounds.find((r) => r.roundNumber === roundNumber)?.matches[matchIndex];
+        const rounds = draw === 'qualifying' ? tournament.qualifyingRounds : tournament.rounds;
+        const match = rounds.find((r) => r.roundNumber === roundNumber)?.matches[matchIndex];
         if (!match) return;
         const players = await fetchPlayersByIds([match.entrantA, match.entrantB]);
 
@@ -90,15 +97,18 @@ export default function ReplayPage() {
         let nextRoundHref: string | null = null;
         let nextRoundLabel: string | null = null;
         const nextRoundNumber = roundNumber + 1;
-        if (nextRoundNumber <= Math.log2(tournament.drawSize)) {
+        const totalRounds = draw === 'qualifying' ? tournament.qualifyingRoundCount : Math.log2(tournament.drawSize);
+        if (nextRoundNumber <= totalRounds) {
           nextRoundHref = `/tournaments/${tournamentId}#round-${nextRoundNumber}`;
-          nextRoundLabel = matchRoundLabel(tournament.drawSize / 2 ** nextRoundNumber);
+          nextRoundLabel = draw === 'qualifying'
+            ? `Qualifying round ${nextRoundNumber}`
+            : matchRoundLabel(tournament.drawSize / 2 ** nextRoundNumber);
         }
-        const nextRound = tournament.rounds.find((r) => r.roundNumber === nextRoundNumber);
+        const nextRound = rounds.find((r) => r.roundNumber === nextRoundNumber);
         if (nextRound) {
           const nextMatch = nextRound.matches[Math.floor(matchIndex / 2)];
           if (nextMatch?.outcome) {
-            nextReplayHref = `/replay/${matchIdForSlot(tournamentId, nextRoundNumber, Math.floor(matchIndex / 2))}`;
+            nextReplayHref = `/replay/${matchIdForSlot(tournamentId, nextRoundNumber, Math.floor(matchIndex / 2), draw)}`;
           }
         }
 
@@ -106,6 +116,7 @@ export default function ReplayPage() {
           tournament,
           roundNumber,
           matchIndex,
+          draw,
           entrantA: match.entrantA,
           entrantB: match.entrantB,
           playerA: players.get(match.entrantA) ?? null,
@@ -117,6 +128,9 @@ export default function ReplayPage() {
           nextReplayHref,
           nextRoundHref,
           nextRoundLabel,
+          roundLabel: draw === 'qualifying'
+            ? `Qualifying round ${roundNumber}`
+            : matchRoundLabel(tournament.drawSize / 2 ** roundNumber),
         });
       })
       .catch(() => {
@@ -142,7 +156,7 @@ export default function ReplayPage() {
               <span>·</span>
               <span style={{ color: 'var(--gc-ink-dim)' }}>{context.tournament.name}</span>
               <span>·</span>
-              <span>{matchRoundLabel(context.tournament.drawSize / 2 ** context.roundNumber)}</span>
+              <span>{context.roundLabel}</span>
               <div
                 className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"
                 style={{ background: accent ?? 'var(--gc-s3)' }}

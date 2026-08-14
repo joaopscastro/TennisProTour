@@ -46,6 +46,11 @@ export class RankPositionQuery {
     private readonly worldId: WorldId,
     private readonly band: RankingBand,
     private readonly calculator: RankingCalculationService = new RankingCalculationService(bestResultsCapFor(band)),
+    /** Which discipline this ranking scopes to — 'singles' (the default,
+     * every pre-P7b instance) or 'doubles'. Doubles entries carry
+     * `discipline: 'doubles'` on their ledger rows; the filter below
+     * keeps them out of singles totals and vice versa. */
+    private readonly discipline: 'singles' | 'doubles' = 'singles',
   ) {}
 
   /** Every player who currently has at least one qualifying result in
@@ -70,7 +75,9 @@ export class RankPositionQuery {
     const currentWeek = world?.currentWeek ?? { season: 1, week: 1 };
 
     const entries = await this.rankingLedger.findAll();
-    const bandEntries = entries.filter((entry) => matchesRankingBand(entry.ageBand, this.band));
+    const bandEntries = entries.filter(
+      (entry) => matchesRankingBand(entry.ageBand, this.band) && (entry.discipline ?? 'singles') === this.discipline,
+    );
 
     const entriesByPlayer = new Map<PlayerId, RankingLedgerEntry[]>();
     for (const entry of bandEntries) {

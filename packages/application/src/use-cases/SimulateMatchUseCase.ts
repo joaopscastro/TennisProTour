@@ -1,4 +1,5 @@
 import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek, WorldId } from '@tennis-manager/domain';
+import { DrawPhase, qualifyingPointsFor } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
@@ -58,14 +59,32 @@ export interface SimulateMatchCommand {
   tournamentId: TournamentId;
   roundNumber: number;
   matchIndex: number;
+  /** Which bracket the slot is in. Optional — absent means the MAIN
+   * draw, so every pre-qualifying caller (and the manual simulate
+   * route) is unchanged. `'qualifying'` matches are ordinary matches in
+   * every respect that touches the player (fatigue, form, surface
+   * growth, development XP); what differs is the points they pay out
+   * and that no title is ever awarded from them. */
+  draw?: DrawPhase;
 }
 
 /** The canonical MatchId for a bracket slot. One deterministic id per
  * slot means one immutable replay blob per slot, and every caller
  * (HTTP route, worker job) colliding on the same id instead of
  * minting duplicates. */
-export function matchIdForSlot(tournamentId: TournamentId, roundNumber: number, matchIndex: number): MatchId {
-  return MatchId(`${tournamentId}-r${roundNumber}-m${matchIndex}`);
+export function matchIdForSlot(
+  tournamentId: TournamentId,
+  roundNumber: number,
+  matchIndex: number,
+  draw: DrawPhase = 'main',
+): MatchId {
+  // The qualifying bracket has its own round numbering, so its slots
+  // need their own id space or a qualifying round 1 would collide with
+  // the main draw's round 1 (same tournament, same replay blob id). The
+  // main draw's ids are deliberately left byte-identical to before
+  // qualifying existed — every stored replay stays reachable.
+  const prefix = draw === 'qualifying' ? `${tournamentId}-q` : `${tournamentId}`;
+  return MatchId(`${prefix}-r${roundNumber}-m${matchIndex}`);
 }
 
 /**
@@ -158,7 +177,8 @@ export class SimulateMatchUseCase {
     const world = await this.worlds.findById(this.worldId);
     const currentWeek: GameWeek = world?.currentWeek ?? { season: 1, week: 1 };
 
-    const scheduledMatch = tournament.getScheduledMatch(command.roundNumber, command.matchIndex);
+    const draw: DrawPhase = command.draw ?? 'main';
+    const scheduledMatch = tournament.getScheduledMatch(command.roundNumber, command.matchIndex, draw);
 
     const [playerA, playerB] = await Promise.all([
       this.loadParticipant(scheduledMatch.entrantA, tournament.hostCountry),
@@ -167,16 +187,22 @@ export class SimulateMatchUseCase {
 
     const { outcome, log } = this.matchSimulator.simulate(playerA, playerB, tournament.surface);
 
-    tournament.recordMatchOutcome(command.roundNumber, command.matchIndex, outcome);
+    tournament.recordMatchOutcome(command.roundNumber, command.matchIndex, outcome, draw);
 
-    if (tournament.isRoundComplete(command.roundNumber) && !tournament.isFinalRound(command.roundNumber)) {
-      const completedRound = tournament.getRounds()[command.roundNumber - 1];
+    if (tournament.isRoundComplete(command.roundNumber, draw) && !tournament.isFinalRound(command.roundNumber, draw)) {
+      // Each bracket advances within itself, using its own field and its
+      // own size. A qualifying draw stops at its LAST qualifying round
+      // (isFinalRound(..., 'qualifying')) rather than playing down to one
+      // winner — its survivors are promoted into the main draw instead,
+      // by PromoteQualifiersUseCase.
+      const rounds = draw === 'qualifying' ? tournament.getQualifyingRounds() : tournament.getRounds();
+      const completedRound = rounds[command.roundNumber - 1];
       const nextRound = this.bracketGenerator.generateNextRound(
         completedRound,
-        tournament.entrants,
-        tournament.drawSize,
+        draw === 'qualifying' ? tournament.qualifyingEntrants : tournament.mainEntrants,
+        draw === 'qualifying' ? tournament.qualifyingDrawSize : tournament.drawSize,
       );
-      tournament.addRound(nextRound);
+      tournament.addRound(nextRound, draw);
     }
     // If it was the final round instead, there's nothing further to
     // generate — the TournamentCompleted event Tournament already
@@ -229,17 +255,27 @@ export class SimulateMatchUseCase {
 
     // Ranking points: the loser is eliminated the moment any match is
     // decided; the winner becomes champion only if this was the final.
+    // A qualifying loss pays QUALIFYING points (small, explicitly
+    // placeholder — see qualifyingPointsFor), not main-draw points: this
+    // player never reached the main draw. A player who comes THROUGH
+    // qualifying is never awarded here at all (they weren't eliminated),
+    // so each player still ends a tournament with at most ONE ranking-
+    // ledger entry, whichever draw they went out in.
     await this.awardRankingPoints(
       loserPlayer,
-      tournament.roundsWonBy(outcome.loser),
+      tournament.roundsWonBy(outcome.loser, draw),
       tournament.tier,
       tournament.ageBand,
       tournament.id,
       tournament.weekScheduled,
       currentWeek,
+      draw,
     );
     await this.awardManagerXp(loserPlayer, 'loss', tournament.tier);
-    if (tournament.isFinalRound(command.roundNumber)) {
+    // Only the MAIN draw's final crowns a champion. A completed
+    // qualifying draw awards nothing extra and no title — its winners'
+    // reward is the main-draw place PromoteQualifiersUseCase gives them.
+    if (draw === 'main' && tournament.isFinalRound(command.roundNumber)) {
       await this.awardRankingPoints(
         winnerPlayer,
         tournament.roundsWonBy(outcome.winner),
@@ -280,9 +316,11 @@ export class SimulateMatchUseCase {
     tournamentId: TournamentId,
     weekEarned: GameWeek,
     currentWeek: GameWeek,
+    draw: DrawPhase = 'main',
   ): Promise<void> {
     if (!player) return;
-    const rawPoints = this.rankingPointsTable.pointsFor(tier, roundsWon);
+    const rawPoints =
+      draw === 'qualifying' ? qualifyingPointsFor(tier, roundsWon) : this.rankingPointsTable.pointsFor(tier, roundsWon);
 
     // A dormant graduation-carryover bonus (see
     // domain/ranking/GraduationCarryover.ts) only ever amplifies a

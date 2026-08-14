@@ -1,9 +1,10 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { entryTypeOf, EntryType, hasQualifying, resolveEntryType, Tournament } from '@tennis-manager/domain';
+import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
+import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -80,6 +81,11 @@ export class RegisterEntrantUseCase {
      * at a tier that holds no qualifying at all. The composition root
      * always passes it. */
     private readonly seniorRankPosition?: RankPositionQuery,
+    /** Doubles draw formation (P7b) — optional for the same test-compat
+     * reason: omitted, the full-draw auto-start below seeds the singles
+     * bracket but leaves the doubles draw to the weekly
+     * StartDueTournamentsUseCase. The composition root always passes it. */
+    private readonly formDoublesDraw?: FormDoublesDrawUseCase,
   ) {}
 
   async execute(command: RegisterEntrantCommand): Promise<void> {
@@ -118,11 +124,32 @@ export class RegisterEntrantUseCase {
     }
 
     const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);
-    tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType });
+    // A `[Q]` registrant enters the QUALIFYING field, not the main draw
+    // — the whole point of the full model: they must win their way in.
+    const draw: DrawPhase | undefined = entryType === 'Q' ? 'qualifying' : undefined;
+    tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType, draw });
 
-    if (tournament.entrants.length === tournament.drawSize) {
-      const bracket = this.bracketGenerator.generate(tournament.entrants, tournament.drawSize);
-      tournament.startWithBracket(bracket);
+    if (isFullyRegistered(tournament)) {
+      // With qualifying, "the draw is full" starts the QUALIFYING
+      // bracket, days before the main draw exists (deferred main-draw
+      // seeding — the main draw is seeded by PromoteQualifiersUseCase
+      // once qualifying has produced its winners). Without qualifying
+      // this is exactly the pre-existing behaviour.
+      if (tournament.hasQualifying) {
+        const bracket = this.bracketGenerator.generate(tournament.qualifyingEntrants, tournament.qualifyingDrawSize);
+        tournament.startQualifyingWithBracket(bracket);
+      } else {
+        const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+        tournament.startWithBracket(bracket);
+      }
+    }
+
+    // Form the doubles draw too (P7b), if wired — the singles auto-start
+    // closes registration, so whatever doubles entrants signed up during
+    // the open window are paired and seeded here rather than waiting for
+    // the weekly trigger.
+    if (this.formDoublesDraw) {
+      await this.formDoublesDraw.form(tournament);
     }
 
     await this.tournaments.save(tournament);
@@ -141,7 +168,12 @@ export class RegisterEntrantUseCase {
     playerId: PlayerId,
   ): Promise<EntryType | undefined> {
     if (!this.seniorRankPosition) return undefined;
-    if (!hasQualifying(tournament.tier)) return undefined;
+    // Asks the TOURNAMENT, not the policy: whether this event holds
+    // qualifying (and how big it is) was decided and stored when it
+    // opened, so a later balance change to QualifyingPolicy can never
+    // retroactively add or remove qualifying from an event already
+    // taking registrations.
+    if (!tournament.hasQualifying) return undefined;
 
     const { rank } = await this.seniorRankPosition.rankFor(playerId);
     const qualifierSlotsTaken = tournament.entrants.filter((entrant) => entryTypeOf(entrant) === 'Q').length;
@@ -150,13 +182,26 @@ export class RegisterEntrantUseCase {
       drawSize: tournament.drawSize,
       rank,
       qualifierSlotsTaken,
+      qualifierSlots: tournament.qualifierSlots,
+      qualifyingCapacity: tournament.qualifyingDrawSize,
     });
     if (decision.kind === 'qualifying-full') {
       throw new Error(
-        `Player ${playerId} is outside direct acceptance for tournament ${tournament.id} and all ` +
-          `${decision.qualifierSlots} qualifier slots are already taken`,
+        `Player ${playerId} is outside direct acceptance for tournament ${tournament.id} and its ` +
+          `${tournament.qualifyingDrawSize}-player qualifying field is already full ` +
+          `(${decision.qualifierSlots} main-draw place(s) at stake)`,
       );
     }
     return decision.entryType;
   }
+}
+
+/** Both fields are full: every directly-accepted place taken AND, at a
+ * tournament that holds one, every place in the qualifying field. Until
+ * both are, the event stays open — a full qualifying field must not
+ * close registration on direct acceptances, or vice versa. */
+function isFullyRegistered(tournament: Tournament): boolean {
+  if (tournament.mainEntrants.length < tournament.mainDrawCapacity) return false;
+  if (!tournament.hasQualifying) return true;
+  return tournament.qualifyingEntrants.length >= tournament.qualifyingDrawSize;
 }

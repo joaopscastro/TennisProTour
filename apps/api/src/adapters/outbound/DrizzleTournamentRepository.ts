@@ -1,24 +1,28 @@
 import { and, asc, eq } from 'drizzle-orm';
-import { GameWeek, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { GameWeek, PairId, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
   AgeBand,
   BracketRound,
+  DrawPhase,
   DrawSize,
   EntryType,
   entryTypeOf,
   MatchOutcome,
+  TournamentDoublesPair,
   TournamentEntrant,
   TournamentTier,
+  drawOf,
 } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
-import { tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
+import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments } from '../../db/schema';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 type EntryRow = typeof tournamentEntries.$inferSelect;
 type MatchRow = typeof tournamentMatches.$inferSelect;
+type DoublesMatchRow = typeof tournamentDoublesMatches.$inferSelect;
 
 /**
  * Drizzle-backed TournamentRepository adapter. Persists the aggregate
@@ -74,6 +78,11 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       weekScheduled: tournament.weekScheduled.week,
       startDay: tournament.startDay,
       drawSize: tournament.drawSize,
+      qualifyingDrawSize: tournament.qualifyingDrawSize,
+      qualifierSlots: tournament.qualifierSlots,
+      doublesDrawSize: tournament.doublesDrawSize,
+      doublesQualifyingDrawSize: tournament.doublesQualifyingDrawSize,
+      doublesQualifierSlots: tournament.doublesQualifierSlots,
       hostCountry: tournament.hostCountry,
       hasStarted: tournament.hasStarted,
     };
@@ -95,31 +104,89 @@ export class DrizzleTournamentRepository implements TournamentRepository {
             playerId: entrant.playerId,
             seed: entrant.seed,
             entryType: toEntryTypeRow(entryTypeOf(entrant)),
+            draw: drawOf(entrant),
           })),
         );
       }
 
       await tx.delete(tournamentMatches).where(eq(tournamentMatches.tournamentId, tournament.id));
-      const matchRows = tournament.getRounds().flatMap((round) =>
-        round.matches.map((match, matchIndex) => ({
-          tournamentId: tournament.id,
-          roundNumber: round.roundNumber,
-          matchIndex,
-          entrantA: match.entrantA,
-          entrantB: match.entrantB,
-          winnerId: match.outcome?.winner ?? null,
-          loserId: match.outcome?.loser ?? null,
-          setScores: match.outcome ? [...match.outcome.setScores] : null,
-        })),
-      );
+      const toMatchRows = (rounds: ReadonlyArray<BracketRound>, draw: DrawPhase) =>
+        rounds.flatMap((round) =>
+          round.matches.map((match, matchIndex) => ({
+            tournamentId: tournament.id,
+            draw,
+            roundNumber: round.roundNumber,
+            matchIndex,
+            entrantA: match.entrantA,
+            entrantB: match.entrantB,
+            winnerId: match.outcome?.winner ?? null,
+            loserId: match.outcome?.loser ?? null,
+            setScores: match.outcome ? [...match.outcome.setScores] : null,
+          })),
+        );
+      const matchRows = [
+        ...toMatchRows(tournament.getRounds(), 'main'),
+        ...toMatchRows(tournament.getQualifyingRounds(), 'qualifying'),
+      ];
       if (matchRows.length > 0) {
         await tx.insert(tournamentMatches).values(matchRows);
+      }
+
+      // Doubles draw (P7b): solo entrants, formed pairs, and the pair-
+      // keyed bracket. Replaced whole like the singles children.
+      await tx.delete(tournamentDoublesEntrants).where(eq(tournamentDoublesEntrants.tournamentId, tournament.id));
+      if (tournament.doublesEntrants.length > 0) {
+        await tx.insert(tournamentDoublesEntrants).values(
+          tournament.doublesEntrants.map((playerId) => ({ tournamentId: tournament.id, playerId })),
+        );
+      }
+
+      await tx.delete(tournamentDoublesPairs).where(eq(tournamentDoublesPairs.tournamentId, tournament.id));
+      const toDoublePairRows = (pairs: ReadonlyArray<TournamentDoublesPair>, draw: DrawPhase) =>
+        pairs.map((p) => ({
+          tournamentId: tournament.id,
+          pairId: p.pairId,
+          playerA: p.playerA,
+          playerB: p.playerB,
+          chemistry: p.chemistry ?? 0,
+          persistentPairId: p.persistentPairId ?? null,
+          draw,
+        }));
+      const doublePairRows = [
+        ...toDoublePairRows(tournament.doublesPairs, 'main'),
+        ...toDoublePairRows(tournament.doublesQualifyingPairs, 'qualifying'),
+      ];
+      if (doublePairRows.length > 0) {
+        await tx.insert(tournamentDoublesPairs).values(doublePairRows);
+      }
+
+      await tx.delete(tournamentDoublesMatches).where(eq(tournamentDoublesMatches.tournamentId, tournament.id));
+      const toDoubleMatchRows = (rounds: ReadonlyArray<BracketRound<PairId>>, draw: DrawPhase) =>
+        rounds.flatMap((round) =>
+          round.matches.map((match, matchIndex) => ({
+            tournamentId: tournament.id,
+            draw,
+            roundNumber: round.roundNumber,
+            matchIndex,
+            entrantA: match.entrantA,
+            entrantB: match.entrantB,
+            winnerId: match.outcome?.winner ?? null,
+            loserId: match.outcome?.loser ?? null,
+            setScores: match.outcome ? [...match.outcome.setScores] : null,
+          })),
+        );
+      const doublesMatchRows = [
+        ...toDoubleMatchRows(tournament.getDoublesRounds('main'), 'main'),
+        ...toDoubleMatchRows(tournament.getDoublesRounds('qualifying'), 'qualifying'),
+      ];
+      if (doublesMatchRows.length > 0) {
+        await tx.insert(tournamentDoublesMatches).values(doublesMatchRows);
       }
     });
   }
 
   private async load(row: TournamentRow): Promise<Tournament> {
-    const [entryRows, matchRows] = await Promise.all([
+    const [entryRows, matchRows, doublesEntrantRows, doublesPairRows, doublesMatchRows] = await Promise.all([
       this.db
         .select()
         .from(tournamentEntries)
@@ -145,6 +212,21 @@ export class DrizzleTournamentRepository implements TournamentRepository {
         .from(tournamentMatches)
         .where(eq(tournamentMatches.tournamentId, row.id))
         .orderBy(asc(tournamentMatches.roundNumber), asc(tournamentMatches.matchIndex)),
+      this.db
+        .select()
+        .from(tournamentDoublesEntrants)
+        .where(eq(tournamentDoublesEntrants.tournamentId, row.id))
+        .orderBy(asc(tournamentDoublesEntrants.createdAt), asc(tournamentDoublesEntrants.playerId)),
+      this.db
+        .select()
+        .from(tournamentDoublesPairs)
+        .where(eq(tournamentDoublesPairs.tournamentId, row.id))
+        .orderBy(asc(tournamentDoublesPairs.pairId)),
+      this.db
+        .select()
+        .from(tournamentDoublesMatches)
+        .where(eq(tournamentDoublesMatches.tournamentId, row.id))
+        .orderBy(asc(tournamentDoublesMatches.roundNumber), asc(tournamentDoublesMatches.matchIndex)),
     ]);
 
     return Tournament.reconstitute({
@@ -156,15 +238,69 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       weekScheduled: { season: row.seasonScheduled, week: row.weekScheduled },
       startDay: row.startDay,
       drawSize: row.drawSize as DrawSize,
+      qualifyingDrawSize: row.qualifyingDrawSize,
+      qualifierSlots: row.qualifierSlots,
+      doublesDrawSize: row.doublesDrawSize,
+      doublesQualifyingDrawSize: row.doublesQualifyingDrawSize,
+      doublesQualifierSlots: row.doublesQualifierSlots,
       hostCountry: row.hostCountry,
       entrants: entryRows.map(toEntrant),
-      rounds: toRounds(matchRows),
+      rounds: toRounds(matchRows.filter((m) => m.draw === 'main')),
+      qualifyingRounds: toRounds(matchRows.filter((m) => m.draw === 'qualifying')),
+      doublesEntrants: doublesEntrantRows.map((e) => PlayerId(e.playerId)),
+      doublesPairs: doublesPairRows
+        .filter((p) => p.draw === 'main')
+        .map((p) => ({
+          pairId: PairId(p.pairId),
+          playerA: PlayerId(p.playerA),
+          playerB: PlayerId(p.playerB),
+          chemistry: p.chemistry,
+          persistentPairId: p.persistentPairId ? PairId(p.persistentPairId) : undefined,
+        })),
+      doublesRounds: toDoublesRounds(doublesMatchRows.filter((m) => m.draw === 'main')),
+      doublesQualifyingPairs: doublesPairRows
+        .filter((p) => p.draw === 'qualifying')
+        .map((p) => ({
+          pairId: PairId(p.pairId),
+          playerA: PlayerId(p.playerA),
+          playerB: PlayerId(p.playerB),
+          chemistry: p.chemistry,
+          persistentPairId: p.persistentPairId ? PairId(p.persistentPairId) : undefined,
+        })),
+      doublesQualifyingRounds: toDoublesRounds(doublesMatchRows.filter((m) => m.draw === 'qualifying')),
     });
   }
 }
 
+function toDoublesRounds(rows: DoublesMatchRow[]): BracketRound<PairId>[] {
+  const byRound = new Map<number, DoublesMatchRow[]>();
+  for (const row of rows) {
+    const bucket = byRound.get(row.roundNumber) ?? [];
+    bucket.push(row);
+    byRound.set(row.roundNumber, bucket);
+  }
+  return [...byRound.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([roundNumber, matches]) => ({
+      roundNumber,
+      matches: matches.map((row) => ({
+        entrantA: PairId(row.entrantA),
+        entrantB: PairId(row.entrantB),
+        outcome:
+          row.winnerId !== null && row.loserId !== null
+            ? { winner: PairId(row.winnerId), loser: PairId(row.loserId), setScores: row.setScores ?? [] }
+            : null,
+      })),
+    }));
+}
+
 function toEntrant(row: EntryRow): TournamentEntrant {
-  return { playerId: PlayerId(row.playerId), seed: row.seed, entryType: toEntryType(row.entryType) };
+  return {
+    playerId: PlayerId(row.playerId),
+    seed: row.seed,
+    entryType: toEntryType(row.entryType),
+    draw: row.draw as DrawPhase,
+  };
 }
 
 /** The db enum is lowercase like every other enum in this schema; the

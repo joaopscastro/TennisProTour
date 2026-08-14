@@ -26,6 +26,16 @@ export interface RankingLedgerEntry {
   readonly points: number;
   readonly weekEarned: GameWeek;
   /**
+   * Which discipline this result belongs to — singles (the default,
+   * every pre-P7b entry) or doubles (P7b, where BOTH players of the
+   * winning pair get their own entry). Optional and defaulting to
+   * undefined so every existing construction site and persisted row is
+   * unchanged. A doubles ranking is computed from the same ledger,
+   * filtered to `discipline === 'doubles'` (and always `ageBand ===
+   * null`, since doubles is senior-only in v1).
+   */
+  readonly discipline?: 'singles' | 'doubles';
+  /**
    * True only for a MANDATORY-SKIP zero: a `points: 0` entry recorded
    * because the player was eligible for an obligatory event
    * (`isObligatoryTier`) that week and did NOT enter it — the "0 that

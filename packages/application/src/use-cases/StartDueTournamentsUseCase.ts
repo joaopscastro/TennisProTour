@@ -1,5 +1,6 @@
 import {
   BracketGenerator,
+  DrawPhase,
   isAgeEligibleForTournamentBand,
   PlayerId,
   RankingBand,
@@ -10,6 +11,7 @@ import {
 } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
+import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 
 export interface StartDueTournamentsCommand {
   worldId: WorldId;
@@ -114,6 +116,10 @@ export class StartDueTournamentsUseCase {
     private readonly players: PlayerRepository,
     private readonly bracketGenerator: BracketGenerator,
     private readonly rankPositionByBand: Record<RankingBand, RankPositionQuery>,
+    /** Doubles draw formation (P7b) — optional for test compatibility
+     * (the pre-P7b unit tests construct this use case without one);
+     * the composition root always passes it. */
+    private readonly formDoublesDraw?: FormDoublesDrawUseCase,
   ) {}
 
   async execute(command: StartDueTournamentsCommand): Promise<StartDueTournamentsResult> {
@@ -128,32 +134,75 @@ export class StartDueTournamentsUseCase {
     let filled = 0;
 
     for (const tournament of due) {
-      const needed = tournament.drawSize - tournament.entrants.length;
+      // At a tournament that holds qualifying, the QUALIFYING field is
+      // filled from free agents too, alongside the human registrants
+      // who chose to enter it — a half-empty qualifying draw would make
+      // "earning your way in" trivial. Filled first, and separately from
+      // the main draw's directly-accepted places, because the two fields
+      // have separate capacities (mainDrawCapacity deliberately excludes
+      // the places reserved for qualifiers).
+      if (tournament.hasQualifying) {
+        const qualifyingNeeded = tournament.qualifyingDrawSize - tournament.qualifyingEntrants.length;
+        if (qualifyingNeeded > 0) {
+          filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying');
+        }
+      }
+      const needed = tournament.mainDrawCapacity - tournament.mainEntrants.length;
       if (needed > 0) {
         filled += await this.fillSlots(tournament, needed);
       }
-      // A tournament that stayed at zero entrants (no real
-      // registrants AND no eligible/available filler) has nothing to
-      // start — leave it open for a later tick, once more fillers
-      // exist, rather than seeding a degenerate zero-match bracket.
-      if (tournament.entrants.length === 0) continue;
+      // A tournament that stayed at zero SINGLES entrants has nothing to
+      // seed for the singles/qualifying bracket — but may still have a
+      // doubles field to form (P7b). Only skip entirely when there are
+      // neither singles entrants nor doubles entrants.
+      const hasDoublesEntrants = tournament.hasDoubles && tournament.doublesEntrants.length > 0;
+      if (tournament.entrants.length === 0 && !hasDoublesEntrants) continue;
 
-      const bracket = this.bracketGenerator.generate(tournament.entrants, tournament.drawSize);
-      // BracketGenerator's standard seed-slot placement (1v16, 8v9,
-      // 4v13, ...) spreads top seeds apart so they can't meet early —
-      // which means a field that's short but non-empty can still have
-      // EVERY entrant land on the bye side of its pair, producing round
-      // 1 matches: []. Tournament.startWithBracket() refuses that (see
-      // its own doc comment — such a round can never progress, and
-      // loses its identity entirely on the next repository read). This
-      // is an expected, ordinary outcome of filling from a limited
-      // pool, not an error: leave the tournament open and let a later
-      // tick — with more fillers generated/converted by then — try
-      // again, exactly like the zero-entrants case above.
-      if (bracket[0].matches.length === 0) continue;
-      tournament.startWithBracket(bracket);
-      await this.tournaments.save(tournament);
-      started += 1;
+      if (tournament.entrants.length > 0) {
+        // With qualifying, the QUALIFYING bracket is what gets seeded now
+        // — it is played over the tournament's opening days, and only its
+        // survivors go into the main draw, which PromoteQualifiersUseCase
+        // seeds later (the deferred main-draw model,
+        // docs/ranking-realism-proposal.md §5).
+        if (tournament.hasQualifying) {
+          const qualifyingBracket = this.bracketGenerator.generate(
+            tournament.qualifyingEntrants,
+            tournament.qualifyingDrawSize,
+          );
+          if (qualifyingBracket[0].matches.length === 0) {
+            await this.formDoublesDraw?.form(tournament);
+            continue;
+          }
+          tournament.startQualifyingWithBracket(qualifyingBracket);
+          await this.tournaments.save(tournament);
+          started += 1;
+          await this.formDoublesDraw?.form(tournament);
+          continue;
+        }
+
+        const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+        // BracketGenerator's standard seed-slot placement (1v16, 8v9,
+        // 4v13, ...) spreads top seeds apart so they can't meet early —
+        // which means a field that's short but non-empty can still have
+        // EVERY entrant land on the bye side of its pair, producing round
+        // 1 matches: []. Tournament.startWithBracket() refuses that (see
+        // its own doc comment — such a round can never progress, and
+        // loses its identity entirely on the next repository read). This
+        // is an expected, ordinary outcome of filling from a limited
+        // pool, not an error: leave the tournament open and let a later
+        // tick — with more fillers generated/converted by then — try
+        // again, exactly like the zero-entrants case above.
+        if (bracket[0].matches.length === 0) {
+          await this.formDoublesDraw?.form(tournament);
+          continue;
+        }
+        tournament.startWithBracket(bracket);
+        await this.tournaments.save(tournament);
+        started += 1;
+      }
+
+      // The doubles draw (P7b) forms independently of the singles one.
+      await this.formDoublesDraw?.form(tournament);
     }
 
     return { started, filled };
@@ -164,7 +213,7 @@ export class StartDueTournamentsUseCase {
    * does), converting any selected 'fresh' candidate into a real
    * fillOnly Player along the way. Returns how many were actually
    * added — may be fewer than `needed` if the eligible pool runs out. */
-  private async fillSlots(tournament: Tournament, needed: number): Promise<number> {
+  private async fillSlots(tournament: Tournament, needed: number, draw: DrawPhase = 'main'): Promise<number> {
     const band: RankingBand = tournament.ageBand ?? 'senior';
 
     const [fillOnlyPlayers, ranked] = await Promise.all([
@@ -201,7 +250,14 @@ export class StartDueTournamentsUseCase {
 
     const selected = available.slice(0, needed);
     for (const candidate of selected) {
-      const entrant: TournamentEntrant = { playerId: candidate.playerId, seed: null };
+      // A filler in the qualifying field IS a qualifier — it has to win
+      // its way through exactly like a human registrant there, and the
+      // draw sheet says so. Left absent (i.e. 'main'/'DA') for the main
+      // draw, unchanged from before qualifying existed.
+      const entrant: TournamentEntrant =
+        draw === 'qualifying'
+          ? { playerId: candidate.playerId, seed: null, draw, entryType: 'Q' }
+          : { playerId: candidate.playerId, seed: null };
       tournament.registerEntrant(entrant);
     }
     // Persist the fill immediately — later tournaments processed this

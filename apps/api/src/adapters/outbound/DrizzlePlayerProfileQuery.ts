@@ -1,9 +1,12 @@
-import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, PotentialProjection, projectPotential, RankingBand, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, PotentialProjection, projectPotential, RankingBand, TournamentId, TournamentTier, DoublesPairStatus } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
 import { DrizzleTitleRepository } from './DrizzleTitleRepository';
 import { DrizzlePlayerTournamentHistoryQuery, PlayerTournamentHistoryEntry } from './DrizzlePlayerTournamentHistoryQuery';
+import { DrizzleDoublesPairRepository } from './DrizzleDoublesPairRepository';
+import { DrizzleDoublesTitleRepository } from './DrizzleDoublesTitleRepository';
+import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRankingRepository';
 
 export interface PlayerProfileDto {
   playerId: PlayerId;
@@ -47,6 +50,38 @@ export interface PlayerProfileDto {
    * never on any list/pool query, so potential stays a per-player
    * investigation, not a sortable column. */
   potential: PotentialProjection;
+  /** The player's doubles partner (P7a,
+   * docs/doubles-and-special-formats-plan.md) — the OTHER member of the
+   * player's non-dissolved pair, with its status, or null when the
+   * player isn't in a pair at all. Always derived from a live
+   * `doubles_pairs` read, never stored on the player row. An ACTIVE pair
+   * is what the profile hero highlights; a PENDING invite shows as
+   * pending (the manager-facing affordances are on the board, not here
+   * — this is the read everyone sees). */
+  doublesPartner: {
+    pairId: string;
+    status: DoublesPairStatus;
+    playerId: PlayerId;
+    name: string;
+    nationality: string;
+  } | null;
+  /** The player's permanent high-water-mark DOUBLES ranking totals (P7c +
+   * junior doubles) — one per band they've ever earned a doubles point
+   * in, same shape as `peakRankings`. */
+  doublesPeaks: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
+  /** The player's doubles titles (P7c) — each shows the PARTNER (the
+   * other member of the winning pair), which is the interesting half of
+   * a doubles trophy; the tournament is referenced by id + tier only
+   * (its generated name is not joined here — doubles titles aren't part
+   * of the singles tournament history). */
+  doublesTitles: Array<{
+    tournamentId: TournamentId;
+    tier: TournamentTier;
+    partnerId: PlayerId;
+    partnerName: string;
+    partnerNationality: string;
+    weekEarned: GameWeek;
+  }>;
 }
 
 /**
@@ -66,20 +101,45 @@ export class DrizzlePlayerProfileQuery {
     private readonly peakRankings: DrizzlePeakRankingRepository,
     private readonly titles: DrizzleTitleRepository,
     private readonly history: DrizzlePlayerTournamentHistoryQuery,
+    private readonly pairs: DrizzleDoublesPairRepository,
+    private readonly doublesTitles: DrizzleDoublesTitleRepository,
+    private readonly doublesPeakRankings: DrizzleDoublesPeakRankingRepository,
   ) {}
 
   async forPlayer(playerId: PlayerId): Promise<PlayerProfileDto | null> {
     const player = await this.players.findById(playerId);
     if (!player) return null;
 
-    const [seniorRank, u14Rank, u16Rank, peaks, tournamentHistory, titleRecords] = await Promise.all([
+    const [seniorRank, u14Rank, u16Rank, peaks, tournamentHistory, titleRecords, pairs, doublesTitleRecords, doublesPeakSenior, doublesPeakU14, doublesPeakU16] = await Promise.all([
       this.rankPositionByBand.senior.rankFor(playerId),
       this.rankPositionByBand.u14.rankFor(playerId),
       this.rankPositionByBand.u16.rankFor(playerId),
       this.peakRankings.findAllForPlayer(playerId),
       this.history.forPlayer(playerId),
       this.titles.findByPlayer(playerId),
+      this.pairs.findByPlayer(playerId),
+      this.doublesTitles.findByPlayer(playerId),
+      this.doublesPeakRankings.findOne(playerId, 'senior'),
+      this.doublesPeakRankings.findOne(playerId, 'u14'),
+      this.doublesPeakRankings.findOne(playerId, 'u16'),
     ]);
+
+    // The player's non-dissolved pair (at most one by the use-case
+    // invariant), and the partner's identity — the profile-highlight
+    // read the P7a plan calls for.
+    const pair = pairs.find((p) => !p.isDissolved);
+    let doublesPartner: PlayerProfileDto['doublesPartner'] = null;
+    if (pair) {
+      const partnerId = pair.partnerOf(playerId)!;
+      const partner = await this.players.findById(partnerId);
+      doublesPartner = {
+        pairId: pair.id,
+        status: pair.status,
+        playerId: partnerId,
+        name: partner?.name ?? partnerId,
+        nationality: partner?.nationality ?? 'XX',
+      };
+    }
 
     // Titles never copy the tournament's own display name (see
     // TitleRecord's doc comment) — this player's own tournament
@@ -94,6 +154,23 @@ export class DrizzlePlayerProfileQuery {
       ageBand: title.ageBand,
       weekEarned: title.weekEarned,
     }));
+
+    // Doubles titles (P7c): the interesting half of a doubles trophy is
+    // the PARTNER, so each entry resolves the other member of the pair.
+    const doublesTitleList = await Promise.all(
+      doublesTitleRecords.map(async (title) => {
+        const partnerId = title.playerA === playerId ? title.playerB : title.playerA;
+        const partner = await this.players.findById(partnerId);
+        return {
+          tournamentId: title.tournamentId,
+          tier: title.tier,
+          partnerId,
+          partnerName: partner?.name ?? partnerId,
+          partnerNationality: partner?.nationality ?? 'XX',
+          weekEarned: title.weekEarned,
+        };
+      }),
+    );
 
     return {
       playerId: player.id,
@@ -119,6 +196,11 @@ export class DrizzlePlayerProfileQuery {
         physicalCeilings: player.physicalCeilings,
         talent: player.talent,
       }),
+      doublesPartner,
+      doublesPeaks: [doublesPeakSenior, doublesPeakU14, doublesPeakU16]
+        .filter((p): p is NonNullable<typeof p> => p !== null)
+        .map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
+      doublesTitles: doublesTitleList,
     };
   }
 }

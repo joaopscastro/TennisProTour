@@ -50,8 +50,14 @@ export type PhysicalAttribute = 'speed' | 'stamina' | 'strength';
  * 'consistency'/'clutch' (mental) at the type level: mental attributes
  * are never a training target, not because of a runtime check that
  * happens to reject them, but because there is no value of this union
- * that could ever name one. See TrainingFocus's doc comment. */
-export type TrainableAttribute = TechnicalAttribute | PhysicalAttribute;
+ * that could ever name one. See TrainingFocus's doc comment.
+ *
+ * `'doubles'` (P7b) is its own axis, neither technical nor physical:
+ * it's the doubles-specialist skill that only matters in doubles
+ * matches (see DoublesPairPolicy), excluded from the singles
+ * `overallRating()`. Trainable like technical (open-ended — no hidden
+ * ceiling), which is what the "doubles specialist" fantasy needs. */
+export type TrainableAttribute = TechnicalAttribute | PhysicalAttribute | 'doubles';
 
 const PHYSICAL_ATTRIBUTES: readonly PhysicalAttribute[] = ['speed', 'stamina', 'strength'];
 
@@ -127,6 +133,12 @@ export interface PlayerAttributesProps {
     consistency: Skill;
     clutch: Skill; // "mentality" in Rocking Rackets terms — bonus on break/tiebreak points
   };
+  /** Doubles skill (P7b) — its own axis, distinct from the singles
+   * clusters above. Optional/additive: absent means `Skill.of(0)` (a
+   * player who has never trained doubles), so every pre-P7b construction
+   * site and test is unchanged. Excluded from `overallRating()` (that's
+   * a SINGLES measure); read only by the doubles sim. */
+  doubles?: Skill;
   surfaceAffinities: SurfaceAffinities;
 }
 
@@ -137,7 +149,11 @@ export interface PlayerAttributesProps {
  * simulator only ever sees this plain snapshot, never the Player
  * entity itself, which keeps the two contexts decoupled. */
 export class PlayerAttributes {
-  constructor(private readonly props: PlayerAttributesProps) {}
+  private readonly props: Required<PlayerAttributesProps>;
+
+  constructor(props: PlayerAttributesProps) {
+    this.props = { ...props, doubles: props.doubles ?? Skill.of(0) };
+  }
 
   get technical() {
     return this.props.technical;
@@ -149,6 +165,10 @@ export class PlayerAttributes {
 
   get mental() {
     return this.props.mental;
+  }
+
+  get doubles() {
+    return this.props.doubles;
   }
 
   get surfaceAffinities() {
@@ -171,6 +191,7 @@ export class PlayerAttributes {
    * now computed per-attribute rather than as a cluster average, since
    * training targets exactly one attribute at a time. */
   attributeValue(attribute: TrainableAttribute): number {
+    if (attribute === 'doubles') return this.props.doubles.value;
     return isPhysicalAttribute(attribute) ? this.props.physical[attribute].value : this.props.technical[attribute].value;
   }
 
@@ -183,13 +204,16 @@ export class PlayerAttributes {
     });
   }
 
-  /** Attribute-focused training: bumps exactly ONE technical or
-   * physical skill by delta, leaves every other skill (including the
-   * rest of its own cluster), surface affinities, and mental
-   * attributes entirely untouched — single-attribute selection per
+  /** Attribute-focused training: bumps exactly ONE technical, physical,
+   * or doubles skill by delta, leaves every other skill (including the
+   * rest of its own cluster), surface affinities, and mental attributes
+   * entirely untouched — single-attribute selection per
    * docs/training-redesign-per-attribute.md, not the old "one delta
    * across a whole cluster" model. */
   trainedOnAttribute(attribute: TrainableAttribute, delta: number): PlayerAttributes {
+    if (attribute === 'doubles') {
+      return new PlayerAttributes({ ...this.props, doubles: this.props.doubles.add(delta) });
+    }
     if (isPhysicalAttribute(attribute)) {
       return new PlayerAttributes({
         ...this.props,

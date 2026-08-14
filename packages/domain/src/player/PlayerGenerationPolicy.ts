@@ -236,6 +236,14 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
   private static readonly MENTAL_MATURE_MIN = 55;
   private static readonly MENTAL_MATURE_MAX = 90;
 
+  /** Doubles-skill band (P7b), rolled independently of the rarity tier's
+   * singles band — a doubles specialist can come from any singles tier.
+   * Trainable (open-ended) unlike mental, so it starts lowish and grows
+   * through TrainingFocus. PLACEHOLDER, same tuning-pass status as
+   * MENTAL_MATURE_MIN/MAX. */
+  private static readonly DOUBLES_SKILL_MIN = 20;
+  private static readonly DOUBLES_SKILL_MAX = 65;
+
   /** Headroom rolled on TOP of the rarity tier's own band max — see
    * this class's generate() for why the ceiling isn't independently
    * rolled from scratch (it's deliberately anchored to the tier band
@@ -308,7 +316,33 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     const physicalCeilings = this.rollPhysicalCeilings(physical, random);
     const talent = this.rollTalent(random);
 
-    return { name, nationality, tier, attributes, potentialCeiling, potentialTier, ageInWeeks, physicalCeilings, talent };
+    // Doubles (P7b) is its own axis, independent of the rarity tier's
+    // singles band (a 'common' singles player can still be a doubles
+    // specialist — same "surface aptitude is unrelated to rarity"
+    // reasoning this policy already applies to affinities). Rolled
+    // LAST on purpose: every random.next() call this makes shifts the
+    // deterministic sequence, and the pre-existing tests assert on the
+    // exact sequence up through `talent`, so doubles consumes its draw
+    // only after every roll those tests depend on has happened.
+    const attributesWithDoubles = new PlayerAttributes({
+      technical: attributes.technical,
+      physical: attributes.physical,
+      mental: attributes.mental,
+      doubles: this.rollDoublesSkill(random),
+      surfaceAffinities: attributes.surfaceAffinities,
+    });
+
+    return {
+      name,
+      nationality,
+      tier,
+      attributes: attributesWithDoubles,
+      potentialCeiling,
+      potentialTier,
+      ageInWeeks,
+      physicalCeilings,
+      talent,
+    };
   }
 
   private rollAge(ageRange: AgeRange, random: RandomSource): number {
@@ -371,6 +405,13 @@ export class StandardPlayerGenerationPolicy implements PlayerGenerationPolicy {
     return Math.round(
       StandardPlayerGenerationPolicy.TALENT_MIN +
         random.next() * (StandardPlayerGenerationPolicy.TALENT_MAX - StandardPlayerGenerationPolicy.TALENT_MIN),
+    );
+  }
+
+  private rollDoublesSkill(random: RandomSource): Skill {
+    return Skill.of(
+      StandardPlayerGenerationPolicy.DOUBLES_SKILL_MIN +
+        random.next() * (StandardPlayerGenerationPolicy.DOUBLES_SKILL_MAX - StandardPlayerGenerationPolicy.DOUBLES_SKILL_MIN),
     );
   }
 

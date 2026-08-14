@@ -44,7 +44,7 @@ const trainingFocusSchema = {
         // — not just at the TypeScript level (TrainableAttribute), but
         // here too, so a request that tries to target one is rejected
         // by schema validation before it ever reaches the use case.
-        attribute: { type: 'string', enum: ['serve', 'forehand', 'backhand', 'volley', 'speed', 'stamina', 'strength'] },
+        attribute: { type: 'string', enum: ['serve', 'forehand', 'backhand', 'volley', 'speed', 'stamina', 'strength', 'doubles'] },
       },
       additionalProperties: false,
     },
@@ -186,6 +186,20 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     const player = await deps.players.findById(PlayerId(request.params.id));
     if (!player) return reply.code(404).send({ error: `Player ${request.params.id} not found` });
     return toPlayerDto(player);
+  });
+
+  // Runs one practice session (P8a) — the no-form, no-ranking training
+  // outlet. Once per player per game day.
+  app.post<{ Params: { id: string } }>('/players/:id/practice', async (request, reply) => {
+    const existing = await deps.players.findById(PlayerId(request.params.id));
+    const manager = await requireManager(request, reply, deps);
+    if (!manager) return;
+    if (!existing || existing.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found' });
+    try {
+      return await deps.runPracticeSession.execute({ playerId: PlayerId(request.params.id), managerId: manager.id });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   // Read-only preview for the "convert to coach" confirmation step —

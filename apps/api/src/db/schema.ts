@@ -81,6 +81,7 @@ export const trainableAttribute = pgEnum('trainable_attribute', [
   'speed',
   'stamina',
   'strength',
+  'doubles',
 ]);
 /** Discriminant for a player's standing training focus (TrainingFocus
  * union). Kept as a small enum plus two nullable "value" columns
@@ -96,6 +97,14 @@ export const managerStatus = pgEnum('manager_status', ['active', 'suspended']);
  * = wildcard. Lowercase values to match every other enum here; the
  * domain's own 'DA'/'Q'/'WC' labels are mapped in the adapter. */
 export const tournamentEntryType = pgEnum('tournament_entry_type', ['da', 'q', 'wc']);
+/** Which of a tournament's two brackets a row belongs to (see DrawPhase
+ * in the domain): the main draw, or the qualifying draw played out
+ * before it. 'main' for everything that existed before qualifying. */
+export const tournamentDraw = pgEnum('tournament_draw', ['main', 'qualifying']);
+/** The lifecycle of a doubles partnership (see DoublesPair /
+ * docs/doubles-and-special-formats-plan.md): pending while the invite
+ * awaits acceptance, active once playing, dissolved once ended. */
+export const doublesPairStatus = pgEnum('doubles_pair_status', ['pending', 'active', 'dissolved']);
 
 /** One row per game-world clock (single world at MVP). Players/
  * tournaments gain a world_id column when multi-world arrives. */
@@ -317,6 +326,44 @@ export const coaches = pgTable('coaches', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
+/**
+ * A doubles partnership (P7a, docs/doubles-and-special-formats-plan.md)
+ * — the persistent relationship between two PLAYERS that enters doubles
+ * draws. `player_a` is the initiating side (whose manager created the
+ * pair), `player_b` the partner; `status` is pending (cross-manager,
+ * awaiting player_b's manager), active, or dissolved. FKs to `players`
+ * are safe because a released player is never DELETED (release only
+ * nulls manager_id) — the row persists, so the pair's reference stays
+ * valid even after the cascade dissolves it. One active/pending pair per
+ * player is enforced by the use cases (check-then-act), not by a DB
+ * constraint, for the same reason the roster-cap/coach-cap checks are —
+ * see CreateDoublesPairUseCase's doc comment. The two player indexes
+ * serve findByPlayer() (profile highlight + release cascade) and
+ * findByPlayers() (the board's roster-wide read).
+ */
+export const doublesPairs = pgTable(
+  'doubles_pairs',
+  {
+    id: text('id').primaryKey(),
+    playerA: text('player_a')
+      .notNull()
+      .references(() => players.id),
+    playerB: text('player_b')
+      .notNull()
+      .references(() => players.id),
+    status: doublesPairStatus('status').notNull(),
+    /** Pair chemistry (P7c) — grown by playing doubles matches together.
+     * Defaults to 0 for every pre-P7c row. */
+    chemistry: integer('chemistry').notNull().default(0),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_doubles_pairs_player_a').on(table.playerA),
+    index('idx_doubles_pairs_player_b').on(table.playerB),
+  ],
+);
+
 export const players = pgTable('players', {
   id: text('id').primaryKey(),
   name: text('name').notNull(),
@@ -402,6 +449,11 @@ export const players = pgTable('players', {
   // Mental
   consistency: integer('consistency').notNull(),
   clutch: integer('clutch').notNull(),
+  // Doubles (P7b) — its own axis, distinct from the singles clusters
+  // above. Defaults to 0 for any row that predates the column (a player
+  // who has never trained doubles). Excluded from the singles
+  // overallRating (see PlayerAttributes); read only by the doubles sim.
+  doubles: integer('doubles').notNull().default(0),
 
   // Surface affinities (percentage bonus per surface, capped in domain)
   affinityClay: integer('affinity_clay').notNull(),
@@ -473,6 +525,25 @@ export const tournaments = pgTable('tournaments', {
    * created before the day clock existed. */
   startDay: integer('start_day').notNull().default(1),
   drawSize: integer('draw_size').notNull(),
+  /** Qualifying (docs/ranking-realism-proposal.md §5): the size of the
+   * qualifying FIELD, and how many main-draw places its survivors
+   * claim. Both 0 = this tournament holds no qualifying, which is every
+   * row written before the feature existed (hence the default) and every
+   * tier that doesn't hold one. Stored rather than re-derived from
+   * tier/draw size on read, so a later change to the placeholder
+   * QualifyingPolicy constants can never resize an event already being
+   * played — see TournamentOpenProps.qualifyingDrawSize. */
+  qualifyingDrawSize: integer('qualifying_draw_size').notNull().default(0),
+  qualifierSlots: integer('qualifier_slots').notNull().default(0),
+  /** Size of the DOUBLES draw (P7b) — how many pairs the doubles bracket
+   * holds. 0 = no doubles draw (every pre-P7b row). Derived at open time
+   * (DoublesPolicy.doublesDrawSizeFor), stored like the qualifying sizes. */
+  doublesDrawSize: integer('doubles_draw_size').notNull().default(0),
+  /** Doubles qualifying (P8): the size of the doubles QUALIFYING field
+   * and how many main-draw places its survivors claim. Both 0 = no
+   * doubles qualifying. */
+  doublesQualifyingDrawSize: integer('doubles_qualifying_draw_size').notNull().default(0),
+  doublesQualifierSlots: integer('doubles_qualifier_slots').notNull().default(0),
   /** Host country (P6 home advantage). Nullable: pre-P6 rows and any
    * tournament opened without a generated name have none, in which
    * case no player is ever "home". Set from
@@ -503,6 +574,11 @@ export const tournamentEntries = pgTable(
      * before qualifying existed reads back as a direct acceptance,
      * matching the domain's own default. */
     entryType: tournamentEntryType('entry_type').notNull().default('da'),
+    /** Which draw this entrant is currently IN — distinct from how they
+     * got there (entryType): a qualifier who wins through is moved to
+     * 'main' while keeping entry_type = 'q', which is why one row per
+     * (tournament, player) is still enough. Defaults to 'main'. */
+    draw: tournamentDraw('draw').notNull().default('main'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
@@ -522,6 +598,12 @@ export const tournamentMatches = pgTable(
     tournamentId: text('tournament_id')
       .notNull()
       .references(() => tournaments.id, { onDelete: 'cascade' }),
+    /** Which bracket this match belongs to. Part of the primary key
+     * below: the two draws number their rounds independently, so
+     * (round 1, match 0) legitimately exists in both. Defaults to
+     * 'main', so every pre-qualifying row is unchanged and the extended
+     * key is a strict superset of the old one. */
+    draw: tournamentDraw('draw').notNull().default('main'),
     roundNumber: integer('round_number').notNull(),
     matchIndex: integer('match_index').notNull(),
     entrantA: text('entrant_a')
@@ -540,5 +622,213 @@ export const tournamentMatches = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [primaryKey({ columns: [table.tournamentId, table.roundNumber, table.matchIndex] })],
+  (table) => [primaryKey({ columns: [table.tournamentId, table.draw, table.roundNumber, table.matchIndex] })],
 );
+
+/**
+ * A tournament's doubles field — the solo entrants (P7b). Entry is
+ * per-player, NOT per-pair: a manager signs one of their own players up,
+ * and they're paired at draw-formation time (DoublesPairingService).
+ * One row per (tournament, player).
+ */
+export const tournamentDoublesEntrants = pgTable(
+  'tournament_doubles_entrants',
+  {
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.tournamentId, table.playerId] })],
+);
+
+/**
+ * The formed doubles pairs of a tournament (P7b) — the output of
+ * DoublesPairingService, mapping each bracket slot's local `pairId` back
+ * to its two players. `pairId` is tournament-local (e.g. `t1-d0`), not a
+ * FK to anything — the persistent `DoublesPair` partnership (P7a) is only
+ * a *hint* that two entrants play together, not this row's identity.
+ * One row per (tournament, pair).
+ */
+export const tournamentDoublesPairs = pgTable(
+  'tournament_doubles_pairs',
+  {
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    pairId: text('pair_id').notNull(),
+    playerA: text('player_a')
+      .notNull()
+      .references(() => players.id),
+    playerB: text('player_b')
+      .notNull()
+      .references(() => players.id),
+    /** Chemistry carried into this draw (P7c) — the persistent
+     * partnership's chemistry when the two entrants ARE a DoublesPair,
+     * else 0. */
+    chemistry: integer('chemistry').notNull().default(0),
+    /** The persistent partnership's id, when applicable — what the sim
+     * uses to grow that pair's chemistry after the match. Null for a
+     * random pairing. */
+    persistentPairId: text('persistent_pair_id'),
+    /** Which doubles draw this pair is in ('main' or the doubles
+     * qualifying field). Defaults to 'main', so every pre-P8 row is
+     * unchanged. */
+    draw: tournamentDraw('draw').notNull().default('main'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.tournamentId, table.pairId] })],
+);
+
+/**
+ * A tournament's doubles bracket matches (P7b) — the doubles analogue of
+ * `tournament_matches`, but keyed on PAIR ids (local text, no player FK),
+ * since a doubles side is a pair, not a player. One row per
+ * (tournament, round, match).
+ */
+export const tournamentDoublesMatches = pgTable(
+  'tournament_doubles_matches',
+  {
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    /** Which doubles bracket this match belongs to ('main' or
+     * 'qualifying'). Part of the primary key below: the two draws number
+     * their rounds independently. Defaults to 'main', so every pre-P8 row
+     * is unchanged. */
+    draw: tournamentDraw('draw').notNull().default('main'),
+    roundNumber: integer('round_number').notNull(),
+    matchIndex: integer('match_index').notNull(),
+    entrantA: text('entrant_a').notNull(),
+    entrantB: text('entrant_b').notNull(),
+    winnerId: text('winner_id'),
+    loserId: text('loser_id'),
+    setScores: jsonb('set_scores').$type<Array<{ winnerGames: number; loserGames: number }>>(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.tournamentId, table.draw, table.roundNumber, table.matchIndex] })],
+);
+
+/**
+ * Append-only doubles title/trophy table (P7c) — the doubles analogue of
+ * `titles`. `tournament_id` as the primary key makes a second doubles
+ * title row for the same tournament structurally impossible (a
+ * tournament has one doubles champion). Records BOTH players of the
+ * winning pair (unlike `titles`, whose champion is one player).
+ */
+export const doublesTitles = pgTable(
+  'doubles_titles',
+  {
+    tournamentId: text('tournament_id')
+      .primaryKey()
+      .references(() => tournaments.id),
+    playerA: text('player_a')
+      .notNull()
+      .references(() => players.id),
+    playerB: text('player_b')
+      .notNull()
+      .references(() => players.id),
+    tier: tournamentTier('tier').notNull(),
+    /** Mirrors the tournament's age_band — null for a senior doubles
+     * title, u14/u16 for a junior one. */
+    ageBand: ageBand('age_band'),
+    seasonEarned: integer('season_earned').notNull(),
+    weekEarned: integer('week_earned').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_doubles_titles_player_a').on(table.playerA),
+    index('idx_doubles_titles_player_b').on(table.playerB),
+  ],
+);
+
+/**
+ * A player's permanent high-water-mark DOUBLES ranking total per band
+ * (P7c + junior doubles) — the doubles analogue of `peak_rankings`. One
+ * row per (player, band), upserted in place, never append-only.
+ */
+export const doublesPeakRankings = pgTable(
+  'doubles_peak_rankings',
+  {
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    band: rankingBand('band').notNull(),
+    peakPoints: doublePrecision('peak_points').notNull(),
+    peakAsOfSeason: integer('peak_as_of_season').notNull(),
+    peakAsOfWeek: integer('peak_as_of_week').notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.playerId, table.band] })],
+);
+
+/**
+ * Practice sessions (P8a) — the once-per-player-per-game-day marker
+ * behind the "Practice now" action. Composite primary key on
+ * (player_id, season, week, day) is the structural "one practice per
+ * player per day" guard (a second row for the same player+day can only
+ * ever be an INSERT-conflict, same "one row per scope" pattern as
+ * peak_rankings/training_schedule). Append-only: a day's practice is a
+ * fact that already happened.
+ */
+export const practiceSessions = pgTable(
+  'practice_sessions',
+  {
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    season: integer('season').notNull(),
+    week: integer('week').notNull(),
+    day: integer('day').notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.playerId, table.season, table.week, table.day] })],
+);
+
+/**
+ * The Masters Cup (P8b) — one season-end capstone event per season. Its
+ * group stage and knockout are small, read-whole structures (one cup per
+ * season, ~30 matches), so they're stored as jsonb columns rather than a
+ * normalized match table — the same "write-once/read-whole blob" reasoning
+ * the schema uses for set_scores. `season` is the capstone season (and
+ * doubles as the "which cup is this" key).
+ */
+export const mastersCups = pgTable('masters_cups', {
+  id: text('id').primaryKey(),
+  season: integer('season').notNull().unique(),
+  weekScheduledSeason: integer('week_scheduled_season').notNull(),
+  weekScheduledWeek: integer('week_scheduled_week').notNull(),
+  surface: surface('surface').notNull(),
+  singlesEntrants: jsonb('singles_entrants').$type<string[]>().notNull(),
+  doublesEntrants: jsonb('doubles_entrants')
+    .$type<Array<{ pairId: string; playerA: string; playerB: string; chemistry?: number; persistentPairId?: string }>>()
+    .notNull(),
+  singlesGroups: jsonb('singles_groups').$type<import('@tennis-manager/domain').Group<import('@tennis-manager/domain').PlayerId>[]>().notNull(),
+  doublesGroups: jsonb('doubles_groups').$type<import('@tennis-manager/domain').Group<import('@tennis-manager/domain').PairId>[]>().notNull(),
+  singlesKnockout: jsonb('singles_knockout').$type<import('@tennis-manager/domain').BracketRound<import('@tennis-manager/domain').PlayerId>[]>().notNull(),
+  doublesKnockout: jsonb('doubles_knockout').$type<import('@tennis-manager/domain').BracketRound<import('@tennis-manager/domain').PairId>[]>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * The World Team Cup (P8c) — one Davis-Cup-style national-team event per
+ * season. Like masters_cups, its teams/ties/rubbers are small read-whole
+ * structures stored as jsonb.
+ */
+export const worldTeamCups = pgTable('world_team_cups', {
+  id: text('id').primaryKey(),
+  season: integer('season').notNull().unique(),
+  weekScheduledSeason: integer('week_scheduled_season').notNull(),
+  weekScheduledWeek: integer('week_scheduled_week').notNull(),
+  surface: surface('surface').notNull(),
+  teams: jsonb('teams').$type<Array<{ country: string; players: string[] }>>().notNull(),
+  groups: jsonb('groups').$type<import('@tennis-manager/domain').WorldTeamCupGroup[]>().notNull(),
+  knockout: jsonb('knockout').$type<import('@tennis-manager/domain').WorldTeamCupTie[][]>().notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

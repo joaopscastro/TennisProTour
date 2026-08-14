@@ -11,14 +11,17 @@ import {
   PlayerMatchSummaryDto,
   PlayerProfileDto,
   RankingBand,
+  RosterDashboardEntryDto,
   TrainingFocus,
   TrainingScheduleWeekDto,
   claimTalentPoolCandidate,
+  createDoublesPair,
   fetchEntitlement,
   fetchEntryPlanner,
   fetchPlayer,
   fetchPlayerMatches,
   fetchPlayerProfile,
+  fetchRosterDashboard,
   fetchTrainingSchedule,
   setTrainingScheduleEntry,
 } from '../../../lib/api';
@@ -277,6 +280,45 @@ export default function PlayerProfilePage() {
   const [signError, setSignError] = useState<string | null>(null);
   const devManagerId = process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1';
 
+  // Doubles partner invitation (P7a): from a managed player owned by a
+  // DIFFERENT manager, invite them to be one of my players' doubles
+  // partner. Pull-based — the target manager accepts from their own board.
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteRoster, setInviteRoster] = useState<RosterDashboardEntryDto[] | null>(null);
+  const [inviteInitiator, setInviteInitiator] = useState<string | null>(null);
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteNotice, setInviteNotice] = useState<string | null>(null);
+
+  const canInvite = profile && profile.managerId !== null && profile.managerId !== devManagerId && profile.stage !== 'retired';
+
+  async function openInvite() {
+    setInviteError(null);
+    setInviteOpen(true);
+    try {
+      setInviteRoster(await fetchRosterDashboard(devManagerId));
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function submitInvite() {
+    if (!inviteInitiator) return;
+    setInviteBusy(true);
+    setInviteError(null);
+    try {
+      const pair = await createDoublesPair(inviteInitiator, playerId, devManagerId);
+      setInviteOpen(false);
+      setInviteNotice(pair.status === 'active' ? 'Doubles pair formed.' : 'Invitation sent.');
+      const fresh = await fetchPlayerProfile(playerId);
+      setProfile(fresh);
+    } catch (e) {
+      setInviteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
   // Schedule section (Step 2): two existing, separate backend reads —
   // the tournament entry planner and the new training-schedule planner
   // — combined into one per-week timeline here on the frontend, not a
@@ -470,6 +512,27 @@ export default function PlayerProfilePage() {
                   <span className="text-white/45">·</span>
                   <span>Age {(profile.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)}</span>
                 </div>
+                {profile.doublesPartner && (
+                  <div className="text-[13px] mt-[8px] flex items-center gap-[7px] text-white/90">
+                    <span
+                      className="inline-block px-[7px] py-[2px] rounded-[4px] text-[9.5px] font-extrabold tracking-[0.5px] uppercase"
+                      style={{
+                        background: profile.doublesPartner.status === 'active' ? 'oklch(45% 0.13 150 / 0.45)' : 'oklch(45% 0.1 240 / 0.45)',
+                        color: profile.doublesPartner.status === 'active' ? 'oklch(88% 0.13 150)' : 'oklch(86% 0.1 240)',
+                      }}
+                    >
+                      {profile.doublesPartner.status === 'active' ? 'Doubles partner' : 'Pending partner'}
+                    </span>
+                    <Link
+                      href={`/players/${profile.doublesPartner.playerId}`}
+                      className="no-underline hover:underline"
+                      style={{ color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}
+                    >
+                      <Flag code={profile.doublesPartner.nationality} size={14} />
+                      <span className="font-bold">{profile.doublesPartner.name}</span>
+                    </Link>
+                  </div>
+                )}
                 <div className="mt-[11px] flex items-center gap-[16px] flex-wrap">
                   <div style={{ padding: '5px 11px', borderRadius: 8, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.18)' }}>
                     <RankPill
@@ -520,6 +583,64 @@ export default function PlayerProfilePage() {
             >
               {signing ? 'Signing…' : 'Sign this free agent'}
             </button>
+          </div>
+        )}
+
+        {/* Doubles partner invitation (P7a) — only for a managed player
+            owned by a DIFFERENT manager. Pull-based: the target manager
+            accepts from their own board. */}
+        {canInvite && (
+          <div
+            className="mb-[24px] rounded-[10px] p-[16px]"
+            style={{ background: 'linear-gradient(180deg, oklch(32% 0.06 150), oklch(24% 0.04 150))', border: '1px solid oklch(55% 0.1 150 / 0.4)' }}
+          >
+            {!inviteOpen ? (
+              <div className="flex items-center justify-between gap-[16px] flex-wrap">
+                <div className="min-w-0">
+                  <div className="text-[11px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(82% 0.09 150)' }}>Doubles</div>
+                  <div className="text-[14px] font-semibold text-white mt-[3px]">
+                    Invite this player to be one of your players&apos; doubles partner.
+                  </div>
+                </div>
+                <button
+                  onClick={openInvite}
+                  className="flex-none rounded-[8px] px-[18px] py-[10px] text-[13px] font-extrabold cursor-pointer"
+                  style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
+                >
+                  Invite as partner
+                </button>
+              </div>
+            ) : (
+              <div>
+                <div className="text-[11px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(82% 0.09 150)' }}>Pick your initiating player</div>
+                <div className="flex items-center gap-[10px] mt-[10px] flex-wrap">
+                  <select
+                    className="gc-select"
+                    value={inviteInitiator ?? ''}
+                    onChange={(e) => setInviteInitiator(e.target.value || null)}
+                    style={{ padding: '8px 12px', fontSize: 13 }}
+                  >
+                    <option value="">Select a player…</option>
+                    {(inviteRoster ?? []).map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={submitInvite}
+                    disabled={!inviteInitiator || inviteBusy}
+                    className="rounded-[8px] px-[16px] py-[9px] text-[13px] font-extrabold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
+                  >
+                    {inviteBusy ? 'Sending…' : 'Send invitation'}
+                  </button>
+                  <button onClick={() => setInviteOpen(false)} className="text-[12px] cursor-pointer" style={{ background: 'none', border: 'none', color: 'white', opacity: 0.7 }}>
+                    Cancel
+                  </button>
+                </div>
+                {inviteError && <div className="text-[12px] mt-[8px]" style={{ color: 'oklch(80% 0.13 25)' }}>{inviteError}</div>}
+              </div>
+            )}
+            {inviteNotice && <div className="text-[12px] mt-[8px]" style={{ color: 'oklch(82% 0.11 150)' }}>{inviteNotice}</div>}
           </div>
         )}
 
@@ -639,6 +760,7 @@ export default function PlayerProfilePage() {
                     <AttributeGroup label="Technical" entries={Object.entries(player.attributes.technical)} />
                     <AttributeGroup label="Physical" entries={Object.entries(player.attributes.physical)} />
                     <AttributeGroup label="Mental" entries={Object.entries(player.attributes.mental)} />
+                    <AttributeGroup label="Doubles" entries={[['doubles', player.attributes.doubles]]} />
                   </>
                 )}
                 <AttributeGroup label="Surface affinity" entries={Object.entries(player.attributes.surfaceAffinities)} />
@@ -739,6 +861,51 @@ export default function PlayerProfilePage() {
               </Link>
             ))}
           </div>
+        )}
+
+        {/* Doubles (P7c + junior doubles) — peak rankings + pair titles. */}
+        {(profile.doublesPeaks.length > 0 || profile.doublesTitles.length > 0) && (
+          <>
+            <SectionLabel>Doubles</SectionLabel>
+            {profile.doublesPeaks.map((peak) => (
+              <div
+                key={peak.band}
+                className="flex items-center justify-between rounded-[8px] px-[14px] py-[11px] mb-[8px]"
+                style={{ background: 'linear-gradient(180deg, oklch(30% 0.06 150), oklch(22% 0.04 150))', border: '1px solid oklch(50% 0.08 150 / 0.4)' }}
+              >
+                <div className="flex items-center gap-[8px]">
+                  <span className="text-[16px]">🎾</span>
+                  <div className="font-semibold text-[13.5px]" style={{ color: 'oklch(85% 0.11 150)' }}>Doubles peak · {BAND_LABEL[peak.band]}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-[18px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(85% 0.11 150)' }}>
+                    {peak.peakPoints} pts
+                  </div>
+                  <div className="text-[11px]" style={{ color: 'oklch(85% 0.11 150 / 0.7)' }}>
+                    S{peak.peakAsOfWeek.season} W{peak.peakAsOfWeek.week}
+                  </div>
+                </div>
+              </div>
+            ))}
+            {profile.doublesTitles.map((title) => (
+              <Link
+                key={title.tournamentId}
+                href={`/players/${title.partnerId}`}
+                className="flex items-center justify-between rounded-[8px] px-[14px] py-[11px] mb-[8px] no-underline hover:opacity-90"
+                style={{ background: ACHIEVEMENT_BADGE.bg, color: ACHIEVEMENT_BADGE.fg }}
+              >
+                <div className="flex items-center gap-[10px] min-w-0">
+                  <span className="text-[16px]">🏆</span>
+                  <div className="font-semibold text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap">
+                    Doubles title with <Flag code={title.partnerNationality} size={13} /> {title.partnerName}
+                  </div>
+                </div>
+                <div className="text-[11.5px] font-semibold flex-none">
+                  {title.tier} · S{title.weekEarned.season} W{title.weekEarned.week}
+                </div>
+              </Link>
+            ))}
+          </>
         )}
 
         <NetDivider />

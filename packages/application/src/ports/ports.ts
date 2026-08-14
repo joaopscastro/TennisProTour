@@ -1,7 +1,7 @@
 import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, CoachId } from '@tennis-manager/domain';
-import { MatchLog, GameWorld, RankingLedgerEntry, Coach } from '@tennis-manager/domain';
+import { MatchLog, GameWorld, GameDay, RankingLedgerEntry, Coach, DoublesPair, PairId, DoublesTitleRecord, DoublesPeakRankingEntry, MastersCup, WorldTeamCup } from '@tennis-manager/domain';
 import { PeakRankingEntry, RankingBand, TitleRecord } from '@tennis-manager/domain';
 import { TrainingScheduleEntry } from '@tennis-manager/domain';
 
@@ -339,4 +339,90 @@ export interface TalentClaimPort {
 export interface CoachRepository {
   findByManager(managerId: ManagerId): Promise<Coach[]>;
   save(coach: Coach): Promise<void>;
+}
+
+/**
+ * One narrow repository per aggregate, same ISP convention as every
+ * other port here — the doubles partnership (P7a,
+ * docs/doubles-and-special-formats-plan.md). A pair is a persistent
+ * relationship between two PLAYERS, referenced by id only (the domain
+ * aggregate never knows either player's manager — that's a use-case
+ * concern), so this port is keyed on players, not managers. `save` is
+ * an upsert; there is deliberately no delete — a dissolved pair is a
+ * row whose status flips to 'dissolved' and stays, same "no delete,
+ * keep history" shape as Coach.
+ */
+export interface DoublesPairRepository {
+  findById(id: PairId): Promise<DoublesPair | null>;
+  /** Every pair involving this player, any status — the profile
+   * highlight (active partner) and the release cascade (dissolve
+   * everything involving the released player) both read this. */
+  findByPlayer(playerId: PlayerId): Promise<DoublesPair[]>;
+  /** Every pair involving ANY of the given players, any status — what
+   * the board's "Doubles" section reads, since it lists a manager's
+   * pairs across their whole roster in one call rather than one per
+   * player. */
+  findByPlayers(playerIds: PlayerId[]): Promise<DoublesPair[]>;
+  /** Every ACTIVE pair in the game-world — the Masters Cup's doubles
+   * qualification reads this to rank the top-8 partnerships. */
+  findActive(): Promise<DoublesPair[]>;
+  save(pair: DoublesPair): Promise<void>;
+}
+
+/**
+ * Append-only doubles title/trophy store (P7c) — the doubles analogue
+ * of TitleRepository. One row per tournament's doubles champion pair;
+ * `tournamentId` as the primary key makes a second doubles title row for
+ * the same tournament structurally impossible (a tournament has one
+ * doubles champion).
+ */
+export interface DoublesTitleRepository {
+  append(title: DoublesTitleRecord): Promise<void>;
+  /** Every doubles title EITHER player of the pair holds. */
+  findByPlayer(playerId: PlayerId): Promise<DoublesTitleRecord[]>;
+}
+
+/**
+ * A player's permanent high-water-mark DOUBLES ranking total in one band
+ * (P7c + junior doubles) — the doubles analogue of PeakRankingRepository:
+ * small and mutable (one row per (player, band), upserted), never
+ * append-only.
+ */
+export interface DoublesPeakRankingRepository {
+  findOne(playerId: PlayerId, band: RankingBand): Promise<DoublesPeakRankingEntry | null>;
+  upsert(entry: DoublesPeakRankingEntry): Promise<void>;
+}
+
+/**
+ * Practice sessions (P8a) — the once-per-player-per-day guard behind the
+ * "Practice now" action. Deliberately NOT an aggregate repository: a
+ * practice session has no behavior, it's a dated marker that a player
+ * already practiced on a given game day, so two narrow predicates are
+ * the whole surface.
+ */
+export interface PracticeSessionRepository {
+  /** Whether this player has already practiced on this exact game day. */
+  recordedOn(playerId: PlayerId, day: GameDay): Promise<boolean>;
+  /** Records that this player practiced on this exact game day. */
+  record(playerId: PlayerId, day: GameDay): Promise<void>;
+}
+
+/**
+ * The Masters Cup (P8b) — one season-end capstone event per season.
+ * Small surface: there is at most one cup per season, so the read is
+ * "find the cup for this season" and the write is "save it whole" (the
+ * aggregate owns its own group-stage/knockout state).
+ */
+export interface MastersCupRepository {
+  findBySeason(season: number): Promise<MastersCup | null>;
+  save(cup: MastersCup): Promise<void>;
+}
+
+/**
+ * The World Team Cup (P8c) — one national-team event per season. Same
+ * one-per-season shape as MastersCupRepository.
+ */
+export interface WorldTeamCupRepository {
+  findBySeason(season: number): Promise<WorldTeamCup | null>;
+  save(cup: WorldTeamCup): Promise<void>;
 }

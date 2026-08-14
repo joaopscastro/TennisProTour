@@ -141,6 +141,7 @@ export class PlayerAgingService {
         consistency: current.mental.consistency.add(decayPerAttribute),
         clutch: current.mental.clutch.add(decayPerAttribute),
       },
+      doubles: current.doubles.add(decayPerAttribute),
       surfaceAffinities: current.surfaceAffinities,
     });
 

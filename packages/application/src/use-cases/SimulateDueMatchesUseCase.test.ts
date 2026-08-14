@@ -212,7 +212,7 @@ class InMemoryGameWorldRepository implements GameWorldRepository {
 const testWorldId = WorldId('test-world');
 
 class AlwaysAWinsSimulator implements MatchSimulator {
-  simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
+  simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, _surface: Surface): SimulatedMatch<S> {
     return {
       outcome: { winner: playerA.playerId, loser: playerB.playerId, setScores: [{ winnerGames: 6, loserGames: 0 }] },
       log: { entries: [], points: [], totalDurationSeconds: 0 },

@@ -1,5 +1,5 @@
 import { Surface } from '../player/PlayerAttributes';
-import { PlayerId } from '../shared/ids';
+import { PairId, PlayerId } from '../shared/ids';
 
 export type SeniorTier = 'futures' | 'challenger' | 'tour' | 'major';
 
@@ -188,9 +188,33 @@ export function isObligatoryTier(tier: TournamentTier): boolean {
  */
 export type EntryType = 'DA' | 'Q' | 'WC';
 
+/**
+ * Which of a tournament's two brackets something belongs to (an
+ * entrant, a match, a round). A tournament that holds no qualifying
+ * has only a `'main'` draw and this is inert — every existing entrant,
+ * match and call site means `'main'`, which is why it's optional/
+ * defaulted everywhere rather than required.
+ *
+ * The FULL qualifying model (docs/ranking-realism-proposal.md §5) —
+ * qualifying is genuinely played: a real, smaller bracket simulated
+ * over the days BEFORE the main draw, whose winners are promoted into
+ * the main draw's reserved `[Q]` slots. That replaces the light
+ * model's "the qualifier is *assumed* to have come through".
+ */
+export type DrawPhase = 'main' | 'qualifying';
+
 export interface TournamentEntrant {
   playerId: PlayerId;
   seed: number | null;
+  /** Which bracket this entrant is in. Optional/additive: absent means
+   * `'main'` (see `drawOf`), so every pre-qualifying entrant, persisted
+   * row and test call site is unchanged. A qualifier who WINS through
+   * is moved to `'main'` on promotion while keeping `entryType: 'Q'` —
+   * so "came through qualifying" survives as a permanent, visible fact
+   * about how they got their place, while "which draw are they in now"
+   * stays a single unambiguous answer (one entrant row per player, as
+   * the DB's own (tournament_id, player_id) primary key requires). */
+  draw?: DrawPhase;
   /** Optional/additive: absent means direct acceptance (`'DA'`), so
    * every pre-qualifying entrant, persisted row, and test call site is
    * unchanged. Read through `entryTypeOf` rather than defaulted at each
@@ -203,9 +227,22 @@ export function entryTypeOf(entrant: Pick<TournamentEntrant, 'entryType'>): Entr
   return entrant.entryType ?? 'DA';
 }
 
-export type MatchOutcome = {
-  winner: PlayerId;
-  loser: PlayerId;
+/** The one place the "absent means the main draw" default lives. */
+export function drawOf(entrant: Pick<TournamentEntrant, 'draw'>): DrawPhase {
+  return entrant.draw ?? 'main';
+}
+
+/**
+ * The result of a single match. Generic over the slot id `S` so the
+ * SAME type describes a singles match (`S = PlayerId`, the default —
+ * unchanged for every existing caller) and a doubles match (`S =
+ * PairId`, whose two "sides" are pairs rather than players). Doubles
+ * matches are structurally identical: one winner, one loser, set
+ * scores — only what identifies a side differs.
+ */
+export type MatchOutcome<S extends string = PlayerId> = {
+  winner: S;
+  loser: S;
   setScores: ReadonlyArray<{ winnerGames: number; loserGames: number }>;
 };
 
@@ -329,11 +366,36 @@ export interface MatchLog {
   simulatedAt: string;
 }
 
-export interface BracketRound {
+export interface BracketRound<S extends string = PlayerId> {
   roundNumber: number;
   matches: ReadonlyArray<{
-    entrantA: PlayerId;
-    entrantB: PlayerId;
-    outcome: MatchOutcome | null;
+    entrantA: S;
+    entrantB: S;
+    outcome: MatchOutcome<S> | null;
   }>;
+}
+
+/**
+ * A doubles pair as formed for a specific tournament (P7b) — the unit
+ * the doubles bracket's slots identify. Distinct from the persistent
+ * `DoublesPair` partnership aggregate (P7a): that one is a
+ * manager-managed relationship that outlives any one tournament, while
+ * this is the tournament's OWN pairing of two entered players (which
+ * may be a persistent pair, or a random pairing of solo entrants, or a
+ * free-agent filler). `pairId` is local to the tournament's draw.
+ */
+export interface TournamentDoublesPair {
+  pairId: PairId;
+  playerA: PlayerId;
+  playerB: PlayerId;
+  /** Pair chemistry carried into this tournament's draw (P7c) — the
+   * persistent partnership's own chemistry when the two entrants ARE a
+   * `DoublesPair`, else 0 (a random solo pairing has none). Optional/
+   * additive: absent = 0 (every pre-P7c construction site and test).
+   * Fed to the sim as a small bonus. */
+  chemistry?: number;
+  /** The persistent partnership's id, when these two entrants are a
+   * `DoublesPair` (P7a) — what SimulateDoublesMatchUseCase uses to grow
+   * that pair's chemistry after the match. Absent for a random pairing. */
+  persistentPairId?: PairId;
 }

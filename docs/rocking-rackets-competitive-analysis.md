@@ -126,15 +126,15 @@ systems** that turn "which tournaments do I enter?" into the real game:
 ### What is fundamentally missing (priority order)
 | # | Gap | Status | Why it matters |
 |---|-----|--------|----------------|
-| 1 | **Fatigue/Energy** | ❌ none | Without it, entering every tournament is strictly optimal. The entry planner has *no tension*. This is the moment-to-moment game. |
-| 2 | **Form** | ❌ none | Same: punishes under/over-playing, forces a *rhythm*. Cheap to build. |
-| 3 | **Manager ranking as a decaying ladder** | ⚠️ we have a *wallet* only | Our manager XP is spend-only (`ManagerXpPolicy` explicitly "never a rolling/decaying ledger"). We have no public "am I winning vs other managers?" answer. This is the meta-loop and retention hook. |
-| 4 | **Player-driven development (Talent + hard-match XP)** | ⚠️ partial | Our growth is manager-XP/schedule-driven. RR's player-XP-from-hard-matches + Talent model is more satisfying and makes young prospects meaningful. |
+| 1 | **Fatigue/Energy** | ✅ built (`FatiguePolicy`, stamina-modulated accrual + daily recovery) | Without it, entering every tournament is strictly optimal. The entry planner has *no tension*. This is the moment-to-moment game. |
+| 2 | **Form** | ✅ built (`form` field, sweet-spot band + weekly decay) | Same: punishes under/over-playing, forces a *rhythm*. Cheap to build. |
+| 3 | **Manager ranking as a decaying ladder** | ✅ built (`manager_ladder` decays 0.99/week, public `/managers` leaderboard) | Our manager XP is spend-only (`ManagerXpPolicy` explicitly "never a rolling/decaying ledger"), so the *ladder* is a separate banked-and-decaying store, not the wallet renamed. This is the meta-loop and retention hook. |
+| 4 | **Player-driven development (Talent + hard-match XP)** | ✅ built (`talent` + `experience`; match XP + weekly talent income fund training) | RR's player-XP-from-hard-matches + Talent model — "you develop by playing." Makes young prospects meaningful. |
 | 5 | **Doubles** | ❌ none | Doubles roster utility & content from the *same* players, own ranking. Big scope, high payoff. |
-| 6 | **Home advantage** | ❌ none | Trivial (we already generate host countries), high flavor, ties nationality to strategy. |
+| 6 | **Home advantage** | ✅ built (`hostCountry` + `HOME_ADVANTAGE_BONUS` nationality match) | Trivial (we already generate host countries), high flavor, ties nationality to strategy. |
 | 7 | **Special formats** (Masters Cup groups, Team Cup, Practice) | ❌ none | Content depth + a no-form training outlet (Practice) that pairs perfectly with fatigue/form. |
 | 8 | **Obligatory-tournament ranking rule** | ✅ built & live (P9 — see `docs/ranking-realism-proposal.md`) | The "you must count the Slam even if you skip it" rule is what forces top players into the big events. |
-| 9 | **Qualification rounds `[Q]`** | ✅ light model built (a fully simulated qualifying draw is still deferred) | Lets lower-ranked players earn a main-draw spot; deepens the ladder. |
+| 9 | **Qualification rounds `[Q]`** | ✅ built — full simulated qualifying draw (P9 — see `docs/ranking-realism-proposal.md` §5) | Lets lower-ranked players earn a main-draw spot; deepens the ladder. |
 
 ### Attribute-model reconciliation note
 RR: skill / service / doubles / surface (trainable); strength / speed /
@@ -142,14 +142,30 @@ mentality / home-adv (fixed); talent / endurance (indirect).
 Ours: technical (serve/forehand/backhand/volley) / physical
 (speed/stamina/strength) / mental (consistency/clutch) / surface.
 We do **not** need to adopt RR's exact stats — ours are richer on the
-technical axis. But we are missing the *indirect* stats that drive the
-constraint systems: **endurance** (→ fatigue) and **talent** (→ growth
-rate). Those two should be added as first-class attributes. Our existing
-`stamina` physical attribute can *feed* endurance but is not the same thing
-(stamina is an in-match strength input; endurance is a fatigue-accrual
-modifier) — keep them distinct to avoid double-counting.
+technical axis. Of the two *indirect* stats RR keeps separate, we now
+have one: **`talent`** is a hidden, first-class `Player` field (rolled
+once at generation, drives the weekly experience income that funds
+training). **`endurance` was deliberately NOT added as its own
+attribute** — a disclosed scope decision folded it into the existing
+`stamina` attribute (`FatiguePolicy` reads stamina to reduce
+fatigue-accrual), rather than adding a second overlapping axis; revisit
+only if fatigue tuning ever needs an independent lever.
 
 ## 3. The potential / development problem — proposal
+
+> **Status: BUILT (P5).** The hybrid B+C recommendation below shipped as
+> `PotentialProjectionService.projectPotential` (domain/player) exposed
+> only on `PlayerProfileDto.potential` (`GET /players/:id/profile`): a
+> derived, age-fuzzed, profile-only "scout's projection" — projected-
+> ceiling band, per-attribute ghost caps (technical/physical toward their
+> own ceilings, mental flagged mature), a growth read surfacing the hidden
+> `talent`, and a confidence that tightens from a wide band at 14yo to the
+> true ceiling by 24yo. Deterministic per player (FNV-1a hash of playerId,
+> never re-rollable) and never serializing the raw hidden numbers. A P5
+> "resolution" celebration fires once when one of your own prospects
+> resolves to a high/elite ceiling. See CLAUDE.md's player-acquisition
+> note for the full detail. The problem statement and options below are
+> kept as the design rationale.
 
 ### The problem
 RR shows current stats **openly**, plus a **development percentage** on each
@@ -229,47 +245,46 @@ blue-chip prospect card.
 Phasing is by dependency and by "smallest change that adds real tension
 first". Each phase is shippable on its own.
 
-### Phase 1 — Constraint systems (the actual game) 🔴 highest priority
-- **P1. Fatigue/Energy.** Add `endurance` attribute + a per-player `fatigue`
-  counter. Accrue fatigue in `SimulateMatchUseCase` from points-played,
-  reduced by endurance. Recover on the weekly tick (`AdvanceWorldWeekUseCase`
-  — scale the 50/day rule to our tick cadence). Apply a strength penalty in
-  `StatisticalMatchSimulator.effectiveRating` above a threshold. Surface
-  fatigue on the profile + roster + entry planner (so the tension is
-  *visible* before you commit).
-- **P2. Form.** Add a per-player `form` counter (+1/real match, decay/week).
-  Apply skill/serve penalty below/above the sweet-spot band; small bonus in
-  band; reduce XP gain out of band. Show a form gauge on roster + planner.
-- **P3. Manager ranking ladder.** Add a **decaying** manager-points ledger
-  *alongside* the existing XP wallet (do NOT replace the wallet — RR has
-  both). Credit points on player results (same event point as ranking-ledger
-  writes); decay ~1%/tick. Build a public **Managers leaderboard** page. This
-  is the retention meta-loop.
+### Phase 1 — Constraint systems (the actual game) ✅ DONE
+- **P1. Fatigue/Energy.** ✅ Built. Per-player `fatigue`, accrued per match
+  through `FatiguePolicy.fatigueCostForMatch` (stamina-modulated,
+  `BASE_MATCH_FATIGUE=8`), recovering `FATIGUE_RECOVERY_PER_DAY=5` on every
+  advanced day, with a `fatigue*0.15` penalty in `effectiveRating`. Endurance
+  is folded into `stamina` (see the reconciliation note above) rather than
+  added as its own attribute. Surfaced as a roster gauge.
+- **P2. Form.** ✅ Built. Per-player `form` (`+1`/match, `×FORM_WEEKLY_DECAY=0.85`
+  per rollover) with a sweet-spot band (`FORM_SWEET_SPOT_MIN=12`/`MAX=25`,
+  `+SWEET_SPOT_BONUS=2`) and out-of-band penalties (`<RUSTY_THRESHOLD=8`,
+  `>STALE_THRESHOLD=30`). Surfaced as a roster gauge.
+- **P3. Manager ranking ladder.** ✅ Built. `manager_ladder` — a banked,
+  never-spent, public score that decays `×0.99` per weekly rollover, credited
+  at the same event as `ranking_ledger` writes; public `GET /managers/leaderboard`
+  + the `/managers` page. The XP wallet is untouched — both coexist, exactly
+  as RR.
 
-### Phase 2 — Development depth 🟡
-- **P4. Talent + player-XP development.** Add `talent` (growth-rate) +
-  player `experience`. Award match XP scaled by *opponent difficulty / loser
-  points* (hard matches teach more), plus weekly talent XP. Feed XP into the
-  existing per-attribute training so growth is *earned by playing*, not only
-  bought with manager XP. Reconcile with the current training-schedule model.
-- **P5. Potential/development view.** Implement §3's recommendation
-  (derived, age-fuzzed, profile-only ghost-cap projection + resolution
-  celebration). Depends on P4's `talent` for the full prospect card.
+### Phase 2 — Development depth ✅ DONE
+- **P4. Talent + player-XP development.** ✅ Built. `talent` (25–95, rolled
+  once at generation) + `experience` (double-precision, spendable) behind
+  `StandardPlayerDevelopmentPolicy`: match XP scaled by the loser's games won
+  (harder = more), plus weekly talent income, funding `Player.applyTraining`
+  so growth is *earned by playing*. Both hidden, never serialized.
+- **P5. Potential/development view.** ✅ Built. §3's recommendation shipped —
+  `PotentialProjectionService` + the profile ghost-cap "scout's projection"
+  (see §3's status note).
 
 ### Phase 3 — Content depth 🟢
-- **P6. Home advantage.** Add `homeAdvantage` attribute (or derive from
-  nationality match). Apply bonus in the sim when player nationality ==
-  tournament host country (we already store host country on generated names).
-- **P7. Doubles.** Parallel `doubles` stat, doubles draws in `Tournament`,
-  doubles ranking band, doubles entries. Large — scope as its own doc when
-  reached.
-- **P8. Special formats.** Practice Sessions first (pairs with fatigue/form
-  as a no-form training + manager-points outlet), then Masters Cup
-  (round-robin groups), then World Team Cup.
+- **P6. Home advantage.** ✅ Built. `hostCountry` (structured, from the
+  generated name's country) + `HOME_ADVANTAGE_BONUS=+3` applied when a
+  player's `nationality` matches it; resolved at sim time, no new Player field.
+- **P7. Doubles.** ❌ NOT STARTED — full plan in
+  `docs/doubles-and-special-formats-plan.md`.
+- **P8. Special formats.** ❌ NOT STARTED — Practice Sessions first; full plan
+  in `docs/doubles-and-special-formats-plan.md`.
 - **P9. Ranking realism.** ✅ DONE. Obligatory-tournament counting rule (live
-  on the weekly rollover) and the light qualification-rounds `[Q]` model —
-  see `docs/ranking-realism-proposal.md`. Only the full, genuinely simulated
-  qualifying draw remains deferred.
+  on the weekly rollover) AND qualification rounds `[Q]`, now the full model
+  — a genuinely simulated qualifying draw played before the main draw, whose
+  survivors claim the reserved main-draw places — see
+  `docs/ranking-realism-proposal.md` §5.
 
 ### Deliberately NOT copying RR
 - RR's grey-table UI and per-page ad slots (our differentiator is the
@@ -280,13 +295,19 @@ first". Each phase is shippable on its own.
   principle #1.
 
 ## 5. Open questions for the owner
-1. **Form + fatigue tuning to our tick cadence.** RR is real-time-ish
-   (50 fatigue/day, −8% form/week). Our world advances per weekly tick (with
-   a fast dev override). We need to decide whether fatigue recovers
-   *per-tick* or on a finer sub-tick clock, and re-derive the constants. This
-   is the main balance question and should get its own tuning pass.
+1. **Fatigue/form tuning.** ✅ resolved to the day-tick cadence (the world
+   advances one *day* per tick — see `docs/day-tick-and-scheduling.md`):
+   fatigue recovers `FATIGUE_RECOVERY_PER_DAY=5` per advanced day, form
+   decays `×0.85` on each weekly rollover. What's still open is the balance
+   of the *constants themselves* — every fatigue/form threshold is an
+   explicit, comment-flagged placeholder and still needs its own tuning pass.
 2. **Should the manager ladder decay be visible-tier-gated** (e.g. no decay
    below some floor so new managers aren't punished) or a flat 1%/tick like
-   RR? RR uses flat; a floor may be friendlier for onboarding.
-3. **Doubles** is a large surface — build it only once Phase 1 proves the
-   core loop retains users, per the project's anti-over-engineering stance.
+   RR? We shipped flat (`×0.99`/rollover, a placeholder); the RR 1%/1.5%
+   VIP tier split is deferred to the Billing context. A new-manager floor
+   remains an open design choice.
+3. **Doubles** is a large surface — it is now planned (see
+   `docs/doubles-and-special-formats-plan.md`), but should only be *built*
+   once Phase 1's retention is proven, per the project's anti-over-engineering
+   stance. Practice Sessions (P8, the cheap half) can ship earlier and is
+   scoped independently.

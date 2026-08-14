@@ -217,7 +217,7 @@ function makeTestWorld(week: GameWeek = { season: 1, week: 10 }): GameWorldRepos
 /** Always declares entrantA (playerA) the winner, for deterministic
  * cascades through a bracket in these tests. */
 class AlwaysAWinsSimulator implements MatchSimulator {
-  simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
+  simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, _surface: Surface): SimulatedMatch<S> {
     return {
       outcome: {
         winner: playerA.playerId,
@@ -1392,9 +1392,9 @@ describe('SimulateMatchUseCase — peak ranking and titles (docs/data-archival-p
 
 describe('SimulateMatchUseCase — home advantage (P6)', () => {
   class CapturingSimulator implements MatchSimulator {
-    lastA: MatchParticipant | null = null;
-    lastB: MatchParticipant | null = null;
-    simulate(playerA: MatchParticipant, playerB: MatchParticipant, _surface: Surface): SimulatedMatch {
+    lastA: MatchParticipant<string> | null = null;
+    lastB: MatchParticipant<string> | null = null;
+    simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, _surface: Surface): SimulatedMatch<S> {
       this.lastA = playerA;
       this.lastB = playerB;
       return {

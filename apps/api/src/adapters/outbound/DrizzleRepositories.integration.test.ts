@@ -3,7 +3,9 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
-import { entryTypeOf, ManagerId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
+import { drawOf, entryTypeOf, ManagerId, PairId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
+import { DoublesPair } from '@tennis-manager/domain';
+import { MastersCup } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
@@ -24,6 +26,10 @@ import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
 import { DrizzleCoachRepository } from './DrizzleCoachRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
 import { DrizzleTitleRepository } from './DrizzleTitleRepository';
+import { DrizzleDoublesPairRepository } from './DrizzleDoublesPairRepository';
+import { DrizzleDoublesTitleRepository } from './DrizzleDoublesTitleRepository';
+import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRankingRepository';
+import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
 
 const connectionString = testConnectionString();
 
@@ -47,13 +53,18 @@ beforeEach(async () => {
   // Child tables first (FKs), then parents. ranking_ledger/titles have
   // FKs to both players and tournaments, so they have to go before
   // either; peak_rankings/training_schedule only reference players.
+  // doubles_pairs references players, so it goes before players too.
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
   await db.delete(schema.trainingSchedule);
   await db.delete(schema.tournamentMatches);
   await db.delete(schema.tournamentEntries);
+  await db.delete(schema.doublesTitles);
   await db.delete(schema.tournaments);
+  await db.delete(schema.doublesPairs);
+  await db.delete(schema.doublesPeakRankings);
+  await db.delete(schema.practiceSessions);
   await db.delete(schema.players);
   await db.delete(schema.managerProgression); // no FKs, order doesn't matter
   await db.delete(schema.coaches); // no FKs, order doesn't matter
@@ -67,13 +78,16 @@ function byPlayerId(a: { playerId: string }, b: { playerId: string }): number {
 }
 
 /** What an in-memory entrant list looks like once it has been through
- * the database: sorted (see byPlayerId) and with an EXPLICIT entryType,
- * since tournament_entries.entry_type is NOT NULL DEFAULT 'da' — a
- * plain `{ playerId, seed }` entrant reads back as a direct acceptance
- * rather than with the field absent. A real, disclosed round-trip
- * detail, not a normalization that hides a difference. */
+ * the database: sorted (see byPlayerId) and with an EXPLICIT entryType
+ * and draw, since tournament_entries.entry_type/draw are NOT NULL
+ * DEFAULT 'da'/'main' — a plain `{ playerId, seed }` entrant reads back
+ * as a direct acceptance in the main draw rather than with those fields
+ * absent. A real, disclosed round-trip detail, not a normalization that
+ * hides a difference. */
 function persistedEntrants(entrants: ReadonlyArray<TournamentEntrant>): TournamentEntrant[] {
-  return [...entrants].sort(byPlayerId).map((entrant) => ({ ...entrant, entryType: entryTypeOf(entrant) }));
+  return [...entrants]
+    .sort(byPlayerId)
+    .map((entrant) => ({ ...entrant, entryType: entryTypeOf(entrant), draw: drawOf(entrant) }));
 }
 
 afterAll(async () => {
@@ -310,6 +324,115 @@ describe('DrizzleTournamentRepository', () => {
     expect(() =>
       loaded!.recordMatchOutcome(1, 0, { winner: PlayerId('p1'), loser: PlayerId('p16'), setScores: [] }),
     ).toThrow();
+  });
+
+  it('round-trips a tournament with a qualifying draw, and a promoted qualifier (the FULL model)', async () => {
+    await savePlayers(22);
+
+    const original = Tournament.open({
+      name: 'Test Qualifying Tournament',
+      id: TournamentId('tq1'),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 18 },
+      drawSize: 16,
+      qualifyingDrawSize: 8,
+      qualifierSlots: 2,
+    });
+
+    // 8 players contest the 2 reserved slots; 14 take direct-acceptance
+    // places (mainDrawCapacity = drawSize - qualifierSlots = 14).
+    for (let i = 1; i <= 8; i++) {
+      original.registerEntrant({ playerId: PlayerId(`p${i}`), seed: null, draw: 'qualifying', entryType: 'Q' });
+    }
+    for (let i = 9; i <= 22; i++) {
+      original.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i - 8 });
+    }
+
+    original.startQualifyingWithBracket(new BracketGenerator().generate(original.qualifyingEntrants, 8));
+    original.recordMatchOutcome(
+      1,
+      0,
+      { winner: PlayerId('p1'), loser: PlayerId('p8'), setScores: [{ winnerGames: 6, loserGames: 3 }] },
+      'qualifying',
+    );
+    original.pullDomainEvents();
+
+    await tournamentRepository.save(original);
+    let loaded = await tournamentRepository.findById(TournamentId('tq1'));
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.hasQualifying).toBe(true);
+    expect(loaded!.qualifyingDrawSize).toBe(8);
+    expect(loaded!.qualifierSlots).toBe(2);
+    expect(loaded!.hasStarted).toBe(true); // qualifying seeded
+    expect(loaded!.hasMainDraw).toBe(false); // deferred main-draw seeding
+    expect([...loaded!.entrants].sort(byPlayerId)).toEqual(persistedEntrants(original.entrants));
+    expect(loaded!.getQualifyingRounds()).toEqual(original.getQualifyingRounds());
+    expect(loaded!.getRounds()).toEqual([]);
+    expect(loaded!.pullDomainEvents()).toHaveLength(0);
+
+    // Promote a qualifier and seed the main draw — the transition the
+    // worker's PromoteQualifiersUseCase drives. The promoted entrant
+    // keeps entryType 'Q' while moving to draw 'main'.
+    original.promoteQualifier(PlayerId('p1'));
+    original.startWithBracket(new BracketGenerator().generate(original.mainEntrants, 16));
+    original.pullDomainEvents();
+    await tournamentRepository.save(original);
+    loaded = await tournamentRepository.findById(TournamentId('tq1'));
+
+    expect(loaded!.hasMainDraw).toBe(true);
+    expect([...loaded!.entrants].sort(byPlayerId)).toEqual(persistedEntrants(original.entrants));
+    const promoted = loaded!.entrants.find((e) => e.playerId === PlayerId('p1'));
+    expect(promoted).toBeDefined();
+    expect(drawOf(promoted!)).toBe('main');
+    expect(entryTypeOf(promoted!)).toBe('Q');
+    expect(loaded!.getRounds()).toEqual(original.getRounds());
+  });
+
+  it('round-trips a tournament with a doubles draw: entrants, formed pairs, and the pair-keyed bracket (P7b)', async () => {
+    await savePlayers(8);
+
+    const original = Tournament.open({
+      name: 'Test Doubles Tournament',
+      id: TournamentId('td1'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 19 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    for (let i = 1; i <= 8; i++) {
+      original.registerDoublesEntrant(PlayerId(`p${i}`));
+    }
+
+    const pairs = [
+      { pairId: PairId('td1-d0'), playerA: PlayerId('p1'), playerB: PlayerId('p2'), chemistry: 0 },
+      { pairId: PairId('td1-d1'), playerA: PlayerId('p3'), playerB: PlayerId('p4'), chemistry: 0 },
+      { pairId: PairId('td1-d2'), playerA: PlayerId('p5'), playerB: PlayerId('p6'), chemistry: 0 },
+      { pairId: PairId('td1-d3'), playerA: PlayerId('p7'), playerB: PlayerId('p8'), chemistry: 0 },
+    ];
+    const bracket = new BracketGenerator().generate(pairs.map((p) => ({ playerId: p.pairId, seed: null })), 4);
+    original.startDoublesWithBracket(pairs, bracket);
+    original.recordDoublesMatchOutcome(1, 0, {
+      winner: PairId('td1-d0'),
+      loser: PairId('td1-d3'),
+      setScores: [{ winnerGames: 6, loserGames: 3 }],
+    });
+    original.pullDomainEvents();
+
+    await tournamentRepository.save(original);
+    const loaded = await tournamentRepository.findById(TournamentId('td1'));
+
+    expect(loaded).not.toBeNull();
+    expect(loaded!.doublesDrawSize).toBe(4);
+    expect(loaded!.hasDoubles).toBe(true);
+    expect(loaded!.hasStarted).toBe(true); // doubles draw seeded
+    expect([...loaded!.doublesEntrants].sort()).toEqual([...original.doublesEntrants].sort());
+    expect(loaded!.doublesPairs).toEqual(pairs);
+    expect(loaded!.getDoublesRounds()).toEqual(original.getDoublesRounds());
+    expect(loaded!.doublesPlayersFor(PairId('td1-d0'))!.playerB).toBe(PlayerId('p2'));
+    expect(loaded!.pullDomainEvents()).toHaveLength(0);
   });
 
   it('round-trips a junior tournament with its ageBand, and a senior tournament with a null ageBand', async () => {
@@ -850,5 +973,135 @@ describe('DrizzleCoachRepository', () => {
 
     expect((await repository.findByManager(ManagerId('m1'))).map((c) => c.id)).toEqual(['coach1']);
     expect((await repository.findByManager(ManagerId('m2'))).map((c) => c.id)).toEqual(['coach2']);
+  });
+});
+
+describe('DrizzleDoublesPairRepository', () => {
+  const repository = new DrizzleDoublesPairRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+
+  async function savePlayers(ids: PlayerId[]): Promise<void> {
+    for (const id of ids) {
+      await playerRepository.save(Player.hire(id, id, 25 * 52, attributes(50), ManagerId('m1')));
+    }
+  }
+
+  it('round-trips a pair and its status transition (upsert)', async () => {
+    await savePlayers([PlayerId('a'), PlayerId('b')]);
+
+    const pair = DoublesPair.propose(PairId('pair1'), PlayerId('a'), PlayerId('b'));
+    await repository.save(pair);
+
+    const found = await repository.findById(PairId('pair1'));
+    expect(found).not.toBeNull();
+    expect(found!.status).toBe('pending');
+    expect(found!.involves(PlayerId('a'))).toBe(true);
+    expect(found!.partnerOf(PlayerId('a'))).toBe(PlayerId('b'));
+
+    // Accept → active, saved in place (upsert, no second row).
+    found!.accept();
+    await repository.save(found!);
+
+    const reloaded = await repository.findById(PairId('pair1'));
+    expect(reloaded!.status).toBe('active');
+
+    // findByPlayer/findByPlayers see it from both sides.
+    expect((await repository.findByPlayer(PlayerId('a'))).map((p) => p.id)).toEqual(['pair1']);
+    expect((await repository.findByPlayer(PlayerId('b'))).map((p) => p.id)).toEqual(['pair1']);
+    expect((await repository.findByPlayers([PlayerId('a')])).map((p) => p.id)).toEqual(['pair1']);
+  });
+
+  it('findByPlayers filters to pairs involving ANY of the given players', async () => {
+    await savePlayers([PlayerId('a'), PlayerId('b'), PlayerId('c'), PlayerId('d')]);
+
+    await repository.save(DoublesPair.activate(PairId('p-ab'), PlayerId('a'), PlayerId('b')));
+    await repository.save(DoublesPair.activate(PairId('p-cd'), PlayerId('c'), PlayerId('d')));
+
+    const forAandC = await repository.findByPlayers([PlayerId('a'), PlayerId('c')]);
+    expect(forAandC.map((p) => p.id).sort()).toEqual(['p-ab', 'p-cd']);
+
+    const forAonly = await repository.findByPlayers([PlayerId('a')]);
+    expect(forAonly.map((p) => p.id)).toEqual(['p-ab']);
+  });
+
+  it('findByPlayer returns an empty array for a player in no pair', async () => {
+    await savePlayers([PlayerId('lonely')]);
+    expect(await repository.findByPlayer(PlayerId('lonely'))).toEqual([]);
+  });
+});
+
+describe('DrizzleDoublesTitleRepository + DrizzleDoublesPeakRankingRepository', () => {
+  const titles = new DrizzleDoublesTitleRepository(db);
+  const peaks = new DrizzleDoublesPeakRankingRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+
+  it('round-trips a doubles title and a doubles peak', async () => {
+    await playerRepository.save(Player.hire(PlayerId('a'), 'Player A', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('b'), 'Player B', 20 * 52, attributes(30), ManagerId('m1')));
+    await tournamentRepository.save(
+      Tournament.open({ name: 'Test Doubles Championship', id: TournamentId('tdt1'), tier: 'challenger', surface: 'hard', weekScheduled: { season: 2, week: 19 }, drawSize: 16, doublesDrawSize: 4 }),
+    );
+
+    await titles.append({
+      tournamentId: TournamentId('tdt1'),
+      playerA: PlayerId('a'),
+      playerB: PlayerId('b'),
+      tier: 'challenger',
+      ageBand: null,
+      weekEarned: { season: 2, week: 19 },
+    });
+    const found = await titles.findByPlayer(PlayerId('a'));
+    expect(found).toHaveLength(1);
+    expect(found[0].playerB).toBe(PlayerId('b'));
+    expect(await titles.findByPlayer(PlayerId('b'))).toHaveLength(1);
+
+    await peaks.upsert({ playerId: PlayerId('a'), band: 'senior', peakPoints: 62.5, peakAsOfWeek: { season: 2, week: 19 } });
+    const peak = await peaks.findOne(PlayerId('a'), 'senior');
+    expect(peak!.peakPoints).toBe(62.5);
+    expect(peaks.findOne(PlayerId('b'), 'senior')).resolves.toBeNull();
+  });
+});
+
+describe('DrizzleMastersCupRepository', () => {
+  const repository = new DrizzleMastersCupRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+
+  it('round-trips a Masters Cup (groups + knockout) as a whole', async () => {
+    for (let i = 1; i <= 8; i++) {
+      await playerRepository.save(Player.hire(PlayerId(`p${i}`), `Player ${i}`, 25 * 52, attributes(50), ManagerId('m1')));
+    }
+
+    const cup = MastersCup.open({
+      id: TournamentId('mc1'),
+      season: 1,
+      weekScheduled: { season: 1, week: 40 },
+      surface: 'hard',
+      singlesEntrants: Array.from({ length: 8 }, (_, i) => PlayerId(`p${i + 1}`)),
+      doublesEntrants: Array.from({ length: 8 }, (_, i) => ({
+        pairId: PairId(`d${i + 1}`),
+        playerA: PlayerId(`p${i + 1}`),
+        playerB: PlayerId(`p${(i % 4) + 1}`),
+      })),
+    });
+    await repository.save(cup);
+
+    const loaded = await repository.findBySeason(1);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.id).toBe('mc1');
+    expect(loaded!.singlesEntrants).toHaveLength(8);
+    expect(loaded!.singlesGroups).toHaveLength(2);
+    expect(loaded!.singlesGroups[0].matches).toHaveLength(6);
+    expect(loaded!.doublesGroups).toHaveLength(2);
+    expect(loaded!.hasKnockout).toBe(false);
+
+    // Mutate (record a group outcome) and save again — the jsonb round-
+    // trip preserves outcomes.
+    const m = loaded!.singlesGroups[0].matches[0];
+    loaded!.recordSinglesGroupMatchOutcome(0, 0, { winner: m.entrantA, loser: m.entrantB, setScores: [{ winnerGames: 6, loserGames: 2 }] });
+    await repository.save(loaded!);
+
+    const reloaded = await repository.findBySeason(1);
+    expect(reloaded!.singlesGroups[0].matches[0].outcome).not.toBeNull();
   });
 });

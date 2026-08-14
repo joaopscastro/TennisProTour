@@ -2,8 +2,16 @@ import { PlayerAttributes, Surface } from '../player/PlayerAttributes';
 import { PlayerId } from '../shared/ids';
 import { MatchOutcome, MatchLog } from '../competition/CompetitionTypes';
 
-export interface MatchParticipant {
-  playerId: PlayerId;
+/**
+ * One side of a match, generic over the slot id `S` so the same shape
+ * describes a singles player (`S = PlayerId`, the default) and a
+ * doubles pair (`S = PairId`, where `playerId` actually holds the PAIR's
+ * id — see DoublesPairPolicy, which produces a composite participant
+ * for a two-player side). The simulator never cares what an id names;
+ * it only reports which side won via that id.
+ */
+export interface MatchParticipant<S extends string = PlayerId> {
+  playerId: S;
   attributes: PlayerAttributes;
   fatigue: number; // 0–100, read from Player at simulation time
   form: number; // 0–100 rhythm counter, read from Player at simulation time
@@ -14,10 +22,22 @@ export interface MatchParticipant {
    * not by the simulator, which never sees nationality/host country
    * directly — it stays a pure function of match-relevant inputs. */
   homeAdvantage?: boolean;
+  /** The side's combined doubles skill (P7b) — 0-100, only ever set for
+   * a DOUBLES side (a composite of two players produced by
+   * DoublesPairPolicy). Absent for a singles participant, so the sim
+   * adds no doubles term and stays byte-identical for singles. The
+   * simulator applies its own `DOUBLES_SKILL_WEIGHT` to this — RR's
+   * "40% of the doubles stat adds to skill" rule, a placeholder. */
+  doublesSkill?: number;
+  /** The side's pair chemistry (P7c) — 0-100, only for a doubles side
+   * that is a PERSISTENT partnership (a random pairing has none). The
+   * simulator applies `CHEMISTRY_BONUS_PER_POINT` to it; absent for
+   * singles and for ad-hoc pairs, so nothing changes there. */
+  chemistry?: number;
 }
 
-export interface SimulatedMatch {
-  outcome: MatchOutcome;
+export interface SimulatedMatch<S extends string = PlayerId> {
+  outcome: MatchOutcome<S>;
   /** Full replay log for client-side fake-live playback. Kept
    * separate from `outcome` because callers that only care about the
    * result (e.g. updating rankings) shouldn't be forced to also carry
@@ -44,7 +64,7 @@ export interface SimulatedMatch {
  * any caller).
  */
 export interface MatchSimulator {
-  simulate(playerA: MatchParticipant, playerB: MatchParticipant, surface: Surface): SimulatedMatch;
+  simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, surface: Surface): SimulatedMatch<S>;
 }
 
 /** Injected rather than imported directly (Dependency Inversion) so

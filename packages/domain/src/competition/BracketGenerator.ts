@@ -1,7 +1,31 @@
 import { PlayerId } from '../shared/ids';
-import { BracketRound, DrawSize, TournamentEntrant } from './CompetitionTypes';
+import { BracketRound } from './CompetitionTypes';
 
-type BracketMatch = BracketRound['matches'][number];
+type BracketMatch<S extends string> = BracketRound<S>['matches'][number];
+
+/**
+ * Any power-of-two bracket this generator can seed. Deliberately WIDER
+ * than `DrawSize` (16/32/64/128): a QUALIFYING field is a real bracket
+ * too, and a small one is legitimately smaller than any main draw the
+ * game offers (e.g. 8 players contesting a 16-draw challenger's 2
+ * reserved slots). Widening the parameter is backwards-compatible —
+ * every existing caller passes a `DrawSize`, which is assignable here.
+ */
+export type BracketSize = number;
+
+/**
+ * The minimal entrant shape a bracket seed needs — a slot id plus an
+ * optional seed. Generic over the slot id `S` so the SAME generator
+ * seeds a singles draw (`S = PlayerId`, the default) and a doubles draw
+ * (`S = PairId`): the field is named `playerId` to stay structurally
+ * compatible with `TournamentEntrant` (so every existing singles call
+ * site passes its `TournamentEntrant[]` unchanged), but for a doubles
+ * draw `S = PairId` and `playerId` actually carries the PAIR's id.
+ */
+export interface SeedableEntrant<S extends string = PlayerId> {
+  playerId: S;
+  seed: number | null;
+}
 
 /**
  * Seeds a single-elimination draw: standard "1 vs lowest remaining
@@ -16,7 +40,7 @@ type BracketMatch = BracketRound['matches'][number];
  * Tournament.addRound() as earlier rounds complete.
  */
 export class BracketGenerator {
-  generate(entrants: ReadonlyArray<TournamentEntrant>, drawSize: DrawSize): BracketRound[] {
+  generate<S extends string>(entrants: ReadonlyArray<SeedableEntrant<S>>, drawSize: BracketSize): BracketRound<S>[] {
     if (entrants.length > drawSize) {
       throw new Error(`Cannot seed ${entrants.length} entrants into a draw size of ${drawSize}`);
     }
@@ -24,7 +48,7 @@ export class BracketGenerator {
     const seeded = this.orderBySeed(entrants);
     const slots = BracketGenerator.seedSlotOrder(drawSize);
 
-    const matches: BracketMatch[] = [];
+    const matches: BracketMatch<S>[] = [];
     for (let i = 0; i < slots.length; i += 2) {
       const entrantA = this.entrantForSlot(seeded, slots[i]);
       const entrantB = this.entrantForSlot(seeded, slots[i + 1]);
@@ -56,17 +80,17 @@ export class BracketGenerator {
    * happen in round 1), so pairing is just reading winners off in
    * match order, exactly as round 1 would be if there were no byes.
    */
-  generateNextRound(
-    completedRound: BracketRound,
-    entrants: ReadonlyArray<TournamentEntrant>,
-    drawSize: DrawSize,
-  ): BracketRound {
+  generateNextRound<S extends string>(
+    completedRound: BracketRound<S>,
+    entrants: ReadonlyArray<SeedableEntrant<S>>,
+    drawSize: BracketSize,
+  ): BracketRound<S> {
     const winners =
       completedRound.roundNumber === 1
         ? this.round1WinnersInBracketOrder(completedRound, entrants, drawSize)
         : completedRound.matches.map((m) => this.requireWinner(m));
 
-    const matches: BracketMatch[] = [];
+    const matches: BracketMatch<S>[] = [];
     for (let i = 0; i < winners.length; i += 2) {
       matches.push({ entrantA: winners[i], entrantB: winners[i + 1], outcome: null });
     }
@@ -74,14 +98,14 @@ export class BracketGenerator {
     return { roundNumber: completedRound.roundNumber + 1, matches };
   }
 
-  private round1WinnersInBracketOrder(
-    completedRound: BracketRound,
-    entrants: ReadonlyArray<TournamentEntrant>,
-    drawSize: DrawSize,
-  ): PlayerId[] {
+  private round1WinnersInBracketOrder<S extends string>(
+    completedRound: BracketRound<S>,
+    entrants: ReadonlyArray<SeedableEntrant<S>>,
+    drawSize: BracketSize,
+  ): S[] {
     const seeded = this.orderBySeed(entrants);
     const slots = BracketGenerator.seedSlotOrder(drawSize);
-    const winners: PlayerId[] = [];
+    const winners: S[] = [];
 
     for (let i = 0; i < slots.length; i += 2) {
       const entrantA = this.entrantForSlot(seeded, slots[i]);
@@ -107,14 +131,14 @@ export class BracketGenerator {
     return winners;
   }
 
-  private requireWinner(match: BracketRound['matches'][number]): PlayerId {
+  private requireWinner<S extends string>(match: BracketRound<S>['matches'][number]): S {
     if (!match.outcome) {
       throw new Error('Cannot generate the next round: a match has no recorded outcome yet');
     }
     return match.outcome.winner;
   }
 
-  private orderBySeed(entrants: ReadonlyArray<TournamentEntrant>): TournamentEntrant[] {
+  private orderBySeed<S extends string>(entrants: ReadonlyArray<SeedableEntrant<S>>): SeedableEntrant<S>[] {
     // Unseeded entrants (seed === null) must still sort deterministically
     // and independent of the input array's order: this array is
     // reconstructed from a fresh repository read every time a later
@@ -131,7 +155,7 @@ export class BracketGenerator {
     });
   }
 
-  private entrantForSlot(seeded: TournamentEntrant[], slotSeed: number): TournamentEntrant | null {
+  private entrantForSlot<S extends string>(seeded: SeedableEntrant<S>[], slotSeed: number): SeedableEntrant<S> | null {
     return slotSeed <= seeded.length ? seeded[slotSeed - 1] : null;
   }
 

@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
-import { entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, qualifierSlotsFor, StandardRankingPointsTable, TournamentId } from '@tennis-manager/domain';
+import { drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, StandardRankingPointsTable, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
-import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 
 const TOURNAMENT_TIERS = ['futures', 'challenger', 'tour', 'major', 'j30', 'j60', 'j100', 'j200', 'j300', 'j500', 'juniorMasters'];
@@ -88,6 +88,11 @@ export function toTournamentDto(
     weekScheduled: tournament.weekScheduled,
     drawSize: tournament.drawSize,
     hasStarted: tournament.hasStarted,
+    /** The main draw has been seeded. Distinct from `hasStarted`, which
+     * is also true while a tournament is playing its QUALIFYING draw
+     * and its main draw doesn't exist yet (deferred main-draw seeding —
+     * see Tournament.hasStarted). */
+    hasMainDraw: tournament.hasMainDraw,
     entrants: tournament.entrants.map((entrant) => ({
       playerId: entrant.playerId,
       seed: entrant.seed,
@@ -95,31 +100,67 @@ export function toTournamentDto(
        * draw sheet's real convention; only ever 'Q' at a tier that
        * holds qualifying (see QualifyingPolicy). */
       entryType: entryTypeOf(entrant),
+      /** Which draw they're in RIGHT NOW: a 'Q' entrant sits in
+       * 'qualifying' until they win through, then moves to 'main'. */
+      draw: drawOf(entrant),
     })),
-    /** How many of this draw's places are reserved for qualifiers — 0
-     * at every tier that holds no qualifying, which is what lets the UI
-     * stay silent about `[Q]` there instead of showing an empty rule. */
-    qualifierSlots: qualifierSlotsFor(tournament.tier, tournament.drawSize),
+    /** How many of this draw's places are reserved for qualifiers, and
+     * how big the qualifying field contesting them is — both read off
+     * the tournament's own STORED values (not re-derived from the
+     * policy), so they can't drift from the event actually being
+     * played. 0 at every tier that holds no qualifying, which is what
+     * lets the UI stay silent about `[Q]` there. */
+    qualifierSlots: tournament.qualifierSlots,
+    qualifyingDrawSize: tournament.qualifyingDrawSize,
+    qualifyingRoundCount: tournament.qualifyingRoundCount,
+    qualifyingComplete: tournament.isQualifyingComplete(),
     /** True when a top-ranked player is OBLIGATED to count this event
      * even if they skip it (ObligatoryTournamentPolicy) — surfaced so
      * the rule is legible to managers rather than a hidden penalty. */
     obligatory: isObligatoryTier(tournament.tier),
     ...(playerScopedInfo ?? {}),
-    rounds: tournament.getRounds().map((round) => ({
-      roundNumber: round.roundNumber,
-      matches: round.matches.map((match) => ({
-        entrantA: match.entrantA,
-        entrantB: match.entrantB,
-        outcome: match.outcome
-          ? {
-              winner: match.outcome.winner,
-              loser: match.outcome.loser,
-              setScores: match.outcome.setScores,
-            }
-          : null,
-      })),
-    })),
+    rounds: toRoundDtos(tournament.getRounds()),
+    /** The qualifying bracket, same shape as `rounds` so the UI can
+     * render it with the same component. Empty for every tournament
+     * without qualifying. */
+    qualifyingRounds: toRoundDtos(tournament.getQualifyingRounds()),
+    /** Doubles draw (P7b). `doublesDrawSize` 0 = no doubles draw.
+     * `doublesEntrants` are the solo signups (player ids, before
+     * pairing); `doublesPairs` maps each bracket slot's pairId back to
+     * its two players; `doublesRounds` is the pair-keyed bracket (same
+     * shape as `rounds`, but entrantA/entrantB are pair ids — resolve
+     * them through `doublesPairs`). */
+    doublesDrawSize: tournament.doublesDrawSize,
+    doublesEntrants: tournament.doublesEntrants,
+    doublesPairs: tournament.doublesPairs.map((p) => ({ pairId: p.pairId, playerA: p.playerA, playerB: p.playerB, chemistry: p.chemistry ?? 0 })),
+    doublesRounds: toRoundDtos(tournament.getDoublesRounds()),
+    doublesComplete: tournament.isDoublesComplete(),
+    /** Doubles qualifying (P8) — 0/no data when the draw is too small to
+     * hold one. `doublesQualifyingPairs`/`doublesQualifyingRounds` mirror
+     * the main-draw fields above. */
+    doublesQualifyingDrawSize: tournament.doublesQualifyingDrawSize,
+    doublesQualifierSlots: tournament.doublesQualifierSlots,
+    doublesQualifyingPairs: tournament.doublesQualifyingPairs.map((p) => ({ pairId: p.pairId, playerA: p.playerA, playerB: p.playerB, chemistry: p.chemistry ?? 0 })),
+    doublesQualifyingRounds: toRoundDtos(tournament.getDoublesRounds('qualifying')),
+    doublesQualifyingComplete: tournament.isDoublesQualifyingComplete(),
   };
+}
+
+function toRoundDtos<S extends string>(rounds: ReadonlyArray<BracketRound<S>>) {
+  return rounds.map((round) => ({
+    roundNumber: round.roundNumber,
+    matches: round.matches.map((match) => ({
+      entrantA: match.entrantA,
+      entrantB: match.entrantB,
+      outcome: match.outcome
+        ? {
+            winner: match.outcome.winner,
+            loser: match.outcome.loser,
+            setScores: match.outcome.setScores,
+          }
+        : null,
+    })),
+  }));
 }
 
 /** For every tournament in the list: how many same-band tournaments the
@@ -363,7 +404,40 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     },
   );
 
-  app.post<{ Params: SimulateParams }>(
+  // Registers a single player into a tournament's DOUBLES field (P7b) —
+  // per-player, not per-pair; they are paired at draw-formation time.
+  app.post<{ Params: { id: string }; Body: { playerId: string } }>(
+    '/tournaments/:id/doubles-entrants',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['playerId'],
+          properties: { playerId: { type: 'string', minLength: 1 } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (request, reply) => {
+      const manager = await requireManager(request, reply, deps);
+      if (!manager) return;
+      const tournamentId = TournamentId(request.params.id);
+      const player = await deps.players.findById(PlayerId(request.body.playerId));
+      if (!player || player.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found in your roster' });
+      await deps.registerDoublesEntrant.execute({
+        tournamentId,
+        playerId: PlayerId(request.body.playerId),
+        managerId: manager.id,
+      });
+
+      const tournament = await deps.tournaments.findById(tournamentId);
+      return reply.code(201).send(toTournamentDto(tournament!));
+    },
+  );
+  // ?draw=qualifying simulates a slot in the QUALIFYING bracket instead
+  // of the main draw. Optional and defaulting to 'main', so the URL and
+  // every existing caller are unchanged.
+  app.post<{ Params: SimulateParams; Querystring: { draw?: string } }>(
     '/tournaments/:id/matches/:round/:index/simulate',
     {
       schema: {
@@ -376,6 +450,10 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
             index: { type: 'string', pattern: '^[0-9]+$' },
           },
         },
+        querystring: {
+          type: 'object',
+          properties: { draw: { type: 'string', enum: ['main', 'qualifying'] } },
+        },
       },
     },
     async (request, reply) => {
@@ -383,13 +461,15 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       if (!manager) return;
       const roundNumber = Number(request.params.round);
       const matchIndex = Number(request.params.index);
-      const matchId = matchIdForSlot(TournamentId(request.params.id), roundNumber, matchIndex);
+      const draw: DrawPhase = request.query.draw === 'qualifying' ? 'qualifying' : 'main';
+      const matchId = matchIdForSlot(TournamentId(request.params.id), roundNumber, matchIndex, draw);
 
       const { replayUrl } = await deps.simulateMatch.execute({
         matchId,
         tournamentId: TournamentId(request.params.id),
         roundNumber,
         matchIndex,
+        draw,
       });
 
       return { matchId, replayUrl };

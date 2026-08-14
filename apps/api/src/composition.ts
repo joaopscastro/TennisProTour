@@ -13,6 +13,7 @@ import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
 import { StandardPlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { StandardTalentClaimPricingPolicy, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { StandardCoachConversionPolicy, CoachConversionPolicy } from '@tennis-manager/domain';
+import { DoublesPairingService, StandardDoublesPairPolicy, doublesBestResultsCapFor, RankingCalculationService, StandardPracticePolicy } from '@tennis-manager/domain';
 import { RankingBand } from '@tennis-manager/domain';
 import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
@@ -22,7 +23,9 @@ import { GenesisSeedFillOnlyPlayersUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
-import { AdvanceWorldWeekUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
+import { AdvanceWorldWeekUseCase, PromoteQualifiersUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
+import { CreateDoublesPairUseCase, AcceptDoublesPairUseCase, DissolveDoublesPairUseCase } from '@tennis-manager/application';
+import { RegisterDoublesEntrantUseCase, FormDoublesDrawUseCase, SimulateDoublesMatchUseCase, PromoteDoublesQualifiersUseCase, RunPracticeSessionUseCase, GenerateMastersCupUseCase, AdvanceMastersCupUseCase, SimulateMastersCupMatchUseCase, SimulateDueMastersCupMatchesUseCase, GenerateWorldTeamCupUseCase, AdvanceWorldTeamCupUseCase, SimulateWorldTeamCupRubberUseCase, SimulateDueWorldTeamCupRubbersUseCase } from '@tennis-manager/application';
 import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
 import { ApplyObligatoryTournamentZerosUseCase } from '@tennis-manager/application';
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
@@ -46,6 +49,12 @@ import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClai
 import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
 import { DrizzleManagerLadderRepository } from './adapters/outbound/DrizzleManagerLadderRepository';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
+import { DrizzleDoublesPairRepository } from './adapters/outbound/DrizzleDoublesPairRepository';
+import { DrizzleDoublesTitleRepository } from './adapters/outbound/DrizzleDoublesTitleRepository';
+import { DrizzleDoublesPeakRankingRepository } from './adapters/outbound/DrizzleDoublesPeakRankingRepository';
+import { DrizzlePracticeSessionRepository } from './adapters/outbound/DrizzlePracticeSessionRepository';
+import { DrizzleMastersCupRepository } from './adapters/outbound/DrizzleMastersCupRepository';
+import { DrizzleWorldTeamCupRepository } from './adapters/outbound/DrizzleWorldTeamCupRepository';
 import { DrizzleRosterDashboardQuery } from './adapters/outbound/DrizzleRosterDashboardQuery';
 import { DrizzleTrainingScheduleRepository } from './adapters/outbound/DrizzleTrainingScheduleRepository';
 import { StripeBillingAdapter, StripeBillingConfig } from './adapters/outbound/StripeBillingAdapter';
@@ -174,10 +183,43 @@ export interface Dependencies {
    * event they skipped. Run once per weekly rollover from the same
    * worker handler as the siblings above, AFTER startDueTournaments. */
   applyObligatoryTournamentZeros: ApplyObligatoryTournamentZerosUseCase;
+  promoteQualifiers: PromoteQualifiersUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingSchedule: SetTrainingScheduleUseCase;
   releasePlayer: ReleasePlayerUseCase;
   convertPlayerToCoach: ConvertPlayerToCoachUseCase;
+  /** Doubles partnerships (P7a — see
+   * docs/doubles-and-special-formats-plan.md). The repository is
+   * exposed directly so routes/queries (the board read, the profile
+   * highlight) can read pairs without going through a use case; the
+   * three mutating use cases are the only writers. */
+  doublesPairs: DrizzleDoublesPairRepository;
+  createDoublesPair: CreateDoublesPairUseCase;
+  acceptDoublesPair: AcceptDoublesPairUseCase;
+  dissolveDoublesPair: DissolveDoublesPairUseCase;
+  /** Doubles competition (P7b): solo entry, draw formation (pairing +
+   * cutoff), and simulation. `rankPositionDoubles` is the doubles
+   * ranking (discipline-filtered, best-14) the formation step reads to
+   * compute each entrant's combined ranking. */
+  rankPositionDoubles: RankPositionQuery;
+  registerDoublesEntrant: RegisterDoublesEntrantUseCase;
+  formDoublesDraw: FormDoublesDrawUseCase;
+  simulateDoublesMatch: SimulateDoublesMatchUseCase;
+  promoteDoublesQualifiers: PromoteDoublesQualifiersUseCase;
+  /** Practice sessions (P8a) — the no-form training outlet. */
+  runPracticeSession: RunPracticeSessionUseCase;
+  /** Masters Cup (P8b) — the season-end capstone. */
+  mastersCups: DrizzleMastersCupRepository;
+  generateMastersCup: GenerateMastersCupUseCase;
+  advanceMastersCup: AdvanceMastersCupUseCase;
+  simulateMastersCupMatch: SimulateMastersCupMatchUseCase;
+  simulateDueMastersCupMatches: SimulateDueMastersCupMatchesUseCase;
+  /** World Team Cup (P8c) — the Davis-Cup-style national team event. */
+  worldTeamCups: DrizzleWorldTeamCupRepository;
+  generateWorldTeamCup: GenerateWorldTeamCupUseCase;
+  advanceWorldTeamCup: AdvanceWorldTeamCupUseCase;
+  simulateWorldTeamCupRubber: SimulateWorldTeamCupRubberUseCase;
+  simulateDueWorldTeamCupRubbers: SimulateDueWorldTeamCupRubbersUseCase;
 }
 
 /**
@@ -228,6 +270,20 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'senior');
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u16');
+  // Doubles ranking (P7b + junior doubles): the SAME ledger filtered to
+  // `discipline: 'doubles'` AND one age band — best-14 senior, best-6
+  // either junior band (doublesBestResultsCapFor, the real ITF junior
+  // doubles rule).
+  const doublesRankingFor = (band: RankingBand) =>
+    new RankPositionQuery(rankingLedger, worlds, WORLD_ID, band, new RankingCalculationService(doublesBestResultsCapFor(band)), 'doubles');
+  const rankPositionDoubles = doublesRankingFor('senior');
+  const rankPositionDoublesU14 = doublesRankingFor('u14');
+  const rankPositionDoublesU16 = doublesRankingFor('u16');
+  const doublesRankByBand: Record<RankingBand, RankPositionQuery> = {
+    senior: rankPositionDoubles,
+    u14: rankPositionDoublesU14,
+    u16: rankPositionDoublesU16,
+  };
   const managerXp = new DrizzleManagerXpRepository(options.db);
   const managerXpPolicy = new StandardManagerXpPolicy();
   const managerLadder = new DrizzleManagerLadderRepository(options.db);
@@ -236,6 +292,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const talentClaim = new DrizzleTalentClaimAdapter(options.db);
   const talentClaimPricingPolicy = new StandardTalentClaimPricingPolicy();
   const coaches = new DrizzleCoachRepository(options.db);
+  const doublesPairs = new DrizzleDoublesPairRepository(options.db);
+  const doublesTitles = new DrizzleDoublesTitleRepository(options.db);
+  const doublesPeakRankings = new DrizzleDoublesPeakRankingRepository(options.db);
+  const practices = new DrizzlePracticeSessionRepository(options.db);
+  const mastersCups = new DrizzleMastersCupRepository(options.db);
+  const worldTeamCups = new DrizzleWorldTeamCupRepository(options.db);
   const coachConversionPolicy = new StandardCoachConversionPolicy();
   const idGenerator = new CryptoIdGenerator();
   const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator);
@@ -283,6 +345,92 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     developmentPolicy,
   );
 
+  // Doubles simulation (P7b): shares the simulator, the replay store, and
+  // the ranking/XP/ladder writes, but collapses each two-player side into
+  // a composite participant and writes `discipline: 'doubles'` results.
+  const doublesPairPolicy = new StandardDoublesPairPolicy();
+  const simulateDoublesMatch = new SimulateDoublesMatchUseCase(
+    tournaments,
+    players,
+    matchSimulator,
+    doublesPairPolicy,
+    matchLogs,
+    events,
+    bracketGenerator,
+    rankingPointsTable,
+    rankingLedger,
+    managerXpPolicy,
+    managerXp,
+    managerLadderPolicy,
+    managerLadder,
+    worlds,
+    WORLD_ID,
+    developmentPolicy,
+    doublesPairs,
+    doublesTitles,
+    doublesPeakRankings,
+  );
+
+  // Doubles draw formation (P7b + junior doubles): pair the solo
+  // entrants + cutoff by combined entry ranking (doubles-else-singles,
+  // in the tournament's OWN band), seed the bracket.
+  const doublesPairingService = new DoublesPairingService();
+  const rankPositionByBand: Record<RankingBand, RankPositionQuery> = {
+    senior: rankPosition,
+    u14: rankPositionU14,
+    u16: rankPositionU16,
+  };
+  const formDoublesDraw = new FormDoublesDrawUseCase(
+    tournaments,
+    players,
+    doublesPairs,
+    rankPositionByBand,
+    doublesRankByBand,
+    doublesPairingService,
+    bracketGenerator,
+    new MathRandomSource(),
+  );
+  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players);
+
+  // Masters Cup (P8b): the season-end capstone, generated on a season-end
+  // rollover, simulated match-by-match, and advanced from groups to
+  // knockout once both group stages finish.
+  const generateMastersCup = new GenerateMastersCupUseCase(mastersCups, rankPosition, rankPositionDoubles, doublesPairs, idGenerator);
+  const advanceMastersCup = new AdvanceMastersCupUseCase(mastersCups);
+  const simulateMastersCupMatch = new SimulateMastersCupMatchUseCase(
+    mastersCups,
+    players,
+    matchSimulator,
+    doublesPairPolicy,
+    matchLogs,
+    events,
+    rankingLedger,
+    managerXpPolicy,
+    managerXp,
+    managerLadder,
+    titles,
+    doublesTitles,
+    peakRankings,
+    doublesPeakRankings,
+    worlds,
+    WORLD_ID,
+  );
+  const simulateDueMastersCupMatches = new SimulateDueMastersCupMatchesUseCase(mastersCups, worlds, WORLD_ID, simulateMastersCupMatch);
+
+  // World Team Cup (P8c): the Davis-Cup-style national team event.
+  const generateWorldTeamCup = new GenerateWorldTeamCupUseCase(worldTeamCups, players, rankPosition, idGenerator);
+  const advanceWorldTeamCup = new AdvanceWorldTeamCupUseCase(worldTeamCups);
+  const simulateWorldTeamCupRubber = new SimulateWorldTeamCupRubberUseCase(
+    worldTeamCups,
+    players,
+    matchSimulator,
+    doublesPairPolicy,
+    matchLogs,
+    worlds,
+    WORLD_ID,
+  );
+  const simulateDueWorldTeamCupRubbers = new SimulateDueWorldTeamCupRubbersUseCase(worldTeamCups, worlds, WORLD_ID, simulateWorldTeamCupRubber);
+
   const standardAgingPolicy = new StandardAgingPolicy();
   const standardAging = new PlayerAgingService(standardAgingPolicy);
   const proAging = new PlayerAgingService(new AcceleratedDeclinePolicy(standardAgingPolicy, PRO_DECLINE_MULTIPLIER));
@@ -295,14 +443,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u14: rankPositionU14,
     u16: rankPositionU16,
   }, idGenerator);
-  const rankPositionByBand: Record<RankingBand, RankPositionQuery> = {
-    senior: rankPosition,
-    u14: rankPositionU14,
-    u16: rankPositionU16,
-  };
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
-  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory);
+  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings);
   const playerMatches = new DrizzlePlayerMatchesQuery(options.db);
 
   return {
@@ -352,7 +495,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     genesisSeedFillOnlyPlayers: new GenesisSeedFillOnlyPlayersUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
     openTournament,
     openRegistration,
-    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy),
     generateJuniorTournaments,
@@ -362,6 +505,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       players,
       bracketGenerator,
       rankPositionByBand,
+      formDoublesDraw,
     ),
     applyObligatoryTournamentZeros: new ApplyObligatoryTournamentZerosUseCase(
       worlds,
@@ -369,9 +513,10 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       rankingLedger,
       rankPosition,
     ),
-    simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy),
+    simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy, simulateDoublesMatch),
+    promoteQualifiers: new PromoteQualifiersUseCase(tournaments, bracketGenerator),
     setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),
-    releasePlayer: new ReleasePlayerUseCase(players),
+    releasePlayer: new ReleasePlayerUseCase(players, doublesPairs),
     convertPlayerToCoach: new ConvertPlayerToCoachUseCase(
       players,
       coaches,
@@ -380,6 +525,27 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       idGenerator,
       events,
       billing,
+      doublesPairs,
     ),
+    doublesPairs,
+    createDoublesPair: new CreateDoublesPairUseCase(players, doublesPairs, idGenerator),
+    acceptDoublesPair: new AcceptDoublesPairUseCase(doublesPairs, players),
+    dissolveDoublesPair: new DissolveDoublesPairUseCase(doublesPairs, players),
+    rankPositionDoubles,
+    registerDoublesEntrant,
+    formDoublesDraw,
+    simulateDoublesMatch,
+    promoteDoublesQualifiers: new PromoteDoublesQualifiersUseCase(tournaments, bracketGenerator),
+    runPracticeSession: new RunPracticeSessionUseCase(players, worlds, WORLD_ID, practices, managerLadder, new StandardPracticePolicy()),
+    mastersCups,
+    generateMastersCup,
+    advanceMastersCup,
+    simulateMastersCupMatch,
+    simulateDueMastersCupMatches,
+    worldTeamCups,
+    generateWorldTeamCup,
+    advanceWorldTeamCup,
+    simulateWorldTeamCupRubber,
+    simulateDueWorldTeamCupRubbers,
   };
 }

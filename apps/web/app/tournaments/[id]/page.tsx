@@ -6,13 +6,16 @@ import { useParams } from 'next/navigation';
 import {
   MatchOutcomeDto,
   PlayerDto,
+  RosterDashboardEntryDto,
   TournamentDto,
   WorldClockDto,
   fetchPlayerProfile,
   fetchPlayersByIds,
+  fetchRosterDashboard,
   fetchTournament,
   fetchWorldClock,
   matchIdForSlot,
+  registerDoublesEntrant,
   simulateMatch,
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
@@ -99,6 +102,10 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
   ];
   if (tournament.qualifierSlots > 0) {
     facts.push({ label: 'Qualifiers', value: `${tournament.qualifierSlots} [Q] slots` });
+    facts.push({
+      label: 'Qualifying draw',
+      value: `${tournament.qualifyingDrawSize} players · ${tournament.qualifyingRoundCount} rounds`,
+    });
   }
   return (
     <Panel style={{ padding: 18 }}>
@@ -145,6 +152,9 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
           {tournament.obligatory
             ? ' This is a mandatory event: a top-100 player counts it toward their ranking even if they skip it \u2014 a skipped edition records a zero that still uses one of their counted results.'
             : ''}
+          {tournament.qualifierSlots > 0
+            ? ` Players outside the top 100 aren\u2019t accepted directly here \u2014 they enter the ${tournament.qualifyingDrawSize}-player qualifying draw and must win ${tournament.qualifyingRoundCount} rounds to claim one of the ${tournament.qualifierSlots} reserved main-draw places. Qualifying wins pay only a small amount of points; the real prize is the main-draw place.`
+            : ''}
         </div>
       </div>
     </Panel>
@@ -155,8 +165,20 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
  * only (managerId != null). Fill-only/free-agent players that pad a
  * draw at start time are never real "entries" a manager chose, so they
  * never appear here. Rendered before and during the tournament. */
-function EntryList({ tournament, players }: { tournament: TournamentDto; players: Map<string, PlayerDto> }) {
+function EntryList({
+  tournament,
+  players,
+  draw = 'main',
+}: {
+  tournament: TournamentDto;
+  players: Map<string, PlayerDto>;
+  /** Which field to list. 'qualifying' lists the players still trying to
+   * win their way in; 'main' lists the main draw (including any
+   * qualifier who already came through, still tagged [Q]). */
+  draw?: 'main' | 'qualifying';
+}) {
   const humanEntrants = tournament.entrants
+    .filter((e) => e.draw === draw)
     .map((e) => ({ entrant: e, player: players.get(e.playerId) }))
     .filter((x): x is { entrant: TournamentDto['entrants'][number]; player: PlayerDto } => !!x.player && x.player.managerId != null)
     .sort((a, b) => {
@@ -169,10 +191,13 @@ function EntryList({ tournament, players }: { tournament: TournamentDto; players
   return (
     <Panel style={{ padding: 18 }}>
       <SectionLabel right={<span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>{humanEntrants.length}</span>}>
-        Entry list
+        {draw === 'qualifying' ? 'Qualifying entry list' : 'Entry list'}
       </SectionLabel>
       <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10 }}>
-        Players entered by managers{tournament.hasStarted ? ' — the draw may also include filler players to complete the bracket.' : '.'}
+        {draw === 'qualifying'
+          ? `Players competing for ${tournament.qualifierSlots} main-draw place(s)`
+          : 'Players entered by managers'}
+        {tournament.hasStarted ? ' — the draw may also include filler players to complete the bracket.' : '.'}
       </div>
       {humanEntrants.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px' }}>
@@ -212,6 +237,114 @@ function EntryList({ tournament, players }: { tournament: TournamentDto; players
 }
 
 
+/** The qualifying draw, as a compact results list rather than a second
+ * graphical bracket: a qualifying event is a preliminary, and its only
+ * outcome that matters to the main draw is WHO came through. Rows link
+ * to the replay exactly like a decided main-draw match does, so nothing
+ * about it is less inspectable — it just isn't given the same visual
+ * weight as the tournament proper. */
+function QualifyingPanel({
+  tournament,
+  players,
+  tournamentId,
+}: {
+  tournament: TournamentDto;
+  players: Map<string, PlayerDto>;
+  tournamentId: string;
+}) {
+  const nameOf = (playerId: string) => players.get(playerId)?.name ?? playerId;
+  const qualifiers = new Set(
+    tournament.entrants.filter((e) => e.draw === 'main' && e.entryType === 'Q').map((e) => e.playerId),
+  );
+
+  return (
+    <Panel style={{ padding: 18, marginBottom: 24 }}>
+      <SectionLabel
+        right={
+          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+            {tournament.qualifyingComplete ? 'Complete' : 'In progress'}
+          </span>
+        }
+      >
+        Qualifying
+      </SectionLabel>
+      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
+        {tournament.qualifyingDrawSize} players, {tournament.qualifyingRoundCount} rounds, for{' '}
+        {tournament.qualifierSlots} main-draw place(s). Played on the tournament's opening days, before the main draw is
+        made.
+      </div>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+        {tournament.qualifyingRounds.map((round) => {
+          const isFinalQualifyingRound = round.roundNumber === tournament.qualifyingRoundCount;
+          return (
+            <div key={round.roundNumber}>
+              <div
+                style={{
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  letterSpacing: '0.4px',
+                  textTransform: 'uppercase',
+                  color: 'var(--gc-ink-mute)',
+                  marginBottom: 6,
+                }}
+              >
+                {isFinalQualifyingRound ? 'Final qualifying round' : `Qualifying round ${round.roundNumber}`}
+              </div>
+              <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
+                {round.matches.map((match, i) => {
+                  const winner = match.outcome?.winner ?? null;
+                  const loser = match.outcome?.loser ?? null;
+                  const text = match.outcome
+                    ? `${nameOf(winner!)} def. ${nameOf(loser!)}`
+                    : `${nameOf(match.entrantA)} v ${nameOf(match.entrantB)}`;
+                  const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
+                  const cameThrough = winner !== null && qualifiers.has(winner);
+                  const row = (
+                    <div
+                      className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2 whitespace-nowrap overflow-hidden"
+                      style={{
+                        borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined,
+                        color: match.outcome ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)',
+                      }}
+                    >
+                      <span className="overflow-hidden text-ellipsis">
+                        {text}
+                        {cameThrough && (
+                          <span
+                            title="Came through qualifying \u2014 promoted into the main draw"
+                            style={{ marginLeft: 6, fontWeight: 800, color: 'var(--gc-ink-mute)' }}
+                          >
+                            [Q]
+                          </span>
+                        )}
+                      </span>
+                      <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
+                        {score}
+                      </span>
+                    </div>
+                  );
+                  return match.outcome ? (
+                    <Link
+                      key={i}
+                      href={`/replay/${matchIdForSlot(tournamentId, round.roundNumber, i, 'qualifying')}`}
+                      className="block no-underline hover:bg-[var(--gc-s3)]"
+                      style={{ color: 'inherit' }}
+                    >
+                      {row}
+                    </Link>
+                  ) : (
+                    <div key={i}>{row}</div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
 interface DisplaySlot {
   entrant: Entrant | null;
   isWinner: boolean;
@@ -241,7 +374,11 @@ interface DisplayRound {
 
 function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
   const totalRounds = Math.log2(t.drawSize);
-  const seeded = orderBySeed(t.entrants);
+  // Main-draw entrants ONLY: a qualifying loser stays in the 'qualifying'
+  // draw forever and must never appear in the main bracket's seed order.
+  // A non-qualifying tournament has every entrant in 'main', so this
+  // filter is a no-op there.
+  const seeded = orderBySeed(t.entrants.filter((e) => e.draw === 'main'));
   const slots = seedSlotOrder(t.drawSize);
   const entrantForSlot = (slotSeed: number): Entrant | null => (slotSeed <= seeded.length ? seeded[slotSeed - 1] : null);
 
@@ -352,6 +489,42 @@ export default function TournamentBracketPage() {
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const firedTitleRef = useRef(false);
 
+  // Doubles solo entry (P7b) — pick one of my players to sign up into
+  // this tournament's doubles field (paired at draw formation).
+  const devManagerId = process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1';
+  const [doublesRoster, setDoublesRoster] = useState<RosterDashboardEntryDto[] | null>(null);
+  const [doublesPick, setDoublesPick] = useState<string | null>(null);
+  const [doublesBusy, setDoublesBusy] = useState(false);
+  const [doublesNotice, setDoublesNotice] = useState<string | null>(null);
+  const [doublesError, setDoublesError] = useState<string | null>(null);
+
+  const openDoublesEntry = useCallback(async () => {
+    setDoublesError(null);
+    if (doublesRoster === null) {
+      try {
+        setDoublesRoster(await fetchRosterDashboard(devManagerId));
+      } catch (e) {
+        setDoublesError(e instanceof Error ? e.message : String(e));
+      }
+    }
+  }, [devManagerId, doublesRoster]);
+
+  async function submitDoublesEntry() {
+    if (!doublesPick) return;
+    setDoublesBusy(true);
+    setDoublesError(null);
+    try {
+      await registerDoublesEntrant(tournamentId, doublesPick, devManagerId);
+      setDoublesPick(null);
+      setDoublesNotice('Player signed up for doubles.');
+      await load();
+    } catch (e) {
+      setDoublesError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDoublesBusy(false);
+    }
+  }
+
   useEffect(() => {
     fetchWorldClock()
       .then(setWorldClock)
@@ -366,6 +539,7 @@ export default function TournamentBracketPage() {
       const ids = new Set<string>();
       t.entrants.forEach((e) => ids.add(e.playerId));
       t.rounds.forEach((r) => r.matches.forEach((m) => (ids.add(m.entrantA), ids.add(m.entrantB))));
+      t.qualifyingRounds.forEach((r) => r.matches.forEach((m) => (ids.add(m.entrantA), ids.add(m.entrantB))));
       setPlayers(await fetchPlayersByIds(ids));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -559,12 +733,185 @@ export default function TournamentBracketPage() {
           <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
         </div>
 
-        {/* Tournament profile — details + entry list. Always available,
+        {/* Tournament profile — details + entry list(s). Always available,
             both before the draw is made and while the tournament plays. */}
         <div className="grid gap-4 mb-6" style={{ gridTemplateColumns: 'minmax(0, 1.25fr) minmax(0, 1fr)' }}>
           <TournamentDetailsPanel tournament={tournament} />
           <EntryList tournament={tournament} players={players} />
+          {tournament.qualifierSlots > 0 && (
+            <EntryList tournament={tournament} players={players} draw="qualifying" />
+          )}
         </div>
+
+        {/* The qualifying draw itself, once it exists — the compact
+            results list of who is winning their way through. Rendered
+            above the main bracket (or in place of it, while qualifying
+            is still being played and the main draw doesn't exist yet). */}
+        {tournament.qualifierSlots > 0 && tournament.hasStarted && (
+          <QualifyingPanel tournament={tournament} players={players} tournamentId={tournamentId} />
+        )}
+
+        {/* The doubles draw (P7b) — players sign up solo, are paired at
+            draw formation, and the top pairs by combined ranking play.
+            Compact, like the qualifying panel: the pair list + the
+            pair-keyed bracket. */}
+        {tournament.doublesDrawSize > 0 && (
+          <Panel style={{ padding: 18, marginBottom: 24 }}>
+            <SectionLabel
+              right={
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+                  {tournament.doublesComplete
+                    ? 'Complete'
+                    : tournament.doublesPairs.length > 0
+                      ? `${tournament.doublesPairs.length} pairs`
+                      : `${tournament.doublesEntrants.length} entrants`}
+                </span>
+              }
+            >
+              Doubles
+            </SectionLabel>
+            <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
+              {tournament.doublesDrawSize}-pair draw. Players sign up solo and are paired when the tournament starts — the
+              top pairs by combined ranking make the cut.
+            </div>
+            {!tournament.hasStarted && (
+              <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
+                <button
+                  onClick={openDoublesEntry}
+                  className="rounded-[8px] px-[14px] py-[8px] text-[12.5px] font-extrabold cursor-pointer"
+                  style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
+                >
+                  {doublesRoster === null ? 'Enter a player in doubles' : 'Choose a player'}
+                </button>
+                {doublesRoster !== null && (
+                  <>
+                    <select className="gc-select" value={doublesPick ?? ''} onChange={(e) => setDoublesPick(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
+                      <option value="">Select player…</option>
+                      {(doublesRoster ?? []).map((p) => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={submitDoublesEntry}
+                      disabled={!doublesPick || doublesBusy}
+                      className="rounded-[8px] px-[12px] py-[8px] text-[12px] font-extrabold cursor-pointer disabled:opacity-50"
+                      style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink)', border: '1px solid var(--gc-line)' }}
+                    >
+                      {doublesBusy ? 'Signing up…' : 'Sign up'}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {doublesError && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.14 25)' }}>{doublesError}</div>}
+            {doublesNotice && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.12 150)' }}>{doublesNotice}</div>}
+            {tournament.doublesPairs.length === 0 ? (
+              <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '10px 4px' }}>
+                {tournament.doublesEntrants.length > 0
+                  ? `${tournament.doublesEntrants.length} player${tournament.doublesEntrants.length === 1 ? '' : 's'} signed up — the draw is paired when the tournament starts.`
+                  : 'No players have signed up for doubles yet.'}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-[6px]">
+                {tournament.doublesPairs.map((p) => {
+                  const a = players.get(p.playerA)?.name ?? p.playerA;
+                  const b = players.get(p.playerB)?.name ?? p.playerB;
+                  const ca = players.get(p.playerA);
+                  const cb = players.get(p.playerB);
+                  return (
+                    <div key={p.pairId} className="flex items-center gap-[7px] px-[12px] py-[7px] rounded-[7px] text-[13px]" style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink)' }}>
+                      {ca && <span className="flex-none">{flagFor(ca.nationality)}</span>} <span className="font-semibold">{a}</span>
+                      <span style={{ color: 'var(--gc-ink-mute)' }}>+</span>
+                      {cb && <span className="flex-none">{flagFor(cb.nationality)}</span>} <span className="font-semibold">{b}</span>
+                      {p.chemistry > 0 && (
+                        <span className="ml-auto text-[10.5px] font-bold px-[6px] py-[2px] rounded-[4px]" style={{ background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }} title="Pair chemistry (built by playing together)">
+                          chem {p.chemistry}
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {tournament.doublesRounds.length > 0 && (
+              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}>
+                {tournament.doublesRounds.map((round) => {
+                  const pairName = (pairId: string) => {
+                    const p = tournament.doublesPairs.find((pp) => pp.pairId === pairId);
+                    if (!p) return pairId;
+                    return `${players.get(p.playerA)?.name ?? p.playerA} + ${players.get(p.playerB)?.name ?? p.playerB}`;
+                  };
+                  return (
+                    <div key={round.roundNumber}>
+                      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 6 }}>
+                        {round.roundNumber === tournament.doublesRounds.length ? 'Doubles final' : `Doubles round ${round.roundNumber}`}
+                      </div>
+                      {round.matches.map((match, i) => {
+                        const winner = match.outcome?.winner ?? null;
+                        const text = match.outcome
+                          ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
+                          : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
+                        const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
+                        return (
+                          <div key={i} className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}>
+                            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
+                            <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Doubles qualifying (P8) — the small bracket played on the
+                opening days for the reserved main-draw places. */}
+            {tournament.doublesQualifyingDrawSize > 0 && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+                  Doubles qualifying · {tournament.doublesQualifierSlots} main-draw place(s) at stake
+                  {tournament.doublesQualifyingComplete ? ' · complete' : ''}
+                </div>
+                {tournament.doublesQualifyingPairs.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: 'var(--gc-ink-faint)', padding: '6px 2px' }}>
+                    Qualifying pairs are formed when the tournament starts.
+                  </div>
+                ) : (
+                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
+                    {tournament.doublesQualifyingRounds.map((round) => {
+                      const pairName = (pairId: string) => {
+                        const p = tournament.doublesQualifyingPairs.find((pp) => pp.pairId === pairId);
+                        if (!p) return pairId;
+                        return `${players.get(p.playerA)?.name ?? p.playerA} + ${players.get(p.playerB)?.name ?? p.playerB}`;
+                      };
+                      return (
+                        <div key={round.roundNumber}>
+                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-faint)', marginBottom: 5 }}>
+                            Q{round.roundNumber}
+                          </div>
+                          {round.matches.map((match, i) => {
+                            const winner = match.outcome?.winner ?? null;
+                            const text = match.outcome
+                              ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
+                              : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
+                            const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
+                            return (
+                              <div key={i} className="px-[8px] py-[5px] text-[11px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}>
+                                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
+                                <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </Panel>
+        )}
 
         {!tournament.hasStarted ? (
           <Panel style={{ padding: 28, textAlign: 'center' }}>
@@ -575,6 +922,16 @@ export default function TournamentBracketPage() {
               {` — S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}`}
               {worldClock ? ` (now S${worldClock.currentWeek.season} W${worldClock.currentWeek.week})` : ''}.
               Until then, managers can keep entering players above.
+            </div>
+          </Panel>
+        ) : !tournament.hasMainDraw ? (
+          <Panel style={{ padding: 28, textAlign: 'center' }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>🎾</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--gc-ink)' }}>Qualifying in progress</div>
+            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', marginTop: 6, lineHeight: 1.5 }}>
+              {tournament.qualifyingRoundCount} rounds of qualifying decide who claims the{' '}
+              {tournament.qualifierSlots} reserved main-draw place(s). The main draw is made once qualifying is
+              complete.
             </div>
           </Panel>
         ) : (

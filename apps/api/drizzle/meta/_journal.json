@@ -218,6 +218,69 @@
       "when": 1786547511275,
       "tag": "0030_short_randall",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1786554695972,
+      "tag": "0031_bizarre_puck",
+      "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786559592049,
+      "tag": "0032_motionless_tarantula",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1786615802184,
+      "tag": "0033_round_johnny_storm",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1786647025212,
+      "tag": "0034_nasty_steve_rogers",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1786696630267,
+      "tag": "0035_dear_havok",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786698182217,
+      "tag": "0036_tired_sinister_six",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1786700008844,
+      "tag": "0037_swift_wild_pack",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786702571036,
+      "tag": "0038_charming_pretty_boy",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1786703954566,
+      "tag": "0039_powerful_toad",
+      "breakpoints": true
     }
   ]
 }

@@ -2,32 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
-import { PlayerRepository } from '../ports/ports';
 import { ReleasePlayerUseCase } from './ReleasePlayerUseCase';
-
-class InMemoryPlayerRepository implements PlayerRepository {
-  private readonly store = new Map<PlayerId, Player>();
-
-  async findById(id: PlayerId): Promise<Player | null> {
-    return this.store.get(id) ?? null;
-  }
-
-  async findByManager(managerId: ManagerId): Promise<Player[]> {
-    return [...this.store.values()].filter((p) => p.managerId === managerId);
-  }
-
-  async findAll(): Promise<Player[]> {
-    return [...this.store.values()];
-  }
-
-  async findFreeAgents(): Promise<Player[]> {
-    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
-  }
-
-  async save(player: Player): Promise<void> {
-    this.store.set(player.id, player);
-  }
-}
+import { CreateDoublesPairUseCase } from './CreateDoublesPairUseCase';
+import { InMemoryDoublesPairRepository, InMemoryPlayerRepository, makePlayer, SequentialIdGenerator } from './doublesTestHelpers';
 
 function startingAttributes(): PlayerAttributes {
   return new PlayerAttributes({
@@ -41,10 +18,11 @@ function startingAttributes(): PlayerAttributes {
 describe('ReleasePlayerUseCase', () => {
   it('releases a player from their manager and persists it', async () => {
     const players = new InMemoryPlayerRepository();
+    const pairs = new InMemoryDoublesPairRepository();
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
     await players.save(player);
 
-    const useCase = new ReleasePlayerUseCase(players);
+    const useCase = new ReleasePlayerUseCase(players, pairs);
     await useCase.execute({ playerId: PlayerId('p1') });
 
     expect((await players.findById(PlayerId('p1')))!.managerId).toBeNull();
@@ -52,8 +30,28 @@ describe('ReleasePlayerUseCase', () => {
 
   it('throws when the player does not exist', async () => {
     const players = new InMemoryPlayerRepository();
-    const useCase = new ReleasePlayerUseCase(players);
+    const pairs = new InMemoryDoublesPairRepository();
+    const useCase = new ReleasePlayerUseCase(players, pairs);
 
     await expect(useCase.execute({ playerId: PlayerId('ghost') })).rejects.toThrow(/not found/);
+  });
+
+  it('dissolves any pair the released player was part of (the P7a cascade)', async () => {
+    const players = new InMemoryPlayerRepository();
+    const pairs = new InMemoryDoublesPairRepository();
+    await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
+    await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
+    const pair = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
+      playerA: PlayerId('a'),
+      playerB: PlayerId('b'),
+      managerId: ManagerId('m1'),
+    });
+    pair.accept();
+    await pairs.save(pair);
+    expect((await pairs.findById(pair.id))!.isActive).toBe(true);
+
+    await new ReleasePlayerUseCase(players, pairs).execute({ playerId: PlayerId('a') });
+
+    expect((await pairs.findById(pair.id))!.isDissolved).toBe(true);
   });
 });

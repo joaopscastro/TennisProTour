@@ -47,6 +47,22 @@ export const FORM_OUT_OF_BAND_PENALTY_PER_POINT = 0.3;
  * the fatigue/form tuning pass owns the real value. */
 export const HOME_ADVANTAGE_BONUS = 3;
 
+/** Weight applied to a doubles side's combined `doublesSkill` (P7b) —
+ * RR's documented "40% of the doubles stat adds to skill in doubles
+ * matches". Only ever read for a participant that carries `doublesSkill`
+ * (i.e. a doubles side); a singles participant has no doubles term, so
+ * this constant is inert there. PLACEHOLDER, same status as
+ * HOME_ADVANTAGE_BONUS. */
+export const DOUBLES_SKILL_WEIGHT = 0.4;
+
+/** Effective-rating bonus per point of pair chemistry (P7c) — a
+ * persistent partnership that has played together a lot gets a small,
+ * capped edge over a random pairing. At the 0-100 chemistry cap this is
+ * +10 on the same effective-rating scale as the form bonus — enough to
+ * matter in a coin-flip, never enough to paper over a skill gap.
+ * PLACEHOLDER, same status as DOUBLES_SKILL_WEIGHT. */
+export const CHEMISTRY_BONUS_PER_POINT = 0.1;
+
 /**
  * Effective-rating delta (can be positive or negative) contributed by a
  * player's current form. Pure and exported so it can be unit-tested and
@@ -99,7 +115,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
 
   constructor(private readonly random: RandomSource) {}
 
-  simulate(playerA: MatchParticipant, playerB: MatchParticipant, surface: Surface): SimulatedMatch {
+  simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, surface: Surface): SimulatedMatch<S> {
     const scoreA = this.effectiveRating(playerA, surface);
     const scoreB = this.effectiveRating(playerB, surface);
 
@@ -110,7 +126,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     const setsWonByA = sets.filter((s) => s.winnerIsA).length;
     const winnerIsA = setsWonByA >= 2;
 
-    const outcome: MatchOutcome = {
+    const outcome: MatchOutcome<S> = {
       winner: winnerIsA ? playerA.playerId : playerB.playerId,
       loser: winnerIsA ? playerB.playerId : playerA.playerId,
       setScores: sets.map((s) => ({
@@ -122,7 +138,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     return { outcome, log };
   }
 
-  private effectiveRating(participant: MatchParticipant, surface: Surface): number {
+  private effectiveRating<S extends string>(participant: MatchParticipant<S>, surface: Surface): number {
     const { technical, physical, mental } = participant.attributes;
     const technicalAvg = (technical.serve.value + technical.forehand.value + technical.backhand.value + technical.volley.value) / 4;
     const physicalAvg = (physical.speed.value + physical.stamina.value + physical.strength.value) / 3;
@@ -130,8 +146,10 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     const surfaceBonus = participant.attributes.surfaceAffinities.get(surface);
     const fatiguePenalty = participant.fatigue * 0.15;
     const homeBonus = participant.homeAdvantage ? HOME_ADVANTAGE_BONUS : 0;
+    const doublesBonus = participant.doublesSkill !== undefined ? DOUBLES_SKILL_WEIGHT * participant.doublesSkill : 0;
+    const chemistryBonus = participant.chemistry !== undefined ? CHEMISTRY_BONUS_PER_POINT * participant.chemistry : 0;
 
-    return technicalAvg * 0.5 + physicalAvg * 0.3 + mentalAvg * 0.2 + surfaceBonus * 0.3 - fatiguePenalty + formModifier(participant.form) + homeBonus;
+    return technicalAvg * 0.5 + physicalAvg * 0.3 + mentalAvg * 0.2 + surfaceBonus * 0.3 - fatiguePenalty + formModifier(participant.form) + homeBonus + doublesBonus + chemistryBonus;
   }
 
   private playBestOfThree(pointWinProbabilityA: number): {

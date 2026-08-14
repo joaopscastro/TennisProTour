@@ -58,7 +58,11 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
     await db.delete(schema.trainingSchedule);
     await db.delete(schema.tournamentMatches);
     await db.delete(schema.tournamentEntries);
+    await db.delete(schema.doublesTitles);
     await db.delete(schema.tournaments);
+    await db.delete(schema.doublesPairs);
+    await db.delete(schema.doublesPeakRankings);
+    await db.delete(schema.practiceSessions);
     await db.delete(schema.players);
 
     matchLogDirectory = await mkdtemp(join(tmpdir(), 'e2e-smoke-'));

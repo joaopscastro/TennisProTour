@@ -4,7 +4,7 @@ import { Player } from '@tennis-manager/domain';
  * playerRoutes.ts and talentPoolRoutes.ts (claiming a candidate and
  * creating a custom player both ultimately hand back a Player). */
 export function toPlayerDto(player: Player) {
-  const { technical, physical, mental, surfaceAffinities } = player.attributes;
+  const { technical, physical, mental, doubles, surfaceAffinities } = player.attributes;
   return {
     id: player.id,
     name: player.name,
@@ -30,6 +30,7 @@ export function toPlayerDto(player: Player) {
         consistency: mental.consistency.value,
         clutch: mental.clutch.value,
       },
+      doubles: doubles.value,
       surfaceAffinities: {
         clay: surfaceAffinities.get('clay'),
         grass: surfaceAffinities.get('grass'),

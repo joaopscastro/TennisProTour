@@ -23,6 +23,7 @@ export interface PlayerDto {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
     mental: { consistency: number; clutch: number };
+    doubles: number;
     surfaceAffinities: { clay: number; grass: number; hard: number; indoor: number };
   };
 }
@@ -162,10 +163,26 @@ export interface TournamentDto {
      * awarded by anything yet). Only ever 'Q' at a tier that holds
      * qualifying. */
     entryType: 'DA' | 'Q' | 'WC';
+    /** Which draw they are in right now. A 'Q' entrant sits in
+     * 'qualifying' until they actually win their way through, then
+     * moves to 'main'. */
+    draw: 'main' | 'qualifying';
   }>;
   /** Main-draw places reserved for qualifiers — 0 at every tier that
    * holds no qualifying (see QualifyingPolicy on the API side). */
   qualifierSlots: number;
+  /** How many players contest those reserved places in the qualifying
+   * draw, and over how many rounds. 0 = this tournament holds no
+   * qualifying. */
+  qualifyingDrawSize: number;
+  qualifyingRoundCount: number;
+  /** The qualifying draw has been played out, so its survivors are
+   * known (they are promoted into the main draw on the next tick). */
+  qualifyingComplete: boolean;
+  /** The main bracket has been seeded. Distinct from hasStarted, which
+   * is also true while a tournament is still playing QUALIFYING and its
+   * main draw does not exist yet. */
+  hasMainDraw: boolean;
   /** True when a top-ranked player must count this event even if they
    * skip it (the obligatory-tournament rule). */
   obligatory: boolean;
@@ -187,6 +204,35 @@ export interface TournamentDto {
     roundNumber: number;
     matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
   }>;
+  /** The qualifying bracket, same shape as `rounds`. Empty for every
+   * tournament that holds no qualifying. */
+  qualifyingRounds: Array<{
+    roundNumber: number;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  /** Doubles draw (P7b). `doublesDrawSize` 0 = no doubles draw.
+   * `doublesEntrants` are the solo signups (player ids); `doublesPairs`
+   * maps each bracket slot's pairId back to its two players;
+   * `doublesRounds` is the pair-keyed bracket (entrantA/entrantB are pair
+   * ids — resolve through `doublesPairs`). */
+  doublesDrawSize: number;
+  doublesEntrants: string[];
+  doublesPairs: Array<{ pairId: string; playerA: string; playerB: string; chemistry: number }>;
+  doublesRounds: Array<{
+    roundNumber: number;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  doublesComplete: boolean;
+  /** Doubles qualifying (P8). `doublesQualifyingDrawSize` 0 = no doubles
+   * qualifying. */
+  doublesQualifyingDrawSize: number;
+  doublesQualifierSlots: number;
+  doublesQualifyingPairs: Array<{ pairId: string; playerA: string; playerB: string; chemistry: number }>;
+  doublesQualifyingRounds: Array<{
+    roundNumber: number;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  doublesQualifyingComplete: boolean;
 }
 
 /** Mirrors the domain's MatchLog replay blob (CompetitionTypes.ts). */
@@ -325,6 +371,40 @@ export function releasePlayer(playerId: string, managerId?: string): Promise<Pla
   return sendJson('POST', `/players/${encodeURIComponent(playerId)}/release`, undefined, managerId);
 }
 
+/** Runs one practice session (P8a) — no form, no ranking; grants
+ * development XP + a small ladder credit for a small fatigue cost. Once
+ * per player per game day. */
+export function runPractice(playerId: string, managerId?: string): Promise<{ experience: number; fatigue: number; ladderPoints: number }> {
+  return sendJson('POST', `/players/${encodeURIComponent(playerId)}/practice`, undefined, managerId);
+}
+
+/** A doubles partnership (P7a) as the board read returns it — both
+ * players' identities inlined so the client can tell an incoming invite
+ * (I own playerB, pending) from an active pair without extra fetches. */
+export interface DoublesPairDto {
+  id: string;
+  status: 'pending' | 'active' | 'dissolved';
+  chemistry: number;
+  playerA: { playerId: string; name: string; nationality: string; managerId: string | null };
+  playerB: { playerId: string; name: string; nationality: string; managerId: string | null };
+}
+
+export function fetchDoublesPairs(managerId?: string): Promise<DoublesPairDto[]> {
+  return getJson('/me/doubles-pairs', managerId);
+}
+
+export function createDoublesPair(playerA: string, playerB: string, managerId?: string): Promise<DoublesPairDto> {
+  return sendJson('POST', '/doubles-pairs', { playerA, playerB }, managerId);
+}
+
+export function acceptDoublesPair(pairId: string, managerId?: string): Promise<DoublesPairDto> {
+  return sendJson('POST', `/doubles-pairs/${encodeURIComponent(pairId)}/accept`, undefined, managerId);
+}
+
+export function dissolveDoublesPair(pairId: string, managerId?: string): Promise<DoublesPairDto> {
+  return sendJson('POST', `/doubles-pairs/${encodeURIComponent(pairId)}/dissolve`, undefined, managerId);
+}
+
 /** Read-only preview computed from the real CoachConversionPolicy —
  * see GET /players/:id/coach-conversion-preview on the API side. Does
  * not spend XP or touch the roster; shown before requiring the
@@ -412,6 +492,10 @@ export function registerEntrant(tournamentId: string, playerId: string, managerI
   return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId }, managerId);
 }
 
+export function registerDoublesEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {
+  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/doubles-entrants`, { playerId }, managerId);
+}
+
 export function fetchTournament(id: string): Promise<TournamentDto> {
   return getJson(`/tournaments/${encodeURIComponent(id)}`);
 }
@@ -437,9 +521,18 @@ export async function simulateMatch(
 }
 
 /** The same deterministic slot id the backend derives (see
- * matchIdForSlot in the application layer). */
-export function matchIdForSlot(tournamentId: string, roundNumber: number, matchIndex: number): string {
-  return `${tournamentId}-r${roundNumber}-m${matchIndex}`;
+ * matchIdForSlot in the application layer). The qualifying bracket has
+ * its own round numbering, so its ids carry a `-q` segment before the
+ * round so a qualifying round 1 can't collide with the main draw's
+ * round 1 (same tournament, same replay blob id). */
+export function matchIdForSlot(
+  tournamentId: string,
+  roundNumber: number,
+  matchIndex: number,
+  draw: 'main' | 'qualifying' = 'main',
+): string {
+  const prefix = draw === 'qualifying' ? `${tournamentId}-q` : `${tournamentId}`;
+  return `${prefix}-r${roundNumber}-m${matchIndex}`;
 }
 
 /** Inverse of matchIdForSlot — the replay screen is reached with only
@@ -449,10 +542,15 @@ export function matchIdForSlot(tournamentId: string, roundNumber: number, matchI
  * tournamentId in this codebase (seed script, demo data) is a plain
  * slug, so this holds in practice even though it isn't structurally
  * guaranteed by the id's type. */
-export function parseMatchId(matchId: string): { tournamentId: string; roundNumber: number; matchIndex: number } | null {
+export function parseMatchId(
+  matchId: string,
+): { tournamentId: string; roundNumber: number; matchIndex: number; draw: 'main' | 'qualifying' } | null {
   const m = /^(.+)-r(\d+)-m(\d+)$/.exec(matchId);
   if (!m) return null;
-  return { tournamentId: m[1], roundNumber: Number(m[2]), matchIndex: Number(m[3]) };
+  const rawId = m[1];
+  const draw: 'main' | 'qualifying' = rawId.endsWith('-q') ? 'qualifying' : 'main';
+  const tournamentId = draw === 'qualifying' ? rawId.slice(0, -2) : rawId;
+  return { tournamentId, roundNumber: Number(m[2]), matchIndex: Number(m[3]), draw };
 }
 
 export function fetchPlayer(id: string): Promise<PlayerDto> {
@@ -554,6 +652,31 @@ export interface PlayerProfileDto {
    * derived server-side from hidden ceilings — narrows toward truth as
    * the player ages. Never present on any list/pool DTO. */
   potential: PotentialProjectionDto;
+  /** The player's doubles partner (P7a): the OTHER member of the
+   * player's non-dissolved pair, with its status, or null when the
+   * player isn't in a pair. An ACTIVE pair is what the profile hero
+   * highlights; a PENDING invite shows as pending. */
+  doublesPartner: DoublesPartnerDto | null;
+  /** Permanent high-water-mark DOUBLES ranking totals, one per band (P7c
+   * + junior doubles). */
+  doublesPeaks: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
+  /** Doubles titles (P7c) — each shows the partner. */
+  doublesTitles: Array<{
+    tournamentId: string;
+    tier: string;
+    partnerId: string;
+    partnerName: string;
+    partnerNationality: string;
+    weekEarned: { season: number; week: number };
+  }>;
+}
+
+export interface DoublesPartnerDto {
+  pairId: string;
+  status: 'pending' | 'active' | 'dissolved';
+  playerId: string;
+  name: string;
+  nationality: string;
 }
 
 export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';
@@ -610,4 +733,83 @@ export interface PlayerMatchesDto {
 
 export function fetchPlayerMatches(playerId: string): Promise<PlayerMatchesDto> {
   return getJson(`/players/${encodeURIComponent(playerId)}/current-matches`);
+}
+
+/** The Masters Cup (P8b) — the season-end capstone, returned whole. */
+export interface MastersCupDto {
+  id: string;
+  season: number;
+  weekScheduled: { season: number; week: number };
+  surface: string;
+  singlesEntrants: string[];
+  doublesEntrants: Array<{ pairId: string; playerA: string; playerB: string; chemistry?: number }>;
+  singlesGroups: Array<{
+    entrants: string[];
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  doublesGroups: Array<{
+    entrants: string[];
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  singlesKnockout: Array<{
+    roundNumber: number;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  doublesKnockout: Array<{
+    roundNumber: number;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+  }>;
+  singlesGroupStageComplete: boolean;
+  doublesGroupStageComplete: boolean;
+  hasKnockout: boolean;
+  singlesChampion: string | null;
+  doublesChampion: string | null;
+}
+
+export function fetchMastersCup(season: number): Promise<MastersCupDto> {
+  return getJson(`/masters-cup/${season}`);
+}
+
+/** The World Team Cup (P8c) — the Davis-Cup-style national team event. */
+export interface WorldTeamCupDto {
+  id: string;
+  season: number;
+  weekScheduled: { season: number; week: number };
+  surface: string;
+  teams: Array<{ country: string; players: string[] }>;
+  groups: Array<{
+    teams: string[];
+    ties: Array<{
+      teamA: string;
+      teamB: string;
+      winner: string | null;
+      rubbers: Array<{
+        kind: 'singles' | 'doubles';
+        playerA?: string;
+        playerB?: string;
+        pairA?: string;
+        pairB?: string;
+        outcome: MatchOutcomeDto | null;
+      }>;
+    }>;
+  }>;
+  knockout: Array<Array<{
+    teamA: string;
+    teamB: string;
+    winner: string | null;
+    rubbers: Array<{
+      kind: 'singles' | 'doubles';
+      playerA?: string;
+      playerB?: string;
+      pairA?: string;
+      pairB?: string;
+      outcome: MatchOutcomeDto | null;
+    }>;
+  }>>;
+  hasKnockout: boolean;
+  champion: string | null;
+}
+
+export function fetchWorldTeamCup(season: number): Promise<WorldTeamCupDto> {
+  return getJson(`/world-team-cup/${season}`);
 }
