@@ -558,7 +558,11 @@ export default function RosterDashboardPage() {
                         <Button variant="ghost" onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)} disabled={busy} style={{ padding: '6px 10px', fontSize: 12 }}>More ···</Button>
                         {openActionsMenu === p.id && (
                           <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 160, zIndex: 20, padding: 5, overflow: 'hidden' }}>
-                            <div onClick={() => { setOpenActionsMenu(null); setCoachModalPlayer({ id: p.id, name: p.name }); }} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)' }}>Convert to coach</div>
+                            {p.stage !== 'retired' ? (
+                              <div onClick={() => { setOpenActionsMenu(null); setCoachModalPlayer({ id: p.id, name: p.name }); }} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)' }}>Convert to coach</div>
+                            ) : (
+                              <div style={{ padding: '8px 10px', fontSize: 12.5, borderRadius: 7, color: 'var(--gc-ink-faint)' }} title="Retired players can't become coaches">Convert to coach</div>
+                            )}
                             <div onClick={() => handleRelease(p.id, p.name)} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'oklch(72% 0.16 25)' }}>Release player</div>
                           </div>
                         )}

@@ -1,0 +1,4130 @@
+{
+  "meta": {
+    "api": "http://localhost:3000",
+    "botCount": 100,
+    "runAt": "2026-08-14T13:27:03.483Z",
+    "worldClock": {
+      "currentWeek": {
+        "season": 1,
+        "week": 43
+      },
+      "currentDay": 4,
+      "daysPerWeek": 7,
+      "nextTickAt": "2026-08-14T13:35:00.267Z",
+      "nextWeekTickAt": "2026-08-14T14:00:00.267Z"
+    }
+  },
+  "pools": {
+    "total": 182,
+    "u16": 18,
+    "senior": 164
+  },
+  "funding": 100,
+  "claims": {
+    "attempted": 182,
+    "succeeded": 182,
+    "failed": []
+  },
+  "perBot": [
+    {
+      "bot": "pb-1",
+      "players": [
+        {
+          "id": "335a89cb-af8b-47f5-bcf3-2580480d9325",
+          "name": "Aisha Silva",
+          "ageWeeks": 751,
+          "stage": "youth"
+        },
+        {
+          "id": "227d3b24-7b38-4636-bb1f-696beb48dd65",
+          "name": "Aisha Kowalski",
+          "ageWeeks": 751,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "335a89cb-af8b-47f5-bcf3-2580480d9325",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "227d3b24-7b38-4636-bb1f-696beb48dd65",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "9e1c6461-11ba-4ca3-9291-0193bda33b84",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-3",
+      "players": [
+        {
+          "id": "cd263657-1ec9-49e1-9cb3-5528868b6d22",
+          "name": "Kenji Okafor",
+          "ageWeeks": 752,
+          "stage": "youth"
+        },
+        {
+          "id": "a206a1b5-0eef-44c5-8b4e-c2c229843608",
+          "name": "Kenji Andersson",
+          "ageWeeks": 756,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "cd263657-1ec9-49e1-9cb3-5528868b6d22",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "a206a1b5-0eef-44c5-8b4e-c2c229843608",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "1e0c9fd0-6129-4fe9-b6ca-bdb7c61fc92e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-2",
+      "players": [
+        {
+          "id": "884a0287-19f3-4fe9-9822-b412fd45b855",
+          "name": "Sofia Petrov",
+          "ageWeeks": 751,
+          "stage": "youth"
+        },
+        {
+          "id": "997d4959-0d08-41d5-aa27-eb0e59abe9f7",
+          "name": "Diego Moreau",
+          "ageWeeks": 752,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "884a0287-19f3-4fe9-9822-b412fd45b855",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "997d4959-0d08-41d5-aa27-eb0e59abe9f7",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "ad702923-7c4c-4abb-97d4-fd0a221c9be9",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-4",
+      "players": [
+        {
+          "id": "5ea2933c-1148-4f53-a28f-96f4aad31786",
+          "name": "Aisha Moreau",
+          "ageWeeks": 757,
+          "stage": "youth"
+        },
+        {
+          "id": "81c955db-ae24-4c0b-bac0-9d041a30be1f",
+          "name": "Lena Silva",
+          "ageWeeks": 758,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "5ea2933c-1148-4f53-a28f-96f4aad31786",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "81c955db-ae24-4c0b-bac0-9d041a30be1f",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "912f9a57-1760-41fb-9969-3f004eec05b2",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-5",
+      "players": [
+        {
+          "id": "6732c55c-e40d-4c38-9daa-9b162d282679",
+          "name": "Amara Yamamoto",
+          "ageWeeks": 758,
+          "stage": "youth"
+        },
+        {
+          "id": "a8010e54-d2bc-4603-addd-907255003593",
+          "name": "Lena Dubois",
+          "ageWeeks": 758,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "6732c55c-e40d-4c38-9daa-9b162d282679",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "a8010e54-d2bc-4603-addd-907255003593",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "f6a22ffb-2101-49e4-8d57-d569199043f5",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-6",
+      "players": [
+        {
+          "id": "f0784948-94ba-4e6f-8302-6b04e6c2f7ba",
+          "name": "Amara Silva",
+          "ageWeeks": 759,
+          "stage": "youth"
+        },
+        {
+          "id": "48dbde96-932f-437b-87d8-5cf2e46fb72f",
+          "name": "Mateus Rossi",
+          "ageWeeks": 759,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "f0784948-94ba-4e6f-8302-6b04e6c2f7ba",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "48dbde96-932f-437b-87d8-5cf2e46fb72f",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "c0a74cb2-6d46-4629-8385-ce90f01602de",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-7",
+      "players": [
+        {
+          "id": "6b790b72-677f-4661-94e1-7ecb67583781",
+          "name": "Amara Okafor",
+          "ageWeeks": 799,
+          "stage": "youth"
+        },
+        {
+          "id": "6d24ef61-f8c1-471d-a3a4-0f65f642bec7",
+          "name": "Kenji Dubois",
+          "ageWeeks": 800,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "6b790b72-677f-4661-94e1-7ecb67583781",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "6d24ef61-f8c1-471d-a3a4-0f65f642bec7",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "04cd0f70-97de-4299-959e-59ea78bc6abd",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-8",
+      "players": [
+        {
+          "id": "00ccf55a-6c50-4d16-b1a1-3d7ed7e7033c",
+          "name": "Aisha Yamamoto",
+          "ageWeeks": 807,
+          "stage": "youth"
+        },
+        {
+          "id": "49045713-5007-4448-b0f4-f8d6faf51abd",
+          "name": "Mateus Rossi",
+          "ageWeeks": 815,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "00ccf55a-6c50-4d16-b1a1-3d7ed7e7033c",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "49045713-5007-4448-b0f4-f8d6faf51abd",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "7c71b20f-3514-4042-94f9-df6ea89017c1",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-10",
+      "players": [
+        {
+          "id": "seed-free-98",
+          "name": "Free Agent 98",
+          "ageWeeks": 997,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-80",
+          "name": "Free Agent 80",
+          "ageWeeks": 1008,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-98",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-80",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "8ea854e3-48ea-47b3-af04-5e8cc13d9b8e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-11",
+      "players": [
+        {
+          "id": "seed-free-22",
+          "name": "Free Agent 22",
+          "ageWeeks": 1012,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-167",
+          "name": "Free Agent 167",
+          "ageWeeks": 1021,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-22",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-167",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "a4764ed2-4f44-43c3-9597-7bb4574231b5",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-12",
+      "players": [
+        {
+          "id": "seed-free-36",
+          "name": "Free Agent 36",
+          "ageWeeks": 1023,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-122",
+          "name": "Free Agent 122",
+          "ageWeeks": 1029,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-36",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-122",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "a2f7a806-1ed5-46a5-9e4f-bf9a52a6d7ff",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-9",
+      "players": [
+        {
+          "id": "2770319c-9d06-41d6-9f5c-6e71a2481a40",
+          "name": "Aisha García",
+          "ageWeeks": 817,
+          "stage": "youth"
+        },
+        {
+          "id": "1caf3593-ee64-4e21-a9a9-aab747cbec6f",
+          "name": "Diego Okafor",
+          "ageWeeks": 832,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "2770319c-9d06-41d6-9f5c-6e71a2481a40",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "1caf3593-ee64-4e21-a9a9-aab747cbec6f",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "13c64d70-61e1-4e2e-b099-975c812e2f7b",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "41dd3058-a367-4f68-9635-ef4eedca25eb",
+          "tier": "j100",
+          "name": "Aurora Japan Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-15",
+      "players": [
+        {
+          "id": "seed-free-163",
+          "name": "Free Agent 163",
+          "ageWeeks": 1044,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-104",
+          "name": "Free Agent 104",
+          "ageWeeks": 1052,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-163",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-104",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "63e4da15-9215-45cb-8d45-b840e471d9e3",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-17",
+      "players": [
+        {
+          "id": "seed-free-28",
+          "name": "Free Agent 28",
+          "ageWeeks": 1076,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-46",
+          "name": "Free Agent 46",
+          "ageWeeks": 1079,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-28",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-46",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "bca320f8-098d-433e-9af1-838e3c66c8ad",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-13",
+      "players": [
+        {
+          "id": "seed-free-188",
+          "name": "Free Agent 188",
+          "ageWeeks": 1029,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-89",
+          "name": "Free Agent 89",
+          "ageWeeks": 1029,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-188",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-89",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "b3aa65d2-7ab0-42ec-bf11-6b18e880e74d",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-14",
+      "players": [
+        {
+          "id": "seed-free-146",
+          "name": "Free Agent 146",
+          "ageWeeks": 1032,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-128",
+          "name": "Free Agent 128",
+          "ageWeeks": 1043,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-146",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-128",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "7609b97c-6aa1-4c3e-8f08-a0cf55ec27b4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-18",
+      "players": [
+        {
+          "id": "seed-free-79",
+          "name": "Free Agent 79",
+          "ageWeeks": 1083,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-126",
+          "name": "Free Agent 126",
+          "ageWeeks": 1103,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-79",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-126",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "1f49c286-e733-4e87-ae8a-71caf4d91035",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-16",
+      "players": [
+        {
+          "id": "seed-free-51",
+          "name": "Free Agent 51",
+          "ageWeeks": 1053,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-162",
+          "name": "Free Agent 162",
+          "ageWeeks": 1056,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-51",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-162",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "83ca1f1e-aea0-458d-95b7-ca86175a9890",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-20",
+      "players": [
+        {
+          "id": "seed-free-97",
+          "name": "Free Agent 97",
+          "ageWeeks": 1135,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-71",
+          "name": "Free Agent 71",
+          "ageWeeks": 1136,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "pair": {
+        "id": "b1c75639-ded4-47fa-b42d-4beafdcaa907",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-21",
+      "players": [
+        {
+          "id": "seed-free-54",
+          "name": "Free Agent 54",
+          "ageWeeks": 1150,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-132",
+          "name": "Free Agent 132",
+          "ageWeeks": 1154,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-132",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "bef54f4e-5f44-4c72-8b2e-4535f3c76da9",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-19",
+      "players": [
+        {
+          "id": "seed-free-18",
+          "name": "Free Agent 18",
+          "ageWeeks": 1122,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-96",
+          "name": "Free Agent 96",
+          "ageWeeks": 1129,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-18",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "21246760-0b49-43a4-a7f5-6f2758c33624",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-22",
+      "players": [
+        {
+          "id": "seed-free-106",
+          "name": "Free Agent 106",
+          "ageWeeks": 1161,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-179",
+          "name": "Free Agent 179",
+          "ageWeeks": 1165,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-179",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "501ee77f-ba09-4cb6-8f6f-77fe716d714a",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-23",
+      "players": [
+        {
+          "id": "seed-free-165",
+          "name": "Free Agent 165",
+          "ageWeeks": 1168,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-50",
+          "name": "Free Agent 50",
+          "ageWeeks": 1171,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-165",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "7f6f34b2-0c7c-4e56-9538-0ad0a493e64e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-24",
+      "players": [
+        {
+          "id": "seed-free-153",
+          "name": "Free Agent 153",
+          "ageWeeks": 1196,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-35",
+          "name": "Free Agent 35",
+          "ageWeeks": 1197,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-153",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "956c3abc-960c-4035-b791-60e4a395a3d4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-27",
+      "players": [
+        {
+          "id": "seed-free-63",
+          "name": "Free Agent 63",
+          "ageWeeks": 1235,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-196",
+          "name": "Free Agent 196",
+          "ageWeeks": 1236,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "pair": {
+        "id": "b1b18a4e-eaae-4db0-93a7-e1c6e26b29bf",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-26",
+      "players": [
+        {
+          "id": "seed-free-77",
+          "name": "Free Agent 77",
+          "ageWeeks": 1211,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-124",
+          "name": "Free Agent 124",
+          "ageWeeks": 1229,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-124",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "132d7bca-acf5-4503-a35b-a7b04e4349e2",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-25",
+      "players": [
+        {
+          "id": "seed-free-127",
+          "name": "Free Agent 127",
+          "ageWeeks": 1206,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-150",
+          "name": "Free Agent 150",
+          "ageWeeks": 1211,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-127",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-150",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "bfb74f1b-041f-4538-b5b1-2de856fcf3eb",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-30",
+      "players": [
+        {
+          "id": "seed-free-186",
+          "name": "Free Agent 186",
+          "ageWeeks": 1243,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-168",
+          "name": "Free Agent 168",
+          "ageWeeks": 1257,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-186",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "f1107bdb-d1f2-46da-8614-a64af8ee5d9a",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-29",
+      "players": [
+        {
+          "id": "seed-free-149",
+          "name": "Free Agent 149",
+          "ageWeeks": 1240,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-103",
+          "name": "Free Agent 103",
+          "ageWeeks": 1242,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-149",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "808971c9-7baf-4ced-9597-1a79e54f4683",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-28",
+      "players": [
+        {
+          "id": "seed-free-113",
+          "name": "Free Agent 113",
+          "ageWeeks": 1236,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-115",
+          "name": "Free Agent 115",
+          "ageWeeks": 1238,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-113",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-115",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        }
+      ],
+      "pair": {
+        "id": "c39475df-3280-4b31-93b1-00d917025fb4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup",
+          "doublesDrawSize": 32
+        }
+      ]
+    },
+    {
+      "bot": "pb-33",
+      "players": [
+        {
+          "id": "seed-free-75",
+          "name": "Free Agent 75",
+          "ageWeeks": 1294,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-10",
+          "name": "Free Agent 10",
+          "ageWeeks": 1294,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-10",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "0e74a8ce-e2dc-4885-82eb-f5fda5e50b49",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-31",
+      "players": [
+        {
+          "id": "seed-free-26",
+          "name": "Free Agent 26",
+          "ageWeeks": 1267,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-136",
+          "name": "Free Agent 136",
+          "ageWeeks": 1267,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-136",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "609f6298-0b15-4479-9edb-79deeeb62f31",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-32",
+      "players": [
+        {
+          "id": "seed-free-5",
+          "name": "Free Agent 5",
+          "ageWeeks": 1269,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-1",
+          "name": "Free Agent 1",
+          "ageWeeks": 1279,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-1",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "de28b63d-7e4e-4f7b-9361-ec62eb273940",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-35",
+      "players": [
+        {
+          "id": "seed-free-25",
+          "name": "Free Agent 25",
+          "ageWeeks": 1313,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-6",
+          "name": "Free Agent 6",
+          "ageWeeks": 1326,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-6",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "86510aa8-2383-4781-b858-43293a62ed86",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-36",
+      "players": [
+        {
+          "id": "seed-free-11",
+          "name": "Free Agent 11",
+          "ageWeeks": 1328,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-7",
+          "name": "Free Agent 7",
+          "ageWeeks": 1331,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-7",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "d5655fe8-02cc-49ad-a154-46cc3c688d08",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-34",
+      "players": [
+        {
+          "id": "seed-free-171",
+          "name": "Free Agent 171",
+          "ageWeeks": 1305,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-33",
+          "name": "Free Agent 33",
+          "ageWeeks": 1311,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-171",
+          "tournamentId": "e0815c42-b57e-4f83-a912-b2cb98f58280",
+          "tier": "tour",
+          "name": "India Elite Cup"
+        },
+        {
+          "playerId": "seed-free-33",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "93d31cbe-775a-4ec6-9714-dd1ea9a8092e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-39",
+      "players": [
+        {
+          "id": "seed-free-119",
+          "name": "Free Agent 119",
+          "ageWeeks": 1379,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-175",
+          "name": "Free Agent 175",
+          "ageWeeks": 1381,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-119",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-175",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "5eee10f9-828b-4e82-82ce-af5a8a0db987",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-37",
+      "players": [
+        {
+          "id": "seed-free-30",
+          "name": "Free Agent 30",
+          "ageWeeks": 1338,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-74",
+          "name": "Free Agent 74",
+          "ageWeeks": 1350,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-30",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-74",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "f55397b0-a3cd-46d6-81ed-77b6313e60a3",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-38",
+      "players": [
+        {
+          "id": "seed-free-100",
+          "name": "Free Agent 100",
+          "ageWeeks": 1355,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-185",
+          "name": "Free Agent 185",
+          "ageWeeks": 1366,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-100",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-185",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "b377e520-086a-4f89-9201-65893031c837",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-42",
+      "players": [
+        {
+          "id": "seed-free-154",
+          "name": "Free Agent 154",
+          "ageWeeks": 1409,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-68",
+          "name": "Free Agent 68",
+          "ageWeeks": 1423,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-154",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-68",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "0191dc28-81a6-4b9c-be6f-5d8bd2e55924",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-41",
+      "players": [
+        {
+          "id": "seed-free-45",
+          "name": "Free Agent 45",
+          "ageWeeks": 1396,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-23",
+          "name": "Free Agent 23",
+          "ageWeeks": 1405,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-45",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-23",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "05c506a2-86f8-45ec-945f-939f12323314",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-40",
+      "players": [
+        {
+          "id": "seed-free-164",
+          "name": "Free Agent 164",
+          "ageWeeks": 1392,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-24",
+          "name": "Free Agent 24",
+          "ageWeeks": 1392,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-164",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-24",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "3ace5222-f40d-4bc4-bad3-017f30d00e9f",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-45",
+      "players": [
+        {
+          "id": "seed-free-59",
+          "name": "Free Agent 59",
+          "ageWeeks": 1440,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-118",
+          "name": "Free Agent 118",
+          "ageWeeks": 1442,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-59",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-118",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "3fa3b40e-e5cb-4924-97b2-dcd6fa0effa5",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-44",
+      "players": [
+        {
+          "id": "seed-free-90",
+          "name": "Free Agent 90",
+          "ageWeeks": 1433,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-48",
+          "name": "Free Agent 48",
+          "ageWeeks": 1435,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-90",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-48",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "f8c09293-2be5-471d-bf22-a8b203ebe33e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-48",
+      "players": [
+        {
+          "id": "seed-free-172",
+          "name": "Free Agent 172",
+          "ageWeeks": 1455,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-78",
+          "name": "Free Agent 78",
+          "ageWeeks": 1456,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-172",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-78",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "e21793dd-4b2b-408c-8510-5f7d960186cf",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-43",
+      "players": [
+        {
+          "id": "seed-free-125",
+          "name": "Free Agent 125",
+          "ageWeeks": 1424,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-187",
+          "name": "Free Agent 187",
+          "ageWeeks": 1429,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-125",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-187",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "8816ccc2-394d-4aa4-8a8d-fcfcac215567",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-47",
+      "players": [
+        {
+          "id": "seed-free-27",
+          "name": "Free Agent 27",
+          "ageWeeks": 1452,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-108",
+          "name": "Free Agent 108",
+          "ageWeeks": 1455,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-27",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-108",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "520546b8-dd12-4ce5-aceb-2a6f2faa7c98",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-46",
+      "players": [
+        {
+          "id": "seed-free-41",
+          "name": "Free Agent 41",
+          "ageWeeks": 1443,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-121",
+          "name": "Free Agent 121",
+          "ageWeeks": 1446,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-41",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-121",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        }
+      ],
+      "pair": {
+        "id": "add8b1a2-a101-48d2-906c-37e43e31c3f9",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-51",
+      "players": [
+        {
+          "id": "seed-free-72",
+          "name": "Free Agent 72",
+          "ageWeeks": 1487,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-14",
+          "name": "Free Agent 14",
+          "ageWeeks": 1503,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-14",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "a0a78c0e-a42d-4344-9ad7-5e9700a5912f",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-49",
+      "players": [
+        {
+          "id": "seed-free-70",
+          "name": "Free Agent 70",
+          "ageWeeks": 1459,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-92",
+          "name": "Free Agent 92",
+          "ageWeeks": 1466,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-70",
+          "tournamentId": "d61611c8-9435-457e-bc6a-c39b8253d327",
+          "tier": "futures",
+          "name": "Lumen Open"
+        },
+        {
+          "playerId": "seed-free-92",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "d4ba312b-e2b1-4b77-b2ad-a7c89bb8a009",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-50",
+      "players": [
+        {
+          "id": "seed-free-169",
+          "name": "Free Agent 169",
+          "ageWeeks": 1471,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-73",
+          "name": "Free Agent 73",
+          "ageWeeks": 1485,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-73",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "47b60c91-dd98-4d24-b81b-b9b570c30d98",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-52",
+      "players": [
+        {
+          "id": "seed-free-194",
+          "name": "Free Agent 194",
+          "ageWeeks": 1503,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-39",
+          "name": "Free Agent 39",
+          "ageWeeks": 1508,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-39",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "a298480b-cb7d-4845-a852-15a1874608f4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-53",
+      "players": [
+        {
+          "id": "seed-free-109",
+          "name": "Free Agent 109",
+          "ageWeeks": 1509,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-94",
+          "name": "Free Agent 94",
+          "ageWeeks": 1510,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-94",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "74837745-04b0-431d-b3d4-5875e278c430",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-54",
+      "players": [
+        {
+          "id": "seed-free-95",
+          "name": "Free Agent 95",
+          "ageWeeks": 1511,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-12",
+          "name": "Free Agent 12",
+          "ageWeeks": 1515,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-12",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        }
+      ],
+      "pair": {
+        "id": "99229f70-ce27-45c3-a85c-4879f03ece23",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-59",
+      "players": [
+        {
+          "id": "seed-free-193",
+          "name": "Free Agent 193",
+          "ageWeeks": 1553,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-156",
+          "name": "Free Agent 156",
+          "ageWeeks": 1558,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-156",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "5d517e9c-0329-4e62-ae84-b080236c35cd",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-57",
+      "players": [
+        {
+          "id": "seed-free-102",
+          "name": "Free Agent 102",
+          "ageWeeks": 1530,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-105",
+          "name": "Free Agent 105",
+          "ageWeeks": 1535,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-105",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "19b233b0-c20a-42d4-ad58-1304d529352b",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-55",
+      "players": [
+        {
+          "id": "seed-free-184",
+          "name": "Free Agent 184",
+          "ageWeeks": 1521,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-143",
+          "name": "Free Agent 143",
+          "ageWeeks": 1523,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-184",
+          "tournamentId": "cbdbce1b-f04f-4914-b36f-ede00550a5a7",
+          "tier": "futures",
+          "name": "Halcyon Clay Classic"
+        },
+        {
+          "playerId": "seed-free-143",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "101ea91d-bdd6-4e93-80cf-a7f7fad9f0ce",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-58",
+      "players": [
+        {
+          "id": "seed-free-16",
+          "name": "Free Agent 16",
+          "ageWeeks": 1536,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-178",
+          "name": "Free Agent 178",
+          "ageWeeks": 1552,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-178",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "7de9ea31-f282-40e2-9c08-203ae873b30f",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-60",
+      "players": [
+        {
+          "id": "seed-free-38",
+          "name": "Free Agent 38",
+          "ageWeeks": 1560,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-85",
+          "name": "Free Agent 85",
+          "ageWeeks": 1569,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-85",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "1eeb81be-767a-46d7-b3af-3ef11edbcd33",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-56",
+      "players": [
+        {
+          "id": "seed-free-56",
+          "name": "Free Agent 56",
+          "ageWeeks": 1526,
+          "stage": "prime"
+        },
+        {
+          "id": "seed-free-57",
+          "name": "Free Agent 57",
+          "ageWeeks": 1529,
+          "stage": "prime"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-57",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "f09c9a24-c894-4837-84ba-971795941413",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-61",
+      "players": [
+        {
+          "id": "seed-free-135",
+          "name": "Free Agent 135",
+          "ageWeeks": 1571,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-31",
+          "name": "Free Agent 31",
+          "ageWeeks": 1581,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-135",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-31",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "1477b080-0e81-4c82-b944-da9b16827b04",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-62",
+      "players": [
+        {
+          "id": "seed-free-191",
+          "name": "Free Agent 191",
+          "ageWeeks": 1595,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-120",
+          "name": "Free Agent 120",
+          "ageWeeks": 1601,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-191",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-120",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "a30eecaf-255c-4056-ace8-dba097b41567",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-63",
+      "players": [
+        {
+          "id": "seed-free-140",
+          "name": "Free Agent 140",
+          "ageWeeks": 1608,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-69",
+          "name": "Free Agent 69",
+          "ageWeeks": 1610,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-140",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-69",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "9d826eeb-941c-4c1c-9086-d3bc11207e63",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-66",
+      "players": [
+        {
+          "id": "seed-free-17",
+          "name": "Free Agent 17",
+          "ageWeeks": 1632,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-42",
+          "name": "Free Agent 42",
+          "ageWeeks": 1634,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-17",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-42",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "0aa16984-6030-4683-9dfa-5d66f5c9016b",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-64",
+      "players": [
+        {
+          "id": "seed-free-139",
+          "name": "Free Agent 139",
+          "ageWeeks": 1613,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-197",
+          "name": "Free Agent 197",
+          "ageWeeks": 1616,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-139",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-197",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "0b4937d9-048e-405a-af77-249944433753",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-65",
+      "players": [
+        {
+          "id": "seed-free-66",
+          "name": "Free Agent 66",
+          "ageWeeks": 1624,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-60",
+          "name": "Free Agent 60",
+          "ageWeeks": 1630,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-66",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-60",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        }
+      ],
+      "pair": {
+        "id": "312e6d77-c882-4303-b8a8-6ee930f30607",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-67",
+      "players": [
+        {
+          "id": "seed-free-88",
+          "name": "Free Agent 88",
+          "ageWeeks": 1641,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-53",
+          "name": "Free Agent 53",
+          "ageWeeks": 1641,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-88",
+          "tournamentId": "06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed",
+          "tier": "challenger",
+          "name": "Brazil Lawn Championship"
+        },
+        {
+          "playerId": "seed-free-53",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "a231b0e7-9b82-40f2-9779-0576901a6255",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-71",
+      "players": [
+        {
+          "id": "seed-free-82",
+          "name": "Free Agent 82",
+          "ageWeeks": 1700,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-52",
+          "name": "Free Agent 52",
+          "ageWeeks": 1710,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-52",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "857ef273-0811-41c2-be93-b70c07daf214",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-69",
+      "players": [
+        {
+          "id": "seed-free-190",
+          "name": "Free Agent 190",
+          "ageWeeks": 1658,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-2",
+          "name": "Free Agent 2",
+          "ageWeeks": 1662,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-2",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "2975c9cf-35e9-43d1-97eb-231d92f34165",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-72",
+      "players": [
+        {
+          "id": "seed-free-159",
+          "name": "Free Agent 159",
+          "ageWeeks": 1711,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-3",
+          "name": "Free Agent 3",
+          "ageWeeks": 1715,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-3",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "8ba6a67b-a0d6-4c3c-b143-6fd6a645c80d",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-68",
+      "players": [
+        {
+          "id": "seed-free-21",
+          "name": "Free Agent 21",
+          "ageWeeks": 1648,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-84",
+          "name": "Free Agent 84",
+          "ageWeeks": 1655,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-84",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "8974afa5-4e02-49af-8c3a-59b7f58c15e0",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-70",
+      "players": [
+        {
+          "id": "seed-free-176",
+          "name": "Free Agent 176",
+          "ageWeeks": 1684,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-152",
+          "name": "Free Agent 152",
+          "ageWeeks": 1687,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-152",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "faec0a12-6849-4113-b9d1-f7c9f51578f4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-73",
+      "players": [
+        {
+          "id": "seed-free-62",
+          "name": "Free Agent 62",
+          "ageWeeks": 1716,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-133",
+          "name": "Free Agent 133",
+          "ageWeeks": 1723,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-62",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        },
+        {
+          "playerId": "seed-free-133",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "d581091b-26e3-42d7-8482-48762c569edf",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-75",
+      "players": [
+        {
+          "id": "seed-free-200",
+          "name": "Free Agent 200",
+          "ageWeeks": 1734,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-65",
+          "name": "Free Agent 65",
+          "ageWeeks": 1738,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-200",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        },
+        {
+          "playerId": "seed-free-65",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "a9c68672-8c67-47ae-968f-ce6069cf71c4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-74",
+      "players": [
+        {
+          "id": "seed-free-29",
+          "name": "Free Agent 29",
+          "ageWeeks": 1723,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-32",
+          "name": "Free Agent 32",
+          "ageWeeks": 1727,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-29",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        },
+        {
+          "playerId": "seed-free-32",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "a80bf112-4b4d-4f95-b663-c511588e5ec1",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-78",
+      "players": [
+        {
+          "id": "seed-free-198",
+          "name": "Free Agent 198",
+          "ageWeeks": 1786,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-183",
+          "name": "Free Agent 183",
+          "ageWeeks": 1788,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-198",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        },
+        {
+          "playerId": "seed-free-183",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "7c14eff9-3187-4ef5-b901-b33e4022390b",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-77",
+      "players": [
+        {
+          "id": "seed-free-134",
+          "name": "Free Agent 134",
+          "ageWeeks": 1769,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-151",
+          "name": "Free Agent 151",
+          "ageWeeks": 1778,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-134",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        },
+        {
+          "playerId": "seed-free-151",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "a18803be-d1c9-4a8c-ace9-8a1f68c06c7c",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-76",
+      "players": [
+        {
+          "id": "seed-free-107",
+          "name": "Free Agent 107",
+          "ageWeeks": 1740,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-81",
+          "name": "Free Agent 81",
+          "ageWeeks": 1755,
+          "stage": "decline"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-107",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "2f8ac2f5-0e2e-4a9e-8e55-bdbece7396b7",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "pb-79",
+      "players": [
+        {
+          "id": "seed-free-99",
+          "name": "Free Agent 99",
+          "ageWeeks": 1788,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-37",
+          "name": "Free Agent 37",
+          "ageWeeks": 1789,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-37",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "8b0add1c-130e-46c6-ab15-7a7451917556",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-81",
+      "players": [
+        {
+          "id": "seed-free-19",
+          "name": "Free Agent 19",
+          "ageWeeks": 1799,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-114",
+          "name": "Free Agent 114",
+          "ageWeeks": 1811,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-114",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "1e0a1e09-e4ba-4f87-89d5-28507927ad0a",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-80",
+      "players": [
+        {
+          "id": "seed-free-148",
+          "name": "Free Agent 148",
+          "ageWeeks": 1792,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-111",
+          "name": "Free Agent 111",
+          "ageWeeks": 1794,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-111",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-148",
+          "tournamentId": "ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f",
+          "tier": "challenger",
+          "name": "Serbia Indoor Cup"
+        }
+      ],
+      "pair": {
+        "id": "42e3e2ab-bf65-4c55-bb75-3b2ca0b4f49d",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-84",
+      "players": [
+        {
+          "id": "seed-free-55",
+          "name": "Free Agent 55",
+          "ageWeeks": 1850,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-20",
+          "name": "Free Agent 20",
+          "ageWeeks": 1865,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-20",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "28704e73-ad55-4c82-8786-07e76323631c",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-82",
+      "players": [
+        {
+          "id": "seed-free-44",
+          "name": "Free Agent 44",
+          "ageWeeks": 1817,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-47",
+          "name": "Free Agent 47",
+          "ageWeeks": 1821,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-47",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "678349c6-28ad-4657-be61-7608c81e0f4e",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-83",
+      "players": [
+        {
+          "id": "seed-free-137",
+          "name": "Free Agent 137",
+          "ageWeeks": 1827,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-87",
+          "name": "Free Agent 87",
+          "ageWeeks": 1841,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-87",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "fa336287-8994-47c8-9aef-cef1c6ccb1ae",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-87",
+      "players": [
+        {
+          "id": "seed-free-40",
+          "name": "Free Agent 40",
+          "ageWeeks": 1932,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-131",
+          "name": "Free Agent 131",
+          "ageWeeks": 1937,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-40",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-131",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "63450dfd-4a35-4f40-a4ca-53027a052bd7",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-85",
+      "players": [
+        {
+          "id": "seed-free-130",
+          "name": "Free Agent 130",
+          "ageWeeks": 1870,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-138",
+          "name": "Free Agent 138",
+          "ageWeeks": 1924,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-130",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-138",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "ec018257-47b7-4a0a-a7ab-30ad44cf5dd3",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-88",
+      "players": [
+        {
+          "id": "seed-free-181",
+          "name": "Free Agent 181",
+          "ageWeeks": 1939,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-192",
+          "name": "Free Agent 192",
+          "ageWeeks": 1944,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-181",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-192",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "64dfe889-38ee-47db-b4f4-65fcd4b95784",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-89",
+      "players": [
+        {
+          "id": "seed-free-101",
+          "name": "Free Agent 101",
+          "ageWeeks": 1947,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-174",
+          "name": "Free Agent 174",
+          "ageWeeks": 1950,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-101",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-174",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "8eab7dae-418e-4286-967d-abd6e585d578",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-86",
+      "players": [
+        {
+          "id": "seed-free-117",
+          "name": "Free Agent 117",
+          "ageWeeks": 1925,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-8",
+          "name": "Free Agent 8",
+          "ageWeeks": 1931,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-117",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-8",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "e74139a1-3be7-44a4-ae66-f1bb07b57fa4",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-90",
+      "players": [
+        {
+          "id": "seed-free-189",
+          "name": "Free Agent 189",
+          "ageWeeks": 1951,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-199",
+          "name": "Free Agent 199",
+          "ageWeeks": 1962,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-189",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-199",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "8d6e3a2f-abca-496a-9c0d-db4aec95df74",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "pb-92",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-93",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-94",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-95",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-96",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-97",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-98",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-99",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-100",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "pb-91",
+      "players": [
+        {
+          "id": "seed-free-86",
+          "name": "Free Agent 86",
+          "ageWeeks": 1963,
+          "stage": "decline"
+        },
+        {
+          "id": "seed-free-61",
+          "name": "Free Agent 61",
+          "ageWeeks": 1963,
+          "stage": "decline"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-86",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "enter-singles:seed-free-61",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 51
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "1214f107-5154-4f14-bc05-14f18d9d753e",
+        "status": "active",
+        "chemistry": 0
+      }
+    }
+  ],
+  "rulesFired": {
+    "Player seed-free-97 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-54 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-106 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-71 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-96 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-35 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-50 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-77 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-63 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-196 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-168 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-103 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-26 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-5 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-75 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-25 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Player seed-free-11 is outside direct acceptance for tournament e0815c42-b57e-4f83-a912-b2cb98f58280 and its 32-player qualifying field is already full (8 main-draw place(s) at stake)": 1,
+    "Cannot register an entrant: tournament d61611c8-9435-457e-bc6a-c39b8253d327 has already started": 5,
+    "Cannot register an entrant: tournament cbdbce1b-f04f-4914-b36f-ede00550a5a7 has already started": 5,
+    "Cannot register an entrant: tournament 06aaa5fd-06b0-4dc1-a6d3-b6c0004666ed has already started": 5,
+    "Player seed-free-81 is outside direct acceptance for tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f and its 16-player qualifying field is already full (4 main-draw place(s) at stake)": 1,
+    "Player seed-free-99 is outside direct acceptance for tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f and its 16-player qualifying field is already full (4 main-draw place(s) at stake)": 1,
+    "Cannot register an entrant: tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f has already started": 1,
+    "Player seed-free-44 is outside direct acceptance for tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f and its 16-player qualifying field is already full (4 main-draw place(s) at stake)": 1,
+    "Player seed-free-137 is outside direct acceptance for tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f and its 16-player qualifying field is already full (4 main-draw place(s) at stake)": 1,
+    "Player seed-free-55 is outside direct acceptance for tournament ee740c99-ce82-4ffc-ba2a-bc9a08ed2e3f and its 16-player qualifying field is already full (4 main-draw place(s) at stake)": 1
+  },
+  "serverErrors": [],
+  "unexpected4xx": [],
+  "anomalies": [
+    {
+      "botId": "pb-79",
+      "playerId": "seed-free-37",
+      "ageWeeks": 1789,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-80",
+      "playerId": "seed-free-111",
+      "ageWeeks": 1794,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-81",
+      "playerId": "seed-free-114",
+      "ageWeeks": 1811,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-84",
+      "playerId": "seed-free-20",
+      "ageWeeks": 1865,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-82",
+      "playerId": "seed-free-47",
+      "ageWeeks": 1821,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-83",
+      "playerId": "seed-free-87",
+      "ageWeeks": 1841,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-79",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-81",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-80",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-84",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-82",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-83",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-87",
+      "playerId": "seed-free-40",
+      "ageWeeks": 1932,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-85",
+      "playerId": "seed-free-130",
+      "ageWeeks": 1870,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-88",
+      "playerId": "seed-free-181",
+      "ageWeeks": 1939,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-86",
+      "playerId": "seed-free-117",
+      "ageWeeks": 1925,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-89",
+      "playerId": "seed-free-101",
+      "ageWeeks": 1947,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-90",
+      "playerId": "seed-free-189",
+      "ageWeeks": 1951,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-87",
+      "playerId": "seed-free-131",
+      "ageWeeks": 1937,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-85",
+      "playerId": "seed-free-138",
+      "ageWeeks": 1924,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-88",
+      "playerId": "seed-free-192",
+      "ageWeeks": 1944,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-89",
+      "playerId": "seed-free-174",
+      "ageWeeks": 1950,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-86",
+      "playerId": "seed-free-8",
+      "ageWeeks": 1931,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-90",
+      "playerId": "seed-free-199",
+      "ageWeeks": 1962,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-87",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-85",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-88",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-89",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-86",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-90",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "pb-91",
+      "playerId": "seed-free-86",
+      "ageWeeks": 1963,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-91",
+      "playerId": "seed-free-61",
+      "ageWeeks": 1963,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "pb-91",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    }
+  ],
+  "circuits": {
+    "juniorOpen": 12,
+    "seniorOpen": 51
+  },
+  "observe": null
+}

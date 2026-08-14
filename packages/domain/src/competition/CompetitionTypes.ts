@@ -372,6 +372,21 @@ export interface BracketRound<S extends string = PlayerId> {
     entrantA: S;
     entrantB: S;
     outcome: MatchOutcome<S> | null;
+    /** ISO 8601 timestamp of the match's SCHEDULED reveal start — the
+     * wall-clock moment the "fake live" replay begins airing (the
+     * staggered-schedule feature: a round's matches air one after another
+     * across the day rather than all at once). Optional/absent = not yet
+     * scheduled (a match that hasn't been simulated yet, or a pre-feature
+     * persisted row/tests), in which case consumers treat it as
+     * "already fully aired". Stamped by the application layer at
+     * simulation time (like MatchLog.simulatedAt) — the domain never
+     * computes wall-clock time, it just passes this opaque timestamp
+     * through the aggregate for persistence and read-back. */
+    scheduledStartAt?: string;
+    /** Real-time seconds this match's fake-live reveal occupies (the
+     * staggered-schedule feature) — the round's reveal window, equal to
+     * the stagger between matches. Absent = not yet scheduled. */
+    revealSeconds?: number;
   }>;
 }
 

@@ -1,0 +1,2 @@
+ALTER TABLE "tournament_doubles_matches" ADD COLUMN "scheduled_start_at" timestamp with time zone;--> statement-breakpoint
+ALTER TABLE "tournament_matches" ADD COLUMN "scheduled_start_at" timestamp with time zone;

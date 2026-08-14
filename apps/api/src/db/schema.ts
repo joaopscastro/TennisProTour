@@ -619,6 +619,14 @@ export const tournamentMatches = pgTable(
     /** MatchOutcome.setScores verbatim:
      * [{ winnerGames: number, loserGames: number }, ...] */
     setScores: jsonb('set_scores').$type<Array<{ winnerGames: number; loserGames: number }>>(),
+    /** The match's SCHEDULED reveal start (staggered-schedule feature) —
+     * wall-clock timestamp stamped at simulation time, read back by the
+     * bracket DTO for the "starts in X" countdown. Null for a match that
+     * hasn't been simulated yet (or a pre-feature row). */
+    scheduledStartAt: timestamp('scheduled_start_at', { withTimezone: true }),
+    /** Real-time seconds this match's reveal occupies (the round's reveal
+     * window, equal to the stagger). Null for a not-yet-simulated match. */
+    revealSeconds: integer('reveal_seconds'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -707,6 +715,8 @@ export const tournamentDoublesMatches = pgTable(
     winnerId: text('winner_id'),
     loserId: text('loser_id'),
     setScores: jsonb('set_scores').$type<Array<{ winnerGames: number; loserGames: number }>>(),
+    scheduledStartAt: timestamp('scheduled_start_at', { withTimezone: true }),
+    revealSeconds: integer('reveal_seconds'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

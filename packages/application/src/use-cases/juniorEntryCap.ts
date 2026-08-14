@@ -52,14 +52,29 @@ export function weeklyEntryCapForTier(tier: TournamentTier): number {
  * registration attempt. The two bands are counted independently: a
  * junior-age player entering the senior tour (allowed) has that senior
  * entry counted only against the senior cap, never the junior one, and
- * vice-versa. */
+ * vice-versa.
+ *
+ * Counts SINGLES and DOUBLES entries together (deduplicated by
+ * tournament): the cap is "how many tournaments a player plays this
+ * week", and a player entered in a tournament's singles AND doubles is
+ * still in ONE tournament — while a player entered in the doubles of
+ * two different tournaments has genuinely committed to two, exactly the
+ * scheduling impossibility the cap exists to prevent (doubles rounds
+ * run on the same days as singles). */
 export async function countSameBandEntriesForWeek(
   tournaments: TournamentRepository,
   playerId: PlayerId,
   week: GameWeek,
   tier: TournamentTier,
 ): Promise<number> {
-  const sameWeekEntries = await tournaments.findByPlayerAndWeek(playerId, week);
+  const [singles, doubles] = await Promise.all([
+    tournaments.findByPlayerAndWeek(playerId, week),
+    tournaments.findDoublesByPlayerAndWeek(playerId, week),
+  ]);
   const wantJunior = isJuniorTier(tier);
-  return sameWeekEntries.filter((t) => isJuniorTier(t.tier) === wantJunior).length;
+  const tournamentIds = new Set<string>();
+  for (const t of [...singles, ...doubles]) {
+    if (isJuniorTier(t.tier) === wantJunior) tournamentIds.add(t.id);
+  }
+  return tournamentIds.size;
 }

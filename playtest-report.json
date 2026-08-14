@@ -1,0 +1,4652 @@
+{
+  "meta": {
+    "api": "http://localhost:3000",
+    "botCount": 100,
+    "runAt": "2026-08-14T12:35:04.102Z",
+    "worldClock": {
+      "currentWeek": {
+        "season": 1,
+        "week": 42
+      },
+      "currentDay": 4,
+      "daysPerWeek": 7,
+      "nextTickAt": "2026-08-14T12:36:40.661Z",
+      "nextWeekTickAt": "2026-08-14T13:01:40.661Z"
+    }
+  },
+  "pools": {
+    "total": 365,
+    "u16": 139,
+    "senior": 226
+  },
+  "funding": 100,
+  "claims": {
+    "attempted": 200,
+    "succeeded": 188,
+    "failed": [
+      {
+        "botId": "bot-1",
+        "agentId": "335a89cb-af8b-47f5-bcf3-2580480d9325",
+        "status": 409,
+        "error": "Manager bot-1 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-2",
+        "agentId": "227d3b24-7b38-4636-bb1f-696beb48dd65",
+        "status": 409,
+        "error": "Manager bot-2 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-3",
+        "agentId": "cd263657-1ec9-49e1-9cb3-5528868b6d22",
+        "status": 409,
+        "error": "Manager bot-3 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-4",
+        "agentId": "5ea2933c-1148-4f53-a28f-96f4aad31786",
+        "status": 409,
+        "error": "Manager bot-4 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-5",
+        "agentId": "81c955db-ae24-4c0b-bac0-9d041a30be1f",
+        "status": 409,
+        "error": "Manager bot-5 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-6",
+        "agentId": "48dbde96-932f-437b-87d8-5cf2e46fb72f",
+        "status": 409,
+        "error": "Manager bot-6 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-1",
+        "agentId": "884a0287-19f3-4fe9-9822-b412fd45b855",
+        "status": 409,
+        "error": "Manager bot-1 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-2",
+        "agentId": "997d4959-0d08-41d5-aa27-eb0e59abe9f7",
+        "status": 409,
+        "error": "Manager bot-2 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-3",
+        "agentId": "a206a1b5-0eef-44c5-8b4e-c2c229843608",
+        "status": 409,
+        "error": "Manager bot-3 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-4",
+        "agentId": "a8010e54-d2bc-4603-addd-907255003593",
+        "status": 409,
+        "error": "Manager bot-4 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-5",
+        "agentId": "6732c55c-e40d-4c38-9daa-9b162d282679",
+        "status": 409,
+        "error": "Manager bot-5 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      },
+      {
+        "botId": "bot-6",
+        "agentId": "f0784948-94ba-4e6f-8302-6b04e6c2f7ba",
+        "status": 409,
+        "error": "Manager bot-6 roster is full (2/2). Upgrade to Manager Pro for extra roster slots."
+      }
+    ]
+  },
+  "perBot": [
+    {
+      "bot": "bot-1",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-2",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-3",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-4",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-5",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-6",
+      "players": [],
+      "issues": []
+    },
+    {
+      "bot": "bot-7",
+      "players": [
+        {
+          "id": "8653fe90-76aa-4c3d-aa38-c4a59e9200d5",
+          "name": "Rafael Ivanova",
+          "ageWeeks": 758,
+          "stage": "youth"
+        },
+        {
+          "id": "a45fe71b-1a25-465d-8cb1-15d9da2dc749",
+          "name": "Priya Dubois",
+          "ageWeeks": 759,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "8653fe90-76aa-4c3d-aa38-c4a59e9200d5",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "a45fe71b-1a25-465d-8cb1-15d9da2dc749",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "5f2b856d-77ce-4f7a-aee6-330752e84477",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-10",
+      "players": [
+        {
+          "id": "e4a1fac9-4a70-4043-923e-7c06b5217c9f",
+          "name": "Aisha Santos",
+          "ageWeeks": 761,
+          "stage": "youth"
+        },
+        {
+          "id": "44864890-90ce-498a-ab64-7cb4ce5e6856",
+          "name": "Amara Santos",
+          "ageWeeks": 762,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "e4a1fac9-4a70-4043-923e-7c06b5217c9f",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "44864890-90ce-498a-ab64-7cb4ce5e6856",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "7ffde6f8-a693-4a11-ab27-24cd3c6b1ac4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-9",
+      "players": [
+        {
+          "id": "c7b01be5-c0f2-4bfc-b731-29864aafca95",
+          "name": "Rafael Brennan",
+          "ageWeeks": 761,
+          "stage": "youth"
+        },
+        {
+          "id": "c8a5d63a-b61e-4e17-8700-955e9d484dc4",
+          "name": "Priya Novak",
+          "ageWeeks": 761,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "c7b01be5-c0f2-4bfc-b731-29864aafca95",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "c8a5d63a-b61e-4e17-8700-955e9d484dc4",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "aa065f2c-52b3-4740-997a-8c534b198840",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-8",
+      "players": [
+        {
+          "id": "8e93372b-e654-401d-8ff2-235421f47e56",
+          "name": "Yuki Larsson",
+          "ageWeeks": 760,
+          "stage": "youth"
+        },
+        {
+          "id": "f7d50d68-e76c-4bec-ad94-154d08b1b07b",
+          "name": "Yuki Brennan",
+          "ageWeeks": 760,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "8e93372b-e654-401d-8ff2-235421f47e56",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "f7d50d68-e76c-4bec-ad94-154d08b1b07b",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "1c5b1e9e-f8fe-4709-aedb-9b92a0c061d6",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-11",
+      "players": [
+        {
+          "id": "0b151d40-d336-409d-8e8f-8fe7730c1409",
+          "name": "Kenji García",
+          "ageWeeks": 763,
+          "stage": "youth"
+        },
+        {
+          "id": "4fbcebd8-0274-44fa-b55d-0fbcbb01c93a",
+          "name": "Sofia Novak",
+          "ageWeeks": 763,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "0b151d40-d336-409d-8e8f-8fe7730c1409",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "4fbcebd8-0274-44fa-b55d-0fbcbb01c93a",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "966d00cf-2b18-4feb-a023-5f7a7f31a4bc",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-12",
+      "players": [
+        {
+          "id": "db9b6dd3-176b-495a-84a9-a4d2c87ec451",
+          "name": "Sofia Larsson",
+          "ageWeeks": 763,
+          "stage": "youth"
+        },
+        {
+          "id": "a0de5ff8-6615-4459-8637-51d81dd7d710",
+          "name": "Ingrid Costa",
+          "ageWeeks": 765,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "db9b6dd3-176b-495a-84a9-a4d2c87ec451",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        },
+        {
+          "playerId": "a0de5ff8-6615-4459-8637-51d81dd7d710",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "ec0b3731-8469-4308-8bb6-a25c9f78a10d",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-15",
+      "players": [
+        {
+          "id": "6cc2d5dd-7162-44ab-8096-c68d865859de",
+          "name": "Tomás Rossi",
+          "ageWeeks": 770,
+          "stage": "youth"
+        },
+        {
+          "id": "4118e6fa-57c9-4522-86f9-31144c8e7eb9",
+          "name": "Kenji Kowalski",
+          "ageWeeks": 770,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "6cc2d5dd-7162-44ab-8096-c68d865859de",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "4118e6fa-57c9-4522-86f9-31144c8e7eb9",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "58bcef2d-909c-4291-bbdc-030c1b439147",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-13",
+      "players": [
+        {
+          "id": "73073df8-81b1-4532-af71-b5fa68b6748d",
+          "name": "Noah Yamamoto",
+          "ageWeeks": 766,
+          "stage": "youth"
+        },
+        {
+          "id": "e3d84a83-9580-49ac-ba14-5011383de284",
+          "name": "Aisha Nakamura",
+          "ageWeeks": 767,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "73073df8-81b1-4532-af71-b5fa68b6748d",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "e3d84a83-9580-49ac-ba14-5011383de284",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "a264d082-2c61-4325-9776-562ca5b732d5",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-16",
+      "players": [
+        {
+          "id": "0383119d-7fb2-42d7-ab64-863e32f1e8e8",
+          "name": "Marta Rossi",
+          "ageWeeks": 771,
+          "stage": "youth"
+        },
+        {
+          "id": "b4e6741d-f749-4922-8d8a-19f770408324",
+          "name": "Mateus Santos",
+          "ageWeeks": 771,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "0383119d-7fb2-42d7-ab64-863e32f1e8e8",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "b4e6741d-f749-4922-8d8a-19f770408324",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "5f6e2193-ee36-4d07-96c1-30f3ccf449cc",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-18",
+      "players": [
+        {
+          "id": "33255e25-6a44-409f-9ae1-f77f56ac3276",
+          "name": "Yuki Ivanova",
+          "ageWeeks": 773,
+          "stage": "youth"
+        },
+        {
+          "id": "972cc895-687e-4a8b-814f-ddf99419a9ee",
+          "name": "Ingrid Nakamura",
+          "ageWeeks": 773,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "33255e25-6a44-409f-9ae1-f77f56ac3276",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "972cc895-687e-4a8b-814f-ddf99419a9ee",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "44dca7da-d09a-49dd-81fe-d1824fd3cb07",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-14",
+      "players": [
+        {
+          "id": "985c65d5-53aa-4cae-adb8-6aee488a2bd3",
+          "name": "Viktor Petrov",
+          "ageWeeks": 768,
+          "stage": "youth"
+        },
+        {
+          "id": "1bd92f0b-06f9-4b57-ad50-0c72deeeacc5",
+          "name": "Chloe Kim",
+          "ageWeeks": 769,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "985c65d5-53aa-4cae-adb8-6aee488a2bd3",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "1bd92f0b-06f9-4b57-ad50-0c72deeeacc5",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "b6965298-1d66-4fce-acfb-01cc2434dca0",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-17",
+      "players": [
+        {
+          "id": "d9752925-f4f1-46f3-9c2e-3ba56acc8da3",
+          "name": "Elena Müller",
+          "ageWeeks": 772,
+          "stage": "youth"
+        },
+        {
+          "id": "0417880c-0d04-4110-8872-9e3b7116f6eb",
+          "name": "Chloe Moreau",
+          "ageWeeks": 773,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "d9752925-f4f1-46f3-9c2e-3ba56acc8da3",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "0417880c-0d04-4110-8872-9e3b7116f6eb",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "735aa809-1f91-4fe0-b7f3-cfea84e3beb9",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-20",
+      "players": [
+        {
+          "id": "7103a2a5-9a5c-4f4f-a869-2a2d2c938c4e",
+          "name": "Zara Novak",
+          "ageWeeks": 775,
+          "stage": "youth"
+        },
+        {
+          "id": "09991858-9117-4c90-9b82-c040ed85d611",
+          "name": "Priya Santos",
+          "ageWeeks": 776,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "7103a2a5-9a5c-4f4f-a869-2a2d2c938c4e",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "07021a4f-0846-48f6-847b-5ef5b95a3c78",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-19",
+      "players": [
+        {
+          "id": "b257473b-8715-4185-af1d-5f5598445bef",
+          "name": "Amara Yamamoto",
+          "ageWeeks": 774,
+          "stage": "youth"
+        },
+        {
+          "id": "719ecfb8-f37e-4a0d-92e3-e2a51bfe6a3f",
+          "name": "Kenji Kim",
+          "ageWeeks": 775,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "b257473b-8715-4185-af1d-5f5598445bef",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "719ecfb8-f37e-4a0d-92e3-e2a51bfe6a3f",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "46ae6865-6734-40f8-8f75-1354f78700f2",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-21",
+      "players": [
+        {
+          "id": "f5876c74-818b-4701-97cb-ec1cf6cba6e1",
+          "name": "Chloe Yamamoto",
+          "ageWeeks": 776,
+          "stage": "youth"
+        },
+        {
+          "id": "e33a9b95-ecd9-4a66-9b3b-32ff1117bbbf",
+          "name": "Diego Müller",
+          "ageWeeks": 777,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "f5876c74-818b-4701-97cb-ec1cf6cba6e1",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "e33a9b95-ecd9-4a66-9b3b-32ff1117bbbf",
+          "tournamentId": "846a9117-ce92-41f0-b077-bb4ba82980de",
+          "tier": "j100",
+          "name": "Aurora Vietnam Championship"
+        }
+      ],
+      "pair": {
+        "id": "309f5023-8e5f-460f-a625-335bc20c837c",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-23",
+      "players": [
+        {
+          "id": "ce54a8dd-e31a-44a6-85d4-876b28b60538",
+          "name": "Diego Rossi",
+          "ageWeeks": 780,
+          "stage": "youth"
+        },
+        {
+          "id": "229ffee7-5941-4df3-b352-4638ef01232b",
+          "name": "Elena Nakamura",
+          "ageWeeks": 780,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "ce54a8dd-e31a-44a6-85d4-876b28b60538",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "aa59deb9-4b52-425a-8dd0-dbb433fab66f",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-22",
+      "players": [
+        {
+          "id": "a638f54e-a408-464d-a0e5-a5c23dc5510f",
+          "name": "Luca Moreau",
+          "ageWeeks": 777,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-11",
+          "name": "Free Agent 11",
+          "ageWeeks": 780,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "a638f54e-a408-464d-a0e5-a5c23dc5510f",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "c10fc5d5-397f-45b9-8ec1-935499b1b6d2",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational",
+          "doublesDrawSize": 16
+        }
+      ]
+    },
+    {
+      "bot": "bot-24",
+      "players": [
+        {
+          "id": "71fd23d4-2473-4ada-b180-1c4ead2c93ac",
+          "name": "Kenji Nakamura",
+          "ageWeeks": 780,
+          "stage": "youth"
+        },
+        {
+          "id": "c22bc5b6-e6cc-4b97-844e-5a187cfd3d5e",
+          "name": "Mateus Novak",
+          "ageWeeks": 780,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "71fd23d4-2473-4ada-b180-1c4ead2c93ac",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "c22bc5b6-e6cc-4b97-844e-5a187cfd3d5e",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        }
+      ],
+      "pair": {
+        "id": "300e60c4-5a74-4f66-963b-9bb944c0b77f",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-25",
+      "players": [
+        {
+          "id": "95e7ffd1-bd21-4cdb-b5c2-83813352ed97",
+          "name": "Rafael Okafor",
+          "ageWeeks": 782,
+          "stage": "youth"
+        },
+        {
+          "id": "9d394657-b146-4b6e-bd16-cb465c522d51",
+          "name": "Ingrid Andersson",
+          "ageWeeks": 783,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "95e7ffd1-bd21-4cdb-b5c2-83813352ed97",
+          "tournamentId": "7c723d8f-52a8-49e8-843b-303d2608f1af",
+          "tier": "j200",
+          "name": "Lumen Austria Invitational"
+        },
+        {
+          "playerId": "9d394657-b146-4b6e-bd16-cb465c522d51",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "c4d30c19-73e1-4ff9-8298-13cfd58d052c",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-27",
+      "players": [
+        {
+          "id": "34e99430-5a3f-404b-9e48-05898ff1103b",
+          "name": "Ingrid Yamamoto",
+          "ageWeeks": 784,
+          "stage": "youth"
+        },
+        {
+          "id": "a8648565-dff7-489e-be0a-989f31835b8f",
+          "name": "Lena Okafor",
+          "ageWeeks": 784,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "a8648565-dff7-489e-be0a-989f31835b8f",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "8bee2771-e0ad-4f1a-8c0c-235d43188bae",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-26",
+      "players": [
+        {
+          "id": "9d1f8e4d-0ee8-4834-b8cb-4c28421f7314",
+          "name": "Lena Larsson",
+          "ageWeeks": 783,
+          "stage": "youth"
+        },
+        {
+          "id": "4985873b-d220-4b6f-bdbb-567c0bab20eb",
+          "name": "Rafael García",
+          "ageWeeks": 783,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "4985873b-d220-4b6f-bdbb-567c0bab20eb",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "0ecfbe63-e8a3-4dde-b5fb-cc784ba4f5f7",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-28",
+      "players": [
+        {
+          "id": "a32c2bf0-16f8-4071-b072-3526fcd8ae02",
+          "name": "Kenji Brennan",
+          "ageWeeks": 785,
+          "stage": "youth"
+        },
+        {
+          "id": "d4a5ead4-f41d-4418-a92c-f9afe16910f2",
+          "name": "Rafael Ivanova",
+          "ageWeeks": 787,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "d4a5ead4-f41d-4418-a92c-f9afe16910f2",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "971807fa-dae6-4510-b022-fc0850698e56",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-29",
+      "players": [
+        {
+          "id": "f12022fd-6b3e-4fae-a43f-26b3e0493baf",
+          "name": "Priya Silva",
+          "ageWeeks": 787,
+          "stage": "youth"
+        },
+        {
+          "id": "c1a81aff-2c52-4956-960a-29d59a4aeced",
+          "name": "Ingrid García",
+          "ageWeeks": 788,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "c1a81aff-2c52-4956-960a-29d59a4aeced",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "528f947b-198b-4e24-af21-fe5cf13be570",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-30",
+      "players": [
+        {
+          "id": "e20b4047-31e5-496a-9b4f-546a2c4f4afb",
+          "name": "Rafael Yamamoto",
+          "ageWeeks": 788,
+          "stage": "youth"
+        },
+        {
+          "id": "62935d94-a0d6-4138-b3b6-c8555dfbbd57",
+          "name": "Rafael Petrov",
+          "ageWeeks": 788,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "e20b4047-31e5-496a-9b4f-546a2c4f4afb",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        },
+        {
+          "playerId": "62935d94-a0d6-4138-b3b6-c8555dfbbd57",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "c848a689-4de7-4f1e-9e5d-8ec97b178cba",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-31",
+      "players": [
+        {
+          "id": "d5b0b44f-cfab-48ea-ab75-0f2ede856d57",
+          "name": "Sofia Larsson",
+          "ageWeeks": 789,
+          "stage": "youth"
+        },
+        {
+          "id": "5e05c72e-c572-4a13-b52a-c6793bb9e23e",
+          "name": "Viktor García",
+          "ageWeeks": 789,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "d5b0b44f-cfab-48ea-ab75-0f2ede856d57",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "c67cf192-6627-4c1b-9020-f78091e5e12c",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-32",
+      "players": [
+        {
+          "id": "374ed4b9-2be3-4698-9747-7a5fe7241793",
+          "name": "Amara Müller",
+          "ageWeeks": 789,
+          "stage": "youth"
+        },
+        {
+          "id": "bf054c62-fccc-44df-bccb-4577e8b29ce3",
+          "name": "Rafael Nakamura",
+          "ageWeeks": 789,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "374ed4b9-2be3-4698-9747-7a5fe7241793",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "e04204b2-b6b7-4c8c-a47e-a8b8cd3dd16a",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-33",
+      "players": [
+        {
+          "id": "80fd7506-85ed-46bb-933b-e49768017136",
+          "name": "Aisha Costa",
+          "ageWeeks": 790,
+          "stage": "youth"
+        },
+        {
+          "id": "43056032-5185-46d4-88a4-6721d292a2e0",
+          "name": "Lena Silva",
+          "ageWeeks": 790,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "80fd7506-85ed-46bb-933b-e49768017136",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "bd5bd5af-df21-4f3d-976f-b41e59ce9c87",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-34",
+      "players": [
+        {
+          "id": "4d075cb3-8df1-4299-907a-deb6e8459379",
+          "name": "Elena Kowalski",
+          "ageWeeks": 791,
+          "stage": "youth"
+        },
+        {
+          "id": "468a7b90-7114-484b-9380-9f43b9a41e79",
+          "name": "Viktor Silva",
+          "ageWeeks": 791,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "4d075cb3-8df1-4299-907a-deb6e8459379",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "c2de4d68-7a74-44ca-8ffb-a0967430a0f1",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-35",
+      "players": [
+        {
+          "id": "seed-free-67",
+          "name": "Free Agent 67",
+          "ageWeeks": 793,
+          "stage": "youth"
+        },
+        {
+          "id": "1341b318-dad7-4f7f-9ecc-63cbdea2b66a",
+          "name": "João Dubois",
+          "ageWeeks": 794,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-67",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "6d9ee392-7f63-4c03-98f6-096316376997",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-36",
+      "players": [
+        {
+          "id": "seed-free-9",
+          "name": "Free Agent 9",
+          "ageWeeks": 796,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-64",
+          "name": "Free Agent 64",
+          "ageWeeks": 798,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-9",
+          "tournamentId": "27b42d51-4d17-4eb6-9993-91863feb71ba",
+          "tier": "j60",
+          "name": "Granite Slovakia Classic"
+        },
+        {
+          "playerId": "seed-free-64",
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open"
+        }
+      ],
+      "pair": {
+        "id": "3d126b2a-7cc9-4094-8ddb-805fa90e7a75",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-37",
+      "players": [
+        {
+          "id": "805e5a35-a016-4594-9b15-2a5327ce207e",
+          "name": "Mateus Santos",
+          "ageWeeks": 798,
+          "stage": "youth"
+        },
+        {
+          "id": "bea78850-9585-4716-add5-5a086db641c6",
+          "name": "Zara Petrov",
+          "ageWeeks": 798,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "805e5a35-a016-4594-9b15-2a5327ce207e",
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open"
+        },
+        {
+          "playerId": "bea78850-9585-4716-add5-5a086db641c6",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "6965ed52-65a1-4d8a-9a59-5fadd45c0ddd",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-39",
+      "players": [
+        {
+          "id": "d570984b-5ae3-41e2-bb79-74d821ec7224",
+          "name": "Ingrid Yamamoto",
+          "ageWeeks": 799,
+          "stage": "youth"
+        },
+        {
+          "id": "44e52154-a216-44ff-9f5f-960987df1fd1",
+          "name": "Chloe Novak",
+          "ageWeeks": 799,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "44e52154-a216-44ff-9f5f-960987df1fd1",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "cb45745b-677b-4e60-a7b0-1a44f74f21c4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-40",
+      "players": [
+        {
+          "id": "seed-free-160",
+          "name": "Free Agent 160",
+          "ageWeeks": 800,
+          "stage": "youth"
+        },
+        {
+          "id": "02d6a7c7-30a2-428c-90c5-57536ca36d35",
+          "name": "Priya Novak",
+          "ageWeeks": 801,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "02d6a7c7-30a2-428c-90c5-57536ca36d35",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "aa0e552c-ee81-41f5-9b5a-a1ca69802bf4",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-38",
+      "players": [
+        {
+          "id": "2260cb48-ee08-4865-9491-1a8cbf27dbf1",
+          "name": "Mateus Brennan",
+          "ageWeeks": 799,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-180",
+          "name": "Free Agent 180",
+          "ageWeeks": 799,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "2260cb48-ee08-4865-9491-1a8cbf27dbf1",
+          "tournamentId": "cbe0db76-5dd7-42fc-bae7-eb398f54c2eb",
+          "tier": "j30",
+          "name": "Solstice Open"
+        },
+        {
+          "playerId": "seed-free-180",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "0ca89858-a7f2-492b-8c94-4b221ac15899",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-41",
+      "players": [
+        {
+          "id": "3e7522bb-a556-48f5-acbb-9c35de285669",
+          "name": "Lena García",
+          "ageWeeks": 801,
+          "stage": "youth"
+        },
+        {
+          "id": "a25d259e-700d-4664-a4c3-a8caa9fc6a0e",
+          "name": "Lena Dubois",
+          "ageWeeks": 801,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "a25d259e-700d-4664-a4c3-a8caa9fc6a0e",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "20fe811f-5cc1-4070-bb18-da5ccbf73057",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-42",
+      "players": [
+        {
+          "id": "f7925fb3-cc47-4e3c-a302-64d3463a50b6",
+          "name": "Mateus Santos",
+          "ageWeeks": 802,
+          "stage": "youth"
+        },
+        {
+          "id": "8a98778d-a462-4f64-817e-54c7d1beda78",
+          "name": "Diego Dubois",
+          "ageWeeks": 802,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "f7925fb3-cc47-4e3c-a302-64d3463a50b6",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        },
+        {
+          "playerId": "8a98778d-a462-4f64-817e-54c7d1beda78",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        }
+      ],
+      "pair": {
+        "id": "fc1b90ce-4fb3-4821-899d-8945252c2c6d",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-45",
+      "players": [
+        {
+          "id": "e6651cb3-3a31-4f81-aaf6-bbebf346eb8c",
+          "name": "Chloe Novak",
+          "ageWeeks": 805,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-155",
+          "name": "Free Agent 155",
+          "ageWeeks": 806,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "seed-free-155",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "2abf66a6-d35b-4c83-af9a-34115826dd22",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-43",
+      "players": [
+        {
+          "id": "4beeee35-077f-4c03-8ee4-b78a5bf616b7",
+          "name": "Kenji Silva",
+          "ageWeeks": 803,
+          "stage": "youth"
+        },
+        {
+          "id": "b014ad0d-20f7-49c0-985e-38a64e3c054b",
+          "name": "Mateus Kim",
+          "ageWeeks": 804,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "4beeee35-077f-4c03-8ee4-b78a5bf616b7",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        },
+        {
+          "playerId": "b014ad0d-20f7-49c0-985e-38a64e3c054b",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "4eafcc24-ff32-448b-a8b7-e15784e705e7",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-46",
+      "players": [
+        {
+          "id": "8ea3fe34-01f6-4320-a9a3-6b6846c967f5",
+          "name": "Viktor Yamamoto",
+          "ageWeeks": 807,
+          "stage": "youth"
+        },
+        {
+          "id": "a9899ea0-0654-4fb9-9404-ca6c084fb6fd",
+          "name": "Amara Okafor",
+          "ageWeeks": 807,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "a9899ea0-0654-4fb9-9404-ca6c084fb6fd",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "d8572c3a-62ca-4317-81de-421a3ddf1e72",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-44",
+      "players": [
+        {
+          "id": "01f06077-3298-46cc-8c4f-32d9b52db3b8",
+          "name": "João Müller",
+          "ageWeeks": 804,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-110",
+          "name": "Free Agent 110",
+          "ageWeeks": 804,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "01f06077-3298-46cc-8c4f-32d9b52db3b8",
+          "tournamentId": "66f6b1a1-629f-4c85-9666-61136adc796f",
+          "tier": "j30",
+          "name": "Zenith Cup"
+        },
+        {
+          "playerId": "seed-free-110",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "3a221587-d2f5-4898-964a-3a0422182270",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-47",
+      "players": [
+        {
+          "id": "verify-cand-12",
+          "name": "Free Agent 12",
+          "ageWeeks": 807,
+          "stage": "youth"
+        },
+        {
+          "id": "b8bfb05f-edaa-49d8-bc02-24d851274678",
+          "name": "Viktor Santos",
+          "ageWeeks": 808,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "b8bfb05f-edaa-49d8-bc02-24d851274678",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "fb7356d4-e35f-4d23-9fb0-0a97a3c09bae",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-48",
+      "players": [
+        {
+          "id": "35cc5947-5c98-4cde-b32d-e3150e32d4aa",
+          "name": "João Silva",
+          "ageWeeks": 808,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-8",
+          "name": "Free Agent 8",
+          "ageWeeks": 808,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "35cc5947-5c98-4cde-b32d-e3150e32d4aa",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        },
+        {
+          "playerId": "verify-cand-8",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        }
+      ],
+      "pair": {
+        "id": "11aa455f-f801-47da-9f20-b06991c17042",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-49",
+      "players": [
+        {
+          "id": "7ec75157-e14b-49ed-b400-a862e098c682",
+          "name": "Rafael Ivanova",
+          "ageWeeks": 808,
+          "stage": "youth"
+        },
+        {
+          "id": "1efcf65d-2762-48f9-92dc-92bf5025b543",
+          "name": "Kenji Santos",
+          "ageWeeks": 809,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "7ec75157-e14b-49ed-b400-a862e098c682",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        },
+        {
+          "playerId": "1efcf65d-2762-48f9-92dc-92bf5025b543",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "58bf7c3b-095e-418e-ba41-03938f4a47ff",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-52",
+      "players": [
+        {
+          "id": "e7afcebb-fbe0-440d-8052-9f2b79106edc",
+          "name": "Diego Nakamura",
+          "ageWeeks": 812,
+          "stage": "youth"
+        },
+        {
+          "id": "62024c16-ea2a-4121-a6e4-247a449b41ca",
+          "name": "Tomás Brennan",
+          "ageWeeks": 813,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "62024c16-ea2a-4121-a6e4-247a449b41ca",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "7fc224de-c900-4cb4-a064-6002b0e8e56b",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-51",
+      "players": [
+        {
+          "id": "f49975e3-7139-4cba-8511-edd0aa1351fe",
+          "name": "Aisha Brennan",
+          "ageWeeks": 810,
+          "stage": "youth"
+        },
+        {
+          "id": "179900fd-da9f-40c5-9007-ef0a6e4cc3d5",
+          "name": "Sofia Dubois",
+          "ageWeeks": 810,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "179900fd-da9f-40c5-9007-ef0a6e4cc3d5",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "288b8b47-e45e-4caa-8317-c007e53bdb8d",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-50",
+      "players": [
+        {
+          "id": "c3f103d3-cdc1-4b65-8a28-83bdbc6f7e99",
+          "name": "Elena Müller",
+          "ageWeeks": 809,
+          "stage": "youth"
+        },
+        {
+          "id": "1962b11e-6d8f-4f01-8245-f8ff78cdb078",
+          "name": "Tomás Silva",
+          "ageWeeks": 809,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "c3f103d3-cdc1-4b65-8a28-83bdbc6f7e99",
+          "tournamentId": "d45064fa-7850-4036-a4f8-485927722e95",
+          "tier": "j30",
+          "name": "Meridian Clay Trophy"
+        },
+        {
+          "playerId": "1962b11e-6d8f-4f01-8245-f8ff78cdb078",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "1bebd15d-901c-4b22-a75c-6d071299a308",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-53",
+      "players": [
+        {
+          "id": "seed-free-93",
+          "name": "Free Agent 93",
+          "ageWeeks": 813,
+          "stage": "youth"
+        },
+        {
+          "id": "0d16bd3c-c3ce-425b-94bf-7079167e7f50",
+          "name": "Yuki Costa",
+          "ageWeeks": 814,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "0d16bd3c-c3ce-425b-94bf-7079167e7f50",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "d1136382-122c-4c98-a1ba-d320249550ad",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-54",
+      "players": [
+        {
+          "id": "606de7b4-1a20-40ca-90a3-4d3c1291ce4d",
+          "name": "Zara Brennan",
+          "ageWeeks": 814,
+          "stage": "youth"
+        },
+        {
+          "id": "c019e818-b059-4fe1-85f9-0831f090d2a6",
+          "name": "Sofia Kowalski",
+          "ageWeeks": 815,
+          "stage": "youth"
+        }
+      ],
+      "issues": [],
+      "singlesEntered": [
+        {
+          "playerId": "606de7b4-1a20-40ca-90a3-4d3c1291ce4d",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        },
+        {
+          "playerId": "c019e818-b059-4fe1-85f9-0831f090d2a6",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "5d7bf481-4a9a-4e35-882f-cf10f7a4e44e",
+        "status": "active",
+        "chemistry": 0
+      },
+      "doublesEntered": [
+        {
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic",
+          "doublesDrawSize": 8
+        }
+      ]
+    },
+    {
+      "bot": "bot-55",
+      "players": [
+        {
+          "id": "b20ea767-abe3-4403-a5c9-a10ffcba458a",
+          "name": "Viktor Yamamoto",
+          "ageWeeks": 816,
+          "stage": "youth"
+        },
+        {
+          "id": "5b58aa36-7963-4444-861a-ccd5573eb1ed",
+          "name": "Tomás Okafor",
+          "ageWeeks": 817,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:5b58aa36-7963-4444-861a-ccd5573eb1ed",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "singlesEntered": [
+        {
+          "playerId": "b20ea767-abe3-4403-a5c9-a10ffcba458a",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "64b808f8-7e87-4ae6-ba18-1c5de3e76ad5",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-57",
+      "players": [
+        {
+          "id": "d8bae7fa-3dd6-4302-9e42-be6a32b5a915",
+          "name": "Tomás Petrov",
+          "ageWeeks": 818,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-3",
+          "name": "Free Agent 3",
+          "ageWeeks": 819,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-3",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "c6f51808-0c8c-47fc-879b-72866638e528",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-56",
+      "players": [
+        {
+          "id": "ca2ff656-c769-4081-b6fa-51eed70109d0",
+          "name": "Rafael Ivanova",
+          "ageWeeks": 818,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-9",
+          "name": "Free Agent 9",
+          "ageWeeks": 818,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-9",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "singlesEntered": [
+        {
+          "playerId": "ca2ff656-c769-4081-b6fa-51eed70109d0",
+          "tournamentId": "92985572-ade0-4759-9f46-e80c967f441d",
+          "tier": "j60",
+          "name": "Morocco Classic"
+        }
+      ],
+      "pair": {
+        "id": "dd5f098b-5a01-4a44-a0a4-1b4b7bc2874e",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-58",
+      "players": [
+        {
+          "id": "b5321be2-04f0-40ad-a36e-16e170e75544",
+          "name": "Aisha Okafor",
+          "ageWeeks": 820,
+          "stage": "youth"
+        },
+        {
+          "id": "3676f4bc-431e-437d-8d35-67fd2d1ff33e",
+          "name": "João Silva",
+          "ageWeeks": 820,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:3676f4bc-431e-437d-8d35-67fd2d1ff33e",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "bfbb2f7e-3258-42ef-a08a-8b2cc57bb368",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-59",
+      "players": [
+        {
+          "id": "50f7a543-7fa8-4a94-9b4d-eb787248f643",
+          "name": "Rafael Andersson",
+          "ageWeeks": 820,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-4",
+          "name": "Free Agent 4",
+          "ageWeeks": 821,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-4",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "4dc4507a-4d78-4816-a7c5-051a92cbeaf7",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-60",
+      "players": [
+        {
+          "id": "96dd02b3-dfb9-4fa7-9b2e-c40ef3e5d1ec",
+          "name": "Viktor Santos",
+          "ageWeeks": 822,
+          "stage": "youth"
+        },
+        {
+          "id": "a7951c98-b3ab-4aa3-8583-e2a841a25b32",
+          "name": "Diego Okafor",
+          "ageWeeks": 822,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:96dd02b3-dfb9-4fa7-9b2e-c40ef3e5d1ec",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:a7951c98-b3ab-4aa3-8583-e2a841a25b32",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "f084563e-ee9d-425a-a99f-4b3883748f39",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-62",
+      "players": [
+        {
+          "id": "c164e83e-1984-4164-a5fc-dd523fe57d63",
+          "name": "Rafael Ivanova",
+          "ageWeeks": 823,
+          "stage": "youth"
+        },
+        {
+          "id": "8a2b79a8-2d4a-4b69-9991-50cb93433776",
+          "name": "Ingrid Petrov",
+          "ageWeeks": 823,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:c164e83e-1984-4164-a5fc-dd523fe57d63",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:8a2b79a8-2d4a-4b69-9991-50cb93433776",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "25dd5413-3856-4b63-abec-57a54720e381",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-61",
+      "players": [
+        {
+          "id": "ef7269fb-247d-4ca8-9b4f-1a7cacbdaeca",
+          "name": "João Santos",
+          "ageWeeks": 822,
+          "stage": "youth"
+        },
+        {
+          "id": "70a359d2-b14b-4a62-a1f7-ac4ab74d88ce",
+          "name": "Lena Kowalski",
+          "ageWeeks": 823,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:ef7269fb-247d-4ca8-9b4f-1a7cacbdaeca",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:70a359d2-b14b-4a62-a1f7-ac4ab74d88ce",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "d5365511-67a5-43a1-a3b8-a0dbbd886229",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-64",
+      "players": [
+        {
+          "id": "b1b9b735-9682-46af-a5cb-09eb9e9f334a",
+          "name": "Mateus Müller",
+          "ageWeeks": 824,
+          "stage": "youth"
+        },
+        {
+          "id": "fc02b262-fdcd-4fa2-8880-32e1eba0498a",
+          "name": "Priya Okafor",
+          "ageWeeks": 825,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:b1b9b735-9682-46af-a5cb-09eb9e9f334a",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:fc02b262-fdcd-4fa2-8880-32e1eba0498a",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "eaa6f16e-db52-472f-85ef-8881a728bc80",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-63",
+      "players": [
+        {
+          "id": "49ff53f3-99fb-4b94-84ec-ee010faf03da",
+          "name": "Diego Dubois",
+          "ageWeeks": 824,
+          "stage": "youth"
+        },
+        {
+          "id": "977bf801-c158-4342-a043-7e4259da4cda",
+          "name": "Tomás Silva",
+          "ageWeeks": 824,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:49ff53f3-99fb-4b94-84ec-ee010faf03da",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:977bf801-c158-4342-a043-7e4259da4cda",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "d2e95277-5bd7-4483-99dd-39b501491111",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-65",
+      "players": [
+        {
+          "id": "8ea06919-e060-4049-94e7-1fa0db26afc7",
+          "name": "Tomás Kim",
+          "ageWeeks": 825,
+          "stage": "youth"
+        },
+        {
+          "id": "beb63389-ecfb-4aad-a528-0b5494ec2ba4",
+          "name": "Sofia Novak",
+          "ageWeeks": 826,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:8ea06919-e060-4049-94e7-1fa0db26afc7",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:beb63389-ecfb-4aad-a528-0b5494ec2ba4",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "3499b4db-ea97-4107-9777-47c0735a40d0",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-66",
+      "players": [
+        {
+          "id": "fda68c68-3fe1-4460-b108-1cd21e55dd3e",
+          "name": "Yuki Petrov",
+          "ageWeeks": 827,
+          "stage": "youth"
+        },
+        {
+          "id": "19ba5902-8150-428e-89b8-7ff8aa406dc2",
+          "name": "Yuki Petrov",
+          "ageWeeks": 827,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:fda68c68-3fe1-4460-b108-1cd21e55dd3e",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:19ba5902-8150-428e-89b8-7ff8aa406dc2",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "f3ecfdd6-d32c-4d8b-8729-6660ce2d4ee2",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-67",
+      "players": [
+        {
+          "id": "verify-cand-10",
+          "name": "Free Agent 10",
+          "ageWeeks": 828,
+          "stage": "youth"
+        },
+        {
+          "id": "5ff111a5-ff8f-4eab-bffb-0633407e8804",
+          "name": "Amara Rossi",
+          "ageWeeks": 828,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-10",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:5ff111a5-ff8f-4eab-bffb-0633407e8804",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "3be6a486-1bd2-4519-9b6c-015acef863d1",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-70",
+      "players": [
+        {
+          "id": "2c78731e-93cd-43fd-8c9f-139206c712a7",
+          "name": "Elena Andersson",
+          "ageWeeks": 834,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-5",
+          "name": "Free Agent 5",
+          "ageWeeks": 834,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:2c78731e-93cd-43fd-8c9f-139206c712a7",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:verify-cand-5",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "b52d2c0b-df4d-4df4-8520-9006e3bfa77e",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-68",
+      "players": [
+        {
+          "id": "218aa60f-ae4c-48aa-bc75-e128a5bac4e3",
+          "name": "Viktor Andersson",
+          "ageWeeks": 828,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-13",
+          "name": "Free Agent 13",
+          "ageWeeks": 829,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:218aa60f-ae4c-48aa-bc75-e128a5bac4e3",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:seed-free-13",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "56522cfe-6dce-4af5-8c24-f1d8d95d4e17",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-69",
+      "players": [
+        {
+          "id": "0e9b351a-897e-4c02-b982-10178b244039",
+          "name": "Mateus Andersson",
+          "ageWeeks": 830,
+          "stage": "youth"
+        },
+        {
+          "id": "9d78e178-eec7-43d6-b3eb-81a3dcb16714",
+          "name": "Chloe Okafor",
+          "ageWeeks": 830,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:0e9b351a-897e-4c02-b982-10178b244039",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "enter-singles:9d78e178-eec7-43d6-b3eb-81a3dcb16714",
+          "type": "no-eligible-open-tournament",
+          "circuit": "junior",
+          "openInCircuit": 14
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "junior"
+        }
+      ],
+      "pair": {
+        "id": "11e3b8d8-3849-4ab1-b2a8-27de8f4a195b",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-72",
+      "players": [
+        {
+          "id": "verify-cand-2",
+          "name": "Free Agent 2",
+          "ageWeeks": 836,
+          "stage": "youth"
+        },
+        {
+          "id": "b9dedf42-4b28-4d56-9dd3-dc4a985b429f",
+          "name": "Chloe Larsson",
+          "ageWeeks": 837,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-2",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:b9dedf42-4b28-4d56-9dd3-dc4a985b429f",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "31f028ca-f1a0-41ba-abe9-49cd209307c9",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-71",
+      "players": [
+        {
+          "id": "seed-free-157",
+          "name": "Free Agent 157",
+          "ageWeeks": 835,
+          "stage": "youth"
+        },
+        {
+          "id": "c5463377-98aa-4cd0-b866-b5e82a6c256d",
+          "name": "Kenji Moreau",
+          "ageWeeks": 836,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-157",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:c5463377-98aa-4cd0-b866-b5e82a6c256d",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "623c0da5-d7d8-49e0-99ea-ce8bb8f2f817",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-73",
+      "players": [
+        {
+          "id": "64049339-bffb-456d-bfce-2cee960b715e",
+          "name": "Mateus Okafor",
+          "ageWeeks": 838,
+          "stage": "youth"
+        },
+        {
+          "id": "eab03799-c42d-4418-8da9-e6f19e190e66",
+          "name": "Sofia Yamamoto",
+          "ageWeeks": 840,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:64049339-bffb-456d-bfce-2cee960b715e",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:eab03799-c42d-4418-8da9-e6f19e190e66",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "478f924d-2402-4b2e-8c9b-bc355b800db3",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-75",
+      "players": [
+        {
+          "id": "f4264bf4-7852-458d-997b-fb5c2a10e35f",
+          "name": "Lena Moreau",
+          "ageWeeks": 842,
+          "stage": "youth"
+        },
+        {
+          "id": "c3eb3557-b3e1-4a1b-a865-cf66b35d3330",
+          "name": "Elena Santos",
+          "ageWeeks": 842,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:f4264bf4-7852-458d-997b-fb5c2a10e35f",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:c3eb3557-b3e1-4a1b-a865-cf66b35d3330",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "6d6dba0d-aa8d-49b5-94a7-fa4c05629954",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-76",
+      "players": [
+        {
+          "id": "a8c3a330-4877-41c2-a89c-b56501030a83",
+          "name": "Marta Petrov",
+          "ageWeeks": 842,
+          "stage": "youth"
+        },
+        {
+          "id": "5ace389a-0b1a-4e30-86b0-6a37dfcd17ba",
+          "name": "Rafael Kowalski",
+          "ageWeeks": 842,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:a8c3a330-4877-41c2-a89c-b56501030a83",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:5ace389a-0b1a-4e30-86b0-6a37dfcd17ba",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "80b86b86-279c-42cc-b0d4-659659ea41c3",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-74",
+      "players": [
+        {
+          "id": "aaab6b4a-44ea-4195-bb00-48936204a3dd",
+          "name": "Kenji Rossi",
+          "ageWeeks": 840,
+          "stage": "youth"
+        },
+        {
+          "id": "04b60cdd-7fb7-49e0-9bbe-1abe27b03f25",
+          "name": "Tomás Moreau",
+          "ageWeeks": 840,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:aaab6b4a-44ea-4195-bb00-48936204a3dd",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:04b60cdd-7fb7-49e0-9bbe-1abe27b03f25",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "0743e3f4-bdb8-4434-b0d5-2d861b839f08",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-78",
+      "players": [
+        {
+          "id": "7148e0e4-4b8c-4f54-8074-27a4d82ad3ca",
+          "name": "Noah Vukovic",
+          "ageWeeks": 844,
+          "stage": "youth"
+        },
+        {
+          "id": "cb979ed7-5f8c-4d6f-b9c5-0cb876531908",
+          "name": "Zara Brennan",
+          "ageWeeks": 845,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:7148e0e4-4b8c-4f54-8074-27a4d82ad3ca",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:cb979ed7-5f8c-4d6f-b9c5-0cb876531908",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "8fa98e9a-ae04-46a4-a195-d6eca3993c7d",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-77",
+      "players": [
+        {
+          "id": "8546097d-dfb2-4f60-a084-d30400e74d06",
+          "name": "Ingrid Kim",
+          "ageWeeks": 844,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-123",
+          "name": "Free Agent 123",
+          "ageWeeks": 844,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:8546097d-dfb2-4f60-a084-d30400e74d06",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-123",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "a14184e2-0899-44bb-92ba-0e29ef1df18a",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-79",
+      "players": [
+        {
+          "id": "47672b47-f241-41b2-8afb-d7f89643dddf",
+          "name": "Lena García",
+          "ageWeeks": 846,
+          "stage": "youth"
+        },
+        {
+          "id": "8d897e67-5c22-4019-aa43-13530fcd949f",
+          "name": "Amara Vukovic",
+          "ageWeeks": 846,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:47672b47-f241-41b2-8afb-d7f89643dddf",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:8d897e67-5c22-4019-aa43-13530fcd949f",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "41be01bd-e2a1-4248-98c1-d4d562287867",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-80",
+      "players": [
+        {
+          "id": "verify-cand-1",
+          "name": "Free Agent 1",
+          "ageWeeks": 847,
+          "stage": "youth"
+        },
+        {
+          "id": "5e88915e-b7ce-41d9-847e-142924c15e3c",
+          "name": "Marta Rossi",
+          "ageWeeks": 847,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-1",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:5e88915e-b7ce-41d9-847e-142924c15e3c",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "3595cbce-98b2-4089-9451-a5c1e40a57c8",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-81",
+      "players": [
+        {
+          "id": "f4acf20e-09c8-4186-a728-a4c6b040ec71",
+          "name": "Yuki Andersson",
+          "ageWeeks": 848,
+          "stage": "youth"
+        },
+        {
+          "id": "a64fa858-9bfa-439a-b0c8-656036638397",
+          "name": "Viktor Müller",
+          "ageWeeks": 849,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:f4acf20e-09c8-4186-a728-a4c6b040ec71",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:a64fa858-9bfa-439a-b0c8-656036638397",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "1269db3b-82a1-4db4-81ca-b2aeb59e76ac",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-82",
+      "players": [
+        {
+          "id": "8a989396-113e-4c9b-a14e-fed12bdf0977",
+          "name": "Noah Kim",
+          "ageWeeks": 851,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-112",
+          "name": "Free Agent 112",
+          "ageWeeks": 851,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:8a989396-113e-4c9b-a14e-fed12bdf0977",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-112",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "92cf0fa0-082e-41d1-936e-dd255cf722ed",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-84",
+      "players": [
+        {
+          "id": "94d5c997-9214-4351-8be5-d32b08c03d8b",
+          "name": "Marta Müller",
+          "ageWeeks": 853,
+          "stage": "youth"
+        },
+        {
+          "id": "57b801d6-c35b-4930-a5a3-3a349e73a6ce",
+          "name": "Diego Ivanova",
+          "ageWeeks": 855,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:94d5c997-9214-4351-8be5-d32b08c03d8b",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:57b801d6-c35b-4930-a5a3-3a349e73a6ce",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "6a21cffd-5d0b-49c7-bd37-2f53b42f96c8",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-83",
+      "players": [
+        {
+          "id": "e936f2b8-9750-4136-801b-184a699ae285",
+          "name": "Aisha Nakamura",
+          "ageWeeks": 851,
+          "stage": "youth"
+        },
+        {
+          "id": "5ab42d83-c1cf-478a-ab20-2d0befcfaaef",
+          "name": "Viktor García",
+          "ageWeeks": 852,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:e936f2b8-9750-4136-801b-184a699ae285",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:5ab42d83-c1cf-478a-ab20-2d0befcfaaef",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "129f4fea-2211-426c-ac1a-e04787e8f213",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-85",
+      "players": [
+        {
+          "id": "7d0aa876-dd1f-4eca-a4e2-95797b323fff",
+          "name": "Noah Larsson",
+          "ageWeeks": 856,
+          "stage": "youth"
+        },
+        {
+          "id": "00433918-900f-4639-b7f5-cc2d3c71f869",
+          "name": "Tomás Okafor",
+          "ageWeeks": 857,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:7d0aa876-dd1f-4eca-a4e2-95797b323fff",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:00433918-900f-4639-b7f5-cc2d3c71f869",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "9455db50-9032-490a-ae73-4ba35cd2507b",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-87",
+      "players": [
+        {
+          "id": "verify-cand-7",
+          "name": "Free Agent 7",
+          "ageWeeks": 857,
+          "stage": "youth"
+        },
+        {
+          "id": "8f6856f0-98df-472f-85c5-e8d94628d19a",
+          "name": "Luca Ivanova",
+          "ageWeeks": 859,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:verify-cand-7",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:8f6856f0-98df-472f-85c5-e8d94628d19a",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "b179012d-fe12-4c82-9547-a5a344d38540",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-89",
+      "players": [
+        {
+          "id": "585fbadb-9666-4285-b52e-6c4f1e0e546b",
+          "name": "Ingrid Vukovic",
+          "ageWeeks": 869,
+          "stage": "youth"
+        },
+        {
+          "id": "d064c475-866b-45e6-881b-a15ae4657950",
+          "name": "Marta Rossi",
+          "ageWeeks": 869,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:585fbadb-9666-4285-b52e-6c4f1e0e546b",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:d064c475-866b-45e6-881b-a15ae4657950",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "1c8da440-d185-4f7d-a042-31d319fbfb40",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-88",
+      "players": [
+        {
+          "id": "seed-free-116",
+          "name": "Free Agent 116",
+          "ageWeeks": 862,
+          "stage": "youth"
+        },
+        {
+          "id": "verify-cand-6",
+          "name": "Free Agent 6",
+          "ageWeeks": 868,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-116",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:verify-cand-6",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "a31736a2-54fb-4875-b3d0-35967b640df1",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-86",
+      "players": [
+        {
+          "id": "ff73760e-2886-49e8-8950-d03b32c4df6d",
+          "name": "Luca Brennan",
+          "ageWeeks": 857,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-173",
+          "name": "Free Agent 173",
+          "ageWeeks": 857,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:ff73760e-2886-49e8-8950-d03b32c4df6d",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-173",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "f30e599e-585b-47ec-b3a9-ca55db2dc294",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-90",
+      "players": [
+        {
+          "id": "seed-free-144",
+          "name": "Free Agent 144",
+          "ageWeeks": 882,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-58",
+          "name": "Free Agent 58",
+          "ageWeeks": 886,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-144",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-58",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "f0213c99-a13a-4875-95bc-a766e6b0e2bc",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-91",
+      "players": [
+        {
+          "id": "seed-free-177",
+          "name": "Free Agent 177",
+          "ageWeeks": 901,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-43",
+          "name": "Free Agent 43",
+          "ageWeeks": 903,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-177",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-43",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "9c9a4ab7-a353-48d0-b32f-98ffd0ec711f",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-92",
+      "players": [
+        {
+          "id": "seed-free-34",
+          "name": "Free Agent 34",
+          "ageWeeks": 907,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-147",
+          "name": "Free Agent 147",
+          "ageWeeks": 912,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-34",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-147",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "7eacb040-2bb1-4396-a4e9-193b93738396",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-93",
+      "players": [
+        {
+          "id": "seed-free-182",
+          "name": "Free Agent 182",
+          "ageWeeks": 912,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-158",
+          "name": "Free Agent 158",
+          "ageWeeks": 921,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-182",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-158",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "8d73cc93-b6ea-4124-94bf-f5c5eb0963d1",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-96",
+      "players": [
+        {
+          "id": "seed-free-166",
+          "name": "Free Agent 166",
+          "ageWeeks": 944,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-142",
+          "name": "Free Agent 142",
+          "ageWeeks": 945,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-166",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-142",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "bd1e311b-4d63-41a2-b668-b6157e4f7f65",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-94",
+      "players": [
+        {
+          "id": "seed-free-15",
+          "name": "Free Agent 15",
+          "ageWeeks": 929,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-83",
+          "name": "Free Agent 83",
+          "ageWeeks": 929,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-15",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-83",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "41a6a62b-daeb-4b9a-8579-2b1f9c8c3d6c",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-95",
+      "players": [
+        {
+          "id": "seed-free-91",
+          "name": "Free Agent 91",
+          "ageWeeks": 933,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-141",
+          "name": "Free Agent 141",
+          "ageWeeks": 938,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-91",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-141",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "65b62582-8b65-4ce9-bf53-29363b1d868e",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-97",
+      "players": [
+        {
+          "id": "seed-free-195",
+          "name": "Free Agent 195",
+          "ageWeeks": 949,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-145",
+          "name": "Free Agent 145",
+          "ageWeeks": 954,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-195",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-145",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "3579de5e-5187-4cb9-a549-da8d44540369",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-98",
+      "players": [
+        {
+          "id": "seed-free-161",
+          "name": "Free Agent 161",
+          "ageWeeks": 957,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-49",
+          "name": "Free Agent 49",
+          "ageWeeks": 966,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-161",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-49",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "37f77477-a706-4422-99da-f9d551585b0d",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-99",
+      "players": [
+        {
+          "id": "seed-free-4",
+          "name": "Free Agent 4",
+          "ageWeeks": 969,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-129",
+          "name": "Free Agent 129",
+          "ageWeeks": 976,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-4",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-129",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "c9fd235e-3cbf-4be3-8efb-62946f5a4c92",
+        "status": "active",
+        "chemistry": 0
+      }
+    },
+    {
+      "bot": "bot-100",
+      "players": [
+        {
+          "id": "seed-free-170",
+          "name": "Free Agent 170",
+          "ageWeeks": 980,
+          "stage": "youth"
+        },
+        {
+          "id": "seed-free-76",
+          "name": "Free Agent 76",
+          "ageWeeks": 981,
+          "stage": "youth"
+        }
+      ],
+      "issues": [
+        {
+          "step": "enter-singles:seed-free-170",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "enter-singles:seed-free-76",
+          "type": "no-eligible-open-tournament",
+          "circuit": "senior",
+          "openInCircuit": 0
+        },
+        {
+          "step": "doubles-entry",
+          "type": "no-eligible-open-doubles",
+          "circuit": "senior"
+        }
+      ],
+      "pair": {
+        "id": "e0bca7ce-7640-4992-a9e2-44368159b5f4",
+        "status": "active",
+        "chemistry": 0
+      }
+    }
+  ],
+  "rulesFired": {
+    "Manager bot-1 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Manager bot-2 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Manager bot-3 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Manager bot-4 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Manager bot-5 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Manager bot-6 roster is full (2/2). Upgrade to Manager Pro for extra roster slots.": 2,
+    "Cannot register an entrant: tournament 846a9117-ce92-41f0-b077-bb4ba82980de has already started": 3,
+    "Cannot register an entrant: tournament 7c723d8f-52a8-49e8-843b-303d2608f1af has already started": 4,
+    "Cannot register an entrant: tournament 27b42d51-4d17-4eb6-9993-91863feb71ba has already started": 5,
+    "Cannot register an entrant: tournament cbe0db76-5dd7-42fc-bae7-eb398f54c2eb has already started": 3,
+    "Cannot register an entrant: tournament 66f6b1a1-629f-4c85-9666-61136adc796f has already started": 3,
+    "Cannot register an entrant: tournament d45064fa-7850-4036-a4f8-485927722e95 has already started": 3,
+    "Cannot register an entrant: tournament 92985572-ade0-4759-9f46-e80c967f441d has already started": 3
+  },
+  "serverErrors": [],
+  "unexpected4xx": [],
+  "anomalies": [
+    {
+      "botId": "bot-70",
+      "playerId": "2c78731e-93cd-43fd-8c9f-139206c712a7",
+      "ageWeeks": 834,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-72",
+      "playerId": "verify-cand-2",
+      "ageWeeks": 836,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-71",
+      "playerId": "seed-free-157",
+      "ageWeeks": 835,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-70",
+      "playerId": "verify-cand-5",
+      "ageWeeks": 834,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-72",
+      "playerId": "b9dedf42-4b28-4d56-9dd3-dc4a985b429f",
+      "ageWeeks": 837,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-71",
+      "playerId": "c5463377-98aa-4cd0-b866-b5e82a6c256d",
+      "ageWeeks": 836,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-70",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-72",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-71",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-73",
+      "playerId": "64049339-bffb-456d-bfce-2cee960b715e",
+      "ageWeeks": 838,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-74",
+      "playerId": "aaab6b4a-44ea-4195-bb00-48936204a3dd",
+      "ageWeeks": 840,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-76",
+      "playerId": "a8c3a330-4877-41c2-a89c-b56501030a83",
+      "ageWeeks": 842,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-75",
+      "playerId": "f4264bf4-7852-458d-997b-fb5c2a10e35f",
+      "ageWeeks": 842,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-77",
+      "playerId": "8546097d-dfb2-4f60-a084-d30400e74d06",
+      "ageWeeks": 844,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-78",
+      "playerId": "7148e0e4-4b8c-4f54-8074-27a4d82ad3ca",
+      "ageWeeks": 844,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-73",
+      "playerId": "eab03799-c42d-4418-8da9-e6f19e190e66",
+      "ageWeeks": 840,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-74",
+      "playerId": "04b60cdd-7fb7-49e0-9bbe-1abe27b03f25",
+      "ageWeeks": 840,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-76",
+      "playerId": "5ace389a-0b1a-4e30-86b0-6a37dfcd17ba",
+      "ageWeeks": 842,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-75",
+      "playerId": "c3eb3557-b3e1-4a1b-a865-cf66b35d3330",
+      "ageWeeks": 842,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-78",
+      "playerId": "cb979ed7-5f8c-4d6f-b9c5-0cb876531908",
+      "ageWeeks": 845,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-77",
+      "playerId": "seed-free-123",
+      "ageWeeks": 844,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-73",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-75",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-76",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-74",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-78",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-77",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-79",
+      "playerId": "47672b47-f241-41b2-8afb-d7f89643dddf",
+      "ageWeeks": 846,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-80",
+      "playerId": "verify-cand-1",
+      "ageWeeks": 847,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-81",
+      "playerId": "f4acf20e-09c8-4186-a728-a4c6b040ec71",
+      "ageWeeks": 848,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-82",
+      "playerId": "8a989396-113e-4c9b-a14e-fed12bdf0977",
+      "ageWeeks": 851,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-83",
+      "playerId": "e936f2b8-9750-4136-801b-184a699ae285",
+      "ageWeeks": 851,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-84",
+      "playerId": "94d5c997-9214-4351-8be5-d32b08c03d8b",
+      "ageWeeks": 853,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-79",
+      "playerId": "8d897e67-5c22-4019-aa43-13530fcd949f",
+      "ageWeeks": 846,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-80",
+      "playerId": "5e88915e-b7ce-41d9-847e-142924c15e3c",
+      "ageWeeks": 847,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-81",
+      "playerId": "a64fa858-9bfa-439a-b0c8-656036638397",
+      "ageWeeks": 849,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-82",
+      "playerId": "seed-free-112",
+      "ageWeeks": 851,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-83",
+      "playerId": "5ab42d83-c1cf-478a-ab20-2d0befcfaaef",
+      "ageWeeks": 852,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-84",
+      "playerId": "57b801d6-c35b-4930-a5a3-3a349e73a6ce",
+      "ageWeeks": 855,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-79",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-80",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-81",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-82",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-84",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-83",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-85",
+      "playerId": "7d0aa876-dd1f-4eca-a4e2-95797b323fff",
+      "ageWeeks": 856,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-87",
+      "playerId": "verify-cand-7",
+      "ageWeeks": 857,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-86",
+      "playerId": "ff73760e-2886-49e8-8950-d03b32c4df6d",
+      "ageWeeks": 857,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-89",
+      "playerId": "585fbadb-9666-4285-b52e-6c4f1e0e546b",
+      "ageWeeks": 869,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-88",
+      "playerId": "seed-free-116",
+      "ageWeeks": 862,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-90",
+      "playerId": "seed-free-144",
+      "ageWeeks": 882,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-85",
+      "playerId": "00433918-900f-4639-b7f5-cc2d3c71f869",
+      "ageWeeks": 857,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-87",
+      "playerId": "8f6856f0-98df-472f-85c5-e8d94628d19a",
+      "ageWeeks": 859,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-89",
+      "playerId": "d064c475-866b-45e6-881b-a15ae4657950",
+      "ageWeeks": 869,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-88",
+      "playerId": "verify-cand-6",
+      "ageWeeks": 868,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-86",
+      "playerId": "seed-free-173",
+      "ageWeeks": 857,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-90",
+      "playerId": "seed-free-58",
+      "ageWeeks": 886,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-85",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-87",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-89",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-88",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-86",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-90",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-91",
+      "playerId": "seed-free-177",
+      "ageWeeks": 901,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-92",
+      "playerId": "seed-free-34",
+      "ageWeeks": 907,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-93",
+      "playerId": "seed-free-182",
+      "ageWeeks": 912,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-96",
+      "playerId": "seed-free-166",
+      "ageWeeks": 944,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-95",
+      "playerId": "seed-free-91",
+      "ageWeeks": 933,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-94",
+      "playerId": "seed-free-15",
+      "ageWeeks": 929,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-91",
+      "playerId": "seed-free-43",
+      "ageWeeks": 903,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-93",
+      "playerId": "seed-free-158",
+      "ageWeeks": 921,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-92",
+      "playerId": "seed-free-147",
+      "ageWeeks": 912,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-96",
+      "playerId": "seed-free-142",
+      "ageWeeks": 945,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-94",
+      "playerId": "seed-free-83",
+      "ageWeeks": 929,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-95",
+      "playerId": "seed-free-141",
+      "ageWeeks": 938,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-91",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-92",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-93",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-96",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-94",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-95",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-97",
+      "playerId": "seed-free-195",
+      "ageWeeks": 949,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-98",
+      "playerId": "seed-free-161",
+      "ageWeeks": 957,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-99",
+      "playerId": "seed-free-4",
+      "ageWeeks": 969,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-100",
+      "playerId": "seed-free-170",
+      "ageWeeks": 980,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-97",
+      "playerId": "seed-free-145",
+      "ageWeeks": 954,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-98",
+      "playerId": "seed-free-49",
+      "ageWeeks": 966,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-99",
+      "playerId": "seed-free-129",
+      "ageWeeks": 976,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-100",
+      "playerId": "seed-free-76",
+      "ageWeeks": 981,
+      "type": "senior-no-open-tournament",
+      "detail": "Senior player has zero age-eligible open tournaments this week"
+    },
+    {
+      "botId": "bot-97",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-98",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-99",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    },
+    {
+      "botId": "bot-100",
+      "type": "senior-no-open-doubles",
+      "detail": "No open senior tournament with a doubles field this week"
+    }
+  ],
+  "circuits": {
+    "juniorOpen": 14,
+    "seniorOpen": 0
+  },
+  "observe": null
+}

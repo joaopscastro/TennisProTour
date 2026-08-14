@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, StandardRankingPointsTable, TournamentId } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -7,7 +7,7 @@ import { Surface } from '@tennis-manager/domain';
 const TOURNAMENT_TIERS = ['futures', 'challenger', 'tour', 'major', 'j30', 'j60', 'j100', 'j200', 'j300', 'j500', 'juniorMasters'];
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier, matchIdForSlot } from '@tennis-manager/application';
 import { TournamentRepository } from '@tennis-manager/application';
-import { Dependencies } from '../../../composition';
+import { Dependencies, WORLD_ID } from '../../../composition';
 import { requireInternalAdmin, requireManager } from './auth';
 
 /** Single shared instance — the points table is a pure lookup of
@@ -57,6 +57,20 @@ function pointsBreakdownFor(tier: TournamentTier, drawSize: number): PointsBreak
   return rows;
 }
 
+/** Whether the tournament's singles main draw is fully decided — its
+ * final round exists and every match in it has an outcome. A bracket
+ * that was started but never seeded (no main draw) or that never played
+ * to a final is NOT finished: it is stuck, and "brackets underway" keeps
+ * stuck brackets visible rather than silently hiding them (see the
+ * status=started handler). */
+function isSinglesFinished(tournament: Tournament): boolean {
+  if (!tournament.hasMainDraw) return false;
+  const rounds = tournament.getRounds();
+  if (rounds.length === 0) return false;
+  const finalRound = rounds[rounds.length - 1];
+  return finalRound.matches.every((m) => m.outcome !== null);
+}
+
 
 /** Thin serialization only — no domain rules here, EXCEPT the
  * player-scoped fields, which are only ever attached by the
@@ -64,9 +78,28 @@ function pointsBreakdownFor(tier: TournamentTier, drawSize: number): PointsBreak
  * computed from anything but the real weekly-entry-cap constants
  * (weeklyEntryCapForTier) and isAgeEligibleForTournamentBand, the same
  * sources RegisterEntrantUseCase itself enforces against. */
+export interface PlayerScopedInfo {
+  weeklyEntryCountThisWeek: number;
+  weeklyEntryCapThisWeek: number;
+  ageEligible: boolean;
+  /** Whether THIS player would enter this tournament through qualifying
+   * (below the direct-acceptance cutoff) rather than a direct main-draw
+   * place — the SAME resolveEntryType decision RegisterEntrantUseCase
+   * makes, so the UI can preview it before a POST. Only meaningful at a
+   * tier that holds qualifying (false everywhere else). */
+  entryViaQualifying: boolean;
+  /** Whether the qualifying field is already full — a below-cutoff
+   * player is refused outright once it is. Only meaningful when
+   * entryViaQualifying. */
+  qualifyingFieldFull: boolean;
+  /** How many `[Q]` places are already taken, and the field's total
+   * capacity (0/0 at a tier with no qualifying). */
+  qualifyingFieldTaken: number;
+  qualifyingFieldSize: number;
+}
 export function toTournamentDto(
   tournament: Tournament,
-  playerScopedInfo?: { weeklyEntryCountThisWeek: number; weeklyEntryCapThisWeek: number; ageEligible: boolean },
+  playerScopedInfo?: PlayerScopedInfo,
 ) {
   return {
     id: tournament.id,
@@ -159,6 +192,13 @@ function toRoundDtos<S extends string>(rounds: ReadonlyArray<BracketRound<S>>) {
             setScores: match.outcome.setScores,
           }
         : null,
+      /** The match's scheduled reveal start (ISO) — null before it's
+       * simulated. The bracket counts down to it; the reveal runs
+       * `revealSeconds` from there. */
+      scheduledStartAt: match.scheduledStartAt ?? null,
+      /** Real-time seconds this match's reveal occupies. 0 = not
+       * scheduled (a pre-feature/not-yet-simulated match). */
+      revealSeconds: match.revealSeconds ?? 0,
     })),
   }));
 }
@@ -181,9 +221,10 @@ async function attachEntryInfo(
   list: Tournament[],
   playerId: PlayerId,
   playerAgeInWeeks: number,
-): Promise<Map<string, { weeklyEntryCountThisWeek: number; weeklyEntryCapThisWeek: number; ageEligible: boolean }>> {
+  playerRank: number | null,
+): Promise<Map<string, PlayerScopedInfo>> {
   const countByBandWeekKey = new Map<string, number>();
-  const result = new Map<string, { weeklyEntryCountThisWeek: number; weeklyEntryCapThisWeek: number; ageEligible: boolean }>();
+  const result = new Map<string, PlayerScopedInfo>();
   for (const tournament of list) {
     const bandKey = isJuniorTier(tournament.tier) ? 'j' : 's';
     const weekKey = `${bandKey}-${tournament.weekScheduled.season}-${tournament.weekScheduled.week}`;
@@ -192,10 +233,37 @@ async function attachEntryInfo(
       count = await countSameBandEntriesForWeek(tournaments, playerId, tournament.weekScheduled, tournament.tier);
       countByBandWeekKey.set(weekKey, count);
     }
+
+    // Preview this player's entry route: the SAME resolveEntryType call
+    // RegisterEntrantUseCase makes at POST time, so the UI can show "you'll
+    // enter through qualifying" and disable a full qualifying field BEFORE
+    // the player hits the server-side refusal.
+    let entryViaQualifying = false;
+    let qualifyingFieldFull = false;
+    let qualifyingFieldTaken = 0;
+    let qualifyingFieldSize = tournament.qualifyingDrawSize;
+    if (tournament.hasQualifying) {
+      qualifyingFieldTaken = tournament.entrants.filter((e) => entryTypeOf(e) === 'Q').length;
+      const decision = resolveEntryType({
+        tier: tournament.tier,
+        drawSize: tournament.drawSize,
+        rank: playerRank,
+        qualifierSlotsTaken: qualifyingFieldTaken,
+        qualifierSlots: tournament.qualifierSlots,
+        qualifyingCapacity: tournament.qualifyingDrawSize,
+      });
+      entryViaQualifying = decision.entryType === 'Q';
+      qualifyingFieldFull = decision.kind === 'qualifying-full';
+    }
+
     result.set(tournament.id, {
       weeklyEntryCountThisWeek: count,
       weeklyEntryCapThisWeek: weeklyEntryCapForTier(tournament.tier),
       ageEligible: isAgeEligibleForTournamentBand(playerAgeInWeeks, tournament.ageBand),
+      entryViaQualifying,
+      qualifyingFieldFull,
+      qualifyingFieldTaken,
+      qualifyingFieldSize,
     });
   }
   return result;
@@ -362,12 +430,54 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     const playerId = request.query.playerId ? PlayerId(request.query.playerId) : null;
     if (request.query.status === 'open') {
       const list = await deps.tournaments.findOpenForRegistration();
+      // "Open for entries" means "still accepting entrants for a week
+      // that hasn't fully passed." A tournament scheduled for a PAST
+      // week should have been started by StartDueTournamentsUseCase, but
+      // until that sweep runs (or if it never does — e.g. a seeded dev
+      // world browsed without worker ticks), a stale hasStarted=false
+      // row from weeks ago would otherwise show up here forever. Drop
+      // anything scheduled before the world's current week so the list
+      // only ever offers current-or-future weeks (the entry planner's
+      // future-week registration depends on that too).
+      const world = await deps.worlds.findById(WORLD_ID);
+      const open = world ? list.filter((t) => compareGameWeek(t.weekScheduled, world.currentWeek) >= 0) : list;
       const player = playerId ? await deps.players.findById(playerId) : null;
-      const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, list, playerId, player.ageInWeeks) : null;
-      return list.map((t) => toTournamentDto(t, entryInfo?.get(t.id)));
+      const rank = player ? (await deps.rankPosition.rankFor(playerId!)).rank : null;
+      const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, open, playerId, player.ageInWeeks, rank) : null;
+      return open.map((t) => toTournamentDto(t, entryInfo?.get(t.id)));
     }
     if (request.query.status === 'started') {
-      return (await deps.tournaments.findStarted()).map((t) => toTournamentDto(t));
+      const list = await deps.tournaments.findStarted();
+      // "Brackets underway" should be the CURRENT week's tournaments, not
+      // the entire history of every bracket ever played. The carve-outs:
+      //   - a two-week tier (major/juniorMasters — see isTwoWeekTier) is
+      //     still mid-draw the week AFTER its scheduled week, so a bracket
+      //     scheduled last week is kept when (and only when) it is one of
+      //     those two-week tiers;
+      //   - an UNFINISHED bracket is kept a couple of weeks beyond its
+      //     scheduled week even when not two-week-tier-eligible — the real
+      //     reason the naive "current week only" rule was wrong: a
+      //     128-draw major with a qualifying draw schedules its main final
+      //     at firstDay + qualifyingRoundCount + 14, i.e. into the SECOND
+      //     week after its scheduled week, and that final is a live bracket
+      //     a manager would expect to still see. "Finished" is read off the
+      //     aggregate (last main round fully decided), not guessed from the
+      //     tier.
+      // Anything else older than last week is finished and hidden.
+      const world = await deps.worlds.findById(WORLD_ID);
+      const started = world
+        ? list.filter((t) => {
+            const weeksSinceScheduled = weeksBetween(t.weekScheduled, world.currentWeek);
+            if (weeksSinceScheduled === 0) return true;
+            if (weeksSinceScheduled === 1 && isTwoWeekTier(t.tier)) return true;
+            // A genuinely unfinished bracket stays visible for up to ~3
+            // weeks past its scheduled week (covers the qualifying-shifted
+            // major final); an unfinished bracket older than that is
+            // stuck, not underway — a small, honest set, kept visible.
+            return !isSinglesFinished(t) && weeksSinceScheduled <= 3;
+          })
+        : list;
+      return started.map((t) => toTournamentDto(t));
     }
     return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });

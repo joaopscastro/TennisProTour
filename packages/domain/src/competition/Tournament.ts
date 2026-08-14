@@ -531,6 +531,21 @@ export class Tournament {
     return { entrantA: match.entrantA, entrantB: match.entrantB };
   }
 
+  /** Records the match's SCHEDULED reveal start and reveal window (a
+   * wall-clock ISO timestamp + real-seconds, stamped by the application
+   * layer at simulation time — the staggered-schedule feature). Mutates
+   * the match in place so the repository round-trips them like the
+   * outcome; `recordMatchOutcome`'s `{ ...m, outcome }` spread preserves
+   * them. */
+  setMatchSchedule(roundNumber: number, matchIndex: number, scheduledStartAt: string, revealSeconds: number, draw: DrawPhase = 'main'): void {
+    const rounds = this.roundsFor(draw);
+    const roundIndex = rounds.findIndex((round) => round.roundNumber === roundNumber);
+    const round = rounds[roundIndex];
+    this.requireMatch(roundNumber, matchIndex, draw);
+    const updatedMatches = round.matches.map((m, i) => (i === matchIndex ? { ...m, scheduledStartAt, revealSeconds } : m));
+    rounds[roundIndex] = { ...round, matches: updatedMatches };
+  }
+
   recordMatchOutcome(roundNumber: number, matchIndex: number, outcome: MatchOutcome, draw: DrawPhase = 'main'): void {
     const rounds = this.roundsFor(draw);
     const roundIndex = rounds.findIndex((round) => round.roundNumber === roundNumber);
@@ -794,6 +809,18 @@ export class Tournament {
       throw new Error(`Doubles match ${roundNumber}/${matchIndex} already has a recorded outcome`);
     }
     return { entrantA: match.entrantA, entrantB: match.entrantB };
+  }
+
+  /** Doubles analogue of setMatchSchedule — records the match's
+   * scheduled reveal start + reveal window on the aggregate for the
+   * staggered-schedule feature. */
+  setDoublesMatchSchedule(roundNumber: number, matchIndex: number, scheduledStartAt: string, revealSeconds: number, draw: DrawPhase = 'main'): void {
+    const rounds = this.doublesRoundsFor(draw);
+    const roundIndex = rounds.findIndex((round) => round.roundNumber === roundNumber);
+    const round = rounds[roundIndex];
+    this.requireDoublesMatch(roundNumber, matchIndex, draw);
+    const updatedMatches = round.matches.map((m, i) => (i === matchIndex ? { ...m, scheduledStartAt, revealSeconds } : m));
+    rounds[roundIndex] = { ...round, matches: updatedMatches };
   }
 
   recordDoublesMatchOutcome(roundNumber: number, matchIndex: number, outcome: MatchOutcome<PairId>, draw: DrawPhase = 'main'): void {

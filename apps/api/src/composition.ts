@@ -26,7 +26,7 @@ import { SimulateMatchUseCase } from '@tennis-manager/application';
 import { AdvanceWorldWeekUseCase, PromoteQualifiersUseCase, SimulateDueMatchesUseCase } from '@tennis-manager/application';
 import { CreateDoublesPairUseCase, AcceptDoublesPairUseCase, DissolveDoublesPairUseCase } from '@tennis-manager/application';
 import { RegisterDoublesEntrantUseCase, FormDoublesDrawUseCase, SimulateDoublesMatchUseCase, PromoteDoublesQualifiersUseCase, RunPracticeSessionUseCase, GenerateMastersCupUseCase, AdvanceMastersCupUseCase, SimulateMastersCupMatchUseCase, SimulateDueMastersCupMatchesUseCase, GenerateWorldTeamCupUseCase, AdvanceWorldTeamCupUseCase, SimulateWorldTeamCupRubberUseCase, SimulateDueWorldTeamCupRubbersUseCase } from '@tennis-manager/application';
-import { GenerateJuniorTournamentsUseCase } from '@tennis-manager/application';
+import { GenerateJuniorTournamentsUseCase, GenerateSeniorTournamentsUseCase } from '@tennis-manager/application';
 import { ApplyObligatoryTournamentZerosUseCase } from '@tennis-manager/application';
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
@@ -171,6 +171,12 @@ export interface Dependencies {
    * junior tournament automatically. Run from the same worker handler
    * as advanceWorldWeek, gated on that use case's `advanced` result. */
   generateJuniorTournaments: GenerateJuniorTournamentsUseCase;
+  /** The weekly SENIOR-tour content generator — the senior analogue of
+   * generateJuniorTournaments. Before it existed nothing ever created a
+   * senior tournament automatically (only the dev seed's one-shot
+   * fixtures), so the senior tour ran dry after those weeks passed.
+   * Run from the same worker handler, gated the same way. */
+  generateSeniorTournaments: GenerateSeniorTournamentsUseCase;
   /** The "this tournament's registration window is over, start it"
    * trigger docs/tournament-fill-system.md item 5 needed — fills any
    * under-registered but due tournament from the unclaimed-player pool
@@ -443,6 +449,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u14: rankPositionU14,
     u16: rankPositionU16,
   }, idGenerator);
+  const generateSeniorTournaments = new GenerateSeniorTournamentsUseCase(worlds, tournaments, openRegistration, idGenerator);
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
   const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings);
@@ -499,6 +506,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy),
     generateJuniorTournaments,
+    generateSeniorTournaments,
     startDueTournaments: new StartDueTournamentsUseCase(
       tournaments,
       worlds,

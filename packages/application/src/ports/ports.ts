@@ -77,6 +77,12 @@ export interface TournamentRepository {
    * exactly this GameWeek, regardless of tier. What RegisterEntrantUseCase's
    * junior weekly-entry cap counts against — see its own doc comment. */
   findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]>;
+  /** The DOUBLES analogue of findByPlayerAndWeek: every tournament this
+   * player is entered in the DOUBLES field of for exactly this GameWeek.
+   * The weekly entry cap counts a player's SINGLES and DOUBLES entries
+   * together (a player can't play two tournaments' doubles on the same
+   * days they're playing singles), so the cap helper reads BOTH. */
+  findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]>;
   save(tournament: Tournament): Promise<void>;
 }
 

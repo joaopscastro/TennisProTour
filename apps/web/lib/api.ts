@@ -200,15 +200,28 @@ export interface TournamentDto {
    * senior tour has no age restriction, so it's always true there.
    * Only set when ?playerId= was supplied. */
   ageEligible?: boolean;
+  /** Whether THIS player would enter through qualifying (`[Q]`) rather
+   * than a direct main-draw place — the API's resolveEntryType preview.
+   * Only set when ?playerId= was supplied; only meaningful at a tier
+   * that holds qualifying. */
+  entryViaQualifying?: boolean;
+  /** The qualifying field is already full, so a below-cutoff player
+   * would be refused. Only set when ?playerId= was supplied; only
+   * meaningful when entryViaQualifying. */
+  qualifyingFieldFull?: boolean;
+  /** How many `[Q]` places are taken / the field's total capacity
+   * (0/0 at a tier with no qualifying). Only set when ?playerId=. */
+  qualifyingFieldTaken?: number;
+  qualifyingFieldSize?: number;
   rounds: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   /** The qualifying bracket, same shape as `rounds`. Empty for every
    * tournament that holds no qualifying. */
   qualifyingRounds: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   /** Doubles draw (P7b). `doublesDrawSize` 0 = no doubles draw.
    * `doublesEntrants` are the solo signups (player ids); `doublesPairs`
@@ -220,7 +233,7 @@ export interface TournamentDto {
   doublesPairs: Array<{ pairId: string; playerA: string; playerB: string; chemistry: number }>;
   doublesRounds: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   doublesComplete: boolean;
   /** Doubles qualifying (P8). `doublesQualifyingDrawSize` 0 = no doubles
@@ -230,7 +243,7 @@ export interface TournamentDto {
   doublesQualifyingPairs: Array<{ pairId: string; playerA: string; playerB: string; chemistry: number }>;
   doublesQualifyingRounds: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   doublesQualifyingComplete: boolean;
 }
@@ -283,11 +296,19 @@ function managerPath(managerId: string, resource: 'players' | 'roster-dashboard'
   return CLERK_ENABLED ? `/me/${resource}` : `/managers/${encodeURIComponent(managerId)}/${resource}`;
 }
 
+/** An HTTP error that carries its status code, so callers can tell a
+ * real failure from an expected 404 ("no such resource yet"). */
+function httpError(status: number, message: string): Error & { status: number } {
+  const error = new Error(message) as Error & { status: number };
+  error.status = status;
+  return error;
+}
+
 async function getJson<T>(path: string, managerId?: string): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, { headers: await requestHeaders(managerId), credentials: 'include' });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `${response.status} ${response.statusText}`);
+    throw httpError(response.status, body?.error ?? `${response.status} ${response.statusText}`);
   }
   return response.json() as Promise<T>;
 }
@@ -301,7 +322,7 @@ async function sendJson<T>(method: 'POST' | 'PUT', path: string, body?: unknown,
   });
   if (!response.ok) {
     const responseBody = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(responseBody?.error ?? `${response.status} ${response.statusText}`);
+    throw httpError(response.status, responseBody?.error ?? `${response.status} ${response.statusText}`);
   }
   return response.json() as Promise<T>;
 }
@@ -745,19 +766,19 @@ export interface MastersCupDto {
   doublesEntrants: Array<{ pairId: string; playerA: string; playerB: string; chemistry?: number }>;
   singlesGroups: Array<{
     entrants: string[];
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   doublesGroups: Array<{
     entrants: string[];
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   singlesKnockout: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   doublesKnockout: Array<{
     roundNumber: number;
-    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null }>;
+    matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
   }>;
   singlesGroupStageComplete: boolean;
   doublesGroupStageComplete: boolean;

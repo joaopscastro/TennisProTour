@@ -67,10 +67,18 @@ export class RankingCalculationService {
     const obligatory = withinWindow.filter((entry) => isObligatoryTier(entry.tier));
     const optional = withinWindow.filter((entry) => !isObligatoryTier(entry.tier));
 
-    const remainingSlots = Math.max(0, this.bestResultsCap - obligatory.length);
+    // Obligatory results occupy N's slots too — they can't be displaced by a
+    // higher-scoring optional result, but they are STILL capped at N. Without
+    // this cap a player with more obligatory results than N (possible when a
+    // major is openable weekly, or many skip-zeros accumulate) would have all
+    // of them counted, exceeding the best-N total the doc promises. Among the
+    // obligatory bucket, the top N by points count; a 0-point skip-zero only
+    // bites when it sits inside those N slots.
+    const obligatoryCounted = [...obligatory].sort((a, b) => b.points - a.points).slice(0, this.bestResultsCap);
+    const remainingSlots = Math.max(0, this.bestResultsCap - obligatoryCounted.length);
     const bestOptional = [...optional].sort((a, b) => b.points - a.points).slice(0, remainingSlots);
 
-    const obligatoryPoints = obligatory.reduce((sum, entry) => sum + entry.points, 0);
+    const obligatoryPoints = obligatoryCounted.reduce((sum, entry) => sum + entry.points, 0);
     const optionalPoints = bestOptional.reduce((sum, entry) => sum + entry.points, 0);
 
     return obligatoryPoints + optionalPoints;

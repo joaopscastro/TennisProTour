@@ -21,6 +21,7 @@ export * from './competition/MastersCup';
 export * from './competition/WorldTeamCup';
 export * from './competition/TournamentNameGenerator';
 export * from './competition/JuniorTournamentSchedulePolicy';
+export * from './competition/SeniorTournamentSchedulePolicy';
 export * from './competition/TournamentSchedulePolicy';
 export * from './match-simulation/MatchSimulator';
 export * from './match-simulation/StatisticalMatchSimulator';

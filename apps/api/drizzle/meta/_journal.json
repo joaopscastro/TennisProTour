@@ -281,6 +281,20 @@
       "when": 1786703954566,
       "tag": "0039_powerful_toad",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1786728469001,
+      "tag": "0040_aberrant_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786729516488,
+      "tag": "0041_blue_otto_octavius",
+      "breakpoints": true
     }
   ]
 }

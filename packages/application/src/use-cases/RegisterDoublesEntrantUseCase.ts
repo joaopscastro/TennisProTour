@@ -1,6 +1,7 @@
 import { PlayerId, TournamentId, isAgeEligibleForTournamentBand, isJuniorTier } from '@tennis-manager/domain';
 import { ManagerId } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 
 export interface RegisterDoublesEntrantCommand {
   tournamentId: TournamentId;
@@ -22,6 +23,13 @@ export interface RegisterDoublesEntrantCommand {
  * here (play up allowed, play down / senior-into-junior not) — so a
  * senior player can't enter a u14 doubles draw, exactly as they can't
  * enter the u14 singles draw.
+ *
+ * **Weekly entry cap**: the SAME cap as singles, counting singles and
+ * doubles together (see countSameBandEntriesForWeek) — a doubles entry
+ * is a real weekly tournament commitment, not a free extra. This closes
+ * the gap where a senior player at the singles cap-1 could enter
+ * unlimited doubles fields the same week (whose rounds run the same
+ * days).
  */
 export class RegisterDoublesEntrantUseCase {
   constructor(
@@ -46,6 +54,17 @@ export class RegisterDoublesEntrantUseCase {
       throw new Error(
         `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for the ` +
           `${tournament.ageBand} doubles draw`,
+      );
+    }
+
+    const entryCount = await countSameBandEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled, tournament.tier);
+    const cap = weeklyEntryCapForTier(tournament.tier);
+    if (entryCount >= cap) {
+      const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+      throw new Error(
+        `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
+          `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+          `(cap: ${cap})`,
       );
     }
 

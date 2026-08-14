@@ -48,6 +48,11 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       await deps.refreshTalentPool.execute({ worldId });
       // Weekly junior-tournament generation, same rollover/gate.
       await deps.generateJuniorTournaments.execute({ worldId });
+      // Weekly SENIOR-tour generation, same rollover/gate — the senior
+      // analogue of the junior ladder above (see
+      // GenerateSeniorTournamentsUseCase: before it, nothing ever
+      // created a senior tournament automatically and the tour ran dry).
+      await deps.generateSeniorTournaments.execute({ worldId });
       // Runs AFTER junior generation, same rollover/gate, for a
       // load-bearing reason: StartDueTournamentsUseCase's due check is
       // strictly `weeksBetween(weekScheduled, currentWeek) > 0` so a
@@ -92,7 +97,11 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
     // rounds whose scheduled day has arrived, one round per tournament
     // per day. See SimulateDueMatchesUseCase.
     if (result.advanced) {
-      const sim = await deps.simulateDueMatches.execute({ worldId });
+      // Thread the real-time day length into the sweep so the staggered
+      // schedule tiles it (WORLD_TICK_INTERVAL_MS in dev, the 24h cron in
+      // prod — the use case defaults to the latter when undefined).
+      const dayWindowSeconds = tickIntervalMs !== null ? tickIntervalMs / 1000 : undefined;
+      const sim = await deps.simulateDueMatches.execute({ worldId, dayWindowSeconds });
       // Straight after the sweep, on the SAME day tick: any tournament
       // whose qualifying draw just finished gets its main draw seeded
       // from the qualifiers who came through (deferred main-draw
@@ -125,9 +134,9 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
   };
 }
 
-export function makeSimulateDueMatchesHandler(deps: Dependencies, worldId: string) {
+export function makeSimulateDueMatchesHandler(deps: Dependencies, worldId: string, dayWindowSeconds?: number) {
   return async () => {
-    const sim = await deps.simulateDueMatches.execute({ worldId: WorldId(worldId) });
+    const sim = await deps.simulateDueMatches.execute({ worldId: WorldId(worldId), dayWindowSeconds });
     // Same pairing as the day tick above: this standalone sweep is the
     // other place matches get played, so it must also be able to move a
     // finished qualifying draw on to its main draw — otherwise a
@@ -139,6 +148,13 @@ export function makeSimulateDueMatchesHandler(deps: Dependencies, worldId: strin
     if (world) {
       await deps.simulateDueMastersCupMatches.execute({ season: world.currentWeek.season, worldId: WorldId(worldId) });
       await deps.advanceMastersCup.execute({ season: world.currentWeek.season });
+      // Same pairing as the day tick above: the standalone sweep must
+      // also move the World Team Cup forward, or its ties sit unswept
+      // until the next day tick (the gap that left P8c never exercised
+      // end-to-end by e2e.smoke.test.ts, which runs through this
+      // handler).
+      await deps.simulateDueWorldTeamCupRubbers.execute({ season: world.currentWeek.season, worldId: WorldId(worldId) });
+      await deps.advanceWorldTeamCup.execute({ season: world.currentWeek.season });
     }
     return {
       ...sim,

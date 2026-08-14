@@ -18,6 +18,7 @@ import {
   TournamentRepository,
 } from '../ports/ports';
 import { MATCH_SURFACE_AFFINITY_GAIN } from './SimulateMatchUseCase';
+import { scaleMatchLogToReveal } from './matchSchedule';
 
 /** How much chemistry a pair gains from playing a doubles match together
  * (P7c). PLACEHOLDER — flat per-match, regardless of result (showing up
@@ -34,6 +35,12 @@ export interface SimulateDoublesMatchCommand {
    * `'qualifying'` matches pay only small qualifying points and never
    * crown a title. */
   draw?: DrawPhase;
+  /** The match's SCHEDULED reveal start (ISO 8601) — the staggered-
+   * schedule feature. Optional/absent means airs immediately. */
+  scheduledStartAt?: string;
+  /** Real-time seconds the reveal should occupy; the replay log is
+   * time-scaled to fit it (see matchSchedule.ts). Absent = no scaling. */
+  revealDurationSeconds?: number;
 }
 
 /** The canonical MatchId for a doubles bracket slot — its own id space
@@ -132,10 +139,24 @@ export class SimulateDoublesMatchUseCase {
       tournament.addDoublesRound(nextRound, draw);
     }
 
+    if (command.scheduledStartAt) {
+      tournament.setDoublesMatchSchedule(
+        command.roundNumber,
+        command.matchIndex,
+        command.scheduledStartAt,
+        command.revealDurationSeconds ?? 0,
+        draw,
+      );
+    }
+
     await this.tournaments.save(tournament);
     await this.events.publish(tournament.pullDomainEvents());
 
-    const timestampedLog: MatchLog = { ...log, simulatedAt: new Date().toISOString() };
+    const simulatedAt = command.scheduledStartAt ?? new Date().toISOString();
+    const timestampedLog: MatchLog = {
+      ...(command.revealDurationSeconds ? scaleMatchLogToReveal(log, command.revealDurationSeconds) : log),
+      simulatedAt,
+    };
     const { url } = await this.matchLogs.save(command.matchId, timestampedLog);
 
     // Per-player effects (fatigue, form, surface growth, development XP)

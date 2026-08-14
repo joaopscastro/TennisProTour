@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   PlannerWeekDto,
@@ -13,6 +13,7 @@ import {
   registerEntrant,
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
+import { SeasonEvents } from '../../components/SeasonEvents';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 
@@ -53,6 +54,60 @@ const SURFACE_CHIPS: Array<{ value: string; label: string }> = [
   { value: 'indoor', label: 'Indoor' },
 ];
 
+/** The out-of-the-box filter selection — Senior + Tour only. A first-time
+ * visitor lands here rather than on the overwhelming "every tournament
+ * ever" dump; once the manager changes a filter, their last selection is
+ * persisted (localStorage) and becomes their default on the next visit. */
+const DEFAULT_CATEGORY: Category = 'senior';
+const DEFAULT_TIERS: readonly TierFilterValue[] = ['tour'];
+
+/** Storage key for the manager's last-used filter state. Versioned so a
+ * future change to the filter model (renamed tiers/surfaces) can be
+ * introduced without stale stored values wedging the page. */
+const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v1';
+
+const VALID_CATEGORIES: readonly Category[] = ['all', 'senior', 'junior'];
+const VALID_TIERS: readonly TierFilterValue[] = ['u14', 'u16', 'futures', 'challenger', 'tour', 'major'];
+const VALID_SURFACES: readonly string[] = ['clay', 'grass', 'hard', 'indoor'];
+
+interface PersistedTournamentFilters {
+  category: Category;
+  tiers: TierFilterValue[];
+  surfaces: string[];
+}
+
+/** Reads the manager's persisted filter state, tolerating any corrupt
+ * blob (returns null so the caller falls back to the defaults). Loaded
+ * values are filtered through the VALID_* lists so a future code change
+ * that removes a tier/surface can't leave a stale value stuck in a
+ * manager's stored prefs. */
+function loadPersistedFilters(): PersistedTournamentFilters | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedTournamentFilters>;
+    return {
+      category: parsed.category && VALID_CATEGORIES.includes(parsed.category) ? parsed.category : DEFAULT_CATEGORY,
+      tiers: Array.isArray(parsed.tiers) ? parsed.tiers.filter((t) => VALID_TIERS.includes(t)) : [...DEFAULT_TIERS],
+      surfaces: Array.isArray(parsed.surfaces) ? parsed.surfaces.filter((s) => VALID_SURFACES.includes(s)) : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Writes the manager's filter state. Failures (private mode / full
+ * quota) are swallowed — the only consequence is filters not persisting,
+ * never a broken page. */
+function savePersistedFilters(filters: PersistedTournamentFilters): void {
+  try {
+    window.localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(filters));
+  } catch {
+    // noop — persistence is best-effort
+  }
+}
+
 function tierKeyFor(t: TournamentDto): TierFilterValue {
   return (t.ageBand ?? t.tier) as TierFilterValue;
 }
@@ -76,6 +131,18 @@ function toggleInSet<T>(set: ReadonlySet<T>, value: T): Set<T> {
   if (next.has(value)) next.delete(value);
   else next.add(value);
   return next;
+}
+
+/** Whether a tournament still has room for the queried player. A
+ * qualifying-tier entrant below the cutoff is measured against the
+ * QUALIFYING field (which `entrants.length < drawSize` can't see —
+ * `entrants` includes qualifying entrants), while a direct-acceptance
+ * or non-qualifying entrant is measured against the main draw. */
+function hasRoomFor(t: TournamentDto): boolean {
+  if (t.entryViaQualifying) return !t.qualifyingFieldFull;
+  const mainEntrants = t.entrants.filter((e) => e.draw !== 'qualifying').length;
+  const mainCapacity = t.drawSize - (t.qualifierSlots ?? 0);
+  return mainEntrants < mainCapacity;
 }
 
 function chipStyle(active: boolean) {
@@ -252,7 +319,8 @@ function WeekRegisterPicker({
         const overCap =
           t.weeklyEntryCountThisWeek !== undefined && t.weeklyEntryCapThisWeek !== undefined && t.weeklyEntryCountThisWeek >= t.weeklyEntryCapThisWeek;
         const ageIneligible = t.ageEligible === false;
-        const blocked = overCap || ageIneligible;
+        const qualifyingFull = t.qualifyingFieldFull === true;
+        const blocked = overCap || ageIneligible || qualifyingFull;
         const selected = selectedId === t.id;
         return (
           <button
@@ -278,8 +346,21 @@ function WeekRegisterPicker({
                   {t.ageBand}
                 </div>
               )}
+              {t.entryViaQualifying && (
+                <div
+                  className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] flex-none"
+                  style={{ background: 'oklch(45% 0.12 45 / 0.35)', color: 'oklch(85% 0.1 45)' }}
+                >
+                  [Q]
+                </div>
+              )}
               <div className="text-[12px] font-semibold truncate">{t.name}</div>
             </div>
+            {t.entryViaQualifying && !qualifyingFull && (
+              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                Qualifying — {t.qualifyingFieldTaken}/{t.qualifyingFieldSize} spots taken
+              </div>
+            )}
             {ageIneligible && (
               <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
                 Too old for this {t.ageBand} draw
@@ -290,6 +371,11 @@ function WeekRegisterPicker({
                 {t.weeklyEntryCapThisWeek === 1
                   ? 'Already entered a tournament this week'
                   : `Already at ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
+              </div>
+            )}
+            {!ageIneligible && !overCap && qualifyingFull && (
+              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+                Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize})
               </div>
             )}
           </button>
@@ -457,7 +543,7 @@ function PlannerView() {
                 (t) =>
                   t.weekScheduled.season === week.week.season &&
                   t.weekScheduled.week === week.week.week &&
-                  t.entrants.length < t.drawSize &&
+                  hasRoomFor(t) &&
                   !t.entrants.some((e) => e.playerId === selectedPlayerId) &&
                   !week.entries.some((entered) => entered.id === t.id),
               );
@@ -541,14 +627,39 @@ function PlannerView() {
 }
 
 export default function TournamentsIndexPage() {
-  const [view, setView] = useState<'browse' | 'planner'>('browse');
+  const [view, setView] = useState<'browse' | 'planner' | 'events'>('browse');
   const [open, setOpen] = useState<TournamentDto[] | null>(null);
   const [started, setStarted] = useState<TournamentDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [category, setCategory] = useState<Category>('all');
-  const [tiers, setTiers] = useState<Set<TierFilterValue>>(new Set());
-  const [surfaces, setSurfaces] = useState<Set<string>>(new Set());
+  const [category, setCategory] = useState<Category>(DEFAULT_CATEGORY);
+  const [tiers, setTiers] = useState<Set<TierFilterValue>>(() => new Set(DEFAULT_TIERS));
+  const [surfaces, setSurfaces] = useState<Set<string>>(() => new Set());
+
+  // Restore the manager's last-used filters once on mount (first visit
+  // falls through to the Senior + Tour default). Done in an effect, not a
+  // lazy initializer, so the server-rendered chips and the hydrated ones
+  // never disagree.
+  useEffect(() => {
+    const persisted = loadPersistedFilters();
+    if (!persisted) return;
+    setCategory(persisted.category);
+    setTiers(new Set(persisted.tiers));
+    setSurfaces(new Set(persisted.surfaces));
+  }, []);
+
+  // Persist every change so the manager's selection becomes next visit's
+  // default. Skips the mount run — the restore effect above (which fires
+  // first in the same commit) must not have its result immediately
+  // clobbered by re-saving the still-stale default state.
+  const hasHydratedFilters = useRef(false);
+  useEffect(() => {
+    if (!hasHydratedFilters.current) {
+      hasHydratedFilters.current = true;
+      return;
+    }
+    savePersistedFilters({ category, tiers: Array.from(tiers), surfaces: Array.from(surfaces) });
+  }, [category, tiers, surfaces]);
 
   useEffect(() => {
     Promise.all([fetchOpenTournaments(), fetchStartedTournaments()])
@@ -580,7 +691,7 @@ export default function TournamentsIndexPage() {
               </div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 10, padding: 3, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.16)' }}>
-              {(['browse', 'planner'] as const).map((v) => (
+              {(['browse', 'planner', 'events'] as const).map((v) => (
                 <button
                   key={v}
                   onClick={() => setView(v)}
@@ -590,7 +701,7 @@ export default function TournamentsIndexPage() {
                     color: view === v ? 'oklch(22% 0.03 150)' : 'oklch(94% 0.01 150)',
                   }}
                 >
-                  {v === 'browse' ? 'Browse' : 'Planner'}
+                  {v === 'browse' ? 'Browse' : v === 'planner' ? 'Planner' : 'Season events'}
                 </button>
               ))}
             </div>
@@ -651,8 +762,10 @@ export default function TournamentsIndexPage() {
               </div>
             </div>
           </>
-        ) : (
+        ) : view === 'planner' ? (
           <PlannerView />
+        ) : (
+          <SeasonEvents />
         )}
       </PageShell>
     </AppFrame>

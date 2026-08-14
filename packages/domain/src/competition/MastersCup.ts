@@ -104,21 +104,27 @@ export class MastersCup {
     return this.isGroupStageComplete(this._doublesGroups);
   }
 
-  /** Top 2 per singles group, in bracket order (group 1 winner, group 2
-   * runner-up, group 2 winner, group 1 runner-up) — the four
-   * semifinalists. Empty until the group stage is complete. */
+  /** Top 2 per singles group, in the bracket slot order that makes the
+   * two semifinals CROSS groups (group 1 winner vs group 2 runner-up,
+   * group 2 winner vs group 1 runner-up) rather than rematches of
+   * round-robin games. `seedKnockout` feeds this into
+   * `BracketGenerator.generate(..., 4)`, whose 4-slot seed order is
+   * [1,4,2,3] → matches (slot1, slot4) and (slot2, slot3) — so the
+   * array must be [g1 winner, g2 winner, g1 runner-up, g2 runner-up] for
+   * slot1 vs slot4 to pair g1-winner against g2-runner-up. Empty until
+   * the group stage is complete. */
   singlesSemifinalists(): PlayerId[] {
     if (!this.singlesGroupStageComplete) return [];
     const g1 = groupStandings<PlayerId>(this._singlesGroups[0]);
     const g2 = groupStandings<PlayerId>(this._singlesGroups[1]);
-    return [g1[0].entrant, g2[1].entrant, g2[0].entrant, g1[1].entrant];
+    return [g1[0].entrant, g2[0].entrant, g1[1].entrant, g2[1].entrant];
   }
 
   doublesSemifinalists(): PairId[] {
     if (!this.doublesGroupStageComplete) return [];
     const g1 = groupStandings<PairId>(this._doublesGroups[0]);
     const g2 = groupStandings<PairId>(this._doublesGroups[1]);
-    return [g1[0].entrant, g2[1].entrant, g2[0].entrant, g1[1].entrant];
+    return [g1[0].entrant, g2[0].entrant, g1[1].entrant, g2[1].entrant];
   }
 
   getSinglesGroupScheduledMatch(groupIndex: number, matchIndex: number): { entrantA: PlayerId; entrantB: PlayerId } {

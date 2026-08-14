@@ -77,4 +77,40 @@ describe('WorldTeamCup', () => {
     cup.advanceKnockout();
     expect(cup.knockout).toHaveLength(2);
   });
+
+  it('breaks a 2-way ties-won tie by head-to-head, not by stable array order', () => {
+    const cup = makeCup();
+    // Snake seeding puts [BR, FR, GB, AR] in group 0. Play it so BR and FR
+    // both finish 2-1, but FR beat BR head-to-head — BR is listed FIRST in
+    // the group, so a ties-won-only stable sort (the pre-fix behavior) would
+    // wrongly rank BR ahead of FR.
+    const group = cup.groups[0];
+    const findTie = (a: string, b: string) =>
+      group.ties.find((t) => (t.teamA === a && t.teamB === b) || (t.teamA === b && t.teamB === a))!;
+    const winTie = (a: string, b: string, winner: string) => {
+      const tie = findTie(a, b);
+      for (let r = 0; r < 2; r++) {
+        const rubber = tie.rubbers[r] as { playerA: PlayerId; playerB: PlayerId };
+        const teamAWon = tie.teamA === winner;
+        cup.recordRubberOutcome(tie, r, {
+          winner: teamAWon ? rubber.playerA : rubber.playerB,
+          loser: teamAWon ? rubber.playerB : rubber.playerA,
+          setScores: [{ winnerGames: 6, loserGames: 2 }],
+        });
+      }
+    };
+
+    winTie('BR', 'FR', 'FR'); // head-to-head: FR beats BR
+    winTie('BR', 'GB', 'BR');
+    winTie('BR', 'AR', 'BR');
+    winTie('FR', 'GB', 'FR');
+    winTie('FR', 'AR', 'AR');
+    winTie('GB', 'AR', 'GB');
+
+    const standings = cup.groupStandings(group);
+    // FR (2-1, beat BR) must outrank BR (2-1, lost to FR) despite BR being
+    // listed first in the group.
+    expect(standings.indexOf('FR')).toBeLessThan(standings.indexOf('BR'));
+    expect(standings.slice(0, 2).sort()).toEqual(['BR', 'FR']);
+  });
 });

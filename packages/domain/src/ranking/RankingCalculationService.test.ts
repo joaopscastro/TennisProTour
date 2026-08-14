@@ -138,4 +138,26 @@ describe('RankingCalculationService', () => {
     expect(withoutSkip).toBe(18 * 500);
     expect(withSkip).toBe(17 * 500);
   });
+
+  it('caps obligatory results at best-N too — more mandatory results than N can never exceed the cap', () => {
+    const service = new RankingCalculationService();
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+
+    // 20 major-tier (obligatory) results, 100 points each — MORE than the
+    // best-18 cap. They still occupy slots (can't be displaced by optional
+    // results) but the total must be capped at 18 × 100, not 20 × 100.
+    const majors: RankingLedgerEntry[] = Array.from({ length: 20 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 100, tier: 'major', tournamentId: TournamentId(`m${i}`) }),
+    );
+
+    expect(service.calculateTotal(majors, currentWeek)).toBe(18 * 100);
+
+    // A 0-point skip-zero among a >N obligatory bucket does NOT add an extra
+    // slot beyond the cap; the top N obligatory by points win the slots.
+    const withSkipZero = service.calculateTotal(
+      [...majors, entry({ weekEarned: currentWeek, points: 0, tier: 'major', obligatory: true, tournamentId: TournamentId('skip') })],
+      currentWeek,
+    );
+    expect(withSkipZero).toBe(18 * 100);
+  });
 });

@@ -168,8 +168,70 @@ export class WorldTeamCup {
   }
 
   groupStandings(group: WorldTeamCupGroup): string[] {
-    const wins = this.groupTiesWon(group);
-    return [...group.teams].sort((a, b) => (wins.get(b) ?? 0) - (wins.get(a) ?? 0));
+    // Full round-robin tiebreak chain, mirroring GroupStage.groupStandings:
+    // ties won first, then head-to-head between two tied countries (whoever
+    // won their direct tie ranks higher), then rubbers won, then sets won,
+    // then games won. Before this existed the sort stopped at ties won, so a
+    // 3-way 2-1 tie was broken by arbitrary (snake-seed) order — the two
+    // highest seeds advanced even if the eliminated team had beaten both
+    // head-to-head.
+    interface Row {
+      country: string;
+      tiesWon: number;
+      rubbersWon: number;
+      setsWon: number;
+      gamesWon: number;
+    }
+    const rows = new Map<string, Row>();
+    for (const team of group.teams) rows.set(team, { country: team, tiesWon: 0, rubbersWon: 0, setsWon: 0, gamesWon: 0 });
+
+    for (const tie of group.ties) {
+      for (const rubber of tie.rubbers) {
+        if (!rubber.outcome) continue;
+        const winnerCountry = this.rubberWinnerCountry(tie, rubber);
+        const loserCountry = winnerCountry === tie.teamA ? tie.teamB : tie.teamA;
+        const w = rows.get(winnerCountry);
+        const l = rows.get(loserCountry);
+        if (!w || !l) continue;
+        w.rubbersWon += 1;
+        for (const set of rubber.outcome.setScores) {
+          if (set.winnerGames > set.loserGames) w.setsWon += 1;
+          else l.setsWon += 1;
+          w.gamesWon += set.winnerGames;
+          l.gamesWon += set.loserGames;
+        }
+      }
+      if (tie.winner) {
+        const w = rows.get(tie.winner);
+        if (w) w.tiesWon += 1;
+      }
+    }
+
+    return [...rows.values()]
+      .sort((a, b) => {
+        if (b.tiesWon !== a.tiesWon) return b.tiesWon - a.tiesWon;
+        const headToHead = this.headToHeadCountry(group, a.country, b.country);
+        if (headToHead === a.country) return -1;
+        if (headToHead === b.country) return 1;
+        if (b.rubbersWon !== a.rubbersWon) return b.rubbersWon - a.rubbersWon;
+        if (b.setsWon !== a.setsWon) return b.setsWon - a.setsWon;
+        return b.gamesWon - a.gamesWon;
+      })
+      .map((r) => r.country);
+  }
+
+  /** Which country a decided rubber was won by — the rubber's side 'a' is
+   * always teamA's side by construction (makeTie), so the winner player/pair
+   * id resolving to side 'a' means teamA won. */
+  private rubberWinnerCountry(tie: WorldTeamCupTie, rubber: WorldTeamCupRubber): string {
+    return rubber.outcome!.winner === this.sideKey(rubber, 'a') ? tie.teamA : tie.teamB;
+  }
+
+  private headToHeadCountry(group: WorldTeamCupGroup, a: string, b: string): string | null {
+    const tie = group.ties.find(
+      (t) => (t.teamA === a && t.teamB === b) || (t.teamA === b && t.teamB === a),
+    );
+    return tie?.winner ?? null;
   }
 
   get allGroupStagesComplete(): boolean {

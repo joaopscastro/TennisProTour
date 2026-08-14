@@ -35,6 +35,10 @@ class InMemoryTournamentRepository implements TournamentRepository {
     return [...this.store.values()].filter((t) => t.hasStarted);
   }
 
+  async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return [];
+  }
+
   async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
     return [...this.store.values()].filter(
       (t) => t.weekScheduled.season === week.season && t.weekScheduled.week === week.week && t.entrants.some((e) => e.playerId === playerId),

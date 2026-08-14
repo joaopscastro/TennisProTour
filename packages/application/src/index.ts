@@ -14,6 +14,8 @@ export * from './use-cases/OpenRegistrationUseCase';
 export * from './use-cases/RegisterEntrantUseCase';
 export * from './use-cases/AdvanceWorldWeekUseCase';
 export * from './use-cases/GenerateJuniorTournamentsUseCase';
+export * from './use-cases/GenerateSeniorTournamentsUseCase';
+export * from './use-cases/matchSchedule';
 export * from './use-cases/ApplyObligatoryTournamentZerosUseCase';
 export * from './use-cases/PromoteQualifiersUseCase';
 export * from './use-cases/SimulateDueMatchesUseCase';

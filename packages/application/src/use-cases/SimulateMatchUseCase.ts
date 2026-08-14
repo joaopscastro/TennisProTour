@@ -12,6 +12,7 @@ import { applyGraduationCarryover, RankingBand } from '@tennis-manager/domain';
 import { RankingCalculationService, bestResultsCapFor, matchesRankingBand } from '@tennis-manager/domain';
 import { isNewPeak, PeakRankingEntry, TitleRecord } from '@tennis-manager/domain';
 import { fatigueCostForMatch } from '@tennis-manager/domain';
+import { scaleMatchLogToReveal } from './matchSchedule';
 import {
   EventPublisherPort,
   GameWorldRepository,
@@ -66,6 +67,15 @@ export interface SimulateMatchCommand {
    * growth, development XP); what differs is the points they pay out
    * and that no title is ever awarded from them. */
   draw?: DrawPhase;
+  /** The match's SCHEDULED reveal start (ISO 8601) — the staggered-
+   * schedule feature. Optional/absent (the manual simulate route and
+   * every pre-feature caller) means the match airs immediately, stamped
+   * `simulatedAt: now` exactly as before. */
+  scheduledStartAt?: string;
+  /** Real-time seconds the match's fake-live reveal should occupy; the
+   * replay log is time-scaled to fit it (see matchSchedule.ts), so the
+   * match "starts AND ends within the day". Absent = no scaling. */
+  revealDurationSeconds?: number;
 }
 
 /** The canonical MatchId for a bracket slot. One deterministic id per
@@ -208,13 +218,35 @@ export class SimulateMatchUseCase {
     // generate — the TournamentCompleted event Tournament already
     // emitted above is the signal for that.
 
+    // Record the scheduled reveal start + window on the aggregate so the
+    // single save below persists them (the bracket DTO reads them back for
+    // the countdown). Set BEFORE save so they round-trip alongside the
+    // outcome, never as a second write.
+    if (command.scheduledStartAt) {
+      tournament.setMatchSchedule(
+        command.roundNumber,
+        command.matchIndex,
+        command.scheduledStartAt,
+        command.revealDurationSeconds ?? 0,
+        draw,
+      );
+    }
+
     await this.tournaments.save(tournament);
     await this.events.publish(tournament.pullDomainEvents());
 
     // Stamped here, not by the simulator (which stays pure/deterministic
     // given a RandomSource) — this is the real moment the "wall-clock-
     // synced Premiere" playback model (docs/ui-direction.md) anchors to.
-    const timestampedLog: MatchLog = { ...log, simulatedAt: new Date().toISOString() };
+    // With the staggered-schedule feature this is the match's SCHEDULED
+    // reveal start (a future wall-clock time the bracket counts down to),
+    // not the instant of simulation; absent that, it stays `now` exactly
+    // as before.
+    const simulatedAt = command.scheduledStartAt ?? new Date().toISOString();
+    const timestampedLog: MatchLog = {
+      ...(command.revealDurationSeconds ? scaleMatchLogToReveal(log, command.revealDurationSeconds) : log),
+      simulatedAt,
+    };
     const { url } = await this.matchLogs.save(command.matchId, timestampedLog);
 
     // Apply resulting fatigue AND automatic surface-affinity growth to

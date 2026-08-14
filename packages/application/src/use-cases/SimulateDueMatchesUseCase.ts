@@ -2,9 +2,16 @@ import { DrawPhase, daysBetween, GameDay, MatchId, Tournament, TournamentSchedul
 import { GameWorldRepository, TournamentRepository } from '../ports/ports';
 import { matchIdForSlot, SimulateMatchUseCase } from './SimulateMatchUseCase';
 import { doublesMatchIdForSlot, SimulateDoublesMatchUseCase } from './SimulateDoublesMatchUseCase';
+import { DEFAULT_DAY_WINDOW_SECONDS, revealWindowSecondsFor, scheduledStartAtFor } from './matchSchedule';
 
 export interface SimulateDueMatchesCommand {
   worldId: WorldId;
+  /** The real-time length of one game DAY (in seconds) — what the
+   * staggered-schedule reveal window is derived from (a round's matches
+   * divide it evenly). Omitted = DEFAULT_DAY_WINDOW_SECONDS (the 24h
+   * production cron day). The worker passes WORLD_TICK_INTERVAL_MS/1000
+   * in dev; tests omit it. */
+  dayWindowSeconds?: number;
 }
 
 export interface SimulateDueMatchesResult {
@@ -53,6 +60,11 @@ export class SimulateDueMatchesUseCase {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
     const today = world.currentGameDay;
+    // The staggered-schedule anchor: the wall-clock moment this sweep runs
+    // (≈ the day tick that just advanced the world). A round's matches
+    // stagger from here by the round's reveal window (see matchSchedule.ts).
+    const anchorMs = Date.now();
+    const dayWindowSeconds = command.dayWindowSeconds ?? DEFAULT_DAY_WINDOW_SECONDS;
 
     for (const tournament of await this.tournaments.findStarted()) {
       // A tournament that holds qualifying plays THAT bracket first, on
@@ -78,6 +90,7 @@ export class SimulateDueMatchesUseCase {
         } else {
           const scheduledDay = tournament.roundScheduledDay(currentRound.roundNumber, this.schedulePolicy, draw);
           if (daysBetween(scheduledDay, today) >= 0) {
+            const revealSeconds = revealWindowSecondsFor(currentRound.matches.length, dayWindowSeconds);
             for (let matchIndex = 0; matchIndex < currentRound.matches.length; matchIndex++) {
               if (currentRound.matches[matchIndex].outcome !== null) continue;
               const matchId = matchIdForSlot(tournament.id, currentRound.roundNumber, matchIndex, draw);
@@ -88,6 +101,8 @@ export class SimulateDueMatchesUseCase {
                   roundNumber: currentRound.roundNumber,
                   matchIndex,
                   draw,
+                  scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
+                  revealDurationSeconds: revealSeconds,
                 });
                 result.simulated.push(matchId);
               } catch (error) {
@@ -102,7 +117,7 @@ export class SimulateDueMatchesUseCase {
       // the same days — sweep it independently of whichever singles draw
       // is currently live.
       if (this.simulateDoublesMatch) {
-        await this.sweepDoubles(tournament, today, result, this.simulateDoublesMatch);
+        await this.sweepDoubles(tournament, today, anchorMs, dayWindowSeconds, result, this.simulateDoublesMatch);
       }
     }
 
@@ -112,6 +127,8 @@ export class SimulateDueMatchesUseCase {
   private async sweepDoubles(
     tournament: Tournament,
     today: GameDay,
+    anchorMs: number,
+    dayWindowSeconds: number,
     result: SimulateDueMatchesResult,
     simulateDoublesMatch: SimulateDoublesMatchUseCase,
   ): Promise<void> {
@@ -135,6 +152,7 @@ export class SimulateDueMatchesUseCase {
     const scheduledDay = tournament.doublesRoundScheduledDay(currentRound.roundNumber, this.schedulePolicy, draw);
     if (daysBetween(scheduledDay, today) < 0) return;
 
+    const revealSeconds = revealWindowSecondsFor(currentRound.matches.length, dayWindowSeconds);
     for (let matchIndex = 0; matchIndex < currentRound.matches.length; matchIndex++) {
       if (currentRound.matches[matchIndex].outcome !== null) continue;
       const matchId = doublesMatchIdForSlot(tournament.id, currentRound.roundNumber, matchIndex, draw);
@@ -145,6 +163,8 @@ export class SimulateDueMatchesUseCase {
           roundNumber: currentRound.roundNumber,
           matchIndex,
           draw,
+          scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
+          revealDurationSeconds: revealSeconds,
         });
         result.simulated.push(matchId);
       } catch (error) {

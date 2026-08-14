@@ -67,6 +67,21 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     return Promise.all(rows.map((row) => this.load(row.tournament)));
   }
 
+  async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    const rows = await this.db
+      .select({ tournament: tournaments })
+      .from(tournaments)
+      .innerJoin(tournamentDoublesEntrants, eq(tournamentDoublesEntrants.tournamentId, tournaments.id))
+      .where(
+        and(
+          eq(tournamentDoublesEntrants.playerId, playerId),
+          eq(tournaments.seasonScheduled, week.season),
+          eq(tournaments.weekScheduled, week.week),
+        ),
+      );
+    return Promise.all(rows.map((row) => this.load(row.tournament)));
+  }
+
   async save(tournament: Tournament): Promise<void> {
     const tournamentRow: typeof tournaments.$inferInsert = {
       id: tournament.id,
@@ -122,6 +137,8 @@ export class DrizzleTournamentRepository implements TournamentRepository {
             winnerId: match.outcome?.winner ?? null,
             loserId: match.outcome?.loser ?? null,
             setScores: match.outcome ? [...match.outcome.setScores] : null,
+            scheduledStartAt: match.scheduledStartAt ? new Date(match.scheduledStartAt) : null,
+            revealSeconds: match.revealSeconds ?? null,
           })),
         );
       const matchRows = [
@@ -173,6 +190,8 @@ export class DrizzleTournamentRepository implements TournamentRepository {
             winnerId: match.outcome?.winner ?? null,
             loserId: match.outcome?.loser ?? null,
             setScores: match.outcome ? [...match.outcome.setScores] : null,
+            scheduledStartAt: match.scheduledStartAt ? new Date(match.scheduledStartAt) : null,
+            revealSeconds: match.revealSeconds ?? null,
           })),
         );
       const doublesMatchRows = [
@@ -290,6 +309,8 @@ function toDoublesRounds(rows: DoublesMatchRow[]): BracketRound<PairId>[] {
           row.winnerId !== null && row.loserId !== null
             ? { winner: PairId(row.winnerId), loser: PairId(row.loserId), setScores: row.setScores ?? [] }
             : null,
+        scheduledStartAt: row.scheduledStartAt ? row.scheduledStartAt.toISOString() : undefined,
+        revealSeconds: row.revealSeconds ?? undefined,
       })),
     }));
 }
@@ -348,6 +369,8 @@ function toRounds(rows: MatchRow[]): BracketRound[] {
         entrantA: PlayerId(row.entrantA),
         entrantB: PlayerId(row.entrantB),
         outcome: toOutcome(row),
+        scheduledStartAt: row.scheduledStartAt ? row.scheduledStartAt.toISOString() : undefined,
+        revealSeconds: row.revealSeconds ?? undefined,
       })),
     }));
 }

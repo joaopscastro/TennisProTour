@@ -19,6 +19,13 @@ interface Props {
    * default manager, which only coincidentally works when that
    * happens to be who's logged in. */
   managerId: string;
+  /** When set (the player profile's Schedule planner passes the week
+   * the manager clicked "Enter" on), restrict the list to tournaments
+   * scheduled for exactly that week — a manager entering a player for
+   * a specific future week should not be offered every open
+   * tournament across the whole season. Omitted (the roster board's
+   * "Enter" action) = show every open tournament, same as before. */
+  week?: { season: number; week: number };
   onClose: () => void;
   onEntered: (tournament: TournamentDto) => void;
 }
@@ -32,7 +39,7 @@ interface Props {
  * meaningful decision (surface, tier, field size) a manager should
  * make deliberately.
  */
-export function EnterTournamentModal({ playerId, playerName, managerId, onClose, onEntered }: Props) {
+export function EnterTournamentModal({ playerId, playerName, managerId, week, onClose, onEntered }: Props) {
   const [tournaments, setTournaments] = useState<TournamentDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,9 +47,18 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
 
   useEffect(() => {
     fetchOpenTournaments(playerId)
-      .then((all) => setTournaments(all.filter((t) => t.entrants.length < t.drawSize && !t.entrants.some((e) => e.playerId === playerId))))
+      .then((all) =>
+        setTournaments(
+          all.filter(
+            (t) =>
+              hasRoomFor(t) &&
+              !t.entrants.some((e) => e.playerId === playerId) &&
+              (!week || (t.weekScheduled.season === week.season && t.weekScheduled.week === week.week)),
+          ),
+        ),
+      )
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [playerId]);
+  }, [playerId, week]);
 
   async function handleConfirm() {
     if (!selectedId) return;
@@ -79,6 +95,25 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
     return t.ageEligible === false;
   }
 
+  /** True when this player would be refused outright because they're a
+   * below-cutoff registrant and the qualifying field is already full —
+   * the exact "qualifying-full" refusal RegisterEntrantUseCase raises. */
+  function qualifyingFullFor(t: TournamentDto): boolean {
+    return t.qualifyingFieldFull === true;
+  }
+
+  /** Whether this tournament still has room for THIS player. A
+   * qualifying-tier entrant below the cutoff is measured against the
+   * QUALIFYING field (which `entrants.length < drawSize` can't see —
+   * `entrants` includes qualifying entrants), while a direct-acceptance
+   * or non-qualifying entrant is measured against the main draw. */
+  function hasRoomFor(t: TournamentDto): boolean {
+    if (t.entryViaQualifying) return !t.qualifyingFieldFull;
+    const mainEntrants = t.entrants.filter((e) => e.draw !== 'qualifying').length;
+    const mainCapacity = t.drawSize - (t.qualifierSlots ?? 0);
+    return mainEntrants < mainCapacity;
+  }
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -110,14 +145,15 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
           )}
           {tournaments?.length === 0 && (
             <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-              No tournaments are open for entries right now.
+              {week ? 'No tournaments are open for this week.' : 'No tournaments are open for entries right now.'}
             </div>
           )}
           {tournaments?.map((t) => {
             const selected = selectedId === t.id;
             const overCap = overCapFor(t);
             const ageIneligible = ageIneligibleFor(t);
-            const blocked = overCap || ageIneligible;
+            const qualifyingFull = qualifyingFullFor(t);
+            const blocked = overCap || ageIneligible || qualifyingFull;
             return (
               <button
                 key={t.id}
@@ -146,6 +182,14 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
                         {t.ageBand}
                       </div>
                     )}
+                    {t.entryViaQualifying && (
+                      <div
+                        className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
+                        style={{ background: 'oklch(45% 0.12 45 / 0.35)', color: 'oklch(85% 0.1 45)' }}
+                      >
+                        [Q]
+                      </div>
+                    )}
                     <div className="text-[13.5px] font-semibold truncate">{t.name}</div>
                   </div>
                   <div className="text-[11.5px] flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
@@ -155,6 +199,11 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
                 <div className="text-[11.5px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
                   {t.tier} · season {t.weekScheduled.season}, week {t.weekScheduled.week}
                 </div>
+                {t.entryViaQualifying && !qualifyingFull && (
+                  <div className="text-[11px] mt-[4px]" style={{ color: 'var(--gc-ink-dim)' }}>
+                    You&apos;ll enter through qualifying — {t.qualifyingFieldTaken}/{t.qualifyingFieldSize} qualifying spots taken
+                  </div>
+                )}
                 {ageIneligible && (
                   <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
                     Too old for this {t.ageBand} draw — a player may play up into an older junior band, not down
@@ -165,6 +214,11 @@ export function EnterTournamentModal({ playerId, playerName, managerId, onClose,
                     {t.weeklyEntryCapThisWeek === 1
                       ? 'Already entered a tournament this week — a player can only play one tournament per week'
                       : `Already entered ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
+                  </div>
+                )}
+                {!ageIneligible && !overCap && qualifyingFull && (
+                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
+                    Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize}) — no [Q] places left
                   </div>
                 )}
               </button>

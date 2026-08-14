@@ -1044,6 +1044,7 @@ export default function PlayerProfilePage() {
             playerId={profile.playerId}
             playerName={profile.name}
             managerId={profile.managerId}
+            week={plannerWeeks?.[enterModalWeek]?.week}
             onClose={() => setEnterModalWeek(null)}
             onEntered={() => {
               setEnterModalWeek(null);

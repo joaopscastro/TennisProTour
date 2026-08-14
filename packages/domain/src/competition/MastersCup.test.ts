@@ -88,4 +88,22 @@ describe('MastersCup', () => {
     expect(cup.singlesKnockoutComplete).toBe(true);
     expect(cup.singlesChampion).toBe(final.matches[0].entrantA);
   });
+
+  it('pairs the two semifinals ACROSS groups, never intra-group rematches', () => {
+    const cup = makeCup();
+    playGroup(cup);
+
+    const g1 = new Set(cup.singlesGroups[0].entrants);
+    const g2 = new Set(cup.singlesGroups[1].entrants);
+
+    cup.seedKnockout();
+    const semis = cup.singlesKnockout[0];
+    expect(semis.matches).toHaveLength(2);
+    for (const m of semis.matches) {
+      const aInG1 = g1.has(m.entrantA);
+      const bInG1 = g1.has(m.entrantB);
+      // Each semifinal pairs one group-1 entrant against one group-2 entrant.
+      expect(aInG1).not.toBe(bInG1);
+    }
+  });
 });

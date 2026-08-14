@@ -363,6 +363,12 @@ interface DisplayMatch {
    * match actually exists server-side (not a not-yet-generated future
    * round placeholder). */
   matchIndex: number | null;
+  /** The match's scheduled reveal start (ISO) — null before it's
+   * simulated. Drives the "starts in X" countdown and the live/decided
+   * transition (see matchRevealSeconds on the tournament). */
+  scheduledStartAt: string | null;
+  /** Real-time seconds this match's reveal occupies (0 = not scheduled). */
+  revealSeconds: number;
 }
 
 interface DisplayRound {
@@ -410,6 +416,8 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
         decided: !!outcome,
         outcome,
         matchIndex: idx >= 0 ? idx : null,
+        scheduledStartAt: idx >= 0 ? round1Matches[idx].scheduledStartAt : null,
+        revealSeconds: idx >= 0 ? round1Matches[idx].revealSeconds : 0,
       });
     } else if (a || b) {
       const winner = a ?? b;
@@ -420,6 +428,8 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
         decided: true,
         outcome: null,
         matchIndex: null,
+        scheduledStartAt: null,
+        revealSeconds: 0,
       });
     } else {
       round1.push({
@@ -429,6 +439,8 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
         decided: false,
         outcome: null,
         matchIndex: null,
+        scheduledStartAt: null,
+        revealSeconds: 0,
       });
     }
   }
@@ -446,6 +458,8 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
         decided: !!m.outcome,
         outcome: m.outcome,
         matchIndex: idx,
+        scheduledStartAt: m.scheduledStartAt,
+        revealSeconds: m.revealSeconds,
       }));
       rounds.push({ roundNumber: r, label: roundLabel(matchCount), matches, generated: true });
     } else {
@@ -456,12 +470,38 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
         decided: false,
         outcome: null,
         matchIndex: null,
+        scheduledStartAt: null,
+        revealSeconds: 0,
       }));
       rounds.push({ roundNumber: r, label: roundLabel(matchCount), matches, generated: false });
     }
   }
 
   return rounds;
+}
+
+/** A match's reveal state (staggered-schedule feature), driven by its
+ * scheduled start + the tournament's fixed reveal window and the current
+ * wall-clock time. 'aired' also covers every match without a schedule
+ * (not yet simulated, or a pre-feature row) — those are revealed the
+ * instant they're decided, exactly as before. */
+type AirState = 'upcoming' | 'live' | 'aired';
+
+function matchAirState(m: DisplayMatch, now: number): AirState {
+  if (!m.decided || !m.scheduledStartAt) return 'aired';
+  const startMs = new Date(m.scheduledStartAt).getTime();
+  if (Number.isNaN(startMs)) return 'aired';
+  if (now < startMs) return 'upcoming';
+  if (now < startMs + m.revealSeconds * 1000) return 'live';
+  return 'aired';
+}
+
+/** "3:27"-style countdown to a future instant; never negative. */
+function formatCountdown(ms: number): string {
+  const total = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
 }
 
 function computeGeometry(counts: number[]) {
@@ -488,6 +528,15 @@ export default function TournamentBracketPage() {
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const firedTitleRef = useRef(false);
+
+  // Ticking wall-clock for the staggered-schedule countdowns ("starts in
+  // X:XX" → "live" → decided). One cheap 1s interval; only matters while a
+  // match is upcoming or live.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Doubles solo entry (P7b) — pick one of my players to sign up into
   // this tournament's doubles field (paired at draw formation).
@@ -940,15 +989,24 @@ export default function TournamentBracketPage() {
             {rounds.map((round, ri) => {
               const decidedCount = round.matches.filter((m) => m.decided).length;
               const allDecided = round.generated && decidedCount === round.matches.length;
+              const allAired = round.generated && round.matches.every((m) => matchAirState(m, now) === 'aired');
               const noneDecided = decidedCount === 0;
-              const statusLabel = !round.generated ? 'Upcoming' : allDecided ? 'Decided' : noneDecided ? 'Upcoming' : 'In progress';
-              const statusBg = allDecided ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
-              const statusFg = allDecided ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
+              const statusLabel = !round.generated
+                ? 'Upcoming'
+                : allAired
+                  ? 'Decided'
+                  : noneDecided
+                    ? 'Upcoming'
+                    : allDecided
+                      ? 'Airing'
+                      : 'In progress';
+              const statusBg = allAired ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
+              const statusFg = allAired ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
               const subtitle = !round.generated
                 ? `${round.matches.length} match${round.matches.length === 1 ? '' : 'es'} scheduled`
                 : `${decidedCount} of ${round.matches.length} played`;
 
-              const collapsed = allDecided;
+              const collapsed = allAired;
 
               return (
                 <div key={round.roundNumber} className="flex items-start">
@@ -970,8 +1028,14 @@ export default function TournamentBracketPage() {
                       </div>
                       <div className="rounded-[8px] overflow-hidden" style={{ background: 'var(--gc-s1)', border: '1px solid var(--gc-line)' }}>
                         {round.matches.map((m, i) => {
-                          const winnerLabel = m.a.isWinner ? playerLabel(m.a.entrant) : playerLabel(m.b.entrant);
-                          const loserLabel = m.a.isWinner ? playerLabel(m.b.entrant) : playerLabel(m.a.entrant);
+                          // A bye has no outcome, so neither side is flagged
+                          // `isWinner`; the advancing entrant sits on side `a`
+                          // by construction (see the round-1 bye case). Resolve
+                          // the winner as: the flagged winner, or (for a bye) the
+                          // side that actually holds an entrant.
+                          const winnerIsA = m.a.isWinner || (m.isBye && m.a.entrant != null);
+                          const winnerLabel = winnerIsA ? playerLabel(m.a.entrant) : playerLabel(m.b.entrant);
+                          const loserLabel = winnerIsA ? playerLabel(m.b.entrant) : playerLabel(m.a.entrant);
                           const text = m.isBye ? winnerLabel.name : `${winnerLabel.name} def. ${loserLabel.name}`;
                           const score = m.isBye ? 'Bye' : (m.a.isWinner ? m.a.scoreline : m.b.scoreline) ?? '';
                           const slot = m.matchIndex !== null ? matchIdForSlot(tournamentId, round.roundNumber, m.matchIndex) : null;
@@ -996,7 +1060,7 @@ export default function TournamentBracketPage() {
                         })}
                       </div>
                       <div className="text-[10.5px] mt-[6px] px-1" style={{ color: 'var(--gc-ink-faint)' }}>
-                        Collapses automatically once decided — keeps large draws from growing the page taller.
+                        Collapses automatically once every match has aired — keeps large draws from growing the page taller.
                       </div>
                     </div>
                   ) : (
@@ -1023,6 +1087,11 @@ export default function TournamentBracketPage() {
                           const slot = m.matchIndex !== null ? matchIdForSlot(tournamentId, round.roundNumber, m.matchIndex) : null;
                           const canSimulate = !m.isBye && m.a.entrant && m.b.entrant && !m.decided && m.matchIndex !== null;
                           const isBusy = slot !== null && busy === slot;
+                          // Staggered-schedule state: a decided match is still
+                          // "upcoming" (countdown) or "live" (airing) until its
+                          // reveal window has passed; only then is the result shown.
+                          const airState = matchAirState(m, now);
+                          const revealed = airState === 'aired';
 
                           const cardInner = (
                             <>
@@ -1042,8 +1111,8 @@ export default function TournamentBracketPage() {
                                       <div
                                         className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
                                         style={{
-                                          fontWeight: m.a.isWinner ? 700 : 500,
-                                          color: m.a.isWinner ? 'var(--gc-ink)' : m.a.isLoser ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
+                                          fontWeight: m.a.isWinner && revealed ? 700 : 500,
+                                          color: m.a.isWinner && revealed ? 'var(--gc-ink)' : m.a.isLoser && revealed ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                                         }}
                                       >
                                         {aLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{aLabel.seedLabel}</span>
@@ -1055,7 +1124,7 @@ export default function TournamentBracketPage() {
                                     </div>
                                   )}
                                 </div>
-                                {m.a.isWinner && m.a.scoreline && (
+                                {m.a.isWinner && revealed && m.a.scoreline && (
                                   <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
                                     {m.a.scoreline}
                                   </div>
@@ -1070,8 +1139,8 @@ export default function TournamentBracketPage() {
                                       <div
                                         className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
                                         style={{
-                                          fontWeight: m.b.isWinner ? 700 : 500,
-                                          color: m.b.isWinner ? 'var(--gc-ink)' : m.b.isLoser ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
+                                          fontWeight: m.b.isWinner && revealed ? 700 : 500,
+                                          color: m.b.isWinner && revealed ? 'var(--gc-ink)' : m.b.isLoser && revealed ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
                                         }}
                                       >
                                         {bLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{bLabel.seedLabel}</span>
@@ -1083,12 +1152,27 @@ export default function TournamentBracketPage() {
                                     </div>
                                   )}
                                 </div>
-                                {m.b.isWinner && m.b.scoreline && (
+                                {m.b.isWinner && revealed && m.b.scoreline && (
                                   <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
                                     {m.b.scoreline}
                                   </div>
                                 )}
                               </div>
+                              {airState !== 'aired' && m.decided && (
+                                <div
+                                  className="flex items-center justify-center gap-[6px] px-[10px] pb-[8px] text-[10.5px] font-bold"
+                                  style={{ color: airState === 'live' ? 'oklch(80% 0.16 45)' : 'var(--gc-ink-mute)' }}
+                                >
+                                  {airState === 'live' ? (
+                                    <>
+                                      <span className="gc-live-dot" style={{ background: 'oklch(70% 0.17 45)' }} />
+                                      Live now — follow
+                                    </>
+                                  ) : (
+                                    <>Starts in {formatCountdown(new Date(m.scheduledStartAt!).getTime() - now)}</>
+                                  )}
+                                </div>
+                              )}
                               {canSimulate && (
                                 <div className="px-[10px] pb-[8px]">
                                   <button

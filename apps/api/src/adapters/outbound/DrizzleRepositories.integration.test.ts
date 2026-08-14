@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import { drawOf, entryTypeOf, ManagerId, PairId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
 import { DoublesPair } from '@tennis-manager/domain';
 import { MastersCup } from '@tennis-manager/domain';
+import { WorldTeamCup } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import {
   PlayerAttributes,
@@ -30,6 +31,7 @@ import { DrizzleDoublesPairRepository } from './DrizzleDoublesPairRepository';
 import { DrizzleDoublesTitleRepository } from './DrizzleDoublesTitleRepository';
 import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRankingRepository';
 import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
+import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
 
 const connectionString = testConnectionString();
 
@@ -1103,5 +1105,66 @@ describe('DrizzleMastersCupRepository', () => {
 
     const reloaded = await repository.findBySeason(1);
     expect(reloaded!.singlesGroups[0].matches[0].outcome).not.toBeNull();
+  });
+});
+
+describe('DrizzleWorldTeamCupRepository', () => {
+  const repository = new DrizzleWorldTeamCupRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+
+  it('round-trips a World Team Cup (teams/groups/ties) as a whole, including rubber outcomes', async () => {
+    const countries = ['BR', 'US', 'FR', 'JP', 'AU', 'DE', 'AR', 'GB'];
+    const teamIds: Array<[PlayerId, PlayerId]> = [];
+    let n = 1;
+    for (const _ of countries) {
+      const a = PlayerId(`p${n++}`);
+      const b = PlayerId(`p${n++}`);
+      teamIds.push([a, b]);
+      await playerRepository.save(Player.hire(a, `Player ${n - 2}`, 25 * 52, attributes(50), ManagerId('m1')));
+      await playerRepository.save(Player.hire(b, `Player ${n - 1}`, 25 * 52, attributes(50), ManagerId('m1')));
+    }
+
+    const cup = WorldTeamCup.open({
+      id: TournamentId('wtc1'),
+      season: 1,
+      weekScheduled: { season: 1, week: 42 },
+      surface: 'clay',
+      teams: countries.map((c, i) => ({ country: c, players: teamIds[i] })),
+    });
+    await repository.save(cup);
+
+    const loaded = await repository.findBySeason(1);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.id).toBe('wtc1');
+    expect(loaded!.teams).toHaveLength(8);
+    // 8 teams -> two groups of 4, each with the full round-robin of 6 ties.
+    expect(loaded!.groups).toHaveLength(2);
+    expect(loaded!.groups[0].ties).toHaveLength(6);
+    expect(loaded!.groups[1].ties).toHaveLength(6);
+    expect(loaded!.hasKnockout).toBe(false);
+    // Every tie carries exactly three rubbers: two singles then a doubles.
+    for (const tie of loaded!.groups[0].ties) {
+      expect(tie.rubbers).toHaveLength(3);
+      expect(tie.rubbers[0].kind).toBe('singles');
+      expect(tie.rubbers[1].kind).toBe('singles');
+      expect(tie.rubbers[2].kind).toBe('doubles');
+    }
+
+    // Mutate (record the first group's first tie's first rubber) and
+    // save again — the jsonb round-trip preserves outcomes.
+    const tie = loaded!.groups[0].ties[0];
+    const rubber = tie.rubbers[0];
+    if (rubber.kind === 'singles') {
+      loaded!.recordRubberOutcome(tie, 0, {
+        winner: rubber.playerA,
+        loser: rubber.playerB,
+        setScores: [{ winnerGames: 6, loserGames: 2 }],
+      });
+    }
+    await repository.save(loaded!);
+
+    const reloaded = await repository.findBySeason(1);
+    expect(reloaded!.groups[0].ties[0].rubbers[0].outcome).not.toBeNull();
+    expect(reloaded!.groups[0].ties[0].winner).toBeNull(); // 1-0, not decided yet
   });
 });
