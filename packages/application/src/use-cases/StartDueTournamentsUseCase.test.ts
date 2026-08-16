@@ -296,7 +296,7 @@ describe('StartDueTournamentsUseCase', () => {
     expect((await tournaments.findById(TournamentId('t-future')))!.hasStarted).toBe(false);
   });
 
-  it('does NOT start a tournament scheduled for THIS exact week', async () => {
+  it('DOES start a tournament scheduled for THIS exact week (generation now opens for next week)', async () => {
     const { tournaments, useCase } = await setup({ season: 1, week: 3 });
 
     const tournament = Tournament.open({
@@ -307,13 +307,15 @@ describe('StartDueTournamentsUseCase', () => {
       weekScheduled: { season: 1, week: 3 },
       drawSize: 16,
     });
-    realEntrant(tournament, 'real-1');
+    for (let i = 1; i <= 10; i++) realEntrant(tournament, `real-${i}`);
     await tournaments.save(tournament);
 
     const result = await useCase.execute({ worldId });
 
-    expect(result.started).toBe(0);
-    expect((await tournaments.findById(TournamentId('t-this-week')))!.hasStarted).toBe(false);
+    // Inclusive `weeksBetween >= 0`: a tournament whose week has ARRIVED
+    // is due and starts now (playing during its own labeled week).
+    expect(result.started).toBe(1);
+    expect((await tournaments.findById(TournamentId('t-this-week')))!.hasStarted).toBe(true);
   });
 
   it('throws when the target game world does not exist', async () => {

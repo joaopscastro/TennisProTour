@@ -120,8 +120,9 @@ async function setup(week: GameWeek, schedule?: JuniorTournamentSchedulePolicy) 
 
 describe('GenerateJuniorTournamentsUseCase', () => {
   it('opens the real StandardJuniorTournamentSchedulePolicy grades for BOTH age bands on a typical (non-special) week', async () => {
-    // season*52 + week = 1*52 + 1 = 53 -> odd, not divisible by 2/4/8, not week 52.
-    const { tournaments, useCase } = await setup({ season: 1, week: 1 });
+    // Generation opens for NEXT week (setup week 2 -> opens week 3, abs
+    // 1*52 + 3 = 55 -> odd, not divisible by 2/4/8, not week 52).
+    const { tournaments, useCase } = await setup({ season: 1, week: 2 });
 
     const result = await useCase.execute({ worldId });
 
@@ -160,7 +161,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
   });
 
   it('adds J200 on its every-2-week cadence, on top of the weekly J30/J60/J100', async () => {
-    const { tournaments, useCase } = await setup({ season: 1, week: 2 }); // 1*52+2 = 54, divisible by 2
+    const { tournaments, useCase } = await setup({ season: 1, week: 1 }); // opens week 2, abs 1*52+2 = 54, divisible by 2
     await useCase.execute({ worldId });
 
     const open = await tournaments.findOpenForRegistration();
@@ -171,7 +172,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
   });
 
   it('never holds juniorMasters on a non-week-52', async () => {
-    const { tournaments, useCase } = await setup({ season: 1, week: 51 });
+    const { tournaments, useCase } = await setup({ season: 1, week: 50 }); // opens week 51, not week 52
     const result = await useCase.execute({ worldId });
 
     expect(result.mastersHeld).toBe(0);
@@ -180,7 +181,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
   });
 
   it("on week 52, holds juniorMasters ONLY for a band with at least juniorMastersDrawSize (16) ranked players — skips the other band rather than fabricating a field", async () => {
-    const { tournaments, rankingLedger, useCase } = await setup({ season: 1, week: 52 });
+    const { tournaments, rankingLedger, useCase } = await setup({ season: 1, week: 51 }); // opens week 52
 
     // U14: 16 distinct players each with a real, positive-points result.
     for (let i = 1; i <= 16; i++) {
@@ -207,7 +208,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
   });
 
   it("juniorMasters entrants are exactly that band's top-ranked players, seeded 1..N by rank", async () => {
-    const { tournaments, rankingLedger, useCase } = await setup({ season: 1, week: 52 });
+    const { tournaments, rankingLedger, useCase } = await setup({ season: 1, week: 51 }); // opens week 52
 
     // 20 U14 candidates, ranked p1 (highest) down to p20 (lowest) —
     // only the top 16 should be invited.
@@ -229,7 +230,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
   });
 
   it("does not manufacture a ranking or a player to fill juniorMasters — a band with zero ranked players is simply skipped", async () => {
-    const { tournaments, useCase } = await setup({ season: 1, week: 52 }); // no ledger entries at all
+    const { tournaments, useCase } = await setup({ season: 1, week: 51 }); // opens week 52; no ledger entries at all
     const result = await useCase.execute({ worldId });
 
     expect(result.mastersHeld).toBe(0);

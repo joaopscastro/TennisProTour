@@ -1,4 +1,4 @@
-import { GameWeek, SeniorTournamentSchedulePolicy, StandardSeniorTournamentSchedulePolicy, Surface, TournamentId, WEEKS_PER_SEASON, WorldId } from '@tennis-manager/domain';
+import { GameWeek, SeniorTournamentSchedulePolicy, StandardSeniorTournamentSchedulePolicy, Surface, TournamentId, WEEKS_PER_SEASON, WorldId, addWeeks } from '@tennis-manager/domain';
 import { GameWorldRepository, IdGeneratorPort, TournamentRepository } from '../ports/ports';
 import { OpenRegistrationUseCase } from './OpenRegistrationUseCase';
 
@@ -65,7 +65,13 @@ export class GenerateSeniorTournamentsUseCase {
   async execute(command: GenerateSeniorTournamentsCommand): Promise<GenerateSeniorTournamentsResult> {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
-    const week = command.week ?? world.currentWeek;
+    // Open tournaments for NEXT week (not the current one): a manager gets
+    // all of the current week to register, and the tournament PLAYS during
+    // its own labeled week (seeded at the rollover INTO that week by
+    // StartDueTournamentsUseCase, whose due check is `weeksBetween >= 0`).
+    // The explicit `week` override (the season-backfill path) still
+    // generates for exactly that week.
+    const week = command.week ?? addWeeks(world.currentWeek, 1);
     // Continuously incrementing (season * 52 + week), not week alone,
     // so an every-N-week cadence doesn't reset at each season boundary
     // (same absolute-week arithmetic as the junior generator).

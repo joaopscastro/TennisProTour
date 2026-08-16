@@ -19,7 +19,7 @@ import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
 import { RefreshTalentPoolUseCase } from '@tennis-manager/application';
-import { GenesisSeedFillOnlyPlayersUseCase } from '@tennis-manager/application';
+import { GenesisSeedFillOnlyPlayersUseCase, EnsureFillOnlyPopulationUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -161,6 +161,11 @@ export interface Dependencies {
    * ConvertPlayerToCoachUseCase originally shipped with (see CLAUDE.md's
    * Manager & Progression status history). */
   genesisSeedFillOnlyPlayers: GenesisSeedFillOnlyPlayersUseCase;
+  /** The recurring safe guard that tops up the fill-only population to a
+   * per-band floor every weekly rollover — the production guarantee that a
+   * tournament's empty draw always has age-appropriate fillers (see
+   * EnsureFillOnlyPopulationUseCase). */
+  ensureFillOnlyPopulation: EnsureFillOnlyPopulationUseCase;
   openTournament: OpenTournamentUseCase;
   openRegistration: OpenRegistrationUseCase;
   registerEntrant: RegisterEntrantUseCase;
@@ -500,6 +505,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       standardAgingPolicy,
     ),
     genesisSeedFillOnlyPlayers: new GenesisSeedFillOnlyPlayersUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
+    ensureFillOnlyPopulation: new EnsureFillOnlyPopulationUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
     openTournament,
     openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw),

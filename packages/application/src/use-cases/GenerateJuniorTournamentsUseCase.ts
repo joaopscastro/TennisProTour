@@ -6,6 +6,7 @@ import {
   TournamentId,
   WEEKS_PER_SEASON,
   WorldId,
+  addWeeks,
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { GameWorldRepository, IdGeneratorPort } from '../ports/ports';
@@ -89,9 +90,14 @@ export class GenerateJuniorTournamentsUseCase {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
     const currentWeek = world.currentWeek;
+    // Open tournaments for NEXT week, not the current one: a manager gets
+    // all of the current week to register, and the tournament then PLAYS
+    // during its own labeled week (seeded at the rollover INTO that week by
+    // StartDueTournamentsUseCase, whose due check is `weeksBetween >= 0`).
+    const targetWeek = addWeeks(currentWeek, 1);
     // Continuously incrementing (season * 52 + week), not week alone,
     // so an every-N-week cadence doesn't reset at each season boundary.
-    const absoluteWeek = currentWeek.season * WEEKS_PER_SEASON + currentWeek.week;
+    const absoluteWeek = targetWeek.season * WEEKS_PER_SEASON + targetWeek.week;
 
     let opened = 0;
     let mastersHeld = 0;
@@ -106,14 +112,14 @@ export class GenerateJuniorTournamentsUseCase {
             tier: grade.tier,
             ageBand,
             surface: nextSurface(),
-            weekScheduled: currentWeek,
+            weekScheduled: targetWeek,
             drawSize: grade.drawSize,
           });
           opened += 1;
         }
       }
 
-      if (this.schedule.isJuniorMastersWeek(currentWeek)) {
+      if (this.schedule.isJuniorMastersWeek(targetWeek)) {
         const drawSize = this.schedule.juniorMastersDrawSize;
         const ranked = await this.rankPositionByBand[ageBand].sortedRankings();
         if (ranked.length >= drawSize) {
@@ -122,7 +128,7 @@ export class GenerateJuniorTournamentsUseCase {
             tier: 'juniorMasters',
             ageBand,
             surface: nextSurface(),
-            weekScheduled: currentWeek,
+            weekScheduled: targetWeek,
             drawSize,
             entrants: ranked.slice(0, drawSize).map((r, index) => ({ playerId: r.playerId, seed: index + 1 })),
           });

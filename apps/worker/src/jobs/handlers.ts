@@ -53,6 +53,12 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // GenerateSeniorTournamentsUseCase: before it, nothing ever
       // created a senior tournament automatically and the tour ran dry).
       await deps.generateSeniorTournaments.execute({ worldId });
+      // The recurring fill-only safe guard — tops the draw-filler
+      // population up to its per-band floor BEFORE start-due below, so a
+      // tournament about to be started always has age-appropriate
+      // fillers to pad an empty draw with (see
+      // EnsureFillOnlyPopulationUseCase).
+      await deps.ensureFillOnlyPopulation.execute({ worldId });
       // Runs AFTER junior generation, same rollover/gate, for a
       // load-bearing reason: StartDueTournamentsUseCase's due check is
       // strictly `weeksBetween(weekScheduled, currentWeek) > 0` so a

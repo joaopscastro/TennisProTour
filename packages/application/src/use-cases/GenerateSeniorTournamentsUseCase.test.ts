@@ -97,8 +97,9 @@ describe('GenerateSeniorTournamentsUseCase', () => {
   });
 
   it('adds a 128-draw major on its every-13-week cadence, on top of the weekly futures/challenger/tour', async () => {
-    // 1*52 + 13 = 65 -> divisible by 13 (major week).
-    const { tournaments, useCase } = await setup({ season: 1, week: 13 });
+    // Generation opens for NEXT week: setup week 12 -> opens week 13,
+    // abs 1*52 + 13 = 65 -> divisible by 13 (major week).
+    const { tournaments, useCase } = await setup({ season: 1, week: 12 });
 
     await useCase.execute({ worldId });
 

@@ -57,18 +57,20 @@ interface FillCandidate {
  * exactly-full trigger (fill can never engage there — by the time that
  * branch runs, there are no unfilled slots left to fill).
  *
- * For every open tournament whose `weekScheduled` has fully PASSED
- * (`weeksBetween(weekScheduled, currentWeek) > 0`, strictly greater —
- * same rolling-week arithmetic the talent pool's own expiry and the
- * ranking window already use) and which is short of `drawSize`.
- * Deliberately strict, not `>= 0`: `GenerateJuniorTournamentsUseCase`
- * opens every junior tournament with `weekScheduled: currentWeek` (this
- * exact tick's week), and this use case runs on that SAME tick, right
- * after junior generation (apps/worker/src/jobs/handlers.ts) — an
- * inclusive `>= 0` comparison would force-start a junior tournament the
- * very same tick it opens, before any manager ever had a chance to see
- * or register for it. Strict `> 0` guarantees at least one full tick's
- * worth of real open-registration window first.
+ * For every open tournament whose `weekScheduled` has ARRIVED
+ * (`weeksBetween(weekScheduled, currentWeek) >= 0`, inclusive — same
+ * rolling-week arithmetic the talent pool's own expiry and the ranking
+ * window already use) and which is short of `drawSize`. Inclusive now,
+ * where it used to be strict `> 0`: tournament generation opens
+ * tournaments for NEXT week (see GenerateJuniorTournamentsUseCase/
+ * GenerateSeniorTournamentsUseCase), so the tournaments labeled W are
+ * seeded at the rollover INTO W and play during their OWN labeled week,
+ * not a week late. The old strict `> 0` was only needed back when
+ * generation opened the same week it ran — an inclusive check then
+ * would have force-started a tournament the same tick it opened, before
+ * any manager could register; with next-week generation the newly-opened
+ * tournaments are `weeksBetween === -1`, so the inclusive check no
+ * longer touches them.
  *
  * Fills the remaining slots from the unclaimed-player pool (fillOnly
  * free-agent Players), THEN generates the bracket — reusing
@@ -128,7 +130,17 @@ export class StartDueTournamentsUseCase {
     const currentWeek = world.currentWeek;
 
     const open = await this.tournaments.findOpenForRegistration();
-    const due = open.filter((t) => weeksBetween(t.weekScheduled, currentWeek) > 0);
+    // A tournament is due when its scheduled week has ARRIVED (inclusive
+    // `>= 0`): generation now opens tournaments for NEXT week (see
+    // GenerateJuniorTournamentsUseCase/GenerateSeniorTournamentsUseCase),
+    // so at the rollover INTO week W the tournaments labeled W have
+    // `weeksBetween === 0` and are seeded here, then play during week W —
+    // their own labeled week. The old strict `> 0` forced the tournament
+    // to wait until its week had fully PASSED, so it played a week LATE;
+    // that was only necessary back when generation opened the SAME week
+    // (an inclusive check would then have force-started a tournament the
+    // same tick it opened, before any registration). */
+    const due = open.filter((t) => weeksBetween(t.weekScheduled, currentWeek) >= 0);
 
     let started = 0;
     let filled = 0;
