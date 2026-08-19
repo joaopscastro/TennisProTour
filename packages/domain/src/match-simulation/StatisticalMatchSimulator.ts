@@ -1,6 +1,7 @@
 import { Surface } from '../player/PlayerAttributes';
 import { MatchOutcome, MatchLog, MatchLogEntry, MatchPointEntry, PointScoreLabel } from '../competition/CompetitionTypes';
 import { MatchParticipant, MatchSimulator, RandomSource, SimulatedMatch } from './MatchSimulator';
+import { weightedTechnicalAverage, weightedPhysicalAverage, weightedMentalAverage } from './SurfaceAttributeWeightingPolicy';
 
 const STANDARD_POINT_LABELS: readonly PointScoreLabel[] = ['0', '15', '30', '40'];
 
@@ -139,10 +140,15 @@ export class StatisticalMatchSimulator implements MatchSimulator {
   }
 
   private effectiveRating<S extends string>(participant: MatchParticipant<S>, surface: Surface): number {
-    const { technical, physical, mental } = participant.attributes;
-    const technicalAvg = (technical.serve.value + technical.forehand.value + technical.backhand.value + technical.volley.value) / 4;
-    const physicalAvg = (physical.speed.value + physical.stamina.value + physical.strength.value) / 3;
-    const mentalAvg = (mental.consistency.value + mental.clutch.value) / 2;
+    // Surface × attribute weighting (docs/training-redesign-per-attribute.md):
+    // which attribute you trained now interacts with which surface you're
+    // playing on, e.g. a serve-and-volleyer plays up on grass, down on
+    // clay. Deliberately additive alongside — not a replacement for —
+    // `surfaceBonus` below, which is the separate passive per-player
+    // SurfaceAffinities stat.
+    const technicalAvg = weightedTechnicalAverage(participant.attributes, surface);
+    const physicalAvg = weightedPhysicalAverage(participant.attributes, surface);
+    const mentalAvg = weightedMentalAverage(participant.attributes, surface);
     const surfaceBonus = participant.attributes.surfaceAffinities.get(surface);
     const fatiguePenalty = participant.fatigue * 0.15;
     const homeBonus = participant.homeAdvantage ? HOME_ADVANTAGE_BONUS : 0;

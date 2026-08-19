@@ -10,7 +10,12 @@ export interface ManagerAccount {
   authSubject: string;
   displayName: string;
   publicHandle: string;
-  status: 'active' | 'suspended';
+  /** 'deleted' is permanent and self-initiated (DeleteManagerAccountUseCase);
+   * 'suspended' is reversible and administrative. Both block
+   * re-authentication identically in EnsureManagerAccountUseCase, but are
+   * kept distinct rather than merged so a deleted account is never
+   * mistaken for a merely-suspended one. */
+  status: 'active' | 'suspended' | 'deleted';
 }
 
 export interface ManagerAccountRepository {

@@ -7,12 +7,13 @@ import { fetchWorldClock, WorldClockDto } from '../lib/api';
 import { useCountdown, formatCountdown } from '../lib/useCountdown';
 import { AnimatedNumber, Delta } from './ui/motion';
 
-export type NavKey = 'roster' | 'scouting' | 'tournaments' | 'managers' | 'manager-pro';
+export type NavKey = 'roster' | 'scouting' | 'tournaments' | 'rankings' | 'managers' | 'manager-pro';
 
 const NAV_ITEMS: Array<{ key: NavKey; label: string; href: string; icon: string }> = [
   { key: 'roster', label: 'Roster', href: '/', icon: 'M4 7h16M4 12h16M4 17h10' },
   { key: 'scouting', label: 'Scouting', href: '/scouting', icon: 'M11 4a7 7 0 1 0 4.9 12l4.1 4.1M11 4a7 7 0 0 1 0 14' },
   { key: 'tournaments', label: 'Tournaments', href: '/tournaments', icon: 'M6 3h12v4a6 6 0 0 1-12 0zM10 14h4v5h-4zM8 21h8' },
+  { key: 'rankings', label: 'Rankings', href: '/rankings', icon: 'M4 21V10M12 21V3M20 21v-7' },
   { key: 'managers', label: 'Managers', href: '/managers', icon: 'M3 20l4-8 4 5 3-9 4 12M3 20h18' },
   { key: 'manager-pro', label: 'Manager Pro', href: '/manager-pro', icon: 'M4 8l4 3 4-6 4 6 4-3-2 10H6z' },
 ];

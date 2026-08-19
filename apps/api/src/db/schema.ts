@@ -90,7 +90,7 @@ export const trainableAttribute = pgEnum('trainable_attribute', [
  * not json) — training focus is exactly one of a fixed small set of
  * values, never freeform data. */
 export const trainingFocusKind = pgEnum('training_focus_kind', ['surface', 'attribute']);
-export const managerStatus = pgEnum('manager_status', ['active', 'suspended']);
+export const managerStatus = pgEnum('manager_status', ['active', 'suspended', 'deleted']);
 /** How an entrant got into a main draw (real tennis convention — see
  * EntryType in the domain / docs/ranking-realism-proposal.md §5): 'da'
  * = direct acceptance by ranking, 'q' = came through qualifying, 'wc'

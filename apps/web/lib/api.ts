@@ -19,6 +19,10 @@ export interface PlayerDto {
   stage: 'youth' | 'prime' | 'decline' | 'retired';
   fatigue: number;
   form: number;
+  /** True for a permanent, manager-less filler free agent padding an
+   * under-filled draw — distinct from a released player (managerId also
+   * null, but fillOnly stays false). See apps/api's playerDto.ts. */
+  fillOnly: boolean;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -631,6 +635,26 @@ export interface ManagerLeaderboardDto {
 
 export function fetchManagerLeaderboard(limit = 100): Promise<ManagerLeaderboardDto> {
   return getJson(`/managers/leaderboard?limit=${limit}`);
+}
+
+export interface RankingRowDto {
+  rank: number;
+  playerId: string;
+  name: string;
+  nationality: string | null;
+  points: number;
+}
+
+export interface RankingsBoardDto {
+  band: RankingBand;
+  standings: RankingRowDto[];
+}
+
+/** Public player standings board (senior/u14/u16) — GET /rankings/:band. No
+ * auth required, unlike fetchManagerLeaderboard (there's no "self" row here,
+ * a player isn't the authenticated caller). */
+export function fetchRankings(band: RankingBand, limit = 100): Promise<RankingsBoardDto> {
+  return getJson(`/rankings/${band}?limit=${limit}`);
 }
 
 export interface PlayerTournamentHistoryEntryDto {

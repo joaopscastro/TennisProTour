@@ -660,13 +660,14 @@ export default function TournamentBracketPage() {
     }
   }, [tournamentId]);
 
-  function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string } {
-    if (!entrant) return { name: '', flag: '', seedLabel: '' };
+  function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string; fillOnly: boolean } {
+    if (!entrant) return { name: '', flag: '', seedLabel: '', fillOnly: false };
     const p = players.get(entrant.playerId);
     return {
       name: p?.name ?? entrant.playerId,
       flag: p ? flagFor(p.nationality) : '',
       seedLabel: entrant.seed ? `(${entrant.seed})` : '',
+      fillOnly: p?.fillOnly ?? false,
     };
   }
 
@@ -1116,6 +1117,15 @@ export default function TournamentBracketPage() {
                                         }}
                                       >
                                         {aLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{aLabel.seedLabel}</span>
+                                        {aLabel.fillOnly && (
+                                          <span
+                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
+                                            style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
+                                            title="A free agent filling out the draw, not a manager's rostered player"
+                                          >
+                                            Filler
+                                          </span>
+                                        )}
                                       </div>
                                     </>
                                   ) : (
@@ -1144,6 +1154,15 @@ export default function TournamentBracketPage() {
                                         }}
                                       >
                                         {bLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{bLabel.seedLabel}</span>
+                                        {bLabel.fillOnly && (
+                                          <span
+                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
+                                            style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
+                                            title="A free agent filling out the draw, not a manager's rostered player"
+                                          >
+                                            Filler
+                                          </span>
+                                        )}
                                       </div>
                                     </>
                                   ) : (

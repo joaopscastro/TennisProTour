@@ -76,6 +76,15 @@ beforeEach(async () => {
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
+  // Not previously truncated — harmless as long as every test's manager
+  // account only ever ends up 'active' (re-upserting an active row back
+  // to active is idempotent). The account-deletion tests below leave a
+  // manager permanently in a terminal 'deleted' status, which — left
+  // untruncated — would incorrectly block that same manager id's next
+  // test run from re-authenticating. Found via a real failure: this
+  // suite passed alone but failed on a second run against the same
+  // persistent test database, for exactly this reason.
+  await db.delete(schema.managers);
 });
 
 afterAll(async () => {
@@ -219,8 +228,57 @@ describe('API', () => {
     expect(dto.id).toBe('p1');
     expect(dto.name).toBe('Player p1');
     expect(dto.stage).toBe('youth');
+    expect(dto.fillOnly).toBe(false);
     expect(dto.attributes.technical.serve).toBe(30);
     expect(dto.attributes.surfaceAffinities.clay).toBe(20);
+  });
+
+  it('deletes a manager account: releases the roster (players survive, unowned) and blocks re-authentication as that account', async () => {
+    expect(await hirePlayer('del-p1', 'del-m1')).toBe(201);
+    expect(await hirePlayer('del-p2', 'del-m1')).toBe(201);
+
+    const me = await app.inject({ method: 'GET', url: '/auth/me', headers: { 'x-dev-manager-id': 'del-m1' } });
+    expect(me.statusCode).toBe(200);
+
+    const deletion = await app.inject({ method: 'DELETE', url: '/me/account', headers: { 'x-dev-manager-id': 'del-m1' } });
+    expect(deletion.statusCode).toBe(204);
+
+    // The players themselves survive, released (not deleted) — their
+    // game history belongs to the Player aggregate, not the manager.
+    const p1 = await app.inject({ method: 'GET', url: '/players/del-p1' });
+    expect(p1.statusCode).toBe(200);
+    expect(p1.json().managerId).toBeNull();
+    const p2 = await app.inject({ method: 'GET', url: '/players/del-p2' });
+    expect(p2.json().managerId).toBeNull();
+
+    // The same dev identity can no longer authenticate as this account —
+    // not silently revived by a repeat request with the same header.
+    const meAgain = await app.inject({ method: 'GET', url: '/auth/me', headers: { 'x-dev-manager-id': 'del-m1' } });
+    expect(meAgain.statusCode).toBe(403);
+    expect(meAgain.json().error).toMatch(/deleted/i);
+
+    const deleteAgain = await app.inject({ method: 'DELETE', url: '/me/account', headers: { 'x-dev-manager-id': 'del-m1' } });
+    expect(deleteAgain.statusCode).toBe(403);
+  });
+
+  it('exposes fillOnly on a filler free agent, so the bracket UI can distinguish it from a real entrant', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    await deps.players.save(
+      Player.generateFillOnly(
+        PlayerId('filler-p1'),
+        'Filler Player',
+        900,
+        agingPolicy.stageForAge(900),
+        fixedAttributes(40),
+        'BR',
+        60,
+        { speed: 60, stamina: 60, strength: 60 },
+      ),
+    );
+
+    const response = await app.inject({ method: 'GET', url: '/players/filler-p1' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().fillOnly).toBe(true);
   });
 
   it('enforces the free-tier roster cap of 2 through BillingPort (409, not a controller rule)', async () => {
@@ -397,6 +455,23 @@ describe('API', () => {
     expect(championId).toBeDefined();
     const championRanking = await app.inject({ method: 'GET', url: `/players/${championId}/ranking` });
     expect(championRanking.json().rank).toBe(1);
+
+    // The public standings board (GET /rankings/:band) must agree with
+    // the per-player read above — same champion at rank 1, same total —
+    // and requires no auth (unlike the manager leaderboard).
+    const seniorBoard = await app.inject({ method: 'GET', url: '/rankings/senior' });
+    expect(seniorBoard.statusCode).toBe(200);
+    const seniorRows = seniorBoard.json();
+    expect(seniorRows.band).toBe('senior');
+    expect(seniorRows.standings[0]).toMatchObject({
+      rank: 1,
+      playerId: championId,
+      points: championRanking.json().totalPoints,
+    });
+    expect(seniorRows.standings[0].name).toBe(`Player ${championId}`);
+    for (let i = 1; i < seniorRows.standings.length; i++) {
+      expect(seniorRows.standings[i - 1].points).toBeGreaterThanOrEqual(seniorRows.standings[i].points);
+    }
 
     // The manager ladder must have credited the same event: managers
     // whose players earned points appear on the leaderboard, ordered by

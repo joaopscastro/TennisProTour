@@ -14,6 +14,13 @@ export function toPlayerDto(player: Player) {
     stage: player.stage,
     fatigue: player.fatigue,
     form: player.form,
+    /** True for a permanent, manager-less free agent generated purely to
+     * pad under-filled draws (auto-trains its own weakest attribute —
+     * see Player.ts) — distinct from a released former manager's player
+     * (managerId also null, but fillOnly stays false). Exposed so the
+     * bracket UI can visually distinguish a filler from a real entrant
+     * instead of rendering them identically. */
+    fillOnly: player.fillOnly,
     attributes: {
       technical: {
         serve: technical.serve.value,

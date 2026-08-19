@@ -65,9 +65,16 @@ export function doublesMatchIdForSlot(tournamentId: TournamentId, roundNumber: n
  * - ranking points go to BOTH players of the winning pair (and a 0 entry
  *   to both of an eliminated pair), stamped `discipline: 'doubles'` and
  *   scaled by DOUBLES_POINTS_FACTOR — never mixed into singles totals;
- * - NO title and NO peak ranking is written (doubles titles/peaks are
- *   P7c, deferred — the `titles` table is PK'd on tournament_id and can't
- *   hold both a singles and a doubles winner as-is);
+ * - a title IS written on the main draw's final (P7c, built) — via a
+ *   dedicated `doublesTitles`/`doubles_titles` table, not the singles
+ *   `titles` table, so the old "titles is PK'd on tournament_id and can't
+ *   hold both a singles and a doubles winner" concern never applied: this
+ *   just used a separate table instead. Peak rankings are written too
+ *   (`updateDoublesPeakIfExceeded`, its own `doubles_peak_rankings`
+ *   store), and persistent-pair chemistry grows on every match, win or
+ *   lose (this doc comment previously said none of this existed — it was
+ *   stale, fixed during a CLAUDE.md/AGENTS.md audit that checked the
+ *   actual code instead of trusting doc prose);
  * - fatigue/form/surface-growth/development XP apply to all four players
  *   exactly as they do in singles.
  */

@@ -26,6 +26,7 @@ export * from './competition/TournamentSchedulePolicy';
 export * from './match-simulation/MatchSimulator';
 export * from './match-simulation/StatisticalMatchSimulator';
 export * from './match-simulation/DoublesPairPolicy';
+export * from './match-simulation/SurfaceAttributeWeightingPolicy';
 export * from './world/GameWorld';
 export * from './ranking/RankingLedgerEntry';
 export * from './ranking/RankingCalculationService';

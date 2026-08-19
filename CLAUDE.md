@@ -781,35 +781,142 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
 1. **Notifications and Social (bounded contexts #6/#7)** — genuinely
    unstarted (Social's leaderboard piece excepted, see above). No port, no
    adapter, nothing wired to a domain event.
-2. **Doubles P7c** — chemistry, doubles titles/peaks, doubles qualifying,
-   junior doubles. P7a (partnerships) and P7b (the full competition loop)
-   are built and tested; P7c is explicitly "planned, not built" per
-   `docs/doubles-and-special-formats-plan.md`, whose own top-line status
-   summary is itself stale (still says P8 "planned, not built" even though
-   its own P8a/b/c subsections are each marked ✅ BUILT further down —
-   worth a cleanup pass, not touched here since this file's job is
-   CLAUDE.md/AGENTS.md, not every doc in `docs/`).
+2. ~~**Doubles P7c** — chemistry, doubles titles/peaks, doubles qualifying,
+   junior doubles.~~ **Fixed — this line was wrong, not just stale.** All
+   four sub-items are fully built, migrated, and tested: chemistry
+   (`DoublesPair.gainChemistry`, `CHEMISTRY_BONUS_PER_POINT` in the
+   simulator, credited every doubles match in `SimulateDoublesMatchUseCase`),
+   doubles titles/peaks (`DoublesTitleRecord`, `DrizzleDoublesTitleRepository`/
+   `DrizzleDoublesPeakRankingRepository`, surfaced on the player profile
+   page), doubles qualifying (`Tournament.doublesQualifyingDrawSize`/
+   `doublesQualifierSlots`/`doublesQualifyingRounds`, `FormDoublesDrawUseCase`,
+   `PromoteDoublesQualifiersUseCase`), and junior doubles
+   (`RegisterDoublesEntrantUseCase` enforces the same one-directional
+   age-band rule singles does; doubles peak rankings are band-scoped).
+   Migrations `0034`/`0036`/`0037`; covered by
+   `DrizzleRepositories.integration.test.ts`, `api.integration.test.ts`,
+   and the worker e2e smoke test. This line previously trusted
+   `docs/doubles-and-special-formats-plan.md`'s own stale top-line status
+   summary instead of checking the actual code — the exact same class of
+   error just fixed for Billing above. That plan doc's status line and
+   `SimulateDoublesMatchUseCase.ts`'s stale class doc comment (which
+   claimed "NO title and NO peak ranking is written... deferred" directly
+   above code that writes both) are fixed alongside this.
 3. **Balance/tuning pass (GC-5.2 in the roadmap)** — `effectiveRating`'s
    point-win-probability formula is still illustrative, and a long list of
    constants added since (fatigue/form thresholds, `HOME_ADVANTAGE_BONUS`,
    `DIRECT_ACCEPTANCE_CUTOFF`, the training-redesign deltas, aging
    thresholds, ranking-point values) are each individually flagged
    PLACEHOLDER in their own section but were never tuned against real
-   simulation data.
-4. **Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
-   table still isn't wired into `StatisticalMatchSimulator`; which
-   attribute you train doesn't yet interact with which surface you play.
-5. **Junior standings/leaderboard page** — a manager can only see a
+   simulation data. **The missing TOOL is now built and a baseline reading
+   taken** (`docs/balance-tuning-report.md`,
+   `apps/api/scripts/balance-simulation.mjs`) — this doesn't retune
+   anything yet (that's still open, see below), but it closes the "no
+   bulk simulation sample, no statistical validation, no recorded
+   methodology" gap the roadmap flagged. The script imports
+   `StatisticalMatchSimulator` directly (pure domain, no HTTP/DB — unlike
+   `playtest.mjs`, which is an API rules-correctness bot-manager smoke
+   test, not a statistics tool) and runs it thousands of times per bucket
+   with REAL randomness across a rating-gap matrix, a fatigue matrix, and
+   a surface-affinity-gap matrix, each isolating one variable while
+   holding everything else identical between the two participants. **Real
+   finding, not just a clean bill of health**: every curve is monotonic
+   in the right direction, but all three saturate far too fast to be
+   credible — a uniform rating gap of just 5 (of 100) points already
+   produces a 98.6% win rate, 8+ is a mathematical blowout; 30 points of
+   fatigue (out of 100) already leaves almost no chance of winning; a
+   10-point surface-affinity edge (of a 60-point cap) already wins 91% of
+   the time. Root cause: `pointWinProbabilityA`'s sigmoid is tuned by
+   eyeballing a single point in isolation, but a best-of-3 match compounds
+   that per-point edge over dozens of independent points, producing a
+   match-level win probability far steeper than the per-point formula
+   alone suggests — exactly the compounding effect a real simulation
+   sample (as opposed to reasoning about the formula on paper) surfaces.
+   `docs/balance-tuning-report.md` has the full methodology, result
+   tables, and a concrete recommendation (widen the sigmoid's `/15`
+   divisor, or equivalently shrink the attribute-weight coefficients
+   feeding `ratingGap`) for whoever does the actual retuning pass — which
+   remains open, deliberately not attempted in the same pass as building
+   the tool.
+4. ~~**Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
+   table still isn't wired into `StatisticalMatchSimulator`.~~ **Built.**
+   New `packages/domain/src/match-simulation/SurfaceAttributeWeightingPolicy.ts`
+   holds the multiplier table from that doc verbatim (Grass: Serve×1.5/
+   Volley×1.4/Speed×1.1 reward, Stamina×0.8/Consistency×0.9 penalty; Clay:
+   Stamina×1.4/Consistency×1.3/Forehand×1.2 reward, Serve×0.8/Volley×0.7
+   penalty; Hard: neutral ×1.0; Indoor: Serve×1.3/Volley×1.1 reward,
+   Stamina×0.9 penalty — every attribute not named for a surface defaults
+   to neutral ×1.0, e.g. backhand/strength/clutch everywhere) plus
+   `weightedTechnicalAverage`/`weightedPhysicalAverage`/`weightedMentalAverage`
+   (a weighted MEAN, not a plain sum, so the result stays on the same
+   0-100 scale the flat average it replaces was on — `effectiveRating`'s
+   other terms, like the fatigue penalty and form modifier, were tuned
+   against that scale and don't need to change). `StatisticalMatchSimulator.effectiveRating`
+   now calls these three in place of the old flat technical/physical/
+   mental means — ADDITIVE alongside the pre-existing `surfaceBonus` term
+   (the passive per-player `SurfaceAffinities` stat), not a replacement
+   for it; these are two different mechanisms (one is "how good are you
+   on this surface generally," the other is "which specific attribute did
+   training target"). Proven with 3 new deterministic unit tests
+   (`StatisticalMatchSimulator.test.ts`): two builds with IDENTICAL flat/
+   unweighted technical/physical/mental averages (each exactly 50, so
+   pre-this-feature they'd be a coin flip on every surface) — a serve-
+   and-volleyer (high serve/volley/speed, low stamina/consistency) and a
+   clay grinder (the mirror image) — now decisively beat each other on
+   their respective surfaces (a constant-0.5 RNG hands literally every
+   point to whichever side has the higher effective rating, making the
+   win deterministic) and stay a coin flip on neutral hard court. Domain
+   suite: 328 (was 325), all green; full monorepo `tsc --build --force`
+   clean. All new constants are explicit PLACEHOLDERs, same status as
+   every other flagged constant — the balance-tuning pass (item 3 below)
+   is what validates them against real data, not this pass.
+5. ~~**Junior standings/leaderboard page** — a manager can only see a
    band's ranking through their own rostered players' rows, never browse
-   the full U14/U16 tables.
-6. **Bracket-screen filler-entrant UI** — no visual distinction between a
-   real manager's player and a fill-only free agent padding a draw.
+   the full U14/U16 tables.~~ **Built.** `GET /rankings/:band` (band ∈
+   senior/u14/u16 — `apps/api/src/adapters/inbound/http/rankingsRoutes.ts`)
+   is the player-standings counterpart to `/managers/leaderboard`,
+   deliberately public/no-auth (there's no "self" concept for a player —
+   unlike the manager ladder, which resolves the caller's own row). Reuses
+   `RankPositionQuery.sortedRankings()` as-is (already band-scoped, already
+   returns every ranked player sorted) — composed inline in the route
+   handler exactly the way `/managers/leaderboard` already composes its
+   read, no new Drizzle-specific adapter class. New top-level `/rankings`
+   frontend page (`apps/web/app/rankings/page.tsx`, new "Rankings" sidebar
+   nav entry) with a senior/U16/U14 band-switcher tab row — three separate
+   tables, not one, since the bands don't merge. Verified against a real,
+   non-empty tournament: extended the existing 16-draw ranking-points
+   integration test to assert `/rankings/senior`'s rank-1 row matches
+   `/players/:id/ranking`'s champion exactly (same rank, same points),
+   and that the whole slice is sorted descending; also live-checked all
+   three bands plus the 400 on an invalid band name against a running
+   dev server, and screenshotted the rendered page.
+6. ~~**Bracket-screen filler-entrant UI** — no visual distinction between a
+   real manager's player and a fill-only free agent padding a draw.~~
+   **Built.** `Player.fillOnly` was already a real domain field but was
+   never serialized — `toPlayerDto` now exposes it, `PlayerDto` on the
+   frontend picked it up, and the tournament bracket page
+   (`apps/web/app/tournaments/[id]/page.tsx`) renders a small "Filler"
+   badge next to a filler entrant's name in the expanded round-column
+   bracket cards (collapsed-round summaries and the champion banner were
+   deliberately left as-is — this item was scoped to the main bracket
+   grid). The pre-existing entry-list panel (already `managerId != null`-
+   filtered) needed no change. Covered by two new `api.integration.test.ts`
+   cases: a real hired player round-trips `fillOnly: false`, and a real
+   `Player.generateFillOnly(...)` round-trips `fillOnly: true` through
+   `GET /players/:id`.
 7. **Manager identity (Clerk) production readiness** — the `AuthPort`
    implementation is built, but per `docs/implementation-roadmap.md`
    GC-2.1 it's still "in Review, pending real Clerk keys and a
    production-mode smoke test" — local dev uses an explicit dev-identity
    header, and production must set `AUTH_MODE=clerk` (see
-   `docs/security-and-identity.md`).
+   `docs/security-and-identity.md`). **The one real code gap that
+   checklist flagged — account deletion — is now built**; see
+   `docs/security-and-identity.md`'s Production Checklist for the full
+   writeup (`DELETE /me/account`, `DeleteManagerAccountUseCase`,
+   anonymize-not-delete, the dev-mode id-revival bug caught and fixed
+   alongside it, live-verified against real Postgres). Data export and
+   the real-Clerk-keys/production-mode smoke test remain open — those are
+   genuine ops/config items, not something to build in this codebase.
 8. **`docs/implementation-roadmap.md` reconciliation** — the roadmap has
    drifted well behind this file: several epics it marks Backlog/In
    progress (manager XP, coaching, scouting, training-focus shape) are

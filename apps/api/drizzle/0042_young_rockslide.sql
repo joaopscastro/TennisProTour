@@ -1,0 +1,1 @@
+ALTER TYPE "public"."manager_status" ADD VALUE 'deleted';

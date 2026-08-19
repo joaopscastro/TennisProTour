@@ -41,7 +41,7 @@ export async function requireManager(
       developmentManagerId: developmentManagerId ? ManagerId(developmentManagerId) : undefined,
     });
   } catch (error) {
-    if (error instanceof Error && error.message === 'Manager account is suspended') {
+    if (error instanceof Error && (error.message === 'Manager account is suspended' || error.message === 'Manager account has been deleted')) {
       await reply.code(403).send({ error: error.message });
       return null;
     }

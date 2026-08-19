@@ -48,8 +48,37 @@ if `CLERK_SECRET_KEY` is missing.
 - Enable MFA/passkeys when the selected Clerk plan supports them.
 - Add monitoring for repeated 401/403 responses, rate-limit events, and
   account suspension events.
-- Add an account deletion/export flow that removes private profile data while
-  preserving only the minimum historical game records required by the rules.
+- ~~Add an account deletion/export flow that removes private profile data
+  while preserving only the minimum historical game records required by
+  the rules.~~ **Deletion built** (`DELETE /me/account`,
+  `DeleteManagerAccountUseCase` in `packages/application/src/use-cases/`):
+  releases every rostered player (reusing `ReleasePlayerUseCase`, so the
+  P7a doubles-pair-dissolution cascade runs too) — the players and their
+  full game history (ranking ledger, titles, peaks) survive, unowned,
+  exactly like any other release, because that history belongs to the
+  Player aggregate, not the manager — then anonymizes the `ManagerAccount`
+  row itself (`authSubject`/`displayName`/`publicHandle` overwritten,
+  `status: 'deleted'`) rather than deleting the row outright, since other
+  tables reference the manager id by foreign key. `ManagerAccount.status`
+  gained a third value (migration `0042_young_rockslide.sql`, additive —
+  `ALTER TYPE ... ADD VALUE`); `EnsureManagerAccountUseCase` blocks
+  re-authentication for both `'suspended'` and the new `'deleted'`
+  permanently. One real bug caught and fixed while building this: the
+  development auth adapter pins a manager's id directly from the
+  `x-dev-manager-id` header (production/Clerk always mints a fresh random
+  id instead), so a repeated dev-mode request with the same header after
+  deletion would otherwise fall through to the account-creation path's
+  upsert-by-id and silently resurrect the anonymized row — closed by
+  having `EnsureManagerAccountUseCase` check `findById` (not just
+  `findByAuthSubject`) whenever a dev id is supplied. Verified live
+  against a running dev server + real Postgres (not just tests): created
+  an account, deleted it (`204`), confirmed the DB row round-tripped to
+  `status: 'deleted'` with `auth_subject`/`public_handle` anonymized and
+  the same `id` preserved, and confirmed the same dev header now gets
+  `403 Manager account has been deleted` on both `GET /auth/me` and a
+  second `DELETE /me/account`. Export (a downloadable data dump) is
+  still open — deletion was the doc's more load-bearing gap and is what
+  this pass scoped to.
 - Run dependency and npm audit checks in CI; do not apply force upgrades
   blindly to authentication dependencies.
 

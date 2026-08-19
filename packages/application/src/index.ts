@@ -9,6 +9,7 @@ export * from './use-cases/EnsureFillOnlyPopulationUseCase';
 export * from './use-cases/StartDueTournamentsUseCase';
 export * from './use-cases/SetTrainingScheduleUseCase';
 export * from './use-cases/ReleasePlayerUseCase';
+export * from './use-cases/DeleteManagerAccountUseCase';
 export * from './use-cases/SimulateMatchUseCase';
 export * from './use-cases/OpenTournamentUseCase';
 export * from './use-cases/OpenRegistrationUseCase';

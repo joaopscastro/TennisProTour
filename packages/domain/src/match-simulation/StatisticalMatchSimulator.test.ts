@@ -224,7 +224,81 @@ describe('StatisticalMatchSimulator', () => {
     const home = simulateOutcome(scriptedHome, homeA, equalParticipant('pB'));
     expect(home.winner).toBe(PlayerId('pA'));
   });
+
+  describe('surface × attribute weighting (docs/training-redesign-per-attribute.md)', () => {
+    // Two builds with IDENTICAL flat/unweighted technical, physical, and
+    // mental averages (each averages to exactly 50) and identical
+    // SurfaceAffinities — so before this feature existed, these two
+    // participants would be a dead-even coin flip on every surface.
+    // Grass rewards serve/volley/speed and penalizes stamina/consistency;
+    // clay is the mirror image (rewards stamina/consistency/forehand,
+    // penalizes serve/volley) — so a serve-and-volleyer should dominate
+    // on grass and a grinder should dominate on clay, purely from the
+    // surface × attribute weighting, with nothing else in play.
+    const grassServeVolleyer = () =>
+      participantWith('pA', { serve: 90, volley: 90, forehand: 10, backhand: 10, speed: 90, stamina: 10, strength: 50, consistency: 10, clutch: 90 });
+    const clayGrinder = () =>
+      participantWith('pB', { serve: 10, volley: 10, forehand: 90, backhand: 90, speed: 10, stamina: 90, strength: 50, consistency: 90, clutch: 10 });
+
+    it('a serve-and-volleyer beats an identically-flat-rated clay grinder on grass', () => {
+      // Constant 0.5 RNG: whoever's effective rating is even slightly
+      // higher wins literally every point (see COIN_FLIP comment above
+      // for the same technique) — a maximally decisive demonstration.
+      const random = new ScriptedRandomSource([0.5]);
+      const outcome = new StatisticalMatchSimulator(random).simulate(grassServeVolleyer(), clayGrinder(), 'grass').outcome;
+      expect(outcome.winner).toBe(PlayerId('pA'));
+    });
+
+    it('the same clay grinder instead beats the same serve-and-volleyer on clay', () => {
+      const random = new ScriptedRandomSource([0.5]);
+      const outcome = new StatisticalMatchSimulator(random).simulate(grassServeVolleyer(), clayGrinder(), 'clay').outcome;
+      expect(outcome.winner).toBe(PlayerId('pB'));
+    });
+
+    it('is neutral on hard court — both builds average to the same flat 50, so it stays a coin flip', () => {
+      // A tiny nudge (0.5 exactly ties: pointWinProbabilityA works out to
+      // precisely 0.5 when every weight is 1.0, and 0.5 < 0.5 is false,
+      // so B — the strict-less-than comparator — wins every point here).
+      // This isn't testing "who wins," just that hard court applies no
+      // surface × attribute skew at all: both flat averages stay 50/50/50.
+      const random = new ScriptedRandomSource([0.5]);
+      const outcome = new StatisticalMatchSimulator(random).simulate(grassServeVolleyer(), clayGrinder(), 'hard').outcome;
+      expect(outcome.winner).toBe(PlayerId('pB'));
+    });
+  });
 });
+
+function participantWith(
+  id: string,
+  values: {
+    serve: number;
+    volley: number;
+    forehand: number;
+    backhand: number;
+    speed: number;
+    stamina: number;
+    strength: number;
+    consistency: number;
+    clutch: number;
+  },
+): MatchParticipant {
+  return {
+    playerId: PlayerId(id),
+    fatigue: 0,
+    form: 0,
+    attributes: new PlayerAttributes({
+      technical: {
+        serve: Skill.of(values.serve),
+        forehand: Skill.of(values.forehand),
+        backhand: Skill.of(values.backhand),
+        volley: Skill.of(values.volley),
+      },
+      physical: { speed: Skill.of(values.speed), stamina: Skill.of(values.stamina), strength: Skill.of(values.strength) },
+      mental: { consistency: Skill.of(values.consistency), clutch: Skill.of(values.clutch) },
+      surfaceAffinities: SurfaceAffinities.initial(),
+    }),
+  };
+}
 
 function simulateOutcome(random: RandomSource, a: MatchParticipant, b: MatchParticipant) {
   return new StatisticalMatchSimulator(random).simulate(a, b, 'hard').outcome;

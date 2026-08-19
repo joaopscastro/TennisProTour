@@ -1,9 +1,17 @@
 # Doubles (P7) and Special Formats (P8) — plan
 
-Status: **P7a + P7b BUILT; P7c/P8 planned, not built.** The partnership
-model (P7a) and the full doubles competition loop (P7b) are implemented,
-tested, and wired end to end. P7b is what this status line used to
-describe as the remaining "competition loop": the `doubles` skill
+Status: **P7a, P7b, P7c, and P8 (a/b/c) are all BUILT. Nothing in this doc
+is currently planned-not-built.** This line previously read "P7a + P7b
+BUILT; P7c/P8 planned, not built," directly contradicted by this same
+doc's own "Phasing" section further down (P7c marked ✅ BUILT) and P8's
+own a/b/c subsections (each marked ✅ BUILT) — found and fixed during a
+CLAUDE.md/AGENTS.md audit that trusted this line instead of the doc's own
+body, the same class of staleness fixed there. See "Phasing" below for
+what P7c covers (chemistry, doubles titles/peaks, doubles qualifying,
+junior doubles — all shipped) and the P8a/b/c sections for special formats.
+The partnership model (P7a) and the full doubles competition loop (P7b) are
+implemented, tested, and wired end to end. P7b is what this status line used
+to describe as the remaining "competition loop": the `doubles` skill
 (attribute + generation + trainable), a generic `S`-defaulted
 bracket/match type refactor (singles byte-identical), `Tournament`
 doubles draws (`doublesDrawSize`/`doublesEntrants`/`doublesPairs`/

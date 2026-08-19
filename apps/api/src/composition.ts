@@ -31,6 +31,7 @@ import { ApplyObligatoryTournamentZerosUseCase } from '@tennis-manager/applicati
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
+import { DeleteManagerAccountUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { PlayerEntryPlannerQuery } from '@tennis-manager/application';
@@ -198,6 +199,7 @@ export interface Dependencies {
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingSchedule: SetTrainingScheduleUseCase;
   releasePlayer: ReleasePlayerUseCase;
+  deleteManagerAccount: DeleteManagerAccountUseCase;
   convertPlayerToCoach: ConvertPlayerToCoachUseCase;
   /** Doubles partnerships (P7a — see
    * docs/doubles-and-special-formats-plan.md). The repository is
@@ -459,6 +461,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
   const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings);
   const playerMatches = new DrizzlePlayerMatchesQuery(options.db);
+  const releasePlayer = new ReleasePlayerUseCase(players, doublesPairs);
 
   return {
     managers,
@@ -530,7 +533,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy, simulateDoublesMatch),
     promoteQualifiers: new PromoteQualifiersUseCase(tournaments, bracketGenerator),
     setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),
-    releasePlayer: new ReleasePlayerUseCase(players, doublesPairs),
+    releasePlayer,
+    deleteManagerAccount: new DeleteManagerAccountUseCase(managers, players, releasePlayer),
     convertPlayerToCoach: new ConvertPlayerToCoachUseCase(
       players,
       coaches,

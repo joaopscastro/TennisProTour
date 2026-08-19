@@ -1,0 +1,124 @@
+{
+  "meta": {
+    "runAt": "2026-08-19T16:21:40.462Z",
+    "trialsPerBucket": 3000
+  },
+  "ratingGap": {
+    "description": "Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.",
+    "rows": [
+      {
+        "gap": 0,
+        "winRateA": 0.49333333333333335
+      },
+      {
+        "gap": 2,
+        "winRateA": 0.8066666666666666
+      },
+      {
+        "gap": 5,
+        "winRateA": 0.986
+      },
+      {
+        "gap": 8,
+        "winRateA": 0.9996666666666667
+      },
+      {
+        "gap": 10,
+        "winRateA": 1
+      },
+      {
+        "gap": 15,
+        "winRateA": 1
+      },
+      {
+        "gap": 20,
+        "winRateA": 1
+      },
+      {
+        "gap": 30,
+        "winRateA": 1
+      },
+      {
+        "gap": 40,
+        "winRateA": 1
+      },
+      {
+        "gap": 50,
+        "winRateA": 1
+      }
+    ],
+    "monotonic": true
+  },
+  "fatigue": {
+    "description": "Win rate for A (equal skill to B) as A's fatigue rises from 0 to 100.",
+    "rows": [
+      {
+        "fatigueA": 0,
+        "winRateA": 0.49066666666666664
+      },
+      {
+        "fatigueA": 10,
+        "winRateA": 0.254
+      },
+      {
+        "fatigueA": 20,
+        "winRateA": 0.09533333333333334
+      },
+      {
+        "fatigueA": 30,
+        "winRateA": 0.02033333333333333
+      },
+      {
+        "fatigueA": 40,
+        "winRateA": 0.004666666666666667
+      },
+      {
+        "fatigueA": 60,
+        "winRateA": 0
+      },
+      {
+        "fatigueA": 80,
+        "winRateA": 0
+      },
+      {
+        "fatigueA": 100,
+        "winRateA": 0
+      }
+    ],
+    "monotonicNonIncreasing": true
+  },
+  "surfaceAffinityGap": {
+    "description": "Win rate for A (equal skill to B) as A's SurfaceAffinities value for clay widens over B's baseline of 20.",
+    "rows": [
+      {
+        "affinityGap": 0,
+        "winRateA": 0.5036666666666667
+      },
+      {
+        "affinityGap": 5,
+        "winRateA": 0.7356666666666667
+      },
+      {
+        "affinityGap": 10,
+        "winRateA": 0.9093333333333333
+      },
+      {
+        "affinityGap": 20,
+        "winRateA": 0.9946666666666667
+      },
+      {
+        "affinityGap": 30,
+        "winRateA": 1
+      },
+      {
+        "affinityGap": 40,
+        "winRateA": 1
+      },
+      {
+        "affinityGap": 60,
+        "winRateA": 1
+      }
+    ],
+    "monotonic": true
+  }
+}
