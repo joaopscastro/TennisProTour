@@ -1,46 +1,47 @@
 {
   "meta": {
-    "runAt": "2026-08-19T16:21:40.462Z",
-    "trialsPerBucket": 3000
+    "runAt": "2026-08-19T17:20:35.194Z",
+    "trialsPerBucket": 8000,
+    "pointProbabilityDivisor": 80
   },
   "ratingGap": {
     "description": "Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.",
     "rows": [
       {
         "gap": 0,
-        "winRateA": 0.49333333333333335
+        "winRateA": 0.497875
       },
       {
         "gap": 2,
-        "winRateA": 0.8066666666666666
+        "winRateA": 0.571
       },
       {
         "gap": 5,
-        "winRateA": 0.986
+        "winRateA": 0.662625
       },
       {
         "gap": 8,
-        "winRateA": 0.9996666666666667
+        "winRateA": 0.749625
       },
       {
         "gap": 10,
-        "winRateA": 1
+        "winRateA": 0.79775
       },
       {
         "gap": 15,
-        "winRateA": 1
+        "winRateA": 0.9045
       },
       {
         "gap": 20,
-        "winRateA": 1
+        "winRateA": 0.950875
       },
       {
         "gap": 30,
-        "winRateA": 1
+        "winRateA": 0.991375
       },
       {
         "gap": 40,
-        "winRateA": 1
+        "winRateA": 0.9995
       },
       {
         "gap": 50,
@@ -54,35 +55,35 @@
     "rows": [
       {
         "fatigueA": 0,
-        "winRateA": 0.49066666666666664
+        "winRateA": 0.503
       },
       {
         "fatigueA": 10,
-        "winRateA": 0.254
+        "winRateA": 0.450125
       },
       {
         "fatigueA": 20,
-        "winRateA": 0.09533333333333334
+        "winRateA": 0.399
       },
       {
         "fatigueA": 30,
-        "winRateA": 0.02033333333333333
+        "winRateA": 0.355125
       },
       {
         "fatigueA": 40,
-        "winRateA": 0.004666666666666667
+        "winRateA": 0.293125
       },
       {
         "fatigueA": 60,
-        "winRateA": 0
+        "winRateA": 0.22475
       },
       {
         "fatigueA": 80,
-        "winRateA": 0
+        "winRateA": 0.153375
       },
       {
         "fatigueA": 100,
-        "winRateA": 0
+        "winRateA": 0.10475
       }
     ],
     "monotonicNonIncreasing": true
@@ -92,33 +93,37 @@
     "rows": [
       {
         "affinityGap": 0,
-        "winRateA": 0.5036666666666667
+        "winRateA": 0.49975
       },
       {
         "affinityGap": 5,
-        "winRateA": 0.7356666666666667
+        "winRateA": 0.546875
       },
       {
         "affinityGap": 10,
-        "winRateA": 0.9093333333333333
+        "winRateA": 0.590875
       },
       {
         "affinityGap": 20,
-        "winRateA": 0.9946666666666667
+        "winRateA": 0.705875
       },
       {
         "affinityGap": 30,
-        "winRateA": 1
+        "winRateA": 0.778375
       },
       {
         "affinityGap": 40,
-        "winRateA": 1
+        "winRateA": 0.83625
       },
       {
         "affinityGap": 60,
-        "winRateA": 1
+        "winRateA": 0.843875
       }
     ],
     "monotonic": true
+  },
+  "homeAdvantage": {
+    "description": "Match win rate for A (equal skill to B in every other respect) with HOME_ADVANTAGE_BONUS applied — a regression check for the finding that drove the POINT_PROBABILITY_DIVISOR retuning.",
+    "winRateA": 0.594875
   }
 }

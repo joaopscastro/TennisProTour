@@ -208,12 +208,20 @@ describe('StatisticalMatchSimulator', () => {
   it('gives a home player an edge that flips coin-flip points a level opponent would otherwise win (P6)', () => {
     // Both participants are identically rated, so without any home bonus
     // pointWinProbabilityA is exactly 0.5. A scripted RNG that always
-    // returns 0.52 therefore hands EVERY point to B (0.52 >= 0.5). With
+    // returns 0.505 therefore hands EVERY point to B (0.505 >= 0.5). With
     // the home-advantage bonus applied to A, A's point probability rises
-    // above 0.52, so the very same RNG stream now hands every point to A
-    // instead — an isolated, deterministic demonstration that the bonus
-    // is the only thing that changed the outcome.
-    const COIN_FLIP = 0.52;
+    // above 0.505 (sigmoid(3/POINT_PROBABILITY_DIVISOR) ≈ 0.5094 at the
+    // retuned divisor of 80 — see that constant's doc comment for why 80,
+    // not the original 15, is now the production value), so the very
+    // same RNG stream now hands every point to A instead — an isolated,
+    // deterministic demonstration that the bonus is the only thing that
+    // changed the outcome. (0.505 replaces the pre-retuning threshold of
+    // 0.52, which the old, much narrower divisor could clear but the
+    // retuned one — deliberately, see POINT_PROBABILITY_DIVISOR's own
+    // comment — no longer can; the MATCH-level effect of this same bonus
+    // is unchanged in kind, just far less overpowering, per
+    // docs/balance-tuning-report.md.)
+    const COIN_FLIP = 0.505;
     const scriptedAway = new ScriptedRandomSource([COIN_FLIP]);
     const scriptedHome = new ScriptedRandomSource([COIN_FLIP]);
 

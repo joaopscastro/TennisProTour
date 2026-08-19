@@ -18,20 +18,31 @@
  * Usage:
  *   node apps/api/scripts/balance-simulation.mjs
  *   TRIALS_PER_BUCKET=10000 node apps/api/scripts/balance-simulation.mjs
+ *
+ * DIVISOR overrides StatisticalMatchSimulator's POINT_PROBABILITY_DIVISOR
+ * for this run only (the constructor's optional second argument exists
+ * specifically for this) — used to compare candidate values against real
+ * data during a retuning pass without editing source between runs:
+ *   DIVISOR=30 node apps/api/scripts/balance-simulation.mjs
+ *   for d in 15 25 35 45 60 80; do
+ *     DIVISOR=$d BALANCE_REPORT=balance-report-$d.json \
+ *       node apps/api/scripts/balance-simulation.mjs
+ *   done
  */
 import { writeFileSync } from 'node:fs';
 import domain from '@tennis-manager/domain';
 
-const { StatisticalMatchSimulator, PlayerAttributes, Skill, SurfaceAffinities, PlayerId } = domain;
+const { StatisticalMatchSimulator, PlayerAttributes, Skill, SurfaceAffinities, PlayerId, POINT_PROBABILITY_DIVISOR } = domain;
 
 const TRIALS_PER_BUCKET = Number(process.env.TRIALS_PER_BUCKET ?? 3000);
 const REPORT_PATH = process.env.BALANCE_REPORT ?? 'balance-report.json';
+const DIVISOR = process.env.DIVISOR ? Number(process.env.DIVISOR) : POINT_PROBABILITY_DIVISOR;
 
 /** Real randomness — deliberately NOT a scripted/seeded source, unlike
  * every unit test in StatisticalMatchSimulator.test.ts. The whole point
  * here is an empirical distribution over many independent matches. */
 const randomSource = { next: () => Math.random() };
-const simulator = new StatisticalMatchSimulator(randomSource);
+const simulator = new StatisticalMatchSimulator(randomSource, DIVISOR);
 
 function flatAttributes(value, surfaceAffinities = SurfaceAffinities.initial()) {
   return new PlayerAttributes({
@@ -109,6 +120,24 @@ const affinityGapResults = AFFINITY_GAPS.map((gap) => {
   return { affinityGap: gap, winRateA: rate };
 });
 
+// --- Bucket 4: home advantage (single match-level check, not a matrix) --
+// Two otherwise IDENTICAL players (equal skill, fatigue, form) — only A
+// carries `homeAdvantage: true` (HOME_ADVANTAGE_BONUS, a flat +3 on the
+// effective-rating scale). This bucket exists because it's the finding
+// that actually drove the divisor retuning: at the original divisor of
+// 15, this flat "modest, coin-flip-tilting" bonus alone produced a 91.1%
+// match win rate — more decisive than most realistic skill gaps, directly
+// contradicting its own doc comment's stated intent. Kept as a permanent
+// bucket (not just a one-off measurement) so any future change to either
+// HOME_ADVANTAGE_BONUS or POINT_PROBABILITY_DIVISOR gets re-checked
+// against this same regression automatically.
+const homeAdvantageResult = (() => {
+  const playerA = { ...participant('homeA', { skill: 50 }), homeAdvantage: true };
+  const playerB = participant('homeB', { skill: 50 });
+  const rate = winRateA(playerA, playerB, 'hard', TRIALS_PER_BUCKET);
+  return { winRateA: rate };
+})();
+
 function isMonotonicNonDecreasing(rows, key) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].winRateA < rows[i - 1].winRateA - 0.02) return false; // small tolerance for sampling noise
@@ -120,6 +149,7 @@ const report = {
   meta: {
     runAt: new Date().toISOString(),
     trialsPerBucket: TRIALS_PER_BUCKET,
+    pointProbabilityDivisor: DIVISOR,
   },
   ratingGap: {
     description: 'Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.',
@@ -137,11 +167,15 @@ const report = {
     rows: affinityGapResults,
     monotonic: isMonotonicNonDecreasing(affinityGapResults),
   },
+  homeAdvantage: {
+    description: 'Match win rate for A (equal skill to B in every other respect) with HOME_ADVANTAGE_BONUS applied — a regression check for the finding that drove the POINT_PROBABILITY_DIVISOR retuning.',
+    winRateA: homeAdvantageResult.winRateA,
+  },
 };
 
 writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
 
-console.log(`Balance simulation complete (${TRIALS_PER_BUCKET} trials/bucket). Report: ${REPORT_PATH}\n`);
+console.log(`Balance simulation complete (${TRIALS_PER_BUCKET} trials/bucket, divisor=${DIVISOR}). Report: ${REPORT_PATH}\n`);
 console.log('Rating gap -> win rate for A:');
 for (const row of ratingGapResults) console.log(`  gap ${String(row.gap).padStart(3)} -> ${(row.winRateA * 100).toFixed(1)}%`);
 console.log(`  monotonic: ${report.ratingGap.monotonic}`);
@@ -153,3 +187,6 @@ console.log(`  monotonic (non-increasing): ${report.fatigue.monotonicNonIncreasi
 console.log(`\nSurface affinity gap (${SURFACE_FOR_AFFINITY_BUCKET}, A) -> win rate for A:`);
 for (const row of affinityGapResults) console.log(`  gap ${String(row.affinityGap).padStart(2)} -> ${(row.winRateA * 100).toFixed(1)}%`);
 console.log(`  monotonic: ${report.surfaceAffinityGap.monotonic}`);
+
+console.log(`\nHome advantage (equal skill, A has HOME_ADVANTAGE_BONUS) -> match win rate for A:`);
+console.log(`  ${(homeAdvantageResult.winRateA * 100).toFixed(1)}%`);

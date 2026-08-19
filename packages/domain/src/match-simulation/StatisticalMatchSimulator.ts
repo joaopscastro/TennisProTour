@@ -65,6 +65,39 @@ export const DOUBLES_SKILL_WEIGHT = 0.4;
 export const CHEMISTRY_BONUS_PER_POINT = 0.1;
 
 /**
+ * Divides `ratingGap` before it feeds `pointWinProbabilityA`'s sigmoid —
+ * the single knob converting an "effective rating points" difference into
+ * a per-POINT win probability. Extracted to a named, exported constant
+ * (was an inline magic `/ 15`) specifically so `apps/api/scripts/
+ * balance-simulation.mjs` and its constructor override below can compare
+ * candidate values against real simulation data rather than guessing.
+ *
+ * Retuned from 15 to 80 (see `docs/balance-tuning-report.md`'s retuning
+ * section for the full methodology and result tables) after the tool's
+ * baseline reading showed every curve saturating far too fast to be
+ * credible — a best-of-3 match compounds a per-point edge over dozens of
+ * independent points, so a small edge that looks modest per-point still
+ * decides the match almost every time. The most striking single finding
+ * that drove this: at the OLD divisor, `HOME_ADVANTAGE_BONUS` (a flat +3,
+ * explicitly meant to be "modest... enough to tilt a coin-flip, never
+ * enough to override a genuine skill gap") gave two otherwise IDENTICAL
+ * players a 91.1% match win rate for the home side — a "modest" bonus was
+ * quietly the single most powerful mechanic in the whole simulator, more
+ * decisive than most realistic skill gaps. At divisor 80 the same +3 bonus
+ * produces a 58.9% match win rate — a real, felt edge that actually
+ * matches its own doc comment's intent instead of contradicting it. Every
+ * OTHER additive term in `effectiveRating` (the form modifier,
+ * CHEMISTRY_BONUS_PER_POINT, the fatigue penalty, the passive
+ * surfaceBonus) shares this same divisor and was re-checked with the same
+ * tool rather than assumed safe — all landed in a believable band at 80
+ * without needing their own separate coefficient changes. Still an
+ * explicit PLACEHOLDER, same status as every other flagged constant here:
+ * this is an informed value from real simulation data, not a final
+ * balanced one — revisit with the same tool if further tuning passes
+ * target any of the terms sharing this divisor. */
+export const POINT_PROBABILITY_DIVISOR = 80;
+
+/**
  * Effective-rating delta (can be positive or negative) contributed by a
  * player's current form. Pure and exported so it can be unit-tested and
  * surfaced in the UI's form gauge without re-deriving the curve.
@@ -114,14 +147,21 @@ export class StatisticalMatchSimulator implements MatchSimulator {
    * same regardless of how contested it was. */
   private static readonly SECONDS_PER_POINT = 35;
 
-  constructor(private readonly random: RandomSource) {}
+  /** Defaults to the production POINT_PROBABILITY_DIVISOR — overridable
+   * so apps/api/scripts/balance-simulation.mjs can compare candidate
+   * values against real simulation data without a second copy of this
+   * class. No production caller (composition.ts) passes this. */
+  constructor(
+    private readonly random: RandomSource,
+    private readonly pointProbabilityDivisor: number = POINT_PROBABILITY_DIVISOR,
+  ) {}
 
   simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, surface: Surface): SimulatedMatch<S> {
     const scoreA = this.effectiveRating(playerA, surface);
     const scoreB = this.effectiveRating(playerB, surface);
 
     const ratingGap = scoreA - scoreB;
-    const pointWinProbabilityA = 1 / (1 + Math.exp(-ratingGap / 15));
+    const pointWinProbabilityA = 1 / (1 + Math.exp(-ratingGap / this.pointProbabilityDivisor));
 
     const { sets, log } = this.playBestOfThree(pointWinProbabilityA);
     const setsWonByA = sets.filter((s) => s.winnerIsA).length;

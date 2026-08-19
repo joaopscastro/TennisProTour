@@ -808,42 +808,50 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    `SimulateDoublesMatchUseCase.ts`'s stale class doc comment (which
    claimed "NO title and NO peak ranking is written... deferred" directly
    above code that writes both) are fixed alongside this.
-3. **Balance/tuning pass (GC-5.2 in the roadmap)** — `effectiveRating`'s
-   point-win-probability formula is still illustrative, and a long list of
-   constants added since (fatigue/form thresholds, `HOME_ADVANTAGE_BONUS`,
-   `DIRECT_ACCEPTANCE_CUTOFF`, the training-redesign deltas, aging
-   thresholds, ranking-point values) are each individually flagged
-   PLACEHOLDER in their own section but were never tuned against real
-   simulation data. **The missing TOOL is now built and a baseline reading
-   taken** (`docs/balance-tuning-report.md`,
-   `apps/api/scripts/balance-simulation.mjs`) — this doesn't retune
-   anything yet (that's still open, see below), but it closes the "no
-   bulk simulation sample, no statistical validation, no recorded
-   methodology" gap the roadmap flagged. The script imports
-   `StatisticalMatchSimulator` directly (pure domain, no HTTP/DB — unlike
-   `playtest.mjs`, which is an API rules-correctness bot-manager smoke
-   test, not a statistics tool) and runs it thousands of times per bucket
-   with REAL randomness across a rating-gap matrix, a fatigue matrix, and
-   a surface-affinity-gap matrix, each isolating one variable while
-   holding everything else identical between the two participants. **Real
-   finding, not just a clean bill of health**: every curve is monotonic
-   in the right direction, but all three saturate far too fast to be
-   credible — a uniform rating gap of just 5 (of 100) points already
-   produces a 98.6% win rate, 8+ is a mathematical blowout; 30 points of
-   fatigue (out of 100) already leaves almost no chance of winning; a
-   10-point surface-affinity edge (of a 60-point cap) already wins 91% of
-   the time. Root cause: `pointWinProbabilityA`'s sigmoid is tuned by
-   eyeballing a single point in isolation, but a best-of-3 match compounds
-   that per-point edge over dozens of independent points, producing a
-   match-level win probability far steeper than the per-point formula
-   alone suggests — exactly the compounding effect a real simulation
-   sample (as opposed to reasoning about the formula on paper) surfaces.
-   `docs/balance-tuning-report.md` has the full methodology, result
-   tables, and a concrete recommendation (widen the sigmoid's `/15`
-   divisor, or equivalently shrink the attribute-weight coefficients
-   feeding `ratingGap`) for whoever does the actual retuning pass — which
-   remains open, deliberately not attempted in the same pass as building
-   the tool.
+3. ~~**Balance/tuning pass (GC-5.2 in the roadmap)** — `effectiveRating`'s
+   point-win-probability formula is still illustrative... never tuned
+   against real simulation data.~~ **The tool was built, a baseline
+   reading was taken, AND the actual retuning pass now happened** — this
+   supersedes the earlier "doesn't retune anything yet... remains open"
+   phrasing. The baseline reading (`docs/balance-tuning-report.md`,
+   `apps/api/scripts/balance-simulation.mjs`) found every curve saturating
+   far too fast: a uniform 5-point rating gap already produced a 98.6%
+   match win rate. The retuning pass then found the actual ROOT CAUSE and
+   fixed it: `pointWinProbabilityA`'s sigmoid divisor was a hardcoded
+   inline `/ 15`, now the named, exported
+   `POINT_PROBABILITY_DIVISOR` constant in `StatisticalMatchSimulator.ts`,
+   retuned to **80** after comparing 8 candidate values against the same
+   tool (the simulator's constructor now takes an optional divisor
+   override specifically for this). **The single most striking finding
+   that drove the choice, not just the saturating curves**: at the OLD
+   divisor, `HOME_ADVANTAGE_BONUS` — a flat +3 explicitly documented as
+   "modest... enough to tilt a coin-flip, never enough to override a
+   genuine skill gap" — gave two otherwise IDENTICAL players a **91.1%**
+   match win rate for the home side, directly contradicting its own doc
+   comment and quietly making it the single most powerful mechanic in the
+   whole simulator. At the retuned divisor of 80, the same bonus produces
+   a 59.5% match win rate — finally a real, felt edge instead of a
+   near-lock. Every other curve moved into a believable band too: a
+   5-point rating gap now wins ~66% (was 98.6%), a 30-fatigue-point
+   penalty now costs ~15 percentage points (was a near-certain loss), a
+   10-point surface-affinity edge now wins ~59% (was 90.9%) — full
+   before/after tables in `docs/balance-tuning-report.md`, which also adds
+   a permanent `homeAdvantage` regression bucket to the script so this
+   specific finding gets re-checked automatically if either constant ever
+   changes again. The one dependent unit test
+   (`StatisticalMatchSimulator.test.ts`'s home-advantage coin-flip
+   demonstration, which scripted an RNG value that only worked at the old
+   divisor) was updated to the new sigmoid threshold — domain suite stayed
+   at 328 (net zero: the test changed, not the count), application 197,
+   api 75, worker 8, all green; full monorepo `tsc --build --force` clean.
+   `POINT_PROBABILITY_DIVISOR` is still an explicit PLACEHOLDER — 80 is an
+   informed value from real data, not a final balanced one — but the
+   specific documented contradiction (a "modest" bonus being the most
+   decisive mechanic in the game) is fixed, not just measured. The other
+   ~35+ PLACEHOLDER constants that don't feed this sigmoid (aging
+   thresholds, `StandardRankingPointsTable`'s values, the training-
+   redesign deltas, `DIRECT_ACCEPTANCE_CUTOFF`, etc.) are unrelated to
+   this fix and remain open for their own dedicated passes.
 4. ~~**Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
    table still isn't wired into `StatisticalMatchSimulator`.~~ **Built.**
    New `packages/domain/src/match-simulation/SurfaceAttributeWeightingPolicy.ts`
