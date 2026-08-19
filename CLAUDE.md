@@ -744,9 +744,9 @@ tennis-manager/
 4. **Manager & Progression** — manager XP, staff, scouting. 🟢 domain/economy AND a real UI surface now: scouting (the talent pool — see "Player acquisition" above), manager XP accrual, and a first staff mechanic (coach conversion) are all real, and so is the frontend for all three. **Update — the "UI for XP/coaching is not built yet" gap this line used to flag is closed**: the sidebar shows a manager's XP balance persistently (`EntitlementDto.xpBalance`, riding the existing entitlement fetch every screen already calls, not a new endpoint); the Scouting page shows each candidate's real claim cost (`TalentClaimPricingPolicy.priceFor`) and disables (never hides) a candidate the manager can't afford, with a "Need N more XP" line; and a roster row's "More" menu has a real "Convert to coach" action opening `CoachConversionModal`, which fetches a preview (`GET /players/:id/coach-conversion-preview`) computed from the exact same `CoachConversionPolicy` instance `ConvertPlayerToCoachUseCase` itself uses — the manager sees the real XP cost and resulting coachRating for that specific player, and a plain-stated coach-cap message if they're already at 1 (free) / 2 (Pro), before an explicit confirm step commits the (permanent) conversion via `POST /players/:id/convert-to-coach`. Manager XP is a simple cumulative balance (`ManagerXpRepository`/`ManagerXpPolicy`), credited on every rostered player's deciding match result (same event point as ranking-ledger writes) and spent on two things: claiming a talent-pool candidate (`TalentClaimPricingPolicy`, atomically claimed+charged via `TalentClaimPort`/a real DB transaction — see `DrizzleTalentClaimAdapter`; **blended pricing, not a flat ability-based formula** — at the youngest age a candidate could have been generated at, price is flat (BASE_COST regardless of rating, since a 14-year-old's current ability barely predicts what they'll become); as generated age increases toward the oldest the range allows, the original super-linear `overallRating()`-based formula progressively takes over, reaching it fully at the oldest age. The blend factor reuses `ageInterpolationFactor` — the exact same age-position formula `PlayerGenerationPolicy.noiseProbabilityForAge` already used for scouting's potential-range uncertainty, extracted to `PlayerGenerationPolicy.ts` and shared rather than reimplemented) and converting a rostered player into a `Coach` (`CoachConversionPolicy`, cost/rating scale with ability+age, permanent, capped at 1/manager free tier / 2/manager Manager Pro — see `ConvertPlayerToCoachUseCase` and `coachCap.ts`; this 2nd-coach cap is a deliberate, disclosed exception to principle #1 above, not an oversight). A manager's coach applies a training-efficiency multiplier in `TrainingPolicy.applyCoachBonus`. All pricing/rating/XP constants are explicit placeholders, flagged in code comments the same way aging thresholds and ranking point values are. `maxRosterSizeFor` (roster-cap policy) lives in `packages/application/src/use-cases/rosterCap.ts`, shared by `ClaimTalentPoolCandidateUseCase` and `CreateCustomPlayerUseCase`.
 
 **Update — the decaying public MANAGER LADDER is now built (the RR-inspired retention meta-loop, see `docs/rocking-rackets-competitive-analysis.md` §1d/P3), and it is deliberately a SEPARATE store from the XP wallet, not a rename of it.** The XP wallet (`ManagerXpRepository`) stays exactly what it was: monotonic, spendable, private. The ladder (`ManagerLadderRepository` port / `manager_ladder` table / `DrizzleManagerLadderRepository`) is the opposite on every axis — it is banked, never spent, public, and it DECAYS. Both are credited at the exact same event (a rostered player's deciding match result, alongside the `ranking_ledger` write in `SimulateMatchUseCase.awardRankingPoints`); the ladder banks `ManagerLadderPolicy.creditFor(points)` (currently identity — a 0-point first-round loss banks 0, so the ladder only grows on real earned points, mirroring the ranking ledger exactly and never rewarding mere participation). Erosion is applied ONCE per weekly rollover (never per day tick — see `AdvanceWorldWeekUseCase`, gated on the same `weekRolledOver` path as aging/training) as a single whole-table `UPDATE ... SET score = score * factor`, cost independent of how many matches were played; `StandardManagerLadderPolicy.weeklyDecayFactor()` is a flat 0.99 for everyone (the VIP-faster-decay tier split from RR's 1%/1.5% design is deferred to the Billing context, and — like all economy constants here — 0.99 is an explicit PLACEHOLDER). Score is stored as `doublePrecision` (decay produces fractionals; callers round only for display). The public leaderboard is `GET /managers/leaderboard?limit=` (`managerRoutes.ts`) — `topStandings` enriched with manager display names (`ManagerAccountRepository.findById`, added for this), plus the caller's own `rankFor`/`scoreFor` so the page can show "you are #N" (or an honest "NR" when they've never banked a point, genuinely unranked rather than floor-ranked at last). The frontend `/managers` page (new "Managers" sidebar nav item) renders it as a real standings table with medal-tinted top 3, a "Your Position" hero chip, and the caller's own row highlighted (and appended below the cut if they're outside the returned slice). Verified live end-to-end against real Postgres, not just unit-tested: simulated a full 16-draw challenger tournament, watched managers' ladder scores credit (champion's manager led at 29), then ran real weekly-rollover worker ticks and watched every score erode by exactly ×0.99 per rollover — with clean ×0.99 (never double-decay) confirming the tick idempotency key holds even with multiple worker instances racing. Decay fires ONLY on rollover, never mid-week (pinned by `AdvanceWorldWeekUseCase.test.ts`).
-5. **Billing** — Stripe subscriptions/one-offs, entitlements. ⬜ not started (`BillingPort` referenced but not yet defined).
-6. **Notifications** — push/email digest, decoupled via events. ⬜ not started.
-7. **Social** — guilds/academies, chat, leaderboards. ⬜ not started.
+5. **Billing** — Stripe subscriptions/one-offs, entitlements. 🟢 built: `BillingPort`/`StripeBillingAdapter` (`apps/api/src/adapters/outbound/StripeBillingAdapter.ts`) backs Manager Pro — `isProSubscriber` reads a local `manager_entitlements` table kept current by webhooks (not a live Stripe call on every request, so the hire path stays fast and keeps working when Stripe is briefly down), `createProCheckoutSession` starts real checkout, and the webhook route verifies signatures (`stripe.webhooks.constructEvent`) before calling `activatePro`/`deactivateBySubscription`/`grantCustomPlayerCredit` — the last of which funds `CreateCustomPlayerUseCase`'s one-credit-per-confirmed-renewal mechanic described in principle #1 above (a real `invoice.paid` webhook with `billing_reason: subscription_cycle`, not an invented clock). Covered by `billing.integration.test.ts` against real Stripe webhook signature verification (`stripe.webhooks.generateTestHeaderString` — pure local crypto, no network). **This line read "not started" for a long stretch of this doc's history, directly contradicted by the custom-player-credit paragraph a few hundred lines above it** — exactly the drift the "always update AGENTS.md and CLAUDE.md together" discipline exists to prevent; found and fixed during a full-document audit, not by assumption.
+6. **Notifications** — push/email digest, decoupled via events. ⬜ not started. No port, no adapter, no domain events wired to one anywhere in the codebase (verified by grep, not assumed from this line's age).
+7. **Social** — guilds/academies, chat, leaderboards. ⬜ mostly not started. The one exception: the public, decaying manager ladder (`GET /managers/leaderboard`, see Manager & Progression above) covers "leaderboards" specifically — guilds/academies/chat remain entirely unbuilt.
 
 ## What's already built (in `domain-model/` at repo root, or wherever it's placed)
 - `domain/shared/ids.ts` — branded ID types (`PlayerId`, `TournamentId`, etc.), `GameWeek` value object.
@@ -769,12 +769,52 @@ All of the above passes `npx tsc --noEmit --strict --target ES2020 --module comm
 - ~~`StatisticalMatchSimulator`'s scoring loop treats each simulated "point" as directly incrementing a game count, skipping real game-by-game/deuce structure.~~ **Fixed**: every game (and tiebreak) is now played out as a real point-by-point sequence — 0/15/30/40, deuce, advantage, sudden-death tiebreak scoring — with unit tests asserting the point-score sequence at every step, not just the final winner (see `StatisticalMatchSimulator.test.ts`). `MatchLog` gained a `points` array (`MatchPointEntry[]`) alongside the existing game-completion `entries` rollup, which is unchanged and still what the bracket/scrub-bar tick marks consume. What's still a placeholder, not yet fixed: the underlying point-win-probability formula (`effectiveRating`'s attribute weights, the `/15` sigmoid divisor) is illustrative, not balanced — it's the credibility core of the whole game and still worth a dedicated tuning pass before launch, players will forgive UI roughness far more than a sim that "feels rigged."
 
 ## Immediate next steps (in rough order)
-1. `BracketGenerator` domain service (single-elimination seeding) for the Competition context.
-2. Monorepo scaffolding per the layout above.
-3. Postgres/Drizzle adapters implementing `PlayerRepository` and `TournamentRepository`.
-4. Define `BillingPort` and a `StripeAdapter` implementing it.
-5. Unit tests for `StatisticalMatchSimulator` with a fixed `RandomSource` stub, before any balance tuning.
-6. Object-storage adapter implementing `MatchLogStorePort`.
+
+**This section previously listed six items from the very first version of
+this doc (BracketGenerator, monorepo scaffolding, BillingPort/Stripe, etc.)
+— all done for a long time, never refreshed as the project moved on. Replaced
+during the same audit that fixed the Billing line above, with the real
+current gaps, gathered from this doc's own inline "Update —"/"Known,
+disclosed gap" notes plus `docs/implementation-roadmap.md` and
+`docs/doubles-and-special-formats-plan.md` — not re-derived from scratch.**
+
+1. **Notifications and Social (bounded contexts #6/#7)** — genuinely
+   unstarted (Social's leaderboard piece excepted, see above). No port, no
+   adapter, nothing wired to a domain event.
+2. **Doubles P7c** — chemistry, doubles titles/peaks, doubles qualifying,
+   junior doubles. P7a (partnerships) and P7b (the full competition loop)
+   are built and tested; P7c is explicitly "planned, not built" per
+   `docs/doubles-and-special-formats-plan.md`, whose own top-line status
+   summary is itself stale (still says P8 "planned, not built" even though
+   its own P8a/b/c subsections are each marked ✅ BUILT further down —
+   worth a cleanup pass, not touched here since this file's job is
+   CLAUDE.md/AGENTS.md, not every doc in `docs/`).
+3. **Balance/tuning pass (GC-5.2 in the roadmap)** — `effectiveRating`'s
+   point-win-probability formula is still illustrative, and a long list of
+   constants added since (fatigue/form thresholds, `HOME_ADVANTAGE_BONUS`,
+   `DIRECT_ACCEPTANCE_CUTOFF`, the training-redesign deltas, aging
+   thresholds, ranking-point values) are each individually flagged
+   PLACEHOLDER in their own section but were never tuned against real
+   simulation data.
+4. **Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
+   table still isn't wired into `StatisticalMatchSimulator`; which
+   attribute you train doesn't yet interact with which surface you play.
+5. **Junior standings/leaderboard page** — a manager can only see a
+   band's ranking through their own rostered players' rows, never browse
+   the full U14/U16 tables.
+6. **Bracket-screen filler-entrant UI** — no visual distinction between a
+   real manager's player and a fill-only free agent padding a draw.
+7. **Manager identity (Clerk) production readiness** — the `AuthPort`
+   implementation is built, but per `docs/implementation-roadmap.md`
+   GC-2.1 it's still "in Review, pending real Clerk keys and a
+   production-mode smoke test" — local dev uses an explicit dev-identity
+   header, and production must set `AUTH_MODE=clerk` (see
+   `docs/security-and-identity.md`).
+8. **`docs/implementation-roadmap.md` reconciliation** — the roadmap has
+   drifted well behind this file: several epics it marks Backlog/In
+   progress (manager XP, coaching, scouting, training-focus shape) are
+   actually done and, in training's case, reworked twice since. Treat this
+   file as ground truth over the roadmap until someone reconciles them.
 
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
