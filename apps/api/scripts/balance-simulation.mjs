@@ -32,7 +32,18 @@
 import { writeFileSync } from 'node:fs';
 import domain from '@tennis-manager/domain';
 
-const { StatisticalMatchSimulator, PlayerAttributes, Skill, SurfaceAffinities, PlayerId, POINT_PROBABILITY_DIVISOR } = domain;
+const {
+  StatisticalMatchSimulator,
+  PlayerAttributes,
+  Skill,
+  SurfaceAffinities,
+  PlayerId,
+  POINT_PROBABILITY_DIVISOR,
+  Player,
+  StandardTrainingPolicy,
+  StandardPlayerDevelopmentPolicy,
+  weakestTrainableAttribute,
+} = domain;
 
 const TRIALS_PER_BUCKET = Number(process.env.TRIALS_PER_BUCKET ?? 3000);
 const REPORT_PATH = process.env.BALANCE_REPORT ?? 'balance-report.json';
@@ -138,6 +149,136 @@ const homeAdvantageResult = (() => {
   return { winRateA: rate };
 })();
 
+// --- Bucket 5: roster-gap catch-up (P4 training economy, not raw sim) --
+// A real LLM-manager playtest (docs referenced in CLAUDE.md's "Immediate
+// next steps") ran 4 managers through 436 combined tournament entries
+// with zero titles, and flagged a real, unanswered question: does a
+// mediocre STARTING roster (roughly what a free-tier manager actually
+// signs off the talent pool — llm-3/llm-5/llm-6's real rosters, ~48 OVR)
+// ever become competitive against a strong starting roster (llm-4's real
+// senior roster, ~80 OVR), and if so how long does it take? Unlike
+// buckets 1-4 (which hold attributes FIXED and measure the sim's
+// win-rate curve), this bucket runs the REAL weekly production growth
+// math — StandardPlayerDevelopmentPolicy's weekly talent income + match
+// XP funding StandardTrainingPolicy's per-attribute deltas through
+// Player.applyTraining, exactly what AdvanceWorldWeekUseCase and
+// SimulateMatchUseCase do in production — for many simulated weeks, and
+// measures the resulting head-to-head win rate at realistic checkpoints.
+//
+// Both rosters get the SAME talent (50, the distribution's average) and
+// the same weekly regimen (train the single weakest trainable attribute
+// every week — weakestTrainableAttribute, the identical policy fillOnly
+// players already auto-train under in production, and a reasonable stand-
+// in for "a manager who trains their worst weakness every week"), so the
+// only free variable is starting ability + hidden ceiling — the actual
+// "roster quality" gap a real claim produces. Both rosters' physical
+// ceilings use MAX_POTENTIAL_HEADROOM's real EXPECTED headroom (22.5 —
+// half of PlayerGenerationPolicy's 0-45 uniform roll), NOT a
+// tier-dependent headroom: rollPhysicalCeilings anchors headroom to each
+// attribute's own CURRENT value and rolls it independently of rarity
+// tier (a common player can roll just as big a headroom as an
+// exceptional one — see that method's own doc comment on why: "scouting
+// value is highest for currently-unimpressive players"). An earlier
+// version of this bucket used a much smaller made-up headroom (12) for
+// both rosters, which understated how much real headroom a mediocre
+// claim can carry — corrected here to the real distribution's average
+// rather than an invented pessimistic number.
+//
+// Each simulated week: (1) weekly talent income is credited
+// (weeklyTalentIncome(talent)); (2) each player plays one competitive
+// match — against an opponent matched to THEIR OWN current skill, a
+// deliberate "you can usually find a fair fixture" assumption so match
+// XP reflects genuine competitiveness rather than an arbitrary fixed
+// opponent — through the REAL StatisticalMatchSimulator, and the match's
+// actual games-won margin funds matchExperience (not a flat XP grant);
+// (3) one funded training tick is applied to the weakest attribute. Every
+// CATCHUP_CHECKPOINT_WEEKS entry, both players' current OVR and a real
+// head-to-head win rate (CATCHUP_TRIALS trials, neutral hard court, equal
+// fatigue/form) are recorded. Checkpoints run out to 3 full seasons (156
+// weeks), not just 1, because technical attributes are UNCAPPED (no
+// ceiling at all — see Player.applyTraining) and only bounded by Skill's
+// own 0-100 clamp: any gap in technical ability is, in principle,
+// eventually closeable over a long enough horizon even though a single
+// season isn't long enough to show it.
+// WEEKLY_XP_PER_TALENT / XP_PER_SKILL_POINT overrides — same
+// compare-candidate-values-against-real-data workflow as DIVISOR above:
+//   WEEKLY_XP_PER_TALENT=0.6 XP_PER_SKILL_POINT=10 node apps/api/scripts/balance-simulation.mjs
+const WEEKLY_XP_PER_TALENT = process.env.WEEKLY_XP_PER_TALENT ? Number(process.env.WEEKLY_XP_PER_TALENT) : undefined;
+const XP_PER_SKILL_POINT = process.env.XP_PER_SKILL_POINT ? Number(process.env.XP_PER_SKILL_POINT) : undefined;
+// BASE_GAIN_YOUTH overrides StandardTrainingPolicy's youth per-session
+// gain (default 1.0/week); the other three stages scale with it
+// proportionally (same relative gaps: prime 0.6x, decline 0.3x, retired 0).
+const BASE_GAIN_YOUTH = process.env.BASE_GAIN_YOUTH ? Number(process.env.BASE_GAIN_YOUTH) : 1.0;
+const trainingPolicy = new StandardTrainingPolicy({
+  youth: BASE_GAIN_YOUTH,
+  prime: BASE_GAIN_YOUTH * 0.6,
+  decline: BASE_GAIN_YOUTH * 0.3,
+  retired: 0,
+});
+const developmentPolicy = new StandardPlayerDevelopmentPolicy(WEEKLY_XP_PER_TALENT, XP_PER_SKILL_POINT);
+const AVERAGE_TALENT = 50;
+const CATCHUP_CHECKPOINT_WEEKS = [13, 26, 52, 104, 156];
+const CATCHUP_TRIALS = 2000;
+const CATCHUP_YOUTH_AGE_WEEKS = 15 * 52; // matches TALENT_POOL_AGE_RANGE's midpoint
+// PlayerGenerationPolicy.MAX_POTENTIAL_HEADROOM is 45, rolled uniformly
+// [0, 45] on top of each attribute's own current value — this is the
+// distribution's expected value, used deterministically here (a single
+// clean reading) rather than re-rolling headroom per trial.
+const EXPECTED_CEILING_HEADROOM = 22.5;
+
+function makeCatchupPlayer(id, { skill, ceilingHeadroom }) {
+  const ceilings = { speed: skill + ceilingHeadroom, stamina: skill + ceilingHeadroom, strength: skill + ceilingHeadroom };
+  return Player.generateFillOnly(
+    PlayerId(id),
+    id,
+    CATCHUP_YOUTH_AGE_WEEKS,
+    'youth',
+    flatAttributes(skill),
+    'BR',
+    skill + ceilingHeadroom,
+    ceilings,
+    AVERAGE_TALENT,
+  );
+}
+
+function trainOneWeek(player) {
+  player.gainExperience(developmentPolicy.weeklyTalentIncome(player.talent));
+
+  const opponent = { playerId: PlayerId('sparring-partner'), fatigue: 0, form: 0, attributes: flatAttributes(player.attributes.overallRating()) };
+  const self = { playerId: player.id, fatigue: player.fatigue, form: player.form, attributes: player.attributes };
+  const { outcome } = simulator.simulate(self, opponent, 'hard');
+  const isWinner = outcome.winner === player.id;
+  const loserGames = outcome.setScores.reduce((sum, set) => sum + set.loserGames, 0);
+  player.gainExperience(developmentPolicy.matchExperience({ loserGames, isWinner }));
+
+  const focusAttribute = weakestTrainableAttribute(player.attributes);
+  player.applyTraining({ kind: 'attribute', attribute: focusAttribute }, trainingPolicy, null, developmentPolicy);
+}
+
+const mediocrePlayer = makeCatchupPlayer('mediocre', { skill: 48, ceilingHeadroom: EXPECTED_CEILING_HEADROOM }); // ceiling ~70.5
+const strongPlayer = makeCatchupPlayer('strong', { skill: 80, ceilingHeadroom: EXPECTED_CEILING_HEADROOM }); // ceiling ~99 (clamped)
+
+const catchupRows = [];
+const maxWeeks = Math.max(...CATCHUP_CHECKPOINT_WEEKS);
+for (let week = 1; week <= maxWeeks; week++) {
+  trainOneWeek(mediocrePlayer);
+  trainOneWeek(strongPlayer);
+  if (CATCHUP_CHECKPOINT_WEEKS.includes(week)) {
+    const winRateStrong = winRateA(
+      { playerId: PlayerId('strong'), fatigue: 0, form: 0, attributes: strongPlayer.attributes },
+      { playerId: PlayerId('mediocre'), fatigue: 0, form: 0, attributes: mediocrePlayer.attributes },
+      'hard',
+      CATCHUP_TRIALS,
+    );
+    catchupRows.push({
+      week,
+      mediocreOverall: Math.round(mediocrePlayer.attributes.overallRating()),
+      strongOverall: Math.round(strongPlayer.attributes.overallRating()),
+      winRateStrongOverMediocre: winRateStrong,
+    });
+  }
+}
+
 function isMonotonicNonDecreasing(rows, key) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].winRateA < rows[i - 1].winRateA - 0.02) return false; // small tolerance for sampling noise
@@ -150,6 +291,12 @@ const report = {
     runAt: new Date().toISOString(),
     trialsPerBucket: TRIALS_PER_BUCKET,
     pointProbabilityDivisor: DIVISOR,
+    // The class defaults (0.3, 18) when no override env var is set —
+    // read back via a probe call rather than duplicating the constants
+    // here, so this can never drift from what the policy actually used.
+    weeklyXpPerTalent: developmentPolicy.weeklyTalentIncome(100) / 100,
+    xpPerSkillPoint: developmentPolicy.experienceCostPerSkillPoint(),
+    baseGainYouth: BASE_GAIN_YOUTH,
   },
   ratingGap: {
     description: 'Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.',
@@ -171,6 +318,12 @@ const report = {
     description: 'Match win rate for A (equal skill to B in every other respect) with HOME_ADVANTAGE_BONUS applied — a regression check for the finding that drove the POINT_PROBABILITY_DIVISOR retuning.',
     winRateA: homeAdvantageResult.winRateA,
   },
+  rosterGapCatchup: {
+    description:
+      'Real weekly production growth math (StandardPlayerDevelopmentPolicy + StandardTrainingPolicy via Player.applyTraining), not raw sim: a mediocre-start roster (48 OVR, physical ceilings ~70.5) vs. a strong-start roster (80 OVR, physical ceilings ~99), same talent (50) and same expected ceiling headroom (22.5, PlayerGenerationPolicy\'s real distribution average — headroom is rolled independently of rarity tier), training its weakest attribute every week. Rows are the strong roster\'s match win rate over the mediocre one at each checkpoint, out to 3 seasons.',
+    startingOverall: { mediocre: Math.round(48), strong: Math.round(80) },
+    rows: catchupRows,
+  },
 };
 
 writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
@@ -190,3 +343,11 @@ console.log(`  monotonic: ${report.surfaceAffinityGap.monotonic}`);
 
 console.log(`\nHome advantage (equal skill, A has HOME_ADVANTAGE_BONUS) -> match win rate for A:`);
 console.log(`  ${(homeAdvantageResult.winRateA * 100).toFixed(1)}%`);
+
+console.log('\nRoster-gap catch-up (mediocre 48 OVR/ceiling~70.5 vs. strong 80 OVR/ceiling~99, weakest-attribute training weekly):');
+console.log('  week  mediocre OVR  strong OVR  strong win rate over mediocre');
+for (const row of catchupRows) {
+  console.log(
+    `  ${String(row.week).padStart(4)}  ${String(row.mediocreOverall).padStart(12)}  ${String(row.strongOverall).padStart(10)}  ${(row.winRateStrongOverMediocre * 100).toFixed(1)}%`,
+  );
+}

@@ -722,6 +722,7 @@ export interface DoublesPartnerDto {
   playerId: string;
   name: string;
   nationality: string;
+  chemistry: number;
 }
 
 export type PotentialTier = 'limited' | 'promising' | 'high' | 'elite';

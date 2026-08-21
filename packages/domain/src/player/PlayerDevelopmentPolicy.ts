@@ -80,6 +80,18 @@ export class StandardPlayerDevelopmentPolicy implements PlayerDevelopmentPolicy 
    * playing" is a real constraint, not a formality. */
   private static readonly XP_PER_SKILL_POINT = 18;
 
+  /** Optional constructor overrides — same pattern as
+   * StatisticalMatchSimulator's `pointProbabilityDivisor` override, which
+   * exists specifically so `apps/api/scripts/balance-simulation.mjs` can
+   * compare candidate values against real simulation data instead of
+   * guessing at a retuning pass, rather than editing the private static
+   * constants directly between runs. Absent = the class constants above,
+   * unchanged for every existing caller. */
+  constructor(
+    private readonly weeklyXpPerTalentOverride: number = StandardPlayerDevelopmentPolicy.WEEKLY_XP_PER_TALENT,
+    private readonly xpPerSkillPointOverride: number = StandardPlayerDevelopmentPolicy.XP_PER_SKILL_POINT,
+  ) {}
+
   matchExperience(input: { loserGames: number; isWinner: boolean }): number {
     const loserGames = Math.max(0, input.loserGames);
     const loserXp = StandardPlayerDevelopmentPolicy.MATCH_XP_FLOOR + loserGames * StandardPlayerDevelopmentPolicy.XP_PER_LOSER_GAME;
@@ -88,10 +100,10 @@ export class StandardPlayerDevelopmentPolicy implements PlayerDevelopmentPolicy 
   }
 
   weeklyTalentIncome(talent: number): number {
-    return Math.round(Math.max(0, talent) * StandardPlayerDevelopmentPolicy.WEEKLY_XP_PER_TALENT);
+    return Math.round(Math.max(0, talent) * this.weeklyXpPerTalentOverride);
   }
 
   experienceCostPerSkillPoint(): number {
-    return StandardPlayerDevelopmentPolicy.XP_PER_SKILL_POINT;
+    return this.xpPerSkillPointOverride;
   }
 }

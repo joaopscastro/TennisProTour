@@ -1,4 +1,4 @@
-import { BracketGenerator, DoublesPairingService, RandomSource, Tournament, RankingBand, PairId, doublesEntryRanking } from '@tennis-manager/domain';
+import { BracketGenerator, DoublesPairingService, RandomSource, Tournament, RankingBand, PairId, doublesEntryRanking, isAgeEligibleForTournamentBand } from '@tennis-manager/domain';
 import { PlayerId } from '@tennis-manager/domain';
 import { DoublesPairRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
@@ -43,7 +43,7 @@ export class FormDoublesDrawUseCase {
 
   async form(tournament: Tournament): Promise<void> {
     if (!tournament.hasDoubles || tournament.hasDoublesDrawStarted) return;
-    const entrants = [...tournament.doublesEntrants];
+    let entrants = [...tournament.doublesEntrants];
     if (entrants.length === 0) return;
 
     // Junior doubles (P8): the combined ranking is computed in the
@@ -59,8 +59,53 @@ export class FormDoublesDrawUseCase {
     const doublesTotals = new Map(doublesRanked.map((r) => [r.playerId, r.totalPoints]));
     const singlesTotals = new Map(singlesRanked.map((r) => [r.playerId, r.totalPoints]));
 
-    // Free-agent fillers: manager-less players not already in the field.
-    const fillerIds: PlayerId[] = freeAgents.map((p) => p.id).filter((id) => !entrants.includes(id));
+    // Free-agent fillers: manager-less players not already in the field,
+    // age-eligible for this tournament's band (this filter is new — see
+    // the padding block below for why it matters more now than it did
+    // when a filler could only ever cover a single odd leftover).
+    let fillerIds: PlayerId[] = freeAgents
+      .filter((p) => isAgeEligibleForTournamentBand(p.ageInWeeks, tournament.ageBand))
+      .map((p) => p.id)
+      .filter((id) => !entrants.includes(id));
+
+    // A doubles field never forms a bracket below 2 pairs — see
+    // DoublesPairingService.pair: persistent partnerships pair off,
+    // remaining solo entrants pair two-by-two, and only ONE odd leftover
+    // ever gets a filler. There is no general backfill of a sparse field,
+    // unlike SINGLES draws, which StartDueTournamentsUseCase.fillSlots
+    // already pads from the fill-only pool up to full draw capacity. A
+    // single persistent pair entering alone — the common real case —
+    // forms exactly 1 pair and silently never plays: `form()` still runs
+    // to completion and saves, no error, `hasDoublesDrawStarted` just
+    // never becomes true, and SimulateDueMatchesUseCase.sweepDoubles
+    // gates on exactly that flag, forever. Confirmed live during an
+    // extended playtest: 0 decided doubles matches anywhere in the
+    // world, across 3+ seasons and 89 real doubles-entrant registrations.
+    //
+    // Fix: pad the PAIRING INPUT (not `tournament.doublesEntrants` — a
+    // filler never actually "registers", exactly like the pre-existing
+    // odd-leftover filler already didn't; registering here would also
+    // incorrectly throw once this tournament's SINGLES draw has already
+    // started, which it usually has by the time this runs) with enough
+    // free agents to reach a full `doublesDrawSize` worth of pairs — the
+    // same "fill all the way to capacity, not just the bare minimum"
+    // philosophy `fillSlots` already applies to singles, so a lightly
+    // subscribed doubles field gets a real, full-sized bracket instead of
+    // perpetually forming just one padded pair. Excludes any filler
+    // already committed to another tournament the same week (the same
+    // check `fillSlots` already uses for singles), so padding can never
+    // double-book a filler across two draws forming in the same tick.
+    const targetFieldSize = tournament.doublesDrawSize * 2;
+    if (entrants.length < targetFieldSize) {
+      const padded: PlayerId[] = [];
+      for (const id of fillerIds) {
+        if (entrants.length + padded.length >= targetFieldSize) break;
+        const committedElsewhere = await this.tournaments.findByPlayerAndWeek(id, tournament.weekScheduled);
+        if (committedElsewhere.length === 0) padded.push(id);
+      }
+      entrants = [...entrants, ...padded];
+      fillerIds = fillerIds.filter((id) => !padded.includes(id));
+    }
 
     const entryRanking = new Map<PlayerId, number>();
     for (const id of [...entrants, ...fillerIds]) {

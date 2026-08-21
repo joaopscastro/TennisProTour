@@ -1,47 +1,50 @@
 {
   "meta": {
-    "runAt": "2026-08-19T17:20:35.194Z",
-    "trialsPerBucket": 8000,
-    "pointProbabilityDivisor": 80
+    "runAt": "2026-08-21T12:24:15.927Z",
+    "trialsPerBucket": 3000,
+    "pointProbabilityDivisor": 80,
+    "weeklyXpPerTalent": 0.3,
+    "xpPerSkillPoint": 18,
+    "baseGainYouth": 1
   },
   "ratingGap": {
     "description": "Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.",
     "rows": [
       {
         "gap": 0,
-        "winRateA": 0.497875
+        "winRateA": 0.5106666666666667
       },
       {
         "gap": 2,
-        "winRateA": 0.571
+        "winRateA": 0.562
       },
       {
         "gap": 5,
-        "winRateA": 0.662625
+        "winRateA": 0.6776666666666666
       },
       {
         "gap": 8,
-        "winRateA": 0.749625
+        "winRateA": 0.7536666666666667
       },
       {
         "gap": 10,
-        "winRateA": 0.79775
+        "winRateA": 0.807
       },
       {
         "gap": 15,
-        "winRateA": 0.9045
+        "winRateA": 0.894
       },
       {
         "gap": 20,
-        "winRateA": 0.950875
+        "winRateA": 0.9586666666666667
       },
       {
         "gap": 30,
-        "winRateA": 0.991375
+        "winRateA": 0.9933333333333333
       },
       {
         "gap": 40,
-        "winRateA": 0.9995
+        "winRateA": 0.9996666666666667
       },
       {
         "gap": 50,
@@ -55,35 +58,35 @@
     "rows": [
       {
         "fatigueA": 0,
-        "winRateA": 0.503
+        "winRateA": 0.5043333333333333
       },
       {
         "fatigueA": 10,
-        "winRateA": 0.450125
+        "winRateA": 0.44633333333333336
       },
       {
         "fatigueA": 20,
-        "winRateA": 0.399
+        "winRateA": 0.39566666666666667
       },
       {
         "fatigueA": 30,
-        "winRateA": 0.355125
+        "winRateA": 0.3446666666666667
       },
       {
         "fatigueA": 40,
-        "winRateA": 0.293125
+        "winRateA": 0.306
       },
       {
         "fatigueA": 60,
-        "winRateA": 0.22475
+        "winRateA": 0.23466666666666666
       },
       {
         "fatigueA": 80,
-        "winRateA": 0.153375
+        "winRateA": 0.163
       },
       {
         "fatigueA": 100,
-        "winRateA": 0.10475
+        "winRateA": 0.102
       }
     ],
     "monotonicNonIncreasing": true
@@ -93,37 +96,76 @@
     "rows": [
       {
         "affinityGap": 0,
-        "winRateA": 0.49975
+        "winRateA": 0.494
       },
       {
         "affinityGap": 5,
-        "winRateA": 0.546875
+        "winRateA": 0.5283333333333333
       },
       {
         "affinityGap": 10,
-        "winRateA": 0.590875
+        "winRateA": 0.6123333333333333
       },
       {
         "affinityGap": 20,
-        "winRateA": 0.705875
+        "winRateA": 0.7063333333333334
       },
       {
         "affinityGap": 30,
-        "winRateA": 0.778375
+        "winRateA": 0.7743333333333333
       },
       {
         "affinityGap": 40,
-        "winRateA": 0.83625
+        "winRateA": 0.837
       },
       {
         "affinityGap": 60,
-        "winRateA": 0.843875
+        "winRateA": 0.842
       }
     ],
     "monotonic": true
   },
   "homeAdvantage": {
     "description": "Match win rate for A (equal skill to B in every other respect) with HOME_ADVANTAGE_BONUS applied — a regression check for the finding that drove the POINT_PROBABILITY_DIVISOR retuning.",
-    "winRateA": 0.594875
+    "winRateA": 0.5866666666666667
+  },
+  "rosterGapCatchup": {
+    "description": "Real weekly production growth math (StandardPlayerDevelopmentPolicy + StandardTrainingPolicy via Player.applyTraining), not raw sim: a mediocre-start roster (48 OVR, physical ceilings ~70.5) vs. a strong-start roster (80 OVR, physical ceilings ~99), same talent (50) and same expected ceiling headroom (22.5, PlayerGenerationPolicy's real distribution average — headroom is rolled independently of rarity tier), training its weakest attribute every week. Rows are the strong roster's match win rate over the mediocre one at each checkpoint, out to 3 seasons.",
+    "startingOverall": {
+      "mediocre": 48,
+      "strong": 80
+    },
+    "rows": [
+      {
+        "week": 13,
+        "mediocreOverall": 49,
+        "strongOverall": 81,
+        "winRateStrongOverMediocre": 0.9955
+      },
+      {
+        "week": 26,
+        "mediocreOverall": 51,
+        "strongOverall": 83,
+        "winRateStrongOverMediocre": 0.9955
+      },
+      {
+        "week": 52,
+        "mediocreOverall": 54,
+        "strongOverall": 86,
+        "winRateStrongOverMediocre": 0.9945
+      },
+      {
+        "week": 104,
+        "mediocreOverall": 60,
+        "strongOverall": 92,
+        "winRateStrongOverMediocre": 0.9955
+      },
+      {
+        "week": 156,
+        "mediocreOverall": 61,
+        "strongOverall": 93,
+        "winRateStrongOverMediocre": 0.9965
+      }
+    ]
   }
 }

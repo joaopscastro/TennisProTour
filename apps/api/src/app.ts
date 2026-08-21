@@ -55,6 +55,28 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   app.get('/health', async () => ({ status: 'ok' }));
 
+  // Self-maintaining API discoverability (no OpenAPI/swagger package in
+  // this codebase, and a hand-maintained list would drift the moment a
+  // route was added or renamed — an extended LLM-manager playtest hit
+  // exactly this: an API-cold client had no way to enumerate what
+  // existed short of reading source). Fastify's `onRoute` lifecycle hook
+  // fires once per route as it's registered, so this list can never go
+  // stale — it's collected from the same registration calls that make
+  // the routes real, not maintained separately. Registered before the
+  // route modules below so it catches every one of them, itself
+  // included (it fires again for this very GET /routes call).
+  const routeList: Array<{ method: string; url: string }> = [];
+  app.addHook('onRoute', (route) => {
+    const methods = Array.isArray(route.method) ? route.method : [route.method];
+    for (const method of methods) {
+      if (method === 'HEAD' || method === 'OPTIONS') continue;
+      routeList.push({ method, url: route.url });
+    }
+  });
+  app.get('/routes', async () =>
+    [...routeList].sort((a, b) => a.url.localeCompare(b.url) || a.method.localeCompare(b.method)),
+  );
+
   // Dev-mode stand-in for the CDN in front of object storage: serve
   // the immutable replay blobs FilesystemMatchLogStore wrote. Reads
   // only — nothing here can create or mutate a blob.

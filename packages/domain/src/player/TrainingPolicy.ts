@@ -51,12 +51,24 @@ export interface TrainingPolicy {
  * cheaper to keep correct than to special-case around).
  */
 export class StandardTrainingPolicy implements TrainingPolicy {
-  private readonly BASE_GAIN: Record<PlayerLifecycleStage, number> = {
+  private static readonly DEFAULT_BASE_GAIN: Record<PlayerLifecycleStage, number> = {
     youth: 1.0,
     prime: 0.6,
     decline: 0.3,
     retired: 0,
   };
+
+  /** Optional per-stage override — same pattern as
+   * StatisticalMatchSimulator's `pointProbabilityDivisor` override and
+   * StandardPlayerDevelopmentPolicy's XP-economy overrides: exists so
+   * `apps/api/scripts/balance-simulation.mjs` can compare candidate
+   * gain rates against real simulation data instead of editing this
+   * private constant directly between runs. Absent = the class default
+   * above, unchanged for every existing caller. Deliberately a full
+   * Record override rather than one multiplier, since a real retuning
+   * pass may want to change the stages' RELATIVE gaps too, not just
+   * scale all four together. */
+  constructor(private readonly BASE_GAIN: Record<PlayerLifecycleStage, number> = StandardTrainingPolicy.DEFAULT_BASE_GAIN) {}
 
   computeDelta(focus: TrainingFocus, stage: PlayerLifecycleStage): number {
     const base = this.BASE_GAIN[stage];

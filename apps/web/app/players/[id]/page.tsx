@@ -531,6 +531,9 @@ export default function PlayerProfilePage() {
                       <Flag code={profile.doublesPartner.nationality} size={14} />
                       <span className="font-bold">{profile.doublesPartner.name}</span>
                     </Link>
+                    {profile.doublesPartner.status === 'active' && (
+                      <span className="text-white/60">· {profile.doublesPartner.chemistry}% chemistry</span>
+                    )}
                   </div>
                 )}
                 <div className="mt-[11px] flex items-center gap-[16px] flex-wrap">

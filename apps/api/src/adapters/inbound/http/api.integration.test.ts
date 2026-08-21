@@ -8,7 +8,9 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
 import {
+  DoublesPair,
   ManagerId,
+  PairId,
   Player,
   PlayerAttributes,
   PlayerId,
@@ -16,6 +18,9 @@ import {
   StandardAgingPolicy,
   StandardRankingPointsTable,
   SurfaceAffinities,
+  Tournament,
+  TournamentId,
+  WorldId,
 } from '@tennis-manager/domain';
 import * as schema from '../../../db/schema';
 import { testConnectionString } from '../../../db/testConnection';
@@ -151,6 +156,33 @@ describe('API', () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: 'ok' });
+  });
+
+  it('self-describes every registered route via GET /routes, collected from the real Fastify registration (not a hand-maintained list)', async () => {
+    const response = await app.inject({ method: 'GET', url: '/routes' });
+    expect(response.statusCode).toBe(200);
+    const routes = response.json() as Array<{ method: string; url: string }>;
+    expect(routes.length).toBeGreaterThan(20);
+    expect(routes).toContainEqual({ method: 'GET', url: '/managers/:id/entitlement' });
+    expect(routes).toContainEqual({ method: 'GET', url: '/managers/:id/doubles-pairs' });
+    // GET /routes itself is a real registered route, so it lists itself.
+    expect(routes).toContainEqual({ method: 'GET', url: '/routes' });
+  });
+
+  it('marks every row in the open-tournament list with registrationOpen: true, explicit rather than left for the client to derive', async () => {
+    const opened = await app.inject({
+      method: 'POST',
+      url: '/tournaments/open-registration',
+      headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' },
+      payload: { tournamentId: 't-reg-open', tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 52 }, drawSize: 16 },
+    });
+    expect(opened.statusCode).toBe(201);
+
+    const list = await app.inject({ method: 'GET', url: '/tournaments?status=open' });
+    expect(list.statusCode).toBe(200);
+    const row = list.json().find((t: { id: string }) => t.id === 't-reg-open');
+    expect(row).toBeDefined();
+    expect(row.registrationOpen).toBe(true);
   });
 
   it('serves the world clock: the real seeded GameWeek + day plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
@@ -364,6 +396,152 @@ describe('API', () => {
     const log = replay.json();
     expect(log.entries.length).toBeGreaterThan(0);
     expect(log.totalDurationSeconds).toBeGreaterThan(0);
+  });
+
+  it('forms a real doubles bracket from a lightly-subscribed field via the real HTTP registration route + real Postgres (P7b padding fix)', async () => {
+    // Reproduces, end-to-end through the real stack (not an in-memory
+    // fake), the exact live bug an extended LLM-manager playtest found:
+    // a doubles field with too few real registrants never crossed
+    // FormDoublesDrawUseCase's 2-pair minimum and silently never played.
+    // See FormDoublesDrawUseCase.ts's own doc comment on the fix (padding
+    // the pairing input from free agents) and its unit test file for the
+    // in-memory-level coverage; this proves the same fix through a real
+    // HTTP registration + real Drizzle repositories + real Postgres.
+    expect(await hirePlayer('dbl-a', 'm-doubles')).toBe(201);
+    expect(await hirePlayer('dbl-b', 'm-doubles')).toBe(201);
+
+    const tournament = Tournament.open({
+      name: 'Test Doubles Field',
+      id: TournamentId('t-doubles-field'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 52 },
+      drawSize: 16,
+      doublesDrawSize: 8,
+    });
+    await deps.tournaments.save(tournament);
+
+    for (const playerId of ['dbl-a', 'dbl-b']) {
+      const registered = await app.inject({
+        method: 'POST',
+        url: '/tournaments/t-doubles-field/doubles-entrants',
+        headers: { 'x-dev-manager-id': 'm-doubles' },
+        payload: { playerId },
+      });
+      expect(registered.statusCode).toBe(201);
+    }
+
+    const agingPolicy = new StandardAgingPolicy();
+    for (let i = 1; i <= 20; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId(`dbl-filler-${i}`),
+          `Filler ${i}`,
+          25 * 52,
+          agingPolicy.stageForAge(25 * 52),
+          fixedAttributes(30),
+          'BR',
+          100,
+          { speed: 100, stamina: 100, strength: 100 },
+        ),
+      );
+    }
+
+    // Only 2 real registrants entered a field that needs 16 to fill —
+    // before the fix, this stayed exactly 1 formed pair forever, and
+    // hasDoublesDrawStarted never became true.
+    const beforeForm = await deps.tournaments.findById(TournamentId('t-doubles-field'));
+    await deps.formDoublesDraw.form(beforeForm!);
+
+    const formed = await deps.tournaments.findById(TournamentId('t-doubles-field'));
+    expect(formed!.hasDoublesDrawStarted).toBe(true);
+    expect(formed!.doublesPairs.length).toBeGreaterThanOrEqual(2);
+    const usedPlayerIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
+    expect(usedPlayerIds).toContain(PlayerId('dbl-a'));
+    expect(usedPlayerIds).toContain(PlayerId('dbl-b'));
+
+    const fetched = await app.inject({ method: 'GET', url: '/tournaments/t-doubles-field' });
+    expect(fetched.statusCode).toBe(200);
+    expect(fetched.json().doublesPairs.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('closes the full doubles loop: a lone persistent pair forms a padded bracket, plays a real match, and gains chemistry (was permanently stuck at 0)', async () => {
+    expect(await hirePlayer('dbl-c', 'm-doubles-2')).toBe(201);
+    expect(await hirePlayer('dbl-d', 'm-doubles-2')).toBe(201);
+    await deps.doublesPairs.save(DoublesPair.activate(PairId('pp-cd'), PlayerId('dbl-c'), PlayerId('dbl-d')));
+
+    const tournament = Tournament.open({
+      name: 'Test Doubles Chemistry Field',
+      id: TournamentId('t-doubles-chemistry'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 52 },
+      drawSize: 16,
+      doublesDrawSize: 8,
+    });
+    await deps.tournaments.save(tournament);
+
+    for (const playerId of ['dbl-c', 'dbl-d']) {
+      const registered = await app.inject({
+        method: 'POST',
+        url: '/tournaments/t-doubles-chemistry/doubles-entrants',
+        headers: { 'x-dev-manager-id': 'm-doubles-2' },
+        payload: { playerId },
+      });
+      expect(registered.statusCode).toBe(201);
+    }
+
+    const agingPolicy = new StandardAgingPolicy();
+    for (let i = 1; i <= 20; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId(`dbl-chem-filler-${i}`),
+          `Chem Filler ${i}`,
+          25 * 52,
+          agingPolicy.stageForAge(25 * 52),
+          fixedAttributes(30),
+          'BR',
+          100,
+          { speed: 100, stamina: 100, strength: 100 },
+        ),
+      );
+    }
+
+    const beforeForm = await deps.tournaments.findById(TournamentId('t-doubles-chemistry'));
+    await deps.formDoublesDraw.form(beforeForm!);
+
+    const formed = await deps.tournaments.findById(TournamentId('t-doubles-chemistry'));
+    expect(formed!.hasDoublesDrawStarted).toBe(true);
+    // The persistent pair must have been kept together, not split up by
+    // the padding fillers.
+    const cdPair = formed!.doublesPairs.find(
+      (p) => (p.playerA === PlayerId('dbl-c') && p.playerB === PlayerId('dbl-d')) || (p.playerA === PlayerId('dbl-d') && p.playerB === PlayerId('dbl-c')),
+    );
+    expect(cdPair).toBeDefined();
+
+    await deps.simulateDueMatches.execute({ worldId: WorldId('main') });
+
+    const afterSweep = await deps.tournaments.findById(TournamentId('t-doubles-chemistry'));
+    const decidedRound1 = afterSweep!.getDoublesRounds()[0];
+    expect(decidedRound1.matches.some((m) => m.outcome !== null)).toBe(true);
+
+    const pairsResponse = await app.inject({ method: 'GET', url: '/managers/m-doubles-2/doubles-pairs', headers: { 'x-dev-manager-id': 'm-doubles-2' } });
+    expect(pairsResponse.statusCode).toBe(200);
+    const pairDto = pairsResponse.json().find((p: { id: string }) => p.id === 'pp-cd');
+    expect(pairDto).toBeDefined();
+    // Before this fix, this pair's doubles draw NEVER formed at all
+    // (hasDoublesDrawStarted stayed false forever), so this chemistry
+    // value was permanently stuck at 0. Now the pair actually gets to
+    // play, so it moves.
+    expect(pairDto.chemistry).toBeGreaterThan(0);
+
+    // API-clarity fix: the profile's doublesPartner previously omitted
+    // chemistry entirely, even though the value was already in scope
+    // server-side — a client had no way to show it without a second
+    // /managers/:id/doubles-pairs round trip.
+    const profile = await app.inject({ method: 'GET', url: '/players/dbl-c/profile' });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json().doublesPartner).toMatchObject({ playerId: 'dbl-d', chemistry: pairDto.chemistry });
   });
 
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {

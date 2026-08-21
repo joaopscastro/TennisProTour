@@ -64,6 +64,7 @@ export interface PlayerProfileDto {
     playerId: PlayerId;
     name: string;
     nationality: string;
+    chemistry: number;
   } | null;
   /** The player's permanent high-water-mark DOUBLES ranking totals (P7c +
    * junior doubles) — one per band they've ever earned a doubles point
@@ -138,6 +139,7 @@ export class DrizzlePlayerProfileQuery {
         playerId: partnerId,
         name: partner?.name ?? partnerId,
         nationality: partner?.nationality ?? 'XX',
+        chemistry: pair.chemistry,
       };
     }
 

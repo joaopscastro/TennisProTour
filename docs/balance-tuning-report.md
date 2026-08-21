@@ -149,3 +149,112 @@ where a manager is making a real risk/reward call about resting a player.
   not a final balanced one — revisit with this same tool (the divisor
   override exists specifically for this) if a future pass wants to move
   it further.
+
+## Roster-gap catch-up (CLAUDE.md's "Immediate next steps" item 11 /
+## GC-5.2's remaining open question)
+
+### The question
+
+A real 8-agent LLM-manager playtest (52+ game-weeks, see the session's
+production-readiness assessment) produced 436 combined tournament entries
+across four managers and zero titles. That's a real signal, but not yet a
+diagnosis — it could mean starting-roster quality is a permanent
+handicap, training is too slow to matter, or it's just normal variance at
+these sample sizes. This section investigates it the same way the
+divisor retune did: build the measurement using the REAL production
+growth math, don't guess.
+
+### The tool: a new "roster-gap catch-up" bucket
+
+`apps/api/scripts/balance-simulation.mjs` gained a fifth bucket that,
+unlike the first four (which hold attributes fixed and read off the raw
+sim's win-rate curve), runs the actual weekly production economy —
+`StandardPlayerDevelopmentPolicy`'s weekly talent income + match XP,
+funding `StandardTrainingPolicy`'s per-attribute deltas through the real
+`Player.applyTraining` — for up to 156 simulated weeks (3 seasons), and
+measures the resulting head-to-head win rate at checkpoints. Two
+players: a "mediocre" start (48 OVR, matching the real rosters several
+playtest agents actually signed) and a "strong" start (80 OVR, matching
+the playtest's best-performing agent's real roster), same talent (50),
+each training its own single weakest trainable attribute every week —
+the same policy fillOnly players already auto-train under in production,
+and a reasonable stand-in for "a manager who trains their worst weakness
+every week."
+
+**A real mistake, caught and corrected before the final reading**: the
+bucket's first draft gave both rosters a made-up, small physical-ceiling
+headroom (12 points) modeled on nothing in particular. Reading
+`PlayerGenerationPolicy.rollPhysicalCeilings` (and its own doc comment)
+showed the REAL headroom is `MAX_POTENTIAL_HEADROOM` (45), rolled
+uniformly and — this is the important part — **independently of rarity
+tier**: "a 'common' player can still roll a big headroom... scouting
+value is highest for currently-unimpressive players." A mediocre-tier
+claim can carry just as much headroom as an exceptional one; the made-up
+12-point figure understated the mediocre roster's real upside and would
+have made the finding below look more pessimistic than the actual game
+economy supports. Fixed to use the distribution's expected value (22.5)
+for both rosters before drawing any conclusion from the results.
+
+Also added, for this and future tuning passes, the same
+compare-candidates-against-real-data instrumentation the divisor already
+has: optional constructor overrides on `StandardPlayerDevelopmentPolicy`
+(`weeklyXpPerTalentOverride`, `xpPerSkillPointOverride`) and
+`StandardTrainingPolicy` (a full `BASE_GAIN` record override), all
+defaulting to the unchanged production constants for every existing
+caller.
+
+### The finding
+
+At every constant combination tried — the baseline (`WEEKLY_XP_PER_TALENT
+0.3`, `XP_PER_SKILL_POINT 18`, youth `BASE_GAIN 1.0`), a much more
+generous XP economy (rate 1.5, cost 3), and an aggressive 3x-5x training
+rate — the **relative gap never meaningfully closes**. The strong roster
+keeps a ≥99% match win rate over the mediocre one from week 13 all the
+way out to week 156 (3 full seasons), even though both rosters' OVR do
+visibly grow over that time (baseline: mediocre 48→61, strong 80→93 by
+week 156; aggressive settings: mediocre 48→66, strong 80→96).
+
+The reason is structural, not a tuning-value problem: every one of the
+three constants this pass tried scales training speed for **both**
+rosters equally. A faster economy makes the mediocre roster grow faster
+in absolute terms, but it makes the strong roster grow faster by almost
+exactly the same amount at the same time (same policy, same weekly
+regimen, similar available headroom) — so the ABSOLUTE gap between them
+stays roughly constant no matter how the dial is turned, and a ~30+ point
+rating gap is already a near-lock under bucket 1's own curve (a 30-point
+gap alone wins 99%+ of matches at the retuned divisor). No combination of
+`WEEKLY_XP_PER_TALENT`, `XP_PER_SKILL_POINT`, or training's `BASE_GAIN`
+can fix a problem that isn't actually about training SPEED.
+
+### What this pass did and did not do
+
+- **Built**: the roster-gap catch-up bucket (real production growth math,
+  not raw sim), the headroom-modeling correction described above, and the
+  constructor-override instrumentation on both development-economy
+  policies for future tuning passes — all additive, all defaulting to
+  unchanged production behavior. Domain suite stayed at 329 (unchanged —
+  the override defaults are byte-identical to the pre-existing private
+  constants), full monorepo `tsc --build --force` clean.
+- **Explicitly NOT done, because the data doesn't support it**: retuning
+  `WEEKLY_XP_PER_TALENT`, `XP_PER_SKILL_POINT`, or `StandardTrainingPolicy`'s
+  `BASE_GAIN` away from their existing values. Every candidate tried
+  failed to close the relative gap for the structural reason above —
+  changing any of them would not have fixed the playtest's underlying
+  concern, so this pass validates the existing constants rather than
+  replacing them with an equally-unproven different guess. Same
+  discipline the divisor retune followed in the other direction: change a
+  constant only when the data says to, and here it says not to.
+- **The real, disclosed implication**: a "436 entries, zero titles" result
+  most likely does not reflect a training-speed problem at all. It's more
+  consistent with either (a) tournament-tier mismatch — a manager
+  repeatedly entering draws well above their roster's realistic
+  competitive level, rather than the tier their roster quality actually
+  fits — or (b) the acquisition/scouting loop being the intended lever
+  for a mediocre roster's competitiveness (claiming a better prospect
+  with manager XP), not training an existing weak roster into a strong
+  one, matching the rarity/scarcity premise the talent pool is built on
+  (CLAUDE.md's "Player acquisition" section). Neither of those is a
+  balance-constant fix, and neither was in this pass's scope — flagged
+  here as the more promising next investigation if the underlying
+  concern (do free-tier managers have a real path to competitiveness)
+  gets picked up again.

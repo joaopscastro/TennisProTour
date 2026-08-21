@@ -74,6 +74,34 @@ describe('DoublesPairingService', () => {
     expect(result.pairs).toHaveLength(1); // only a+b; c is dropped
   });
 
+  it('forms exactly 1 pair for a lone persistent partnership entering alone — below the 2-pair minimum a bracket needs', () => {
+    // Documents the exact boundary that made a real, live bug possible:
+    // a manager whose ONLY doubles entry is their own persistent pair, in
+    // a tournament nobody else registered doubles for, gets exactly one
+    // formed pair here. FormDoublesDrawUseCase requires >= 2 formed pairs
+    // before it will ever seed a bracket (see that class's own doc
+    // comment) — this pairing result alone can never cross that
+    // threshold, no matter how many times it's re-run, since there's no
+    // second real entrant and no general backfill in THIS service (only
+    // a single odd-leftover filler, which never engages here because the
+    // persistent pair consumes both entrants exactly, leaving 0 solo).
+    // FormDoublesDrawUseCase.form now pads the ENTRANTS list it passes in
+    // before calling this service, specifically to get past this floor —
+    // see that class's own test coverage for the padded case.
+    const result = new DoublesPairingService().pair({
+      tournamentId: T,
+      entrants: [PlayerId('a'), PlayerId('b')],
+      entryRanking: ranking([['a', 50], ['b', 50]]),
+      persistentPairs: [{ playerA: PlayerId('a'), playerB: PlayerId('b'), pairId: PairId('pp-ab'), chemistry: 0 }],
+      freeAgentFillers: [],
+      drawSize: 8,
+      random: neverRandom,
+    });
+
+    expect(result.pairs).toHaveLength(1);
+    expect(result.accepted).toHaveLength(1); // < 2 — FormDoublesDrawUseCase will never seed this
+  });
+
   it('cuts to drawSize by combined ranking (sum of the two entry rankings)', () => {
     const result = new DoublesPairingService().pair({
       tournamentId: T,

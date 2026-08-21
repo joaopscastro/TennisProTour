@@ -34,6 +34,15 @@ describe('StandardTrainingPolicy', () => {
     expect(policy.computeDelta({ kind: 'surface', surface: 'grass' }, 'retired')).toBe(0);
     expect(policy.computeDelta({ kind: 'attribute', attribute: 'strength' }, 'retired')).toBe(0);
   });
+
+  it('uses an overridden BASE_GAIN record when passed to the constructor — same override pattern as StatisticalMatchSimulator\'s divisor, for apps/api/scripts/balance-simulation.mjs to compare candidate rates against real data', () => {
+    const overridden = new StandardTrainingPolicy({ youth: 3.0, prime: 1.8, decline: 0.9, retired: 0 });
+    const attributeFocus: TrainingFocus = { kind: 'attribute', attribute: 'serve' };
+    expect(overridden.computeDelta(attributeFocus, 'youth')).toBe(3.0);
+    expect(overridden.computeDelta(attributeFocus, 'prime')).toBe(1.8);
+    // The default (no-argument) instance is unaffected by the override.
+    expect(policy.computeDelta(attributeFocus, 'youth')).toBe(1.0);
+  });
 });
 
 describe('TrainingFocus type safety', () => {

@@ -444,7 +444,16 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       const player = playerId ? await deps.players.findById(playerId) : null;
       const rank = player ? (await deps.rankPosition.rankFor(playerId!)).rank : null;
       const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, open, playerId, player.ageInWeeks, rank) : null;
-      return open.map((t) => toTournamentDto(t, entryInfo?.get(t.id)));
+      // Explicit and additive, not derived from `hasStarted` on the
+      // client: this list is ALREADY filtered to genuinely-open
+      // tournaments (see the filtering above), so every row here really
+      // is open for registration right now — a client that's cold on the
+      // API (or just wants to render a badge) shouldn't have to
+      // re-derive that from `hasStarted === false` plus knowledge of
+      // which endpoint it called. Deliberately NOT added inside
+      // `toTournamentDto` itself, since that function also serves the
+      // `status=started` list, where it would be wrong.
+      return open.map((t) => ({ ...toTournamentDto(t, entryInfo?.get(t.id)), registrationOpen: true }));
     }
     if (request.query.status === 'started') {
       const list = await deps.tournaments.findStarted();

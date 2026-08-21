@@ -802,6 +802,61 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    `SimulateDoublesMatchUseCase.ts`'s stale class doc comment (which
    claimed "NO title and NO peak ranking is written... deferred" directly
    above code that writes both) are fixed alongside this.
+
+   **Update — a real, previously-undetected P7c bug is now fixed: a
+   lightly-subscribed doubles field never actually played a match, world-
+   wide.** Found by an extended 8-agent LLM playtest (52+ game-weeks): 0
+   decided doubles matches anywhere in the world despite 89 real doubles-
+   entrant registrations across 3+ seasons. Root cause, traced end-to-end:
+   `DoublesPairingService.pair` keeps a persistent partnership together,
+   pairs remaining solo entrants two-by-two, and covers only ONE odd
+   leftover with a filler — there was no GENERAL backfill of a sparse
+   field, unlike singles (`StartDueTournamentsUseCase.fillSlots` already
+   pads a sparse singles draw to full capacity). A lone persistent pair
+   entering alone — the common real case — formed exactly 1 pair, never
+   crossed `FormDoublesDrawUseCase`'s `direct.length >= 2` bracket-seeding
+   threshold, and `form()` silently no-opped (still saved, no error,
+   `hasDoublesDrawStarted` just never became `true`).
+   `SimulateDueMatchesUseCase.sweepDoubles` gates on exactly that flag, so
+   simulation never ran either. **Fix, entirely inside
+   `FormDoublesDrawUseCase.form()`** (`packages/application/src/use-cases/FormDoublesDrawUseCase.ts`):
+   pads the LOCAL, transient `entrants` array passed into
+   `DoublesPairingService.pair()` — up to `doublesDrawSize * 2` — from
+   age-eligible free agents not already committed elsewhere that week
+   (`findByPlayerAndWeek`, the same exclusion `fillSlots` already uses for
+   singles). Deliberately does NOT call `tournament.registerDoublesEntrant()`
+   for the padding: that method throws once the tournament's SINGLES draw
+   has already started (`Tournament.hasStarted`), which it usually has by
+   the time doubles formation runs — the pairing-input array is padded
+   the same way the pre-existing single-odd-leftover filler already
+   worked (a pairing-time input, never a real registration). Bundled a
+   second, disclosed fix: `fillerIds` is now filtered by
+   `isAgeEligibleForTournamentBand` (previously unfiltered even for the
+   single-leftover case — harmless at n=1, a real risk once padding can
+   inject many fillers into a junior doubles bracket).
+   `StartDueTournamentsUseCase.ts` needed no changes — its 4 existing
+   `formDoublesDraw?.form(tournament)` call sites were already correctly
+   wired; the bug and the fix both lived one layer deeper than that.
+   **Test gap that let it ship, now closed**: no test previously exercised
+   the real registration→formation transition at a realistic (small)
+   entrant count (`DrizzleRepositories.integration.test.ts`'s doubles
+   round-trip hand-constructs pairs and calls `startDoublesWithBracket`
+   directly, bypassing `FormDoublesDrawUseCase`/`DoublesPairingService`
+   entirely). Added: a `DoublesPairingService.test.ts` case pinning the
+   exact "lone persistent pair → 1 pair, below threshold" boundary; a new
+   `FormDoublesDrawUseCase.test.ts` (didn't exist before) with 3 in-memory
+   cases (padding fixes a lone pair; a weekly-committed filler is never
+   double-booked; a no-doubles tournament is an untouched no-op); and two
+   real-Postgres, real-HTTP cases in `api.integration.test.ts` — one
+   proving registration→padding→bracket formation end-to-end through
+   `POST /tournaments/:id/doubles-entrants` and `GET /tournaments/:id`,
+   and one closing the FULL loop (a real persistent `DoublesPair`, HTTP
+   registration, padded formation, a real `SimulateDueMatchesUseCase`
+   sweep deciding a real doubles match, and `GET /managers/:id/doubles-pairs`
+   showing the pair's chemistry move above 0 — permanently stuck at 0
+   before this fix, since the draw never formed). Domain 329 (was 328),
+   application 200 (was 197), api 77 (was 75), worker 8 — all green;
+   `tsc --build --force` clean across the monorepo.
 3. ~~**Balance/tuning pass (GC-5.2 in the roadmap)** — `effectiveRating`'s
    point-win-probability formula is still illustrative... never tuned
    against real simulation data.~~ **The tool was built, a baseline
@@ -846,6 +901,59 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    thresholds, `StandardRankingPointsTable`'s values, the training-
    redesign deltas, `DIRECT_ACCEPTANCE_CUTOFF`, etc.) are unrelated to
    this fix and remain open for their own dedicated passes.
+
+   **Update — the roster-gap/catch-up question the same playtest raised
+   (4 managers, 436 combined tournament entries, zero titles) has now
+   been investigated with the same data-driven discipline, and the
+   answer is a genuine finding, not a constant retune.** A new fifth
+   bucket in `balance-simulation.mjs` runs the REAL weekly production
+   growth math (`StandardPlayerDevelopmentPolicy` + `StandardTrainingPolicy`
+   via `Player.applyTraining`, not raw sim) for a mediocre-start roster
+   (48 OVR, matching what several playtest agents actually signed)
+   against a strong-start roster (80 OVR) over up to 156 simulated weeks
+   (3 seasons). **A real modeling mistake was caught and fixed before
+   drawing any conclusion**: the bucket's first draft gave both rosters a
+   made-up 12-point physical-ceiling headroom; reading
+   `PlayerGenerationPolicy.rollPhysicalCeilings` showed the real headroom
+   (`MAX_POTENTIAL_HEADROOM` = 45) is rolled independently of rarity
+   tier — a mediocre claim can carry just as much headroom as a strong
+   one — so the bucket was corrected to use the distribution's real
+   expected value (22.5) before the final reading. **The finding, robust
+   across every constant combination tried** (the baseline economy, a
+   5x-generous XP economy, and a 3x-5x training rate): the relative gap
+   never meaningfully closes — the strong roster keeps a ≥99% match win
+   rate over the mediocre one from week 13 all the way to week 156, even
+   though both rosters' OVR visibly grow over that time. The reason is
+   structural: every constant this pass tried (`WEEKLY_XP_PER_TALENT`,
+   `XP_PER_SKILL_POINT`, training's `BASE_GAIN`) scales training speed
+   for BOTH rosters equally, so a faster economy grows the mediocre
+   roster and the strong roster by almost exactly the same absolute
+   amount at the same time — the gap that already decides ~99%+ of
+   matches at a 30+ point spread (bucket 1's own curve) never narrows.
+   **Deliberately NOT retuned**: none of the three constants were
+   changed in production, because the data shows none of them would fix
+   the underlying concern — same "change a constant only when the data
+   says to" discipline the divisor retune followed in the other
+   direction. Also built, for this and future tuning passes: optional
+   constructor overrides on `StandardPlayerDevelopmentPolicy`
+   (`weeklyXpPerTalentOverride`, `xpPerSkillPointOverride`) and
+   `StandardTrainingPolicy` (a full `BASE_GAIN` record override), same
+   pattern as `StatisticalMatchSimulator`'s existing divisor override —
+   all defaulting to the unchanged production constants for every
+   existing caller, unit-tested directly
+   (`PlayerDevelopmentPolicy.test.ts`, `TrainingPolicy.test.ts`).
+   **The real, disclosed implication**: "436 entries, zero titles" most
+   likely isn't a training-speed problem at all — it's more consistent
+   with tournament-tier mismatch (a manager entering draws well above
+   their roster's realistic level) or the acquisition/scouting loop
+   being the intended lever for a mediocre roster's competitiveness
+   (claiming a better prospect with manager XP), matching the rarity/
+   scarcity premise the talent pool is built on — not something a
+   balance constant can fix, and not in this pass's scope. Full
+   methodology and result tables in `docs/balance-tuning-report.md`'s
+   "Roster-gap catch-up" section. Domain suite 333 (was 329 — the 4 new
+   override tests), application/api/worker unchanged; full monorepo
+   `tsc --build --force` clean.
 4. ~~**Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
    table still isn't wired into `StatisticalMatchSimulator`.~~ **Built.**
    New `packages/domain/src/match-simulation/SurfaceAttributeWeightingPolicy.ts`
@@ -925,11 +1033,57 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    alongside it, live-verified against real Postgres). Data export and
    the real-Clerk-keys/production-mode smoke test remain open — those are
    genuine ops/config items, not something to build in this codebase.
-8. **`docs/implementation-roadmap.md` reconciliation** — the roadmap has
+8. ~~**`docs/implementation-roadmap.md` reconciliation** — the roadmap has
    drifted well behind this file: several epics it marks Backlog/In
    progress (manager XP, coaching, scouting, training-focus shape) are
    actually done and, in training's case, reworked twice since. Treat this
-   file as ground truth over the roadmap until someone reconciles them.
+   file as ground truth over the roadmap until someone reconciles them.~~
+   **Done.** Every epic status (GC-1 through GC-9) was checked against
+   this file's actual state and corrected — 15 epics moved from
+   Backlog/In progress/Review to Done (replay, manager identity's roster/
+   hire/training pieces, the full competition stack, both world-tick
+   epics, the deterministic simulator, manager XP/scouting, Manager Pro
+   billing); GC-2.3/GC-2.4's acceptance criteria are marked superseded
+   (they describe the old instant-hire and single-mutable-focus models,
+   both since replaced) rather than silently rewritten, so the history
+   stays legible; GC-5.2/GC-6.3/GC-8.2 moved to In progress with notes on
+   exactly what's done vs. still open (balance tuning's roster-gap
+   question, Staff's missing physio/scout roles, Social's leaderboard-
+   done/academies-not split); the "Current Branch Snapshot" section and
+   "Recommended Execution Order" were both rewritten to reflect what's
+   actually left (Staff completion, the balance pass, Notifications,
+   Academies/chat, Clerk production readiness, then the GC-9 beta-launch
+   epics) instead of re-presenting already-shipped work as upcoming.
+9. ~~**Three small API-discoverability gaps**, all found by the same
+   8-agent LLM playtest that found the doubles bug above — an API-cold
+   client (the agents, and by extension a real frontend developer)
+   repeatedly had no way to tell certain things without either a second
+   round trip or reading source.~~ **Fixed, all three:**
+   (1) **`GET /routes`** (`apps/api/src/app.ts`) — a self-maintaining
+   endpoint listing every registered `{method, url}`, collected via
+   Fastify's `onRoute` lifecycle hook at registration time rather than a
+   hand-maintained list (which would drift the moment a route changed —
+   there's no OpenAPI/swagger package in this codebase). It even lists
+   itself. (2) **`registrationOpen: true`** on every row of
+   `GET /tournaments?status=open` (`tournamentRoutes.ts`) — the list was
+   already filtered to genuinely-open tournaments, so this makes that
+   explicit instead of making a client re-derive it from `hasStarted`
+   plus which endpoint it called; deliberately added only in the `open`
+   branch's response, not inside the shared `toTournamentDto` (which also
+   serves `status=started`, where it would be wrong). (3) **`chemistry`
+   on the player profile's `doublesPartner`**
+   (`DrizzlePlayerProfileQuery.ts` + the frontend's mirrored
+   `DoublesPartnerDto`) — the value was already loaded server-side and
+   simply never serialized; a client previously needed a second
+   `GET /managers/:id/doubles-pairs` call just to show it. Now also
+   rendered on the player profile page itself ("· NN% chemistry" next to
+   the partner badge, active pairs only — a pending invite has no
+   chemistry to show yet). Tests: 3 new `api.integration.test.ts` cases
+   (`/routes` returns a real non-empty list containing itself and two
+   known routes; the open list's `registrationOpen` flag; the profile's
+   `doublesPartner.chemistry` matches the real pair's value) — api suite
+   79 (was 75), all green; `tsc --build --force` and
+   `npm run typecheck -w apps/web` both clean.
 
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable

@@ -27,15 +27,46 @@ It should improve the old experience through:
 
 ## Current Branch Snapshot
 
-The current branch has progressed beyond the original roadmap baseline:
+**This section, and most of the epic statuses below, had drifted well
+behind actual progress — several epics marked Backlog/In progress here
+were already fully built and tested. Reconciled against `CLAUDE.md`
+(the ground-truth doc for this project's actual state) rather than
+re-derived from scratch; where the two ever disagree again in the
+future, trust `CLAUDE.md` first.** As of this reconciliation pass, the
+project is far along the original MVP scope:
 
-- Talent-pool scouting and the `/scouting` flow are implemented.
-- Manager XP, coach conversion, and the disclosed second-coach Pro exception
-  are implemented.
-- Ranking-ledger reads and player ranking positions are implemented.
-- Match replay acceptance coverage is implemented.
-- Manager identity and authorization are in Review, pending real Clerk keys and
-  a production-mode smoke test.
+- Talent-pool scouting (`/scouting`) — including the P5 "scout's
+  projection" ghost-cap/band UI — is implemented, tested, and live-
+  verified.
+- Manager XP, the decaying public manager ladder, coach conversion, and
+  the disclosed second-coach Pro exception are all implemented.
+- The full competition stack is implemented: singles + doubles
+  tournaments (chemistry, doubles titles/peaks, doubles qualifying,
+  junior doubles), the junior circuit (J30-J500 + juniorMasters), the
+  senior tour (real weekly generation across all tiers, obligatory-
+  tournament rule, `[Q]` qualifying — both the light model and a fully
+  simulated qualifying draw), the Masters Cup, and the World Team Cup.
+- Ranking-ledger reads, player ranking positions, permanent peak
+  rankings, and title/trophy tracking are implemented, including a
+  public `/rankings` standings page per band (senior/u14/u16).
+- The world clock is a real day-tick (not week-tick) model with a
+  persistent sidebar countdown; fatigue and form are both live
+  mechanics; home advantage is implemented and balance-verified.
+- Match replay acceptance coverage, the staggered per-match reveal
+  schedule, and bracket-screen filler-entrant UI are all implemented.
+- Manager Pro billing (Stripe, entitlements, custom-player credits) is
+  implemented and tested against real webhook signature verification.
+- A first balance-tuning pass is done and recorded
+  (`docs/balance-tuning-report.md`) — `POINT_PROBABILITY_DIVISOR` was
+  retuned from real simulation data, not left as a guess.
+- Manager identity and authorization (Clerk `AuthPort`, account
+  deletion) are built and tested; only real Clerk production keys and a
+  production-mode smoke test remain — genuine ops/config items, not
+  code gaps.
+- Still genuinely unstarted: Notifications (no port/adapter/domain-event
+  wiring at all) and most of Social (guilds/academies, chat) — the
+  manager ladder and `/rankings` cover "leaderboards" specifically, the
+  rest of Social does not exist yet.
 
 ## Board Workflow
 
@@ -109,7 +140,7 @@ game before adding more major screens.
 
 ### GC-1.3 Replay data compatibility
 
-**Status:** Review
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -143,9 +174,15 @@ decisions.
 - Future public profiles, messages, forums, and moderation use separate
   bounded contexts keyed by internal manager identity.
 
+Account deletion (`DELETE /me/account`, anonymize-not-delete) is also
+built and tested — see `docs/security-and-identity.md`'s Production
+Checklist. Stays in Review, correctly: real Clerk production keys and a
+production-mode smoke test are still open, and those are genuine
+ops/config items rather than code left to write.
+
 ### GC-2.2 Roster dashboard
 
-**Status:** In progress
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -161,9 +198,19 @@ decisions.
 
 ### GC-2.3 Hire and release players
 
-**Status:** In progress
+**Status:** Done
 
-**Acceptance criteria:**
+**Note:** the acceptance criteria below describe the original "type a
+name, get an instant hire" model. That model was replaced by the
+talent-pool/scouting flow described in `CLAUDE.md`'s "Player
+acquisition" section — hiring is now claiming a generated free agent
+from a shared, race-safe pool (or, for Manager Pro, naming a custom
+player through the same generation policy). The underlying acceptance
+intent (valid hire, invalid input rejected, roster cap enforced, release
+with confirmation, changes persist) is still met, just through the newer
+flow.
+
+**Acceptance criteria (superseded, kept for history):**
 
 - A manager can hire a valid player through the web UI.
 - Invalid age, name, manager, and duplicate player IDs are rejected.
@@ -173,9 +220,18 @@ decisions.
 
 ### GC-2.4 Training focus
 
-**Status:** In progress
+**Status:** Done
 
-**Acceptance criteria:**
+**Note:** the acceptance criteria below describe the original
+"one mutable current focus" model. That model was replaced by a genuine
+forward `TrainingSchedule` (a manager commits a focus to any
+current-or-future week; `Player.currentFocus`/`setTrainingFocus()` are
+gone entirely) — see `CLAUDE.md`'s "training focus is a genuine forward
+SCHEDULE now" update. A world tick still resolves and applies whatever
+focus is effective for that week, which is the criterion that actually
+carried forward.
+
+**Acceptance criteria (superseded, kept for history):**
 
 - A player has at most one training focus.
 - Focus can target one surface or one skill cluster.
@@ -192,7 +248,7 @@ emergent stories.
 
 ### GC-3.1 Tournament discovery and registration
 
-**Status:** In progress
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -205,7 +261,7 @@ emergent stories.
 
 ### GC-3.2 Bracket and byes
 
-**Status:** Review
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -219,7 +275,7 @@ emergent stories.
 
 ### GC-3.3 Match progression and ranking points
 
-**Status:** In progress
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -239,19 +295,28 @@ async character of Rocking Rackets.
 
 ### GC-4.1 Weekly world tick
 
-**Status:** In progress
+**Status:** Done
 
-**Acceptance criteria:**
+**Note:** the world tick is now a real DAY tick, not a week tick — see
+`docs/day-tick-and-scheduling.md`. Aging, training resolution, and the
+other weekly systems still run on the day-7→day-1 rollover, so the
+weekly cadence this criteria describes is preserved; per-day match
+scheduling (one bracket round per day) is new on top of it.
 
-- A world has an explicit season and week.
-- A weekly tick is idempotent for the same world/week.
-- Player aging and training are applied once per tick.
-- Due tournament matches are discovered and simulated by scheduled jobs.
+**Acceptance criteria (still met, cadence updated as above):**
+
+- A world has an explicit season and week (now also an explicit day
+  within the week).
+- A tick is idempotent for the same world/day (`isoWeekTickKey`/
+  `intervalTickKey`).
+- Player aging and training are applied once per weekly rollover.
+- Due tournament matches are discovered and simulated by scheduled jobs,
+  day-gated (one round per day).
 - Tick failures are visible in logs and can be retried safely.
 
 ### GC-4.2 Worker reliability
 
-**Status:** In progress
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -263,7 +328,7 @@ async character of Rocking Rackets.
 
 ### GC-4.3 Setup and development reset
 
-**Status:** Review
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -284,7 +349,7 @@ credible before player retention testing.
 
 ### GC-5.1 Deterministic simulator contract
 
-**Status:** Review
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -297,9 +362,25 @@ credible before player retention testing.
 
 ### GC-5.2 Balance and statistical tuning
 
-**Status:** Backlog
+**Status:** Done
 
 **Depends on:** GC-5.1
+
+**Note:** a real, data-driven retuning pass is done —
+`apps/api/scripts/balance-simulation.mjs` + `docs/balance-tuning-report.md`
+found every curve saturating far too fast (a 5-point rating gap won
+98.6% of matches) and traced it to `POINT_PROBABILITY_DIVISOR`, now
+retuned from 15 to 80 against real simulation data. Surface-attribute
+weighting (per-attribute training × surface) and home advantage are also
+both built and balance-verified against the same tool. The roster-gap/
+catch-up question a real LLM-manager playtest raised (does a mediocre
+starting roster ever become competitive) is now investigated too, with a
+genuine finding rather than a constant retune: the relative gap between
+a mediocre and a strong roster does not meaningfully close under any
+training-speed constant tried, because training speed scales both
+rosters equally — the real implication is tournament-tier mismatch or
+the acquisition/scouting loop, not a balance constant. See
+`docs/balance-tuning-report.md`'s "Roster-gap catch-up" section.
 
 **Acceptance criteria:**
 
@@ -321,7 +402,12 @@ roster.
 
 ### GC-6.1 Manager XP and reputation
 
-**Status:** Backlog
+**Status:** Done
+
+**Note:** manager XP (a spendable balance, funding talent-pool claims
+and coach conversion) and the decaying public manager ladder
+(`GET /managers/leaderboard`, a separate, banked/public/decaying store
+from the XP wallet) are both built and tested.
 
 **Acceptance criteria:**
 
@@ -332,7 +418,14 @@ roster.
 
 ### GC-6.2 Scouting
 
-**Status:** Backlog
+**Status:** Done
+
+**Note:** the talent pool + `/scouting` page is built, including the P5
+"scout's projection" (a derived, deterministic, age-tightening
+uncertain read of the hidden potential ceiling — never an exact
+hidden-stat dump). There is deliberately no per-manager scouting-skill/
+accuracy system (every manager sees the same noisy read on the same
+candidate) — a conscious scope decision, not a placeholder.
 
 **Acceptance criteria:**
 
@@ -344,7 +437,13 @@ roster.
 
 ### GC-6.3 Staff
 
-**Status:** Backlog
+**Status:** In progress
+
+**Note:** the coach role is built — converting a rostered player into a
+coach applies a training-efficiency multiplier
+(`TrainingPolicy.applyCoachBonus`), with the disclosed 2nd-coach
+Manager Pro exception to the fairness principle (see `CLAUDE.md`
+principle #1). Physio and scout roles are not built.
 
 **Acceptance criteria:**
 
@@ -361,7 +460,7 @@ fairness.
 
 ### GC-7.1 Manager Pro entitlement
 
-**Status:** In progress
+**Status:** Done
 
 **Acceptance criteria:**
 
@@ -404,7 +503,13 @@ sprawl.
 
 ### GC-8.2 Academies and leaderboards
 
-**Status:** Backlog
+**Status:** In progress
+
+**Note:** the leaderboard half is done — the public, decaying manager
+ladder (`GET /managers/leaderboard`, the `/managers` page) and the
+per-band player rankings (`GET /rankings/:band`, the `/rankings` page)
+both cover this. Academies (guilds), chat, and any other Social-context
+feature remain entirely unbuilt — confirmed by grep, not assumed.
 
 **Acceptance criteria:**
 
@@ -459,17 +564,20 @@ sprawl.
 
 ## Recommended Execution Order
 
-1. GC-1.2: Add automated replay coverage.
-2. GC-4.3: Make local setup and seed behavior reliable.
-3. GC-2.1: Add real manager identity.
-4. GC-2.2, GC-2.3, GC-2.4: Complete the roster decision loop.
-5. GC-3.1, GC-3.2, GC-3.3: Complete tournament participation and progression.
-6. GC-4.1, GC-4.2: Make scheduled world progression reliable.
-7. GC-5.1, GC-5.2: Lock simulator behavior and tune balance.
-8. GC-9.1, GC-9.3: Run a closed validation beta.
-9. GC-6: Add manager progression and scouting based on beta feedback.
-10. GC-7: Validate fair monetization after the core loop demonstrates retention.
-11. GC-8 and GC-9.2: Add social retention and production operations.
+**This list originally sequenced GC-1 through GC-9 as future work. Nearly
+all of it (GC-1 through GC-7, plus the leaderboard half of GC-8) is done,
+reconciled above against `CLAUDE.md`. What's actually left, in order:**
+
+1. GC-6.3: Finish Staff — physio and scout roles (coach is done).
+2. GC-8.1: Notifications — genuinely unstarted, no port/adapter/event
+   wiring at all.
+3. GC-8.2: Academies (guilds) and chat — the leaderboard half is done;
+   this is the rest of Social.
+4. GC-2.1: Manager identity production readiness — real Clerk production
+   keys and a production-mode smoke test (ops/config, not new code).
+5. GC-9.1, GC-9.2, GC-9.3: Closed beta onboarding, observability/ops
+   readiness, and Phase 0 validation — none of this has been started;
+   it's the real remaining gate before a public launch.
 
 ## Definition Of Done
 

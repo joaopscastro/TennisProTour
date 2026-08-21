@@ -52,4 +52,27 @@ describe('StandardPlayerDevelopmentPolicy', () => {
       expect(policy.experienceCostPerSkillPoint()).toBeGreaterThan(0);
     });
   });
+
+  describe('constructor overrides', () => {
+    // Same pattern as StatisticalMatchSimulator's pointProbabilityDivisor
+    // override — exists so apps/api/scripts/balance-simulation.mjs can
+    // compare candidate economy values against real simulation data
+    // instead of editing the private constants between runs.
+    it('uses the class defaults when no override is passed', () => {
+      const defaultPolicy = new StandardPlayerDevelopmentPolicy();
+      expect(defaultPolicy.weeklyTalentIncome(100)).toBe(policy.weeklyTalentIncome(100));
+      expect(defaultPolicy.experienceCostPerSkillPoint()).toBe(policy.experienceCostPerSkillPoint());
+    });
+
+    it('applies an overridden weekly talent rate', () => {
+      const overridden = new StandardPlayerDevelopmentPolicy(1.0);
+      expect(overridden.weeklyTalentIncome(50)).toBe(50);
+    });
+
+    it('applies an overridden per-skill-point cost independently of the talent-rate override', () => {
+      const overridden = new StandardPlayerDevelopmentPolicy(undefined, 5);
+      expect(overridden.experienceCostPerSkillPoint()).toBe(5);
+      expect(overridden.weeklyTalentIncome(100)).toBe(policy.weeklyTalentIncome(100));
+    });
+  });
 });
