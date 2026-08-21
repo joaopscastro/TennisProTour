@@ -89,6 +89,8 @@ export function toDomain(row: PlayerRow): Player {
     experience: row.experience,
     dormantCarryoverBonus: toDomainDormantCarryoverBonus(row),
     fillOnly: row.fillOnly,
+    careerPrizeMoney: row.careerPrizeMoney,
+    seasonPrizeMoney: row.seasonPrizeMoney,
     attributes: new PlayerAttributes({
       technical: {
         serve: Skill.of(row.serve),
@@ -134,6 +136,8 @@ function toRow(player: Player): typeof players.$inferInsert {
     strengthCeiling: player.physicalCeilings.strength,
     talent: player.talent,
     experience: player.experience,
+    careerPrizeMoney: player.careerPrizeMoney,
+    seasonPrizeMoney: player.seasonPrizeMoney,
     ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
     // Persist the RAW (unrounded) skill value, not the display-rounded
     // `.value` — the whole point of Skill's fractional-precision fix is

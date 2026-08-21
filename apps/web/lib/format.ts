@@ -6,6 +6,19 @@
 
 export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
 
+/** Compact USD formatting for on-site prize money (e.g. "$1.2M",
+ * "$45K", "$0") — shared by the player profile and tournament pages so
+ * every money figure in the app reads consistently. */
+export function formatMoney(amount: number): string {
+  if (amount <= 0) return '$0';
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    notation: 'compact',
+    maximumFractionDigits: 1,
+  }).format(amount);
+}
+
 export function stageLabel(stage: PlayerLifecycleStage): string {
   return stage[0].toUpperCase() + stage.slice(1);
 }

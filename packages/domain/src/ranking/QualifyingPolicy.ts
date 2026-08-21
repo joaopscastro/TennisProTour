@@ -206,6 +206,29 @@ export function qualifyingPointsFor(tier: TournamentTier, qualifyingRoundsWon: n
   return table[Math.min(qualifyingRoundsWon, table.length - 1)] ?? 0;
 }
 
+/**
+ * Qualifying prize money — the money counterpart to QUALIFYING_POINTS
+ * above, same PLACEHOLDER-dollar-figure caveat as
+ * StandardPrizeMoneyTable. Unlike QUALIFYING_POINTS, index 0 is
+ * deliberately NOT zero: real ATP rule 3.08.B.3 pays prize money for
+ * any match actually played, qualifying included (a player who loses
+ * their very first qualifying match still played a real match), the
+ * same "paid to play, ranked to win" divergence StandardPrizeMoneyTable
+ * documents for the main draw.
+ */
+const QUALIFYING_PRIZE_MONEY: Readonly<Partial<Record<TournamentTier, ReadonlyArray<number>>>> = {
+  //          qualifying rounds won: 0     1     2
+  major: [1000, 2000, 4000],
+  tour: [1000, 2000, 4000],
+  challenger: [500, 1000],
+};
+
+export function qualifyingPrizeMoneyFor(tier: TournamentTier, qualifyingRoundsWon: number): number {
+  const table = QUALIFYING_PRIZE_MONEY[tier];
+  if (!table) return 0;
+  return table[Math.min(Math.max(qualifyingRoundsWon, 0), table.length - 1)] ?? 0;
+}
+
 export function resolveEntryType(input: EntryTypeInput): EntryTypeDecision {
   const qualifierSlots = input.qualifierSlots ?? qualifierSlotsFor(input.tier, input.drawSize);
   if (qualifierSlots === 0 || isEligibleForDirectAcceptance(input.rank)) {

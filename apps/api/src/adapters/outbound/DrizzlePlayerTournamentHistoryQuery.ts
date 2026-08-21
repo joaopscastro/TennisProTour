@@ -1,7 +1,11 @@
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
-import { AgeBand, PlayerId, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, PlayerId, StandardPrizeMoneyTable, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
 import { tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
+
+/** Same "shared, stateless lookup" reasoning as tournamentRoutes.ts's
+ * own PRIZE_MONEY_TABLE instance. */
+const PRIZE_MONEY_TABLE = new StandardPrizeMoneyTable();
 
 export interface PlayerTournamentHistoryEntry {
   tournamentId: TournamentId;
@@ -24,6 +28,13 @@ export interface PlayerTournamentHistoryEntry {
    * `won`. Both false means "still alive" (hasStarted but no decided
    * match against this player yet) or "not started yet". */
   eliminated: boolean;
+  /** On-site prize money earned in THIS tournament — derived from
+   * `roundsWon`/`tier` via the same StandardPrizeMoneyTable
+   * SimulateMatchUseCase itself awards from, never a stored/duplicated
+   * amount (same "single source of truth" discipline as
+   * tournamentRoutes.ts's pointsBreakdown). 0 for a not-yet-played
+   * entry (no match decided yet) and always 0 for a junior tier. */
+  prizeMoney: number;
 }
 
 /**
@@ -83,6 +94,13 @@ export class DrizzlePlayerTournamentHistoryQuery {
       const won = ownMatches.some((m) => m.winnerId === playerId && m.roundNumber === finalRoundNumber);
       const eliminated = ownMatches.some((m) => m.loserId === playerId);
 
+      // Prize money is only ever actually credited (by
+      // SimulateMatchUseCase) the moment a player is eliminated OR
+      // wins the final — a still-alive/not-started entry has earned
+      // nothing yet, matching real behavior rather than pre-crediting
+      // a hypothetical amount.
+      const prizeMoney = eliminated || won ? PRIZE_MONEY_TABLE.prizeMoneyFor(tournament.tier as TournamentTier, roundsWon) : 0;
+
       return {
         tournamentId: TournamentId(tournament.id),
         name: tournament.name,
@@ -95,6 +113,7 @@ export class DrizzlePlayerTournamentHistoryQuery {
         roundsWon,
         won,
         eliminated,
+        prizeMoney,
       };
     });
   }

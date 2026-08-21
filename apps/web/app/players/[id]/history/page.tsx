@@ -7,7 +7,7 @@ import { PlayerProfileDto, fetchPlayerProfile } from '../../../../lib/api';
 import { Sidebar } from '../../../../components/Sidebar';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { AppFrame, Hero, Flag } from '../../../../components/ui/primitives';
-import { tournamentHistoryResultLabel } from '../../../../lib/format';
+import { formatMoney, tournamentHistoryResultLabel } from '../../../../lib/format';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -119,8 +119,15 @@ export default function PlayerHistoryPage() {
                     </div>
                   </div>
                 </div>
-                <div className="text-[12px] font-semibold flex-none" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
-                  {tournamentHistoryResultLabel(entry)}
+                <div className="text-right flex-none">
+                  <div className="text-[12px] font-semibold" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
+                    {tournamentHistoryResultLabel(entry)}
+                  </div>
+                  {entry.prizeMoney > 0 && (
+                    <div className="text-[10.5px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
+                      {formatMoney(entry.prizeMoney)}
+                    </div>
+                  )}
                 </div>
               </Link>
             ))}

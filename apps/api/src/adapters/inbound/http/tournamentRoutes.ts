@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween, wildCardSlotsFor } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -14,6 +14,9 @@ import { requireInternalAdmin, requireManager } from './auth';
  * domain-owned constants (no per-request state), so it's safe to build
  * once and reuse. */
 const POINTS_TABLE = new StandardRankingPointsTable();
+/** Same "shared, stateless lookup" reasoning as POINTS_TABLE above, for
+ * on-site prize money (see StandardPrizeMoneyTable's doc comment). */
+const PRIZE_MONEY_TABLE = new StandardPrizeMoneyTable();
 
 /** The stage a player reaches by winning `matchesWon` matches in a
  * single-elimination draw of `drawSize`, then either winning it all
@@ -37,6 +40,12 @@ interface PointsBreakdownRow {
   points: number;
 }
 
+interface PrizeMoneyBreakdownRow {
+  matchesWon: number;
+  stageLabel: string;
+  prizeMoney: number;
+}
+
 /** The points-per-round ladder for THIS tournament, from Champion down
  * to a first-round loss — computed from the tier and the tournament's
  * ACTUAL draw size (a 16-draw only has 4 rounds, so its champion wins 4
@@ -52,6 +61,26 @@ function pointsBreakdownFor(tier: TournamentTier, drawSize: number): PointsBreak
       matchesWon,
       stageLabel: stageLabelFor(matchesWon, totalRounds, drawSize),
       points: POINTS_TABLE.pointsFor(tier, matchesWon),
+    });
+  }
+  return rows;
+}
+
+/** The prize-money-per-round ladder for THIS tournament — the money
+ * counterpart to pointsBreakdownFor, same "Champion-first, computed
+ * from the domain table so it can never drift from what
+ * SimulateMatchUseCase actually pays" shape. Unlike pointsBreakdownFor,
+ * a first-round loss (matchesWon = 0) is NOT zero at a senior tier —
+ * see StandardPrizeMoneyTable's doc comment on why prize money and
+ * ranking points diverge here. */
+function prizeMoneyBreakdownFor(tier: TournamentTier, drawSize: number): PrizeMoneyBreakdownRow[] {
+  const totalRounds = Math.round(Math.log2(drawSize));
+  const rows: PrizeMoneyBreakdownRow[] = [];
+  for (let matchesWon = totalRounds; matchesWon >= 0; matchesWon--) {
+    rows.push({
+      matchesWon,
+      stageLabel: stageLabelFor(matchesWon, totalRounds, drawSize),
+      prizeMoney: PRIZE_MONEY_TABLE.prizeMoneyFor(tier, matchesWon),
     });
   }
   return rows;
@@ -118,6 +147,11 @@ export function toTournamentDto(
      * placeholder — lets the UI flag them honestly rather than present
      * them as authoritative as the real ITF/ATP-derived tiers. */
     pointsArePlaceholder: isUnsourcedPlaceholderTier(tournament.tier),
+    /** Prize-money-per-round ladder for this tournament's actual draw
+     * size, Champion-first — the money counterpart to pointsBreakdown.
+     * Always 0 at every row for a junior tier (see
+     * StandardPrizeMoneyTable's doc comment). */
+    prizeMoneyBreakdown: prizeMoneyBreakdownFor(tournament.tier, tournament.drawSize),
     weekScheduled: tournament.weekScheduled,
     drawSize: tournament.drawSize,
     hasStarted: tournament.hasStarted,
@@ -147,6 +181,12 @@ export function toTournamentDto(
     qualifyingDrawSize: tournament.qualifyingDrawSize,
     qualifyingRoundCount: tournament.qualifyingRoundCount,
     qualifyingComplete: tournament.isQualifyingComplete(),
+    /** Wild cards (see WildCardPolicy): how many main-draw places are
+     * available for this tier's tournament, and how many are already
+     * taken — 0/0 at every junior tier, which is what lets the UI stay
+     * silent about wild cards there, same pattern as qualifierSlots. */
+    wildCardSlots: wildCardSlotsFor(tournament.tier),
+    wildCardSlotsTaken: tournament.entrants.filter((e) => entryTypeOf(e) === 'WC').length,
     /** True when a top-ranked player is OBLIGATED to count this event
      * even if they skip it (ObligatoryTournamentPolicy) — surfaced so
      * the rule is legible to managers rather than a hidden penalty. */
@@ -491,7 +531,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });
 
-  app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null } }>(
+  app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null; requestWildCard?: boolean } }>(
     '/tournaments/:id/entrants',
     {
       schema: {
@@ -501,6 +541,11 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           properties: {
             playerId: { type: 'string', minLength: 1 },
             seed: { type: ['integer', 'null'], minimum: 1 },
+            /** Requests a WILD CARD entry (see WildCardPolicy) instead
+             * of the normal rank-based resolution — bypasses the
+             * ranking cutoff entirely, capped by the tournament's own
+             * finite wild-card slot count. */
+            requestWildCard: { type: 'boolean' },
           },
           additionalProperties: false,
         },
@@ -516,6 +561,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
         tournamentId,
         playerId: PlayerId(request.body.playerId),
         seed: request.body.seed ?? null,
+        requestWildCard: request.body.requestWildCard ?? false,
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);

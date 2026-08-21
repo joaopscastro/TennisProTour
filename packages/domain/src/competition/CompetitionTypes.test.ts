@@ -4,6 +4,8 @@ import {
   isJuniorTier,
   isUnsourcedPlaceholderTier,
   JUNIOR_TIER_VALUES,
+  SENIOR_TIER_VALUES,
+  StandardPrizeMoneyTable,
   StandardRankingPointsTable,
 } from './CompetitionTypes';
 
@@ -66,6 +68,39 @@ describe('StandardRankingPointsTable', () => {
 
   it("juniorMasters' placeholder champion value sits above the real J500 value, without pretending to be a sourced number", () => {
     expect(table.pointsFor('juniorMasters', 7)).toBeGreaterThan(table.pointsFor('j500', 7));
+  });
+});
+
+describe('StandardPrizeMoneyTable', () => {
+  const table = new StandardPrizeMoneyTable();
+
+  it('pays SOMETHING for a first-round loss (roundsWon = 0) at every senior tier — unlike ranking points, real ATP rule 3.08.B.3 pays for any match played', () => {
+    for (const tier of SENIOR_TIER_VALUES) {
+      expect(table.prizeMoneyFor(tier, 0)).toBeGreaterThan(0);
+    }
+  });
+
+  it('pays zero at every junior tier, at every round including the champion — real ITF juniors do not pay meaningful cash prize money', () => {
+    for (const tier of JUNIOR_TIER_VALUES) {
+      for (let roundsWon = 0; roundsWon <= 7; roundsWon++) {
+        expect(table.prizeMoneyFor(tier, roundsWon)).toBe(0);
+      }
+    }
+  });
+
+  it('pays the champion (highest roundsWon) strictly more than every earlier round, at every senior tier', () => {
+    for (const tier of SENIOR_TIER_VALUES) {
+      let previous = -1;
+      for (let roundsWon = 0; roundsWon <= 7; roundsWon++) {
+        const money = table.prizeMoneyFor(tier, roundsWon);
+        expect(money).toBeGreaterThanOrEqual(previous);
+        previous = money;
+      }
+    }
+  });
+
+  it('clamps an out-of-range roundsWon to the champion value', () => {
+    expect(table.prizeMoneyFor('major', 99)).toBe(table.prizeMoneyFor('major', 7));
   });
 });
 

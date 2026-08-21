@@ -6,6 +6,7 @@ import {
   qualifyingDrawSizeFor,
   qualifyingPlayersPerSlot,
   qualifyingPointsFor,
+  qualifyingPrizeMoneyFor,
   qualifyingRoundCountFor,
   resolveEntryType,
 } from './QualifyingPolicy';
@@ -89,6 +90,16 @@ describe('QualifyingPolicy — the qualifying field itself (full model)', () => 
     // qualifying-round loss) sits comfortably under it at both.
     expect(qualifyingPointsFor('major', 2)).toBeLessThan(50);
     expect(qualifyingPointsFor('tour', 2)).toBeLessThan(50);
+  });
+
+  it('pays SOMETHING for losing a first qualifying match — unlike points, real ATP rule 3.08.B.3 pays for any match played', () => {
+    expect(qualifyingPrizeMoneyFor('major', 0)).toBeGreaterThan(0);
+    expect(qualifyingPrizeMoneyFor('major', 2)).toBeGreaterThan(qualifyingPrizeMoneyFor('major', 0));
+  });
+
+  it('pays nothing at a tier with no qualifying', () => {
+    expect(qualifyingPrizeMoneyFor('futures', 1)).toBe(0);
+    expect(qualifyingPrizeMoneyFor('j100', 1)).toBe(0);
   });
 });
 

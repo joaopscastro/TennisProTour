@@ -21,6 +21,13 @@ export function toPlayerDto(player: Player) {
      * bracket UI can visually distinguish a filler from a real entrant
      * instead of rendering them identically. */
     fillOnly: player.fillOnly,
+    /** Cumulative on-site prize money earned across this player's whole
+     * career — observable, unlike talent/experience, so it's exposed
+     * here directly (see Player.careerPrizeMoney's doc comment). */
+    careerPrizeMoney: player.careerPrizeMoney,
+    /** Prize money earned so far in the current season only — resets
+     * to 0 at every season rollover (see Player.seasonPrizeMoney). */
+    seasonPrizeMoney: player.seasonPrizeMoney,
     attributes: {
       technical: {
         serve: technical.serve.value,

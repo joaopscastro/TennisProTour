@@ -76,6 +76,17 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // so it carries no tick key of its own — see the use case.
       await deps.applyObligatoryTournamentZeros.execute({ worldId });
 
+      // The season-end bonus pool (Chapter 1 §1.08.G/H — see
+      // PaySeasonBonusPoolUseCase/StandardSeasonBonusPoolPolicy) fires
+      // ONLY on a genuine season boundary, never an ordinary weekly
+      // rollover — result.seasonRolledOver is only true on the tick
+      // that just crossed week WEEKS_PER_SEASON -> 1, and
+      // result.concludedSeason names exactly the season whose ranking-
+      // ledger standings to pay out on.
+      if (result.seasonRolledOver && result.concludedSeason !== undefined) {
+        await deps.paySeasonBonusPool.execute({ worldId, season: result.concludedSeason });
+      }
+
       // The Masters Cup (P8b) is generated once per season, on its
       // capstone week. Idempotent (one cup per season — the use case
       // no-ops if it already exists).

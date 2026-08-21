@@ -9,6 +9,7 @@ import {
   resolveTrainingFocusForWeek,
   TrainingPolicy,
   weakestTrainableAttribute,
+  WEEKS_PER_SEASON,
   WorldId,
 } from '@tennis-manager/domain';
 import {
@@ -61,6 +62,18 @@ export interface AdvanceWorldWeekResult {
    * weekly balance untouched. See docs/day-tick-and-scheduling.md. */
   weekRolledOver: boolean;
   playersAged: number;
+  /** True exactly when this tick's rollover was ALSO a season boundary
+   * (week WEEKS_PER_SEASON -> 1) — the signal a worker handler uses to
+   * fire the once-a-season PaySeasonBonusPoolUseCase, kept as a
+   * SEPARATE use case (like ApplyObligatoryTournamentZerosUseCase)
+   * rather than folded in here, since it needs a whole-ledger read this
+   * class has no other reason to hold. Always false on a non-rollover
+   * or mid-season rollover tick. */
+  seasonRolledOver: boolean;
+  /** The season that just CONCLUDED when seasonRolledOver is true (i.e.
+   * endingWeek.season, the season whose points the bonus pool standings
+   * should sum) — undefined otherwise. */
+  concludedSeason?: number;
 }
 
 /**
@@ -167,7 +180,7 @@ export class AdvanceWorldWeekUseCase {
     // below runs ONLY when the day rolled over into a new week.
     const { advanced, weekRolledOver } = world.advanceDay(command.tickKey);
     if (!advanced) {
-      return { advanced: false, weekRolledOver: false, playersAged: 0 };
+      return { advanced: false, weekRolledOver: false, playersAged: 0, seasonRolledOver: false };
     }
 
     if (!weekRolledOver) {
@@ -179,8 +192,14 @@ export class AdvanceWorldWeekUseCase {
       // below, not mid-week.
       await this.recoverDailyFatigue();
       await this.worlds.save(world);
-      return { advanced: true, weekRolledOver: false, playersAged: 0 };
+      return { advanced: true, weekRolledOver: false, playersAged: 0, seasonRolledOver: false };
     }
+
+    // A season boundary is a rollover whose ENDING week was the last
+    // week of the season — the same "capture before advanceDay mutates
+    // it" endingWeek this class already computed above for the
+    // inactivity-penalty check.
+    const seasonRolledOver = endingWeek.week === WEEKS_PER_SEASON;
 
     const proStatusByManager = new Map<ManagerId, boolean>();
     const isProManaged = async (managerId: ManagerId | null): Promise<boolean> => {
@@ -210,6 +229,12 @@ export class AdvanceWorldWeekUseCase {
       // decays once per week here (never mid-week).
       player.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
       player.decayForm(FORM_WEEKLY_DECAY);
+      // Zero every player's SEASON prize money the moment a new season
+      // starts — the same tick PaySeasonBonusPoolUseCase reads the
+      // just-concluded season's standings from the ranking ledger (not
+      // from this field, which is display-only), so ordering here vs.
+      // that separate use case doesn't matter.
+      if (seasonRolledOver) player.resetSeasonPrizeMoney();
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
       const bandBeforeAging = juniorEligibilityForAge(player.ageInWeeks);
       agingService.advance(player);
@@ -298,7 +323,13 @@ export class AdvanceWorldWeekUseCase {
     await this.managerLadder.decayManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyFactor());
 
     await this.worlds.save(world);
-    return { advanced: true, weekRolledOver: true, playersAged: allPlayers.length };
+    return {
+      advanced: true,
+      weekRolledOver: true,
+      playersAged: allPlayers.length,
+      seasonRolledOver,
+      concludedSeason: seasonRolledOver ? endingWeek.season : undefined,
+    };
   }
 
   /** Recovers a day's worth of fatigue for every player carrying any,

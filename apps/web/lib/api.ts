@@ -23,6 +23,12 @@ export interface PlayerDto {
    * under-filled draw — distinct from a released player (managerId also
    * null, but fillOnly stays false). See apps/api's playerDto.ts. */
   fillOnly: boolean;
+  /** Cumulative on-site prize money earned across this player's whole
+   * career. */
+  careerPrizeMoney: number;
+  /** Prize money earned so far in the current season only — resets to
+   * 0 at every season rollover. */
+  seasonPrizeMoney: number;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -156,6 +162,12 @@ export interface TournamentDto {
   /** True only for juniorMasters (unsourced placeholder points) — flag
    * them honestly rather than as authoritative. */
   pointsArePlaceholder: boolean;
+  /** Prize-money-per-round ladder for this tournament's actual draw
+   * size, Champion-first — the money counterpart to pointsBreakdown.
+   * Unlike points, a first-round loss (matchesWon = 0) is NOT zero at a
+   * senior tier (real ATP rule: paid to play, ranked to win); always 0
+   * at every row for a junior tier. */
+  prizeMoneyBreakdown: Array<{ matchesWon: number; stageLabel: string; prizeMoney: number }>;
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
@@ -163,9 +175,10 @@ export interface TournamentDto {
     playerId: string;
     seed: number | null;
     /** How this entrant got their place — 'DA' (direct acceptance by
-     * ranking), 'Q' (came through qualifying), 'WC' (wildcard, not
-     * awarded by anything yet). Only ever 'Q' at a tier that holds
-     * qualifying. */
+     * ranking), 'Q' (came through qualifying), 'WC' (a wild card,
+     * bypassing rank entirely — see WildCardPolicy). Only ever 'Q' at a
+     * tier that holds qualifying; 'WC' only at a tier that awards wild
+     * cards (every senior tier). */
     entryType: 'DA' | 'Q' | 'WC';
     /** Which draw they are in right now. A 'Q' entrant sits in
      * 'qualifying' until they actually win their way through, then
@@ -180,6 +193,11 @@ export interface TournamentDto {
    * qualifying. */
   qualifyingDrawSize: number;
   qualifyingRoundCount: number;
+  /** Wild cards (see WildCardPolicy): total main-draw places available
+   * for this tier, and how many are already taken — 0/0 at every
+   * junior tier (wild cards are senior-tour only). */
+  wildCardSlots: number;
+  wildCardSlotsTaken: number;
   /** The qualifying draw has been played out, so its survivors are
    * known (they are promoted into the main draw on the next tick). */
   qualifyingComplete: boolean;
@@ -513,8 +531,18 @@ export function fetchTrainingSchedule(playerId: string, weeksAhead?: number): Pr
  * on any manager other than the dev-mode default silently
  * authenticates as the wrong manager and gets a real "Player not
  * found in your roster" 404, never the intended registration. */
-export function registerEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {
-  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId }, managerId);
+export function registerEntrant(
+  tournamentId: string,
+  playerId: string,
+  managerId?: string,
+  requestWildCard?: boolean,
+): Promise<TournamentDto> {
+  return sendJson(
+    'POST',
+    `/tournaments/${encodeURIComponent(tournamentId)}/entrants`,
+    requestWildCard ? { playerId, requestWildCard: true } : { playerId },
+    managerId,
+  );
 }
 
 export function registerDoublesEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {
@@ -669,6 +697,9 @@ export interface PlayerTournamentHistoryEntryDto {
   roundsWon: number;
   won: boolean;
   eliminated: boolean;
+  /** On-site prize money earned in THIS tournament — 0 for an entry
+   * with no decided match yet. */
+  prizeMoney: number;
 }
 
 /** The single aggregated read the player profile page needs — see
@@ -689,6 +720,11 @@ export interface PlayerProfileDto {
    * derived server-side via juniorEligibilityForAge, never re-derived
    * client-side (see RankingBand's doc comment above). */
   currentEligibleBand: RankingBand;
+  /** Cumulative on-site prize money earned across this player's whole
+   * career. */
+  careerPrizeMoney: number;
+  /** Prize money earned so far in the current season only. */
+  seasonPrizeMoney: number;
   currentRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
   tournamentHistory: PlayerTournamentHistoryEntryDto[];

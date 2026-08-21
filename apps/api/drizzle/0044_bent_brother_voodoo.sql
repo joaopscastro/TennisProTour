@@ -1,0 +1,2 @@
+ALTER TABLE "players" ADD COLUMN "career_prize_money" double precision DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "players" ADD COLUMN "season_prize_money" double precision DEFAULT 0 NOT NULL;

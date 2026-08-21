@@ -524,6 +524,51 @@ describe('SimulateMatchUseCase', () => {
       expect(winnerEntries).toHaveLength(0);
     });
 
+    it('pays the round-1 loser real prize money, unlike ranking points which are 0 for a first-round loss', async () => {
+      const tournamentId = TournamentId('t-r1-money');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+      const firstMatch = tournament.getRounds()[0].matches[0];
+
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const loser = await players.findById(firstMatch.entrantB);
+      expect(loser!.careerPrizeMoney).toBeGreaterThan(0);
+      expect(loser!.seasonPrizeMoney).toBe(loser!.careerPrizeMoney);
+
+      // The winner hasn't been eliminated yet — no result recorded for
+      // them at all this round, prize money included.
+      const winner = await players.findById(firstMatch.entrantA);
+      expect(winner!.careerPrizeMoney).toBe(0);
+    });
+
     it('awards ranking points to a player even after they have been released (no manager)', async () => {
       const tournamentId = TournamentId('t-released');
       const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);

@@ -420,6 +420,19 @@ export const players = pgTable('players', {
    * playerDto.ts or any other HTTP-facing mapper. Defaults to 0 for any
    * row that predates this column. */
   experience: doublePrecision('experience').notNull().default(0),
+  /** Cumulative on-site prize money earned across this player's whole
+   * career (see Player.careerPrizeMoney) — never decreases, never
+   * reset. Double precision since credited amounts come straight off
+   * the (integer, but arbitrary-scale) prize money tables — no
+   * fractional need today, but same type as every other money-shaped
+   * column here for consistency. Defaults to 0 for any row that
+   * predates this column. UNLIKE talent/experience, this IS read by
+   * playerDto.ts — prize money is observable, not hidden. */
+  careerPrizeMoney: doublePrecision('career_prize_money').notNull().default(0),
+  /** Prize money earned so far in the CURRENT season only (see
+   * Player.seasonPrizeMoney) — zeroed by AdvanceWorldWeekUseCase at
+   * every season rollover. Feeds the season-end bonus pool standings. */
+  seasonPrizeMoney: doublePrecision('season_prize_money').notNull().default(0),
 
   // NOTE: there is deliberately no training_focus_kind/surface/attribute
   // column here anymore — a player's training focus moved from a

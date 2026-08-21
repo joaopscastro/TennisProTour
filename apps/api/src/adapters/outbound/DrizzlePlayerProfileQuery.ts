@@ -36,6 +36,12 @@ export interface PlayerProfileDto {
    * alongside senior (always shown) — never re-derives the age-band
    * boundary rule itself. */
   currentEligibleBand: RankingBand;
+  /** Cumulative on-site prize money earned across this player's whole
+   * career — see Player.careerPrizeMoney. */
+  careerPrizeMoney: number;
+  /** Prize money earned so far in the current season only — see
+   * Player.seasonPrizeMoney. */
+  seasonPrizeMoney: number;
   currentRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
   tournamentHistory: PlayerTournamentHistoryEntry[];
@@ -182,6 +188,8 @@ export class DrizzlePlayerProfileQuery {
       ageInWeeks: player.ageInWeeks,
       stage: player.stage,
       currentEligibleBand: juniorEligibilityForAge(player.ageInWeeks),
+      careerPrizeMoney: player.careerPrizeMoney,
+      seasonPrizeMoney: player.seasonPrizeMoney,
       currentRankings: [
         { band: 'senior', totalPoints: seniorRank.totalPoints, rank: seniorRank.rank },
         { band: 'u14', totalPoints: u14Rank.totalPoints, rank: u14Rank.rank },

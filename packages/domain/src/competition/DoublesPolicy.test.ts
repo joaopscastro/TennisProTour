@@ -5,6 +5,7 @@ import {
   doublesQualifyingDrawSizeFor,
   doublesQualifyingRoundCountFor,
   doublesQualifyingPointsFor,
+  doublesQualifyingPrizeMoneyFor,
 } from './DoublesPolicy';
 
 describe('doubles qualifying (draw-size-derived)', () => {
@@ -31,5 +32,11 @@ describe('doubles qualifying (draw-size-derived)', () => {
     expect(doublesQualifyingPointsFor(0)).toBe(0); // lost round 1 — no points in the first round, ever
     expect(doublesQualifyingPointsFor(1)).toBe(25); // lost the final (and only other) qualifying round
     expect(doublesQualifyingPointsFor(2)).toBe(25); // clamps — there is no round beyond the final one
+  });
+
+  it('pays SOMETHING for losing round 1 of doubles qualifying — unlike points, real ATP rule 3.08.B.3 pays for any match played', () => {
+    expect(doublesQualifyingPrizeMoneyFor(0)).toBeGreaterThan(0);
+    expect(doublesQualifyingPrizeMoneyFor(1)).toBeGreaterThan(doublesQualifyingPrizeMoneyFor(0));
+    expect(doublesQualifyingPrizeMoneyFor(2)).toBe(doublesQualifyingPrizeMoneyFor(1)); // clamps
   });
 });

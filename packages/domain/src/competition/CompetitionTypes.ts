@@ -159,6 +159,61 @@ export class StandardRankingPointsTable implements RankingPointsTable {
   }
 }
 
+export interface PrizeMoneyTable {
+  prizeMoneyFor(tier: TournamentTier, roundsWon: number): number;
+}
+
+/**
+ * On-site prize money by round reached, in USD — the money counterpart
+ * to `StandardRankingPointsTable` above, added following a reading of
+ * the 2026 ATP Financial rules (Chapter III). One deliberate,
+ * documented DIVERGENCE from the points table's shape: index 0 (a
+ * first-round loss) is NOT forced to zero here. Real ATP rule 3.08.B.3
+ * says "prize money shall be paid only for matches played" — a player
+ * who plays and loses their first match still gets paid (real Slams
+ * pay a real, meaningful check to a first-round loser) — this is a
+ * genuinely different rule from ranking points' "must be earned by
+ * winning" house rule, not an oversight carried over from that table.
+ * So: you get PAID for playing, you only RANK by winning.
+ *
+ * All senior-tier values are PLACEHOLDER numbers, not sourced dollar
+ * figures — the real Exhibit J purse tables referenced by the
+ * rulebook weren't available to source from, so these are round
+ * numbers chosen to sit in a believable order of magnitude and shape
+ * (champion roughly 2x runner-up, roughly doubling per round below
+ * that, consistent with how real ATP purses are structured) relative
+ * to each other and to the sourced ranking-point tiers, not tuned or
+ * balanced. Junior tiers (j30-juniorMasters) are all zero on purpose —
+ * this is a real design choice, not a missing table: the ITF junior
+ * circuit is an amateur development tour and does not pay meaningful
+ * cash prize money, unlike ATP Tour/Challenger events.
+ */
+export class StandardPrizeMoneyTable implements PrizeMoneyTable {
+  private static readonly PRIZE_MONEY_BY_ROUND: Record<TournamentTier, ReadonlyArray<number>> = {
+    // roundsWon:      0      1      2      3      4       5       6        7
+    major:           [15000, 25000, 45000, 80000, 150000, 300000, 600000, 1200000],
+    tour:             [8000, 14000, 25000, 45000, 85000,  160000, 320000],
+    challenger:       [3000,  5500, 10000, 18000, 35000,  70000],
+    futures:          [1500,  2750,  5000,  9000, 17500,  35000],
+
+    // Real ITF junior events do not pay meaningful cash prize money —
+    // see class doc comment above. Zero across the board, deliberately.
+    j30:              [0, 0, 0, 0, 0, 0, 0, 0],
+    j60:              [0, 0, 0, 0, 0, 0, 0, 0],
+    j100:             [0, 0, 0, 0, 0, 0, 0, 0],
+    j200:             [0, 0, 0, 0, 0, 0, 0, 0],
+    j300:             [0, 0, 0, 0, 0, 0, 0, 0],
+    j500:             [0, 0, 0, 0, 0, 0, 0, 0],
+    juniorMasters:    [0, 0, 0, 0, 0, 0, 0, 0],
+  };
+
+  prizeMoneyFor(tier: TournamentTier, roundsWon: number): number {
+    const table = StandardPrizeMoneyTable.PRIZE_MONEY_BY_ROUND[tier];
+    const index = Math.min(Math.max(roundsWon, 0), table.length - 1);
+    return table[index];
+  }
+}
+
 /**
  * Tiers whose champion point value is an unsourced/untuned placeholder
  * rather than a real published number — currently just

@@ -80,3 +80,15 @@ const DOUBLES_QUALIFYING_POINTS: ReadonlyArray<number> = [0, 25];
 export function doublesQualifyingPointsFor(qualifyingRoundsWon: number): number {
   return DOUBLES_QUALIFYING_POINTS[Math.min(qualifyingRoundsWon, DOUBLES_QUALIFYING_POINTS.length - 1)] ?? 0;
 }
+
+/** Doubles qualifying prize money — the money counterpart to
+ * DOUBLES_QUALIFYING_POINTS, same PLACEHOLDER-dollar-figure caveat as
+ * StandardPrizeMoneyTable. Index 0 is deliberately non-zero, unlike the
+ * points table — same "paid to play, ranked to win" divergence
+ * documented there: a pair that plays and loses its first qualifying
+ * match still played a real match. */
+const DOUBLES_QUALIFYING_PRIZE_MONEY: ReadonlyArray<number> = [300, 700];
+
+export function doublesQualifyingPrizeMoneyFor(qualifyingRoundsWon: number): number {
+  return DOUBLES_QUALIFYING_PRIZE_MONEY[Math.min(Math.max(qualifyingRoundsWon, 0), DOUBLES_QUALIFYING_PRIZE_MONEY.length - 1)] ?? 0;
+}

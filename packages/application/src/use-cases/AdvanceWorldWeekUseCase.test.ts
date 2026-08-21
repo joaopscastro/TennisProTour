@@ -311,7 +311,7 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     const result = await useCase.execute({ worldId, tickKey: '2026-W31' });
 
-    expect(result).toEqual({ advanced: true, weekRolledOver: true, playersAged: 3 });
+    expect(result).toEqual({ advanced: true, weekRolledOver: true, playersAged: 3, seasonRolledOver: false });
     expect((await worlds.findById(worldId))!.currentWeek).toEqual({ season: 1, week: 2 });
     for (const player of await players.findAll()) {
       expect(player.ageInWeeks).toBe(25 * 52 + 1);
@@ -464,7 +464,7 @@ describe('AdvanceWorldWeekUseCase', () => {
 
       const result = await useCase.execute({ worldId, tickKey: 'mid-week-tick' });
 
-      expect(result).toEqual({ advanced: true, weekRolledOver: false, playersAged: 0 });
+      expect(result).toEqual({ advanced: true, weekRolledOver: false, playersAged: 0, seasonRolledOver: false });
       const after = (await players.findById(PlayerId('p1')))!;
       expect(after.fatigue).toBe(50 - FATIGUE_RECOVERY_PER_DAY);
       expect(after.form).toBe(20); // form only decays on the weekly rollover
@@ -516,7 +516,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     const second = await useCase.execute({ worldId, tickKey: '2026-W31' });
 
     expect(first.advanced).toBe(true);
-    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0 });
+    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0, seasonRolledOver: false });
     // No player was touched or saved again, and the clock stayed put.
     expect(players.saveCount).toBe(savesAfterFirst);
     for (const player of await players.findAll()) {
@@ -897,7 +897,7 @@ describe('AdvanceWorldWeekUseCase', () => {
     await useCase.execute({ worldId, tickKey: 'tick-1' });
     const second = await useCase.execute({ worldId, tickKey: 'tick-1' });
 
-    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0 });
+    expect(second).toEqual({ advanced: false, weekRolledOver: false, playersAged: 0, seasonRolledOver: false });
     expect((await players.findById(PlayerId('p1')))!.attributes.technical.serve.value).toBe(33); // 30 + 3, not +6
   });
 

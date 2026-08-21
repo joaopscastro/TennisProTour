@@ -132,6 +132,19 @@ export interface PlayerProps {
    * why permanent fill-only status was chosen over some broader
    * reclaim mechanism. */
   fillOnly: boolean;
+  /** Cumulative on-site prize money earned across this player's entire
+   * career (see StandardPrizeMoneyTable/qualifyingPrizeMoneyFor/
+   * doublesPrizeMoneyFor). Never decreases, never reset — the career
+   * counterpart to a title. Starts at 0 for every newly hired/generated
+   * player, credited only by creditPrizeMoney(). */
+  careerPrizeMoney: number;
+  /** Prize money earned so far in the CURRENT season only — the same
+   * events that credit careerPrizeMoney also credit this, but
+   * AdvanceWorldWeekUseCase zeroes it out at every season rollover (see
+   * resetSeasonPrizeMoney), so it always reads "how much this player
+   * has won since the season started" — the input to the season-end
+   * bonus pool standings. */
+  seasonPrizeMoney: number;
 }
 
 /** Aggregate root for the Player & Roster bounded context.
@@ -199,6 +212,8 @@ export class Player {
       experience: 0,
       dormantCarryoverBonus: null,
       fillOnly: false,
+      careerPrizeMoney: 0,
+      seasonPrizeMoney: 0,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -249,6 +264,8 @@ export class Player {
       experience: 0,
       dormantCarryoverBonus: null,
       fillOnly: true,
+      careerPrizeMoney: 0,
+      seasonPrizeMoney: 0,
     });
     player._domainEvents.push({
       type: 'FillOnlyPlayerGenerated',
@@ -334,6 +351,14 @@ export class Player {
 
   get fillOnly(): boolean {
     return this.props.fillOnly;
+  }
+
+  get careerPrizeMoney(): number {
+    return this.props.careerPrizeMoney;
+  }
+
+  get seasonPrizeMoney(): number {
+    return this.props.seasonPrizeMoney;
   }
 
   isRetired(): boolean {
@@ -536,6 +561,31 @@ export class Player {
    * not a bug. */
   setDormantCarryoverBonus(bonus: PlayerDormantCarryoverBonus | null): void {
     this.props = { ...this.props, dormantCarryoverBonus: bonus };
+  }
+
+  /** Credits on-site prize money earned from a match or tournament
+   * result — called by SimulateMatchUseCase/SimulateDoublesMatchUseCase/
+   * SimulateMastersCupMatchUseCase, same "direct Player mutator, no
+   * policy indirection" shape as applyMatchFatigue/gainExperience. Adds
+   * to BOTH the career total (never reset) and the season total (reset
+   * every season by resetSeasonPrizeMoney). Negative or zero amounts
+   * are ignored — prize money is only ever earned here. */
+  creditPrizeMoney(amount: number): void {
+    if (amount <= 0) return;
+    this.props = {
+      ...this.props,
+      careerPrizeMoney: this.props.careerPrizeMoney + amount,
+      seasonPrizeMoney: this.props.seasonPrizeMoney + amount,
+    };
+  }
+
+  /** Zeroes out this player's season prize money at a season rollover
+   * (called by AdvanceWorldWeekUseCase) — careerPrizeMoney is
+   * untouched, only the season counter resets so it can start
+   * accumulating the new season's earnings from zero. */
+  resetSeasonPrizeMoney(): void {
+    if (this.props.seasonPrizeMoney === 0) return;
+    this.props = { ...this.props, seasonPrizeMoney: 0 };
   }
 
   pullDomainEvents(): DomainEvent[] {

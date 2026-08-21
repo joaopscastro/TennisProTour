@@ -38,6 +38,8 @@ export * from './ranking/PeakRanking';
 export * from './ranking/TitleRecord';
 export * from './ranking/DoublesRanking';
 export * from './ranking/DoublesTitleRecord';
+export * from './ranking/SeasonBonusPoolPolicy';
+export * from './ranking/WildCardPolicy';
 export * from './manager/ManagerXpPolicy';
 export * from './manager/ManagerLadderPolicy';
 export * from './manager/PracticePolicy';

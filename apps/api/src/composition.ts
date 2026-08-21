@@ -10,6 +10,7 @@ import { StandardTrainingPolicy } from '@tennis-manager/domain';
 import { StandardTournamentSchedulePolicy } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy } from '@tennis-manager/domain';
 import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
+import { StandardSeasonBonusPoolPolicy } from '@tennis-manager/domain';
 import { StandardPlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { StandardTalentClaimPricingPolicy, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { StandardCoachConversionPolicy, CoachConversionPolicy } from '@tennis-manager/domain';
@@ -28,6 +29,7 @@ import { CreateDoublesPairUseCase, AcceptDoublesPairUseCase, DissolveDoublesPair
 import { RegisterDoublesEntrantUseCase, FormDoublesDrawUseCase, SimulateDoublesMatchUseCase, PromoteDoublesQualifiersUseCase, RunPracticeSessionUseCase, GenerateMastersCupUseCase, AdvanceMastersCupUseCase, SimulateMastersCupMatchUseCase, SimulateDueMastersCupMatchesUseCase, GenerateWorldTeamCupUseCase, AdvanceWorldTeamCupUseCase, SimulateWorldTeamCupRubberUseCase, SimulateDueWorldTeamCupRubbersUseCase } from '@tennis-manager/application';
 import { GenerateJuniorTournamentsUseCase, GenerateSeniorTournamentsUseCase } from '@tennis-manager/application';
 import { ApplyObligatoryTournamentZerosUseCase } from '@tennis-manager/application';
+import { PaySeasonBonusPoolUseCase } from '@tennis-manager/application';
 import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
@@ -195,6 +197,11 @@ export interface Dependencies {
    * event they skipped. Run once per weekly rollover from the same
    * worker handler as the siblings above, AFTER startDueTournaments. */
   applyObligatoryTournamentZeros: ApplyObligatoryTournamentZerosUseCase;
+  /** The season-end bonus pool (Chapter 1 §1.08.G/H — see
+   * PaySeasonBonusPoolUseCase/StandardSeasonBonusPoolPolicy). Run once
+   * per SEASON boundary (never an ordinary weekly rollover) from the
+   * same worker handler, gated on AdvanceWorldWeekResult.seasonRolledOver. */
+  paySeasonBonusPool: PaySeasonBonusPoolUseCase;
   promoteQualifiers: PromoteQualifiersUseCase;
   simulateDueMatches: SimulateDueMatchesUseCase;
   setTrainingSchedule: SetTrainingScheduleUseCase;
@@ -530,6 +537,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       rankingLedger,
       rankPosition,
     ),
+    paySeasonBonusPool: new PaySeasonBonusPoolUseCase(rankingLedger, players, new StandardSeasonBonusPoolPolicy()),
     simulateDueMatches: new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, tournamentSchedulePolicy, simulateDoublesMatch),
     promoteQualifiers: new PromoteQualifiersUseCase(tournaments, bracketGenerator),
     setTrainingSchedule: new SetTrainingScheduleUseCase(players, trainingSchedule, worlds, WORLD_ID),

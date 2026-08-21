@@ -1,6 +1,6 @@
 import { GameWeek, MatchId, Player, PlayerId, TournamentId, WorldId, TournamentTier, DrawPhase } from '@tennis-manager/domain';
 import { DoublesPairPolicy, MatchLog, MatchSimulator } from '@tennis-manager/domain';
-import { BracketGenerator, RankingPointsTable, doublesPointsFor, doublesQualifyingPointsFor } from '@tennis-manager/domain';
+import { BracketGenerator, RankingPointsTable, doublesPointsFor, doublesQualifyingPointsFor, doublesPrizeMoneyFor, doublesQualifyingPrizeMoneyFor } from '@tennis-manager/domain';
 import { ManagerXpPolicy, ManagerLadderPolicy, PlayerDevelopmentPolicy } from '@tennis-manager/domain';
 import { fatigueCostForMatch } from '@tennis-manager/domain';
 import { RankingLedgerEntry, DoublesTitleRecord, isNewDoublesPeak, RankingCalculationService, doublesBestResultsCapFor, RankingBand, AgeBand } from '@tennis-manager/domain';
@@ -246,6 +246,14 @@ export class SimulateDoublesMatchUseCase {
   ): Promise<void> {
     const singlesPoints = this.rankingPointsTable.pointsFor(tier, roundsWon);
     const points = draw === 'qualifying' ? doublesQualifyingPointsFor(roundsWon) : doublesPointsFor(tier, roundsWon, singlesPoints);
+
+    // Prize money — see StandardPrizeMoneyTable's doc comment for why
+    // index 0 (a first-round loss) is NOT zero here, unlike points.
+    const money = draw === 'qualifying' ? doublesQualifyingPrizeMoneyFor(roundsWon) : doublesPrizeMoneyFor(tier, roundsWon);
+    if (money > 0) {
+      player.creditPrizeMoney(money);
+      await this.players.save(player);
+    }
 
     const entry: RankingLedgerEntry = {
       playerId: player.id,

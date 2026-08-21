@@ -1,5 +1,5 @@
 import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek, WorldId } from '@tennis-manager/domain';
-import { DrawPhase, qualifyingPointsFor } from '@tennis-manager/domain';
+import { DrawPhase, qualifyingPointsFor, qualifyingPrizeMoneyFor, StandardPrizeMoneyTable } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
@@ -54,6 +54,14 @@ import {
  * fractional remainder somewhere, which is real added complexity, out
  * of scope for closing this regression. */
 export const MATCH_SURFACE_AFFINITY_GAIN = 1;
+
+/** Plain module-level instance, same "not constructor-injected" choice
+ * as qualifyingPointsFor/scaleDoublesPoints — prize money has no
+ * swappable-policy use case today (unlike RankingPointsTable, which
+ * IS constructor-injected here for testability/override), so adding it
+ * as a 15th constructor parameter would only churn every existing
+ * call site for no real benefit. */
+const PRIZE_MONEY_TABLE = new StandardPrizeMoneyTable();
 
 export interface SimulateMatchCommand {
   matchId: MatchId;
@@ -363,8 +371,24 @@ export class SimulateMatchUseCase {
     // rather than leaving it to fire again on a later result.
     const entryBand: RankingBand = ageBand ?? 'senior';
     const { points, consumed } = applyGraduationCarryover(rawPoints, entryBand, player.dormantCarryoverBonus);
+
+    // Prize money (see StandardPrizeMoneyTable's doc comment): unlike
+    // ranking points, real ATP rule 3.08.B.3 pays for any match played
+    // — a first-round loss is NOT zeroed out the way points are, so
+    // this is computed independently rather than derived from `points`.
+    const prizeMoney =
+      draw === 'qualifying' ? qualifyingPrizeMoneyFor(tier, roundsWon) : PRIZE_MONEY_TABLE.prizeMoneyFor(tier, roundsWon);
+
+    let playerMutated = false;
     if (consumed) {
       player.setDormantCarryoverBonus(null);
+      playerMutated = true;
+    }
+    if (prizeMoney > 0) {
+      player.creditPrizeMoney(prizeMoney);
+      playerMutated = true;
+    }
+    if (playerMutated) {
       await this.players.save(player);
     }
 

@@ -19,6 +19,7 @@ export * from './use-cases/GenerateJuniorTournamentsUseCase';
 export * from './use-cases/GenerateSeniorTournamentsUseCase';
 export * from './use-cases/matchSchedule';
 export * from './use-cases/ApplyObligatoryTournamentZerosUseCase';
+export * from './use-cases/PaySeasonBonusPoolUseCase';
 export * from './use-cases/PromoteQualifiersUseCase';
 export * from './use-cases/SimulateDueMatchesUseCase';
 export * from './use-cases/CreateDoublesPairUseCase';

@@ -501,4 +501,45 @@ describe('Player', () => {
       expect(player.experience).toBe(0); // nothing spent
     });
   });
+
+  describe('prize money', () => {
+    it('starts every hired player at zero career and season prize money', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      expect(player.careerPrizeMoney).toBe(0);
+      expect(player.seasonPrizeMoney).toBe(0);
+    });
+
+    it('creditPrizeMoney adds to BOTH career and season totals; zero/negative amounts are ignored', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.creditPrizeMoney(15000);
+      expect(player.careerPrizeMoney).toBe(15000);
+      expect(player.seasonPrizeMoney).toBe(15000);
+      player.creditPrizeMoney(0);
+      player.creditPrizeMoney(-500);
+      expect(player.careerPrizeMoney).toBe(15000);
+      expect(player.seasonPrizeMoney).toBe(15000);
+    });
+
+    it('accumulates career prize money across multiple credits', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.creditPrizeMoney(10000);
+      player.creditPrizeMoney(25000);
+      expect(player.careerPrizeMoney).toBe(35000);
+      expect(player.seasonPrizeMoney).toBe(35000);
+    });
+
+    it('resetSeasonPrizeMoney zeroes only the season total, leaving career prize money untouched', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      player.creditPrizeMoney(50000);
+      player.resetSeasonPrizeMoney();
+      expect(player.careerPrizeMoney).toBe(50000);
+      expect(player.seasonPrizeMoney).toBe(0);
+
+      // A later credit resumes accumulating the new season from zero,
+      // while career keeps growing on top of the old total.
+      player.creditPrizeMoney(8000);
+      expect(player.careerPrizeMoney).toBe(58000);
+      expect(player.seasonPrizeMoney).toBe(8000);
+    });
+  });
 });

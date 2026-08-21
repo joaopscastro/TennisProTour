@@ -385,6 +385,18 @@ describe('API', () => {
     expect(match.outcome).not.toBeNull();
     expect([match.entrantA, match.entrantB]).toContain(match.outcome.winner);
 
+    // Prize money: the tournament's per-round ladder (mirrors
+    // pointsBreakdown), and the round-1 loser's real credited money —
+    // unlike ranking points, a first-round loss pays SOMETHING (real
+    // ATP rule 3.08.B.3, "paid to play").
+    expect(dto.prizeMoneyBreakdown[0].stageLabel).toBe('Champion');
+    expect(dto.prizeMoneyBreakdown[dto.prizeMoneyBreakdown.length - 1].matchesWon).toBe(0);
+    expect(dto.prizeMoneyBreakdown[dto.prizeMoneyBreakdown.length - 1].prizeMoney).toBeGreaterThan(0);
+    const loserId = match.outcome.winner === match.entrantA ? match.entrantB : match.entrantA;
+    const loserProfile = await app.inject({ method: 'GET', url: `/players/${loserId}` });
+    expect(loserProfile.statusCode).toBe(200);
+    expect(loserProfile.json().careerPrizeMoney).toBe(dto.prizeMoneyBreakdown[dto.prizeMoneyBreakdown.length - 1].prizeMoney);
+
     // Re-simulating the same slot must fail (already-decided match), not overwrite.
     const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
     expect(again.statusCode).toBe(409);
@@ -525,6 +537,18 @@ describe('API', () => {
     const decidedRound1 = afterSweep!.getDoublesRounds()[0];
     expect(decidedRound1.matches.some((m) => m.outcome !== null)).toBe(true);
 
+    // Prize money: awardDoublesResult pays BOTH sides of any decided
+    // doubles round (mirroring how this codebase's existing doubles
+    // RANKING POINTS already work — unlike singles, a doubles winner is
+    // credited again at each round they advance, not only at the
+    // final), so pair CD has real prize money either way once their
+    // round-1 match is decided.
+    const cdMatch = decidedRound1.matches.find((m) => m.entrantA === cdPair!.pairId || m.entrantB === cdPair!.pairId);
+    expect(cdMatch?.outcome).toBeTruthy();
+    const cAfterSweep = await deps.players.findById(PlayerId('dbl-c'));
+    expect(cAfterSweep!.careerPrizeMoney).toBeGreaterThan(0);
+    expect(cAfterSweep!.seasonPrizeMoney).toBe(cAfterSweep!.careerPrizeMoney);
+
     const pairsResponse = await app.inject({ method: 'GET', url: '/managers/m-doubles-2/doubles-pairs', headers: { 'x-dev-manager-id': 'm-doubles-2' } });
     expect(pairsResponse.statusCode).toBe(200);
     const pairDto = pairsResponse.json().find((p: { id: string }) => p.id === 'pp-cd');
@@ -542,6 +566,44 @@ describe('API', () => {
     const profile = await app.inject({ method: 'GET', url: '/players/dbl-c/profile' });
     expect(profile.statusCode).toBe(200);
     expect(profile.json().doublesPartner).toMatchObject({ playerId: 'dbl-d', chemistry: pairDto.chemistry });
+    expect(profile.json().careerPrizeMoney).toBe(cAfterSweep!.careerPrizeMoney);
+    expect(profile.json().seasonPrizeMoney).toBe(cAfterSweep!.seasonPrizeMoney);
+  });
+
+  it('registers a wild card entrant through the real HTTP route, bypassing rank entirely, and refuses once the tier\'s slot cap is full', async () => {
+    expect(await hirePlayer('wc-a', 'm-wc')).toBe(201);
+    expect(await hirePlayer('wc-b', 'm-wc')).toBe(201);
+
+    const tournament = Tournament.open({
+      name: 'Test Wild Card Field',
+      id: TournamentId('t-wildcard'),
+      tier: 'challenger', // 1 wild card slot (WildCardPolicy)
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 51 },
+      drawSize: 16,
+    });
+    await deps.tournaments.save(tournament);
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-wildcard/entrants',
+      headers: { 'x-dev-manager-id': 'm-wc' },
+      payload: { playerId: 'wc-a', requestWildCard: true },
+    });
+    expect(first.statusCode).toBe(201);
+    const dto = first.json();
+    expect(dto.entrants.find((e: { playerId: string }) => e.playerId === 'wc-a')).toMatchObject({ entryType: 'WC' });
+    expect(dto.wildCardSlots).toBe(1);
+    expect(dto.wildCardSlotsTaken).toBe(1);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-wildcard/entrants',
+      headers: { 'x-dev-manager-id': 'm-wc' },
+      payload: { playerId: 'wc-b', requestWildCard: true },
+    });
+    expect(second.statusCode).toBe(409); // domain invariant violation, same generic mapping every other RegisterEntrantUseCase throw gets
+    expect(second.json().error).toMatch(/wild card slots are already full/);
   });
 
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {

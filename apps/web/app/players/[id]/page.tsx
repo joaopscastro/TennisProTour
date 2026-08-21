@@ -34,6 +34,7 @@ import { FormDots, RankPill, ArchetypeBadge } from '../../../components/ui/Playe
 import {
   WEEKS_PER_SEASON,
   flagFor,
+  formatMoney,
   formatScoreline,
   matchRoundLabel,
   stageLabel,
@@ -544,6 +545,16 @@ export default function PlayerProfilePage() {
                       bandLabel={topRankEntry ? BAND_LABEL[topRankEntry.band] : undefined}
                     />
                   </div>
+                  {profile.careerPrizeMoney > 0 && (
+                    <div
+                      className="flex items-center gap-[6px]"
+                      style={{ padding: '5px 11px', borderRadius: 8, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.18)' }}
+                      title={`${formatMoney(profile.seasonPrizeMoney)} this season`}
+                    >
+                      <span className="text-[9.5px] font-extrabold tracking-[0.5px] uppercase text-white/55">Career earnings</span>
+                      <span className="text-[13px] font-bold text-white">{formatMoney(profile.careerPrizeMoney)}</span>
+                    </div>
+                  )}
                   {profile.tournamentHistory.some((h) => h.hasStarted && (h.won || h.eliminated)) && (
                     <div className="flex items-center gap-[8px]">
                       <span className="text-[9.5px] font-extrabold tracking-[0.5px] uppercase text-white/55">Form</span>
@@ -1103,8 +1114,15 @@ export default function PlayerProfilePage() {
                     </div>
                   </div>
                 </div>
-                <div className="text-[12px] font-semibold flex-none" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
-                  {tournamentHistoryResultLabel(entry)}
+                <div className="text-right flex-none">
+                  <div className="text-[12px] font-semibold" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
+                    {tournamentHistoryResultLabel(entry)}
+                  </div>
+                  {entry.prizeMoney > 0 && (
+                    <div className="text-[10.5px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
+                      {formatMoney(entry.prizeMoney)}
+                    </div>
+                  )}
                 </div>
               </Link>
             ))}

@@ -100,6 +100,36 @@ export function scaleDoublesPoints(singlesPoints: number): number {
 }
 
 /**
+ * Senior doubles prize money by round — the money counterpart to
+ * SENIOR_DOUBLES_POINTS_BY_ROUND, same PLACEHOLDER-dollar-figure caveat
+ * as StandardPrizeMoneyTable, and the value CREDITED TO EACH PLAYER of
+ * the pair (mirrors doublesPointsFor: both partners get their own
+ * award, not a team total split between them). Unlike the points
+ * table, index 0 is deliberately non-zero — same "paid to play, ranked
+ * to win" divergence documented on StandardPrizeMoneyTable: a doubles
+ * team that plays and loses its first match still played a real match.
+ * No junior fallback table exists — junior doubles prize money is
+ * always 0 (see StandardPrizeMoneyTable's junior-tier doc comment; the
+ * same "ITF juniors don't pay meaningful cash prizes" reasoning applies
+ * to junior doubles too).
+ */
+const SENIOR_DOUBLES_PRIZE_MONEY_BY_ROUND: Readonly<Partial<Record<TournamentTier, ReadonlyArray<number>>>> = {
+  // roundsWon:  0     1     2      3      4      5       6
+  major:        [3000, 5500, 10000, 20000, 40000, 80000, 150000],
+  tour:         [1500, 3000, 5500,  10000, 20000, 40000],
+  challenger:   [700,  1300, 2500,  4500,  9000],
+  futures:      [400,  750,  1400,  2500,  5000],
+};
+
+/** Doubles prize money for a tier/round — the money counterpart to
+ * doublesPointsFor. Junior tiers (no table entry) always return 0. */
+export function doublesPrizeMoneyFor(tier: TournamentTier, roundsWon: number): number {
+  const table = SENIOR_DOUBLES_PRIZE_MONEY_BY_ROUND[tier];
+  if (!table) return 0;
+  return table[Math.min(Math.max(roundsWon, 0), table.length - 1)];
+}
+
+/**
  * A player's permanent high-water-mark DOUBLES ranking total in one band
  * (P7c + junior doubles) — the doubles analogue of PeakRankingEntry.
  * One row per (player, band), updated in place, never append-only.

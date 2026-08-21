@@ -642,3 +642,80 @@ describe('RegisterEntrantUseCase', () => {
     });
   });
 });
+
+describe('RegisterEntrantUseCase — wild cards', () => {
+  it('awards a wild card that lands directly in the main draw, bypassing rank entirely', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const tournamentId = TournamentId('t-wc');
+    await tournaments.save(openTournament(tournamentId)); // challenger tier: 1 wild card slot
+
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true });
+
+    const saved = await tournaments.findById(tournamentId);
+    expect(saved!.entrants[0]).toMatchObject({ playerId: PlayerId('p1'), entryType: 'WC' });
+    expect(saved!.mainEntrants).toHaveLength(1);
+  });
+
+  it('refuses a wild card once the tournament tier\'s finite slot count is already taken', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const tournamentId = TournamentId('t-wc-full');
+    await tournaments.save(openTournament(tournamentId)); // challenger tier: exactly 1 slot
+
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true });
+
+    await expect(
+      useCase.execute({ tournamentId, playerId: PlayerId('p2'), requestWildCard: true }),
+    ).rejects.toThrow(/wild card slots are already full/);
+  });
+
+  it('refuses a wild card at a tier that awards none (every junior tier)', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const tournamentId = TournamentId('t-wc-junior');
+    await savePlayer(players, PlayerId('p1'), U14_AGE);
+    await tournaments.save(openJuniorTournament(tournamentId));
+
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await expect(
+      useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true }),
+    ).rejects.toThrow(/does not award wild cards/);
+  });
+
+  it('still enforces the weekly entry cap on a wild card entry — it is a different way IN, not an exemption', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const week: GameWeek = { season: 1, week: 3 };
+    const first = openTournament(TournamentId('t-wc-week-1'), week);
+    const second = openTournament(TournamentId('t-wc-week-2'), week);
+    await tournaments.save(first);
+    await tournaments.save(second);
+
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await useCase.execute({ tournamentId: TournamentId('t-wc-week-1'), playerId: PlayerId('p1') });
+
+    await expect(
+      useCase.execute({ tournamentId: TournamentId('t-wc-week-2'), playerId: PlayerId('p1'), requestWildCard: true }),
+    ).rejects.toThrow(/has already entered/);
+  });
+
+  it('a wild card entrant still counts toward auto-starting the bracket once the draw fills', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const tournamentId = TournamentId('t-wc-fill');
+    const tournament = openTournament(tournamentId);
+    for (let i = 1; i <= 15; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+    }
+    await tournaments.save(tournament);
+
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await useCase.execute({ tournamentId, playerId: PlayerId('p16'), requestWildCard: true });
+
+    const saved = await tournaments.findById(tournamentId);
+    expect(saved!.hasStarted).toBe(true);
+  });
+});

@@ -24,6 +24,16 @@ const MASTERS_CUP_CHAMPION_POINTS = 1500;
 const MASTERS_CUP_RUNNER_UP_POINTS = 900;
 const MASTERS_CUP_SEMIFINALIST_POINTS = 450;
 
+/** Capstone prize money for the Masters Cup — the money counterpart to
+ * the points above, same PLACEHOLDER-dollar-figure caveat as
+ * StandardPrizeMoneyTable. Sits between a `tour`-tier event's champion
+ * payout and a `major`'s, matching where the points sit. Group-stage
+ * (round-robin) matches pay no points and no money — same rule, a
+ * round-robin match is a qualifier, not an eliminating result. */
+const MASTERS_CUP_CHAMPION_MONEY = 400000;
+const MASTERS_CUP_RUNNER_UP_MONEY = 200000;
+const MASTERS_CUP_SEMIFINALIST_MONEY = 100000;
+
 export interface SimulateMastersCupMatchCommand {
   matchId: MatchId;
   cupId: TournamentId;
@@ -138,13 +148,14 @@ export class SimulateMastersCupMatchUseCase {
       const winnerIds = outcome.winner === sideA ? playerIdsA : playerIdsB;
       const loserIds = outcome.winner === sideA ? playerIdsB : playerIdsA;
       const loserPoints = command.roundNumber === 1 ? MASTERS_CUP_SEMIFINALIST_POINTS : MASTERS_CUP_RUNNER_UP_POINTS;
+      const loserMoney = command.roundNumber === 1 ? MASTERS_CUP_SEMIFINALIST_MONEY : MASTERS_CUP_RUNNER_UP_MONEY;
 
       for (const id of loserIds) {
-        await this.awardPoints(id, command.discipline, loserPoints, 'loss', cup.id, cup.weekScheduled);
+        await this.awardPoints(id, command.discipline, loserPoints, loserMoney, 'loss', cup.id, cup.weekScheduled);
       }
       if (command.roundNumber === 2) {
         for (const id of winnerIds) {
-          await this.awardPoints(id, command.discipline, MASTERS_CUP_CHAMPION_POINTS, 'win', cup.id, cup.weekScheduled);
+          await this.awardPoints(id, command.discipline, MASTERS_CUP_CHAMPION_POINTS, MASTERS_CUP_CHAMPION_MONEY, 'win', cup.id, cup.weekScheduled);
         }
         await this.awardTitle(command.discipline, winnerIds, cup.id, cup.weekScheduled);
       }
@@ -157,6 +168,7 @@ export class SimulateMastersCupMatchUseCase {
     playerId: PlayerId,
     discipline: 'singles' | 'doubles',
     points: number,
+    money: number,
     result: 'win' | 'loss',
     cupId: TournamentId,
     weekScheduled: { season: number; week: number },
@@ -174,6 +186,10 @@ export class SimulateMastersCupMatchUseCase {
     await this.rankingLedger.append(entry);
 
     const player = await this.players.findById(playerId);
+    if (player) {
+      player.creditPrizeMoney(money);
+      await this.players.save(player);
+    }
     if (player?.managerId) {
       await this.managerLadder.credit(player.managerId, finalPoints);
       await this.managerXp.credit(player.managerId, this.managerXpPolicy.xpFor(result, 'tour'));

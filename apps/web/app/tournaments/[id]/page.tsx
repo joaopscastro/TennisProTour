@@ -22,7 +22,7 @@ import { Sidebar } from '../../../components/Sidebar';
 import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
-import { flagFor, formatScoreline } from '../../../lib/format';
+import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -157,6 +157,40 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
             : ''}
         </div>
       </div>
+
+      <div style={{ marginTop: 18 }}>
+        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+          Prize money by result
+        </div>
+        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
+          {tournament.prizeMoneyBreakdown.map((row, i) => {
+            const isChampion = row.stageLabel === 'Champion';
+            const zero = row.prizeMoney === 0;
+            return (
+              <div
+                key={row.matchesWon}
+                className="flex items-center justify-between px-[12px] py-[7px]"
+                style={{
+                  borderBottom: i < tournament.prizeMoneyBreakdown.length - 1 ? '1px solid var(--gc-line)' : undefined,
+                  background: isChampion ? 'linear-gradient(90deg, oklch(92% 0.09 85 / 0.5), transparent)' : undefined,
+                }}
+              >
+                <div style={{ fontSize: 12.5, fontWeight: isChampion ? 800 : 550, color: zero ? 'var(--gc-ink-faint)' : 'var(--gc-ink)' }}>
+                  {isChampion ? '\u2605 ' : ''}{row.stageLabel}
+                </div>
+                <div className="[font-variant-numeric:tabular-nums]" style={{ fontSize: 12.5, fontWeight: 750, color: zero ? 'var(--gc-ink-faint)' : th.deep }}>
+                  {zero ? 'No prize money' : formatMoney(row.prizeMoney)}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 7, lineHeight: 1.5 }}>
+          {tournament.circuit === 'junior'
+            ? 'Junior events are an amateur development circuit and do not pay cash prize money.'
+            : "Unlike ranking points, a first-round loss still pays real prize money \u2014 you're paid to play, ranked to win."}
+        </div>
+      </div>
     </Panel>
   );
 }
@@ -224,6 +258,14 @@ function EntryList({
                     style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: 'var(--gc-ink-mute)' }}
                   >
                     [Q]
+                  </span>
+                )}
+                {entrant.entryType === 'WC' && (
+                  <span
+                    title="Wild card — awarded a main-draw place independent of ranking"
+                    style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: 'oklch(55% 0.14 145)' }}
+                  >
+                    [WC]
                   </span>
                 )}
               </div>
