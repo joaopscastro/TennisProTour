@@ -7,16 +7,41 @@
 
 /** A single 0–100 skill rating. Clamps itself on construction so no
  * consumer needs to re-validate bounds (SRP: this VO owns its own
- * validity, nothing else needs to). */
+ * validity, nothing else needs to).
+ *
+ * **Carries fractional precision internally (`raw`); `value` is the
+ * rounded integer every other caller actually wants.** This is a real
+ * fix, not the original design: `add()` used to round immediately
+ * (`Skill.of(this.value + delta)`, off the already-rounded `value`), so
+ * any repeated delta below 0.5 — e.g. a physical attribute's
+ * ceiling-diminishing-returns factor once headroom drops under 7.5
+ * points (headroom/15 < 0.5), or `AgingPolicy`'s -0.05/week decline
+ * decay, ALWAYS below 0.5 — rounded back to the exact same integer
+ * every single time, with the fractional progress discarded and never
+ * carried forward. The practical effect, confirmed live during a
+ * fast-tick 5-season playtest: a player whose physical ceiling headroom
+ * started under 7.5 points trained for 28 consecutive weekly rollovers
+ * with zero measurable change, and — the more serious half of the same
+ * bug — a 'decline'-stage player's attributes never actually declined
+ * at all, ever, since -0.05/week never accumulates past rounding. Now
+ * `add()` accumulates against `raw`, and only `value` (read by
+ * everything else — the simulator, DTOs, `overallRating()`, DB
+ * round-trips) rounds, so the fractional progress survives. See
+ * `docs/balance-tuning-report.md`'s rounding-bug section for the full
+ * investigation. */
 export class Skill {
-  private constructor(readonly value: number) {}
+  private constructor(readonly raw: number) {}
 
   static of(value: number): Skill {
-    return new Skill(Math.max(0, Math.min(100, Math.round(value))));
+    return new Skill(Math.max(0, Math.min(100, value)));
+  }
+
+  get value(): number {
+    return Math.round(this.raw);
   }
 
   add(delta: number): Skill {
-    return Skill.of(this.value + delta);
+    return Skill.of(this.raw + delta);
   }
 
   toBallRating(): number {

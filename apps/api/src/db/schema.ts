@@ -437,23 +437,37 @@ export const players = pgTable('players', {
   dormantCarryoverTargetBand: rankingBand('dormant_carryover_target_band'),
   dormantCarryoverBonusPoints: doublePrecision('dormant_carryover_bonus_points'),
 
+  // Technical, physical, and mental skill columns are `doublePrecision`,
+  // not `integer` — a deliberate fix, not the original type. `Skill`
+  // (packages/domain/src/player/PlayerAttributes.ts) carries fractional
+  // precision internally now (`raw`) so a training/decline delta below
+  // 0.5 (e.g. a physical attribute near its ceiling, or ANY decline-stage
+  // decay, which is always -0.05/week) actually accumulates across weeks
+  // instead of rounding back to the same integer forever. That fix only
+  // holds if the fractional part survives a save/load round-trip — see
+  // Skill's own doc comment and DrizzlePlayerRepository's toRow, which
+  // persists `.raw`, never the rounded `.value`. Same `doublePrecision`
+  // precedent `experience` already established for exactly this "must
+  // carry a fractional remainder" reason. Migration 0043 converts these
+  // from `integer`; existing rows' whole-number values round-trip
+  // unchanged (they're just now editable to a fractional value too).
   // Technical
-  serve: integer('serve').notNull(),
-  forehand: integer('forehand').notNull(),
-  backhand: integer('backhand').notNull(),
-  volley: integer('volley').notNull(),
+  serve: doublePrecision('serve').notNull(),
+  forehand: doublePrecision('forehand').notNull(),
+  backhand: doublePrecision('backhand').notNull(),
+  volley: doublePrecision('volley').notNull(),
   // Physical
-  speed: integer('speed').notNull(),
-  stamina: integer('stamina').notNull(),
-  strength: integer('strength').notNull(),
+  speed: doublePrecision('speed').notNull(),
+  stamina: doublePrecision('stamina').notNull(),
+  strength: doublePrecision('strength').notNull(),
   // Mental
-  consistency: integer('consistency').notNull(),
-  clutch: integer('clutch').notNull(),
+  consistency: doublePrecision('consistency').notNull(),
+  clutch: doublePrecision('clutch').notNull(),
   // Doubles (P7b) — its own axis, distinct from the singles clusters
   // above. Defaults to 0 for any row that predates the column (a player
   // who has never trained doubles). Excluded from the singles
   // overallRating (see PlayerAttributes); read only by the doubles sim.
-  doubles: integer('doubles').notNull().default(0),
+  doubles: doublePrecision('doubles').notNull().default(0),
 
   // Surface affinities (percentage bonus per surface, capped in domain)
   affinityClay: integer('affinity_clay').notNull(),

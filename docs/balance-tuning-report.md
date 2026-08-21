@@ -258,3 +258,116 @@ can fix a problem that isn't actually about training SPEED.
   here as the more promising next investigation if the underlying
   concern (do free-tier managers have a real path to competitiveness)
   gets picked up again.
+
+## Skill integer-rounding bug: the real cause of "zero growth," found via a second live fast-tick run
+
+### Background
+
+Following the roster-gap investigation above, the user asked to run an even
+faster world tick (WORLD_TICK_INTERVAL_MS lowered further) for a full 5
+simulated seasons, with a small tracked cohort of 5 real players (ages
+14-15 at claim, spanning exceptional/strong/common rarity tiers) followed
+live to see how they age from ~14 to ~19. Several real production bugs
+were found and fixed along the way (documented in CLAUDE.md's "World
+clock" section): a crash in the day-tick match sweep on unseeded
+qualifying brackets, and a more severe world-halting stuck state in
+qualifier promotion. After both were fixed, the tracked cohort ran for
+over an hour of real time (~2.5+ simulated seasons).
+
+### The misleading result
+
+The two strongest tracked players (Noah Petrov, 87 OVR at claim; Diego
+Ivanova, 82 OVR) showed **exactly zero attribute change** across the
+entire run, while the three weaker players (70, 67, and 60 OVR) showed
+real, if lopsided, growth. A first read of this — including from an LLM
+agent tasked with monitoring it — concluded this was "aggressive built-in
+catch-up mechanics" and that the gap was narrowing, contradicting this
+report's own earlier roster-gap finding.
+
+**That read was wrong, and the real cause was worse.** Checking the exact
+DB values directly (not trusting the agent's self-report) showed Noah's
+`strength` sat at exactly 84 for 28 consecutive weekly rollovers, on a
+continuous "strength" training focus, with genuine experience accruing
+the whole time (3268 XP, far more than the ~18 needed to fully fund one
+training step). Something was preventing the funded, correctly-targeted
+training from ever landing.
+
+### Root cause
+
+`Skill.add(delta)` used to be `Skill.of(this.value + delta)` — and
+`Skill.of` rounded to the nearest integer on construction. Since `value`
+was *already* the rounded integer from the previous call, every `add()`
+started from an already-rounded base and rounded again immediately. Any
+delta under 0.5 — applied repeatedly — landed on the exact same integer
+every single time, with the fractional progress discarded, forever:
+
+- **Physical training near a ceiling.** `applyPotentialDiminishingReturns`
+  scales the base delta by `headroom / DIMINISHING_RETURNS_RANGE` (15).
+  Once headroom drops under 7.5 points, the scaled delta drops under 0.5
+  — Noah's `strength` ceiling headroom was exactly 6, delta = 1.0 × (6/15)
+  = 0.4, which rounds to zero forever. This is NOT a rare edge case:
+  `PlayerGenerationPolicy`'s ceiling headroom is rolled uniformly over
+  [0, 45] independently per physical attribute, so roughly 1 in 6 rolls
+  lands under 7.5 — meaning a meaningful fraction of every generated
+  player's physical attributes are permanently untrainable from the
+  moment they're generated, not eventually, not "slowed," genuinely
+  stuck at zero forever.
+- **Decline-stage aging.** `StandardAgingPolicy.weeklyDeclineDelta`
+  returns a flat `-0.05` for the `decline` stage — always under 0.5 in
+  magnitude, so it *always* rounded to zero. A player in decline never
+  actually declined at all, ever, under the old behavior — a much bigger,
+  connected finding than the training-ceiling case, since it's not
+  conditional on headroom, it's universal.
+
+### The fix
+
+`Skill` now carries fractional precision internally (`raw`); `.value`
+(what every other caller reads — the simulator, DTOs, `overallRating()`)
+is `Math.round(raw)`, computed fresh each read rather than baked in at
+construction. `add()` accumulates against `raw`, so a sustained sub-0.5
+delta now genuinely accumulates across calls and eventually crosses a
+whole-point boundary, instead of being discarded every time.
+
+This only holds if the fractional part survives a save/load round-trip,
+so the 9 Skill-backed `players` columns (serve, forehand, backhand,
+volley, speed, stamina, strength, consistency, clutch, doubles) were
+migrated from `integer` to `double precision` (migration `0043`) — the
+same type `experience` already used for exactly this "must carry a
+fractional remainder" reason. `DrizzlePlayerRepository.toRow` now
+persists `.raw`, never the rounded `.value`. Surface affinities
+(`SurfaceAffinities`, a separate class) were checked and are NOT affected
+— their training delta is always ≥ 0.6 (2× the attribute base rate, never
+gated by any ceiling), so it can never round to zero the way a
+ceiling-diminished physical delta or the flat decline delta could.
+
+Two existing domain tests had literally codified the old bug as expected
+behavior and were rewritten to assert the correct behavior instead:
+`Player.test.ts`'s ceiling-approach test (previously asserted the
+attribute plateaus one point *short* of its ceiling — a rounding
+artifact — now asserts it reaches the ceiling exactly, tracked against
+`raw` for the monotonicity check since the *rounded* value can now
+legitimately bounce as fractional progress crosses whole-point
+boundaries) and `PlayerAgingService.test.ts`'s test (previously titled
+"demonstrates that StandardAgingPolicy's -0.05/week delta never actually
+moves an integer Skill value" — now asserts decline actually happens
+after enough weeks). Domain suite 333 (unchanged count — 2 rewritten, not
+added), application 205, api 79 (including a real migration round-trip
+against a fresh Postgres), worker 8 — all green; full monorepo
+`tsc --build --force` and `npm run typecheck -w apps/web` both clean.
+Verified live: restarted the worker against the exact real-Postgres state
+the bug was found in, and the fix applies going forward (existing
+whole-number values round-trip unchanged; new training/decline deltas
+now accumulate correctly).
+
+### What this means for the roster-gap finding above
+
+This does not overturn the roster-gap investigation's conclusion — if
+anything it strengthens it. The "gap never closes" finding used a clean
+deterministic simulation that (correctly, as it turns out) modeled
+training as smoothly continuous; it never hit this specific integer-
+rounding artifact. What this bug actually explains is why a stronger
+player's growth could look *artificially flatter* than even that
+pessimistic simulation predicted in live play — not "catch-up
+mechanics," but attributes silently unable to move at all. With the fix,
+live play should now track the deterministic simulation's own curves
+much more closely.

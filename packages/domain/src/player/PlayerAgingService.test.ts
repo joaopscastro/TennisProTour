@@ -126,25 +126,32 @@ describe('PlayerAgingService', () => {
   });
 
   /**
-   * This documents a real finding, not a workaround: StandardAgingPolicy's
-   * actual -0.05/week decline delta is invisible forever against Skill's
-   * Math.round-based clamping, because Skill.add() rounds from its own
-   * already-rounded current value on every call (30 + -0.05 = 29.95, which
-   * always rounds back to 30, no matter how many weeks pass). Verified
-   * empirically before writing this test. Flagging rather than silently
-   * "fixing" it, since StandardAgingPolicy was supplied verbatim.
+   * A real bug, found live during a fast-tick 5-season playtest and now
+   * fixed: StandardAgingPolicy's -0.05/week decline delta used to be
+   * invisible FOREVER against Skill's old immediate-rounding behavior,
+   * because Skill.add() rounded from its own already-rounded current
+   * value on every call (30 + -0.05 = 29.95, which always rounded back
+   * to 30, no matter how many weeks passed) — a decline-stage player
+   * never actually declined, ever. Skill now carries fractional
+   * precision internally (`raw`) specifically so a sustained sub-0.5
+   * delta like this one accumulates across calls instead of being
+   * discarded every time — see Skill's own doc comment. This test
+   * asserts decline is now real: enough weeks at -0.05/week must move
+   * the rounded, displayed value down by at least 1.
    */
-  it('demonstrates that StandardAgingPolicy\'s -0.05/week delta never actually moves an integer Skill value', () => {
+  it('StandardAgingPolicy\'s -0.05/week decline delta accumulates across weeks and eventually moves the displayed Skill value', () => {
     const service = new PlayerAgingService(new StandardAgingPolicy());
     const player = playerAged(30 * 52 - 1); // about to enter 'decline'
     const before = player.attributes.technical.serve.value;
 
+    // -0.05/week needs 10+ weeks to cross a whole point (0.5); 50 weeks
+    // is comfortably enough to observe real, sustained decline.
     for (let week = 0; week < 50; week++) {
       service.advance(player);
     }
 
     expect(player.stage).toBe('decline');
-    expect(player.attributes.technical.serve.value).toBe(before);
+    expect(player.attributes.technical.serve.value).toBeLessThan(before);
   });
 });
 

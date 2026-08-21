@@ -135,16 +135,23 @@ function toRow(player: Player): typeof players.$inferInsert {
     talent: player.talent,
     experience: player.experience,
     ...dormantCarryoverBonusColumns(player.dormantCarryoverBonus),
-    serve: technical.serve.value,
-    forehand: technical.forehand.value,
-    backhand: technical.backhand.value,
-    volley: technical.volley.value,
-    speed: physical.speed.value,
-    stamina: physical.stamina.value,
-    strength: physical.strength.value,
-    consistency: mental.consistency.value,
-    clutch: mental.clutch.value,
-    doubles: player.attributes.doubles.value,
+    // Persist the RAW (unrounded) skill value, not the display-rounded
+    // `.value` — the whole point of Skill's fractional-precision fix is
+    // that sub-1 training/decline deltas must survive a save/load
+    // round-trip instead of being discarded to the nearest integer on
+    // every write. These columns are `doublePrecision`, not `integer`,
+    // specifically for this (see the migration and Skill's own doc
+    // comment).
+    serve: technical.serve.raw,
+    forehand: technical.forehand.raw,
+    backhand: technical.backhand.raw,
+    volley: technical.volley.raw,
+    speed: physical.speed.raw,
+    stamina: physical.stamina.raw,
+    strength: physical.strength.raw,
+    consistency: mental.consistency.raw,
+    clutch: mental.clutch.raw,
+    doubles: player.attributes.doubles.raw,
     affinityClay: surfaceAffinities.get('clay'),
     affinityGrass: surfaceAffinities.get('grass'),
     affinityHard: surfaceAffinities.get('hard'),

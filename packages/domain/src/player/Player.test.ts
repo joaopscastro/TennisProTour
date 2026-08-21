@@ -316,34 +316,35 @@ describe('Player', () => {
     const focus: TrainingFocus = { kind: 'attribute', attribute: 'speed' };
     const policy = new FixedTrainingPolicy(4);
 
-    let previousValue = player.attributes.physical.speed.value; // 30
+    // Tracked against the RAW (fractional) value, not the rounded
+    // display `.value` — see Skill's own doc comment on why: `.value`
+    // now carries genuine fractional precision that only rounds for
+    // display, so ROUNDED deltas can legitimately bounce (0, 0, 1, 0, 1…)
+    // as the accumulating raw progress crosses whole-point boundaries,
+    // even while the underlying continuous curve is smoothly,
+    // monotonically slowing — asserting monotonicity on the rounded
+    // value would be asserting an artifact of display rounding, not the
+    // real invariant.
+    let previousRaw = player.attributes.physical.speed.raw; // 30
     let previousDelta = Infinity;
     for (let i = 0; i < 30; i++) {
       player.applyTraining(focus, policy);
-      const currentValue = player.attributes.physical.speed.value;
-      const delta = currentValue - previousValue;
-      expect(delta).toBeLessThanOrEqual(previousDelta); // never a BIGGER jump than the previous session
-      expect(currentValue).toBeLessThanOrEqual(45); // NEVER exceeds the ceiling, ever, at any step
-      previousValue = currentValue;
+      const currentRaw = player.attributes.physical.speed.raw;
+      const delta = currentRaw - previousRaw;
+      expect(delta).toBeLessThanOrEqual(previousDelta + 1e-9); // never a BIGGER jump than the previous session
+      expect(currentRaw).toBeLessThanOrEqual(45); // NEVER exceeds the ceiling, ever, at any step
+      previousRaw = currentRaw;
       previousDelta = delta;
     }
-    // Converges to a stable plateau at (or, here, one point under — see
-    // below) the ceiling, growth fully stopped, not still climbing.
-    expect(previousDelta).toBe(0);
-    // Real, honest consequence of Skill values being integers: the
-    // continuous decay curve's fractional remainder near the very top
-    // (here, a steady-state delta of 45*... ~0.27/session once only 1
-    // point of headroom remains) rounds DOWN forever once it's under
-    // 0.5, so this specific (start=30, ceiling=45, baseDelta=4)
-    // combination plateaus at 44, one point shy of the ceiling, rather
-    // than landing exactly on it — verified by direct simulation, not
-    // guessed. Still "smoothly approaches zero, never overshoots," per
-    // the requirement — it just doesn't always land on an exact
-    // integer boundary, the same way any discretized asymptotic curve
-    // wouldn't. The invariant that actually matters (never exceeds,
-    // monotonically slows, ends at zero growth) held every iteration
-    // above regardless.
-    expect(player.attributes.physical.speed.value).toBe(44);
+    // Converges to a stable plateau at the ceiling, growth fully
+    // stopped, not still climbing.
+    expect(previousDelta).toBeCloseTo(0, 6);
+    // Unlike the old integer-rounding behavior (which used to plateau
+    // one point short of the ceiling because the fractional remainder
+    // near the top rounded away every session), the DISPLAYED value now
+    // reaches the ceiling exactly, since raw progress is never
+    // discarded — the fractional-precision fix's whole point.
+    expect(player.attributes.physical.speed.value).toBe(45);
   });
 
   it('defaults potentialCeiling to 100 (no meaningful ceiling) when not explicitly provided, so pre-existing call sites train at full rate', () => {
