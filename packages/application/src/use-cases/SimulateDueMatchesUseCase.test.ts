@@ -279,7 +279,7 @@ async function setup(worldWeek: GameWeek = { season: 1, week: 10 }, worldDay = 1
   );
   const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, new StandardTournamentSchedulePolicy());
 
-  return { tournaments, matchLogs, useCase, worlds };
+  return { tournaments, players, matchLogs, useCase, worlds };
 }
 
 describe('SimulateDueMatchesUseCase', () => {
@@ -351,5 +351,122 @@ describe('SimulateDueMatchesUseCase', () => {
     const afterComplete = await useCase.execute({ worldId: testWorldId });
     expect(afterComplete.simulated).toHaveLength(0);
     expect(afterComplete.failed).toHaveLength(0);
+  });
+
+  it('does not crash on a tournament whose DOUBLES draw has started but whose SINGLES qualifying bracket has not been seeded yet', async () => {
+    // Real bug, found live during a fast-tick playtest run: `hasQualifying`
+    // (qualifyingDrawSize > 0) is a static tier property, true from the
+    // moment a tournament opens — well before its qualifying bracket is
+    // actually SEEDED. A tournament whose doubles draw seeded first (making
+    // hasStarted true via hasDoublesDrawStarted) while singles qualifying
+    // sat unseeded used to crash: draw picked 'qualifying' (isQualifyingComplete()
+    // correctly says false), but getQualifyingRounds() was empty, so
+    // `rounds[rounds.length - 1].roundNumber` read off `undefined`.
+    const { tournaments, players, worlds } = await setup();
+
+    const bracketGenerator = new BracketGenerator();
+    const qualifyingTournament = Tournament.open({
+      name: 'Qualifying Not Yet Seeded',
+      id: TournamentId('t-qual-not-seeded'),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 64,
+      qualifyingDrawSize: 32,
+      qualifierSlots: 8,
+      doublesDrawSize: 8,
+    });
+    // Seed ONLY the doubles bracket — singles main + qualifying stay empty.
+    const doublesPairIds = Array.from({ length: 16 }, (_, i) => PlayerId(`dbl-${i}`));
+    const doublesPairs = [];
+    for (let i = 0; i < 16; i += 2) {
+      doublesPairs.push({ pairId: `t-qual-not-seeded-d0-${i / 2}`, playerA: doublesPairIds[i], playerB: doublesPairIds[i + 1] });
+    }
+    const seedable = doublesPairs.map((p) => ({ playerId: p.pairId, seed: null }));
+    const doublesRounds = bracketGenerator.generate(seedable, 8);
+    qualifyingTournament.startDoublesWithBracket(doublesPairs as never, doublesRounds as never);
+    await tournaments.save(qualifyingTournament);
+
+    const simulateMatch = new SimulateMatchUseCase(
+      tournaments,
+      players,
+      new AlwaysAWinsSimulator(),
+      new CountingMatchLogStore(),
+      new NullEventPublisher(),
+      bracketGenerator,
+      new StandardRankingPointsTable(),
+      new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      worlds,
+      testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
+    );
+    const useCase = new SimulateDueMatchesUseCase(tournaments, simulateMatch, worlds, new StandardTournamentSchedulePolicy());
+
+    await expect(useCase.execute({ worldId: testWorldId })).resolves.not.toThrow();
+  });
+
+  it('does not crash on a tournament whose SINGLES draw has started but whose DOUBLES qualifying bracket has not been seeded yet', async () => {
+    // The mirror-image of the case above, in sweepDoubles this time: found
+    // live in the same fast-tick run, immediately after fixing the singles
+    // branch — `hasDoublesQualifying` (doublesQualifyingDrawSize > 0) is
+    // likewise a static tier property, true before the doubles qualifying
+    // bracket is actually seeded (hasDoublesQualifyingDrawStarted).
+    const { tournaments, players, worlds } = await setup();
+    const bracketGenerator = new BracketGenerator();
+
+    const tournament = Tournament.open({
+      name: 'Doubles Qualifying Not Yet Seeded',
+      id: TournamentId('t-doubles-qual-not-seeded'),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      doublesDrawSize: 16,
+      doublesQualifyingDrawSize: 32,
+      doublesQualifierSlots: 8,
+    });
+    for (let i = 1; i <= 16; i++) tournament.registerEntrant({ playerId: PlayerId(`sq${i}`), seed: i });
+    tournament.startWithBracket(bracketGenerator.generate(tournament.entrants, 16));
+    await tournaments.save(tournament);
+
+    const simulateMatch = new SimulateMatchUseCase(
+      tournaments,
+      players,
+      new AlwaysAWinsSimulator(),
+      new CountingMatchLogStore(),
+      new NullEventPublisher(),
+      bracketGenerator,
+      new StandardRankingPointsTable(),
+      new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      worlds,
+      testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
+    );
+    // A stub is sufficient: the crash this test guards against happens
+    // BEFORE sweepDoubles ever calls simulateDoublesMatch.execute(), so
+    // execute() is never reached either way — only the constructor's type
+    // needs satisfying.
+    const stubSimulateDoublesMatch = { execute: async () => undefined } as unknown as import('./SimulateDoublesMatchUseCase').SimulateDoublesMatchUseCase;
+    const useCase = new SimulateDueMatchesUseCase(
+      tournaments,
+      simulateMatch,
+      worlds,
+      new StandardTournamentSchedulePolicy(),
+      stubSimulateDoublesMatch,
+    );
+
+    await expect(useCase.execute({ worldId: testWorldId })).resolves.not.toThrow();
   });
 });
