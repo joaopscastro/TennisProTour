@@ -1,5 +1,5 @@
 import { MatchId, Player, PlayerId, TournamentId, WorldId, TournamentTier, PairId } from '@tennis-manager/domain';
-import { DoublesPairPolicy, MatchLog, MatchSimulator, MatchParticipant, DoublesTitleRecord, TitleRecord, RankingLedgerEntry, doublesPointsFor, RankingCalculationService, doublesBestResultsCapFor, isNewDoublesPeak, isNewPeak, RankingBand, PeakRankingEntry } from '@tennis-manager/domain';
+import { DoublesPairPolicy, MatchLog, MatchSimulator, MatchParticipant, DoublesTitleRecord, TitleRecord, RankingLedgerEntry, scaleDoublesPoints, RankingCalculationService, doublesBestResultsCapFor, isNewDoublesPeak, isNewPeak, RankingBand, PeakRankingEntry } from '@tennis-manager/domain';
 import { fatigueCostForMatch } from '@tennis-manager/domain';
 import {
   DoublesPairRepository,
@@ -161,7 +161,7 @@ export class SimulateMastersCupMatchUseCase {
     cupId: TournamentId,
     weekScheduled: { season: number; week: number },
   ): Promise<void> {
-    const finalPoints = discipline === 'doubles' ? doublesPointsFor(points) : points;
+    const finalPoints = discipline === 'doubles' ? scaleDoublesPoints(points) : points;
     const entry: RankingLedgerEntry = {
       playerId,
       tournamentId: cupId,

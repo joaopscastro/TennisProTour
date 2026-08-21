@@ -245,7 +245,7 @@ export class SimulateDoublesMatchUseCase {
     draw: DrawPhase,
   ): Promise<void> {
     const singlesPoints = this.rankingPointsTable.pointsFor(tier, roundsWon);
-    const points = draw === 'qualifying' ? doublesQualifyingPointsFor(roundsWon) : doublesPointsFor(singlesPoints);
+    const points = draw === 'qualifying' ? doublesQualifyingPointsFor(roundsWon) : doublesPointsFor(tier, roundsWon, singlesPoints);
 
     const entry: RankingLedgerEntry = {
       playerId: player.id,

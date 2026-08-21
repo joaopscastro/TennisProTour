@@ -65,8 +65,17 @@ export function doublesQualifyingRoundCountFor(doublesDrawSize: number): number 
 
 /** Ranking points for being eliminated in doubles qualifying, indexed by
  * qualifying rounds won — deliberately tiny, never approaching a main-draw
- * doubles result. Index 0 is 0 (a ranking is earned by winning). PLACEHOLDER. */
-const DOUBLES_QUALIFYING_POINTS: ReadonlyArray<number> = [0, 1, 3];
+ * doubles result. Index 0 is 0 (a ranking is earned by winning). Index 1
+ * (25) is the real, sourced value from the 2026 PIF ATP Rankings
+ * rulebook (9.02.G.6, footnote ***): "The team losing in the final round
+ * of qualifying shall receive 25 ranking points" — the only doubles
+ * qualifying table the rulebook publishes (ATP Tour 500's 16-team
+ * draw). This project's `doublesQualifyingRoundCountFor` always
+ * produces exactly 2 qualifying rounds regardless of tier, matching
+ * this table's own shape exactly: index 0 (lost round 1) is the real
+ * "no points in the first round" rule, index 1 (lost round 2, the
+ * final qualifying round) is the sourced 25 — no interpolation needed. */
+const DOUBLES_QUALIFYING_POINTS: ReadonlyArray<number> = [0, 25];
 
 export function doublesQualifyingPointsFor(qualifyingRoundsWon: number): number {
   return DOUBLES_QUALIFYING_POINTS[Math.min(qualifyingRoundsWon, DOUBLES_QUALIFYING_POINTS.length - 1)] ?? 0;

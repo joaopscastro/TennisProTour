@@ -81,8 +81,14 @@ describe('QualifyingPolicy — the qualifying field itself (full model)', () => 
 
   it('never pays a qualifying result anywhere near a main-draw result at the same tier', () => {
     // Coming through qualifying is worth a main-draw place, not points.
-    expect(qualifyingPointsFor('major', 2)).toBeLessThan(45); // major, one main-draw win
-    expect(qualifyingPointsFor('tour', 2)).toBeLessThan(11);
+    // Real, sourced values (2026 PIF ATP Rankings, 9.02.G.4): the
+    // smallest real main-draw win at both major and tour is 50 points
+    // (a first-round win at a Grand Slam or this project's ATP-1000-
+    // mapped `tour` tier — see StandardRankingPointsTable's doc
+    // comment); the real qualifying-elimination ceiling (16, a last-
+    // qualifying-round loss) sits comfortably under it at both.
+    expect(qualifyingPointsFor('major', 2)).toBeLessThan(50);
+    expect(qualifyingPointsFor('tour', 2)).toBeLessThan(50);
   });
 });
 

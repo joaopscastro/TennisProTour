@@ -28,6 +28,22 @@ export interface ManagerLadderPolicy {
    * erosion. The score never resets, but it always erodes, so holding
    * or climbing the public leaderboard requires continuing to play. */
   weeklyDecayFactor(): number;
+
+  /** An EXTRA, harsher decay multiplier applied — on top of
+   * `weeklyDecayFactor`, not instead of it — only to a manager who
+   * registered NONE of their rostered players into ANY tournament
+   * (singles or doubles) during the week just ended. Inspired by the
+   * real ATP rulebook's withdrawal-penalty concept (Chapter IX,
+   * 9.03.C — a scheduled-but-skipped ATP 500 costs ranking points),
+   * reinterpreted for this game's actual failure mode: not a
+   * withdrawal (there is no such action here), but an absentee
+   * manager simply forgetting to enter anyone for a whole week. Scoped
+   * to the MANAGER LADDER specifically (not the player's own ranking,
+   * which already has no equivalent "forced zero" outside the
+   * obligatory-major rule) because the ladder is this game's own
+   * "come back and stay active" retention mechanic — the natural home
+   * for a real activity penalty. */
+  inactivityPenaltyFactor(): number;
 }
 
 /**
@@ -47,11 +63,23 @@ export class StandardManagerLadderPolicy implements ManagerLadderPolicy {
    * not a core-loop constant. Not tuned. */
   private static readonly WEEKLY_DECAY = 0.99;
 
+  /** PLACEHOLDER: a fully inactive week (zero entries anywhere on the
+   * whole roster) costs an EXTRA 15% on top of the routine 1% —
+   * noticeably sharper than the baseline erosion, since the goal is a
+   * real, felt consequence for "forgot to log in," not a rounding
+   * error next to the passive decay everyone already takes. Not tuned
+   * against real data — same status as WEEKLY_DECAY. */
+  private static readonly INACTIVITY_PENALTY = 0.85;
+
   creditFor(rankingPoints: number): number {
     return rankingPoints;
   }
 
   weeklyDecayFactor(): number {
     return StandardManagerLadderPolicy.WEEKLY_DECAY;
+  }
+
+  inactivityPenaltyFactor(): number {
+    return StandardManagerLadderPolicy.INACTIVITY_PENALTY;
   }
 }

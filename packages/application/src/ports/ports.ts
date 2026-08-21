@@ -285,6 +285,13 @@ export interface ManagerLadderRepository {
    * played that week. */
   decayAll(factor: number): Promise<void>;
 
+  /** Multiplies ONLY the listed managers' scores by `factor` — the
+   * targeted counterpart to `decayAll`, for the extra inactivity
+   * penalty (see `ManagerLadderPolicy.inactivityPenaltyFactor`), which
+   * must hit just the managers who registered nobody that week, not
+   * the whole table. Empty `managerIds` is a no-op (no query at all). */
+  decayManagers(managerIds: ManagerId[], factor: number): Promise<void>;
+
   /** The public leaderboard: the top `limit` managers by score,
    * descending, excluding zero/negative scores (a manager who has
    * never earned a point isn't "ranked"). */

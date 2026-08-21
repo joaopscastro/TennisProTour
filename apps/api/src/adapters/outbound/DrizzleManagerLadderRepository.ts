@@ -1,4 +1,4 @@
-import { desc, eq, gt, sql } from 'drizzle-orm';
+import { desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { ManagerId } from '@tennis-manager/domain';
 import { ManagerLadderRepository, ManagerLadderStanding } from '@tennis-manager/application';
 import { Db } from '../../db/client';
@@ -38,6 +38,14 @@ export class DrizzleManagerLadderRepository implements ManagerLadderRepository {
 
   async decayAll(factor: number): Promise<void> {
     await this.db.update(managerLadder).set({ score: sql`${managerLadder.score} * ${factor}` });
+  }
+
+  async decayManagers(managerIds: ManagerId[], factor: number): Promise<void> {
+    if (managerIds.length === 0) return;
+    await this.db
+      .update(managerLadder)
+      .set({ score: sql`${managerLadder.score} * ${factor}` })
+      .where(inArray(managerLadder.managerId, managerIds));
   }
 
   async topStandings(limit: number): Promise<ManagerLadderStanding[]> {

@@ -23,6 +23,7 @@ class InMemoryManagerLadderRepository implements ManagerLadderRepository {
     this.scores.set(managerId, (this.scores.get(managerId) ?? 0) + amount);
   }
   async decayAll(): Promise<void> {}
+  async decayManagers(): Promise<void> {}
   async topStandings(): Promise<never[]> {
     return [];
   }

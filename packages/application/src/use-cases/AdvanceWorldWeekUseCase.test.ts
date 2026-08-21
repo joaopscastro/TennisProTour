@@ -4,6 +4,7 @@ import {
   AgingPolicy,
   Coach,
   CoachId,
+  GameWeek,
   GameWorld,
   GRADUATION_CARRYOVER_FRACTION,
   ManagerId,
@@ -17,6 +18,7 @@ import {
   StandardAgingPolicy,
   StandardTrainingPolicy,
   SurfaceAffinities,
+  Tournament,
   TournamentId,
   TrainingPolicy,
   TrainingScheduleEntry,
@@ -31,6 +33,7 @@ import {
   ManagerLadderStanding,
   PlayerRepository,
   RankingLedgerRepository,
+  TournamentRepository,
   TrainingScheduleRepository,
 } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
@@ -49,6 +52,14 @@ class InMemoryManagerLadderRepository implements ManagerLadderRepository {
   }
   async decayAll(factor: number): Promise<void> {
     for (const [id, score] of this.scores) this.scores.set(id, score * factor);
+  }
+  readonly decayManagersCalls: Array<{ managerIds: ManagerId[]; factor: number }> = [];
+  async decayManagers(managerIds: ManagerId[], factor: number): Promise<void> {
+    this.decayManagersCalls.push({ managerIds, factor });
+    for (const id of managerIds) {
+      const score = this.scores.get(id);
+      if (score !== undefined) this.scores.set(id, score * factor);
+    }
   }
   async topStandings(limit: number): Promise<ManagerLadderStanding[]> {
     return [...this.scores.entries()]
@@ -167,6 +178,49 @@ class InMemoryPlayerRepository implements PlayerRepository {
   }
 }
 
+/** Always empty — no test in this file registers a real tournament
+ * entry, so `findByPlayerAndWeek`/`findDoublesByPlayerAndWeek` never
+ * report activity, which is fine for every pre-existing test (none of
+ * them assert on the inactivity penalty). The inactivity-penalty tests
+ * below construct their own tournaments directly via `save`. */
+class InMemoryTournamentRepository implements TournamentRepository {
+  private readonly store = new Map<TournamentId, Tournament>();
+
+  async findById(id: TournamentId): Promise<Tournament | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async findOpenForRegistration(): Promise<Tournament[]> {
+    return [...this.store.values()].filter((t) => !t.hasStarted);
+  }
+
+  async findStarted(): Promise<Tournament[]> {
+    return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
+  async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return [...this.store.values()].filter(
+      (t) =>
+        t.weekScheduled.season === week.season &&
+        t.weekScheduled.week === week.week &&
+        t.entrants.some((e) => e.playerId === playerId),
+    );
+  }
+
+  async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return [...this.store.values()].filter(
+      (t) =>
+        t.weekScheduled.season === week.season &&
+        t.weekScheduled.week === week.week &&
+        t.doublesEntrants.some((id) => id === playerId),
+    );
+  }
+
+  async save(tournament: Tournament): Promise<void> {
+    this.store.set(tournament.id, tournament);
+  }
+}
+
 class InMemoryCoachRepository implements CoachRepository {
   private readonly store: Coach[] = [];
 
@@ -213,6 +267,7 @@ async function setup(playerCount: number) {
   const coaches = new InMemoryCoachRepository();
   const ladder = new InMemoryManagerLadderRepository();
   const ladderPolicy = new StandardManagerLadderPolicy();
+  const tournaments = new InMemoryTournamentRepository();
   const useCase = new AdvanceWorldWeekUseCase(
     worlds,
     players,
@@ -227,8 +282,9 @@ async function setup(playerCount: number) {
     ladder,
     ladderPolicy,
     new StandardPlayerDevelopmentPolicy(),
+    tournaments,
   );
-  return { worlds, players, events, worldId, useCase, coaches, schedule, ladder, ladderPolicy };
+  return { worlds, players, events, worldId, useCase, coaches, schedule, ladder, ladderPolicy, tournaments };
 }
 
 // A game week is now 7 day-ticks (see docs/day-tick-and-scheduling.md).
@@ -271,8 +327,78 @@ describe('AdvanceWorldWeekUseCase', () => {
     expect(result.weekRolledOver).toBe(true);
 
     const factor = ladderPolicy.weeklyDecayFactor();
-    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor);
+    // setup(1) rosters a single player under m1, and this test never
+    // registers any tournament entry — so m1 is genuinely inactive and
+    // also takes the extra inactivity penalty on top of the routine
+    // decay (see the dedicated inactivity-penalty tests below for that
+    // mechanic in isolation). m2 owns no players at all, so it's never
+    // considered for the inactivity check and only ever takes the
+    // routine decay.
+    const inactivityFactor = ladderPolicy.inactivityPenaltyFactor();
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor * inactivityFactor);
     expect(await ladder.scoreFor(ManagerId('m2'))).toBeCloseTo(500 * factor);
+  });
+
+  it('applies the extra inactivity penalty to a manager who registered nobody all week', async () => {
+    const { worldId, useCase, ladder, ladderPolicy, tournaments } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 1000);
+
+    await useCase.execute({ worldId, tickKey: 'inactive-week-1' });
+
+    const factor = ladderPolicy.weeklyDecayFactor();
+    const inactivityFactor = ladderPolicy.inactivityPenaltyFactor();
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor * inactivityFactor);
+    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [ManagerId('m1')], factor: inactivityFactor }]);
+  });
+
+  it('spares a manager who registered at least one player in a tournament this week', async () => {
+    const { worldId, useCase, ladder, ladderPolicy, tournaments } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 1000);
+    const tournament = Tournament.open({
+      name: 'Test Tournament',
+      id: TournamentId('t1'),
+      tier: 'futures',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    tournament.registerEntrant({ playerId: PlayerId('p1'), seed: 1 });
+    await tournaments.save(tournament);
+
+    await useCase.execute({ worldId, tickKey: 'active-week-1' });
+
+    const factor = ladderPolicy.weeklyDecayFactor();
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor);
+    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: ladderPolicy.inactivityPenaltyFactor() }]);
+  });
+
+  it('spares a manager whose only activity this week was a doubles entry', async () => {
+    const { worldId, useCase, ladder, tournaments } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 1000);
+    const tournament = Tournament.open({
+      name: 'Test Doubles Tournament',
+      id: TournamentId('t1'),
+      tier: 'futures',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    tournament.registerDoublesEntrant(PlayerId('p1'));
+    await tournaments.save(tournament);
+
+    await useCase.execute({ worldId, tickKey: 'doubles-active-week-1' });
+
+    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: expect.any(Number) }]);
+  });
+
+  it('never penalizes a manager with no rostered players at all', async () => {
+    const { worldId, useCase, ladder } = await setup(0);
+    await ladder.credit(ManagerId('m1'), 1000);
+
+    await useCase.execute({ worldId, tickKey: 'no-players-week-1' });
+
+    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: expect.any(Number) }]);
   });
 
   it('does not decay the ladder on a mid-week day tick (no rollover)', async () => {
@@ -297,6 +423,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       ladder,
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
     await ladder.credit(ManagerId('m1'), 1000);
 
@@ -332,6 +459,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       const result = await useCase.execute({ worldId, tickKey: 'mid-week-tick' });
@@ -368,6 +496,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       const result = await useCase.execute({ worldId, tickKey: 'rollover-tick' });
@@ -425,6 +554,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -456,6 +586,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -501,6 +632,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick' });
@@ -546,6 +678,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -585,6 +718,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     // Tick 1: world moves to week 2 — still under the week-1 clay order.
@@ -636,6 +770,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -679,6 +814,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -718,6 +854,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -754,6 +891,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -801,6 +939,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -847,6 +986,7 @@ describe('AdvanceWorldWeekUseCase', () => {
       new InMemoryManagerLadderRepository(),
       new StandardManagerLadderPolicy(),
       new StandardPlayerDevelopmentPolicy(),
+      new InMemoryTournamentRepository(),
     );
 
     // Run several ticks so the slow weekly income accumulates into
@@ -911,6 +1051,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -954,6 +1095,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -991,6 +1133,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' });
@@ -1027,6 +1170,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryManagerLadderRepository(),
         new StandardManagerLadderPolicy(),
         new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
       );
 
       await useCase.execute({ worldId, tickKey: 'tick-1' }); // crosses U14 -> U16, records a dormant bonus

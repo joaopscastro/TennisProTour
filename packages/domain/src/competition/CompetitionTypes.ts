@@ -81,30 +81,56 @@ export interface RankingPointsTable {
  * (major/tour/challenger/futures); it's fixed here for all of them,
  * not just the new junior tiers below.
  *
- * Senior tiers (major=2000, tour=500 i.e. an ATP 500 event,
- * challenger=125, futures=25 at champion) are unchanged from before
- * other than the index-0 fix above; the rounds below champion are
- * scaled down from real ATP/Challenger round breakdowns rather than an
- * arbitrary curve.
+ * **Senior tiers (major/tour/challenger/futures) are now REAL, SOURCED
+ * numbers from the official 2026 PIF ATP Rankings rulebook (Chapter
+ * IX), not illustrative placeholders — this replaces the previous
+ * "scaled down from real ATP/Challenger round breakdowns" approximation
+ * with the actual published tables.** The mapping from our four senior
+ * tiers to the real ATP tour's structure, chosen to match both by
+ * champion-point VALUE (already how this table was informally aligned
+ * before — tour's old 500 already matched an ATP 500 event's champion
+ * points by name) and by DRAW SIZE (our generated draw sizes line up
+ * exactly with a real round-count variant, so no interpolation is
+ * needed anywhere in this table):
+ * - `major` (128-draw, 8 rounds) → Grand Slam: 2000/1300/800/400/200/
+ *   100/50/10 (W/F/SF/QF/R16/R32/R64/R128).
+ * - `tour` (64-draw, 7 rounds) → ATP Tour Masters 1000, the 48/56-draw
+ *   variant (the one with a real published R64 column, matching a
+ *   64-draw's round count exactly): 1000/650/400/200/100/50/10.
+ * - `challenger` (32-draw, 6 rounds) → ATP Tour 500, the 32-draw
+ *   variant: 500/330/200/100/50/25.
+ * - `futures` (32-draw, 6 rounds) → ATP Tour 250, the 32-draw variant:
+ *   250/165/100/50/25/13.
+ *
+ * One deliberate, disclosed deviation: the real rulebook pays a small
+ * first-round-loss score at Grand Slams (10) and this Masters 1000
+ * variant (10) — index 0 is forced to 0 here regardless, same as every
+ * other tier, preserving this project's own established "a ranking
+ * must be earned by winning, never granted for participation" rule
+ * (9.02.G.2's real rule for ATP 500/250/Challenger/ITF WTT — "No points
+ * are awarded for a first round loss" — already matches this house rule
+ * exactly with no deviation needed for those two tiers).
  *
  * The six junior tiers' champion (index 7) values are real, sourced
  * ITF numbers — since the 2023 rebrand, a junior grade's name states
  * the points its singles champion earns: J30=30, J60=60, J100=100,
  * J200=200, J300=300, J500=500 (see the research doc's "exact ITF
- * point ladder" section). The rounds below champion for these six are
+ * point ladder" section) — unrelated to and unchanged by the ATP
+ * rulebook above (ITF juniors are a separate ranking system the ATP
+ * rulebook doesn't cover). The rounds below champion for these six are
  * NOT independently sourced (the ITF doesn't publish a full per-round
  * breakdown the way ATP does) — they're scaled down from champion
- * using the same proportional shape as the senior tables above, same
+ * using the same proportional shape the senior tables used to use, same
  * "illustrative, not balanced" caveat CLAUDE.md already applies to
  * this whole table.
  */
 export class StandardRankingPointsTable implements RankingPointsTable {
   private static readonly POINTS_BY_ROUND: Record<TournamentTier, ReadonlyArray<number>> = {
     // roundsWon:     0    1    2    3    4    5    6     7
-    major:           [0,   45,  90,  180, 360, 720, 1200, 2000],
-    tour:            [0,   11,  23,  45,  90,  180, 300,  500],
-    challenger:      [0,   3,   6,   11,  23,  45,  75,   125],
-    futures:         [0,   1,   2,   3,   5,   9,   15,   25],
+    major:           [0,   50,  100, 200, 400, 800, 1300, 2000],
+    tour:            [0,   50,  100, 200, 400, 650, 1000],
+    challenger:      [0,   50,  100, 200, 330, 500],
+    futures:         [0,   25,  50,  100, 165, 250],
 
     // Real, sourced ITF champion values (index 7). Rounds 1-6 are an
     // illustrative proportional scale-down, not independently sourced

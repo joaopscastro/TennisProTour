@@ -175,15 +175,29 @@ export function qualifyingRoundCountFor(tier: TournamentTier, drawSize: DrawSize
  * ordinary main-draw points. That's what keeps the invariant that a
  * player has at most ONE ranking-ledger entry per tournament, whichever
  * draw they exited from (see ApplyObligatoryTournamentZerosUseCase,
- * whose "played" set is read straight off the ledger).
+ * whose "played" set is read straight off the ledger). This is a
+ * disclosed simplification versus the real rulebook, which pays a
+ * SUCCESSFUL qualifier a flat bonus (e.g. Grand Slam Q=30) in addition
+ * to whatever they go on to earn in the main draw — not modeled here,
+ * consistent with this project's existing "no participation points"
+ * design choice.
  *
- * PLACEHOLDER values, same tuning pass as the rest of this file.
+ * Real, sourced values from the 2026 PIF ATP Rankings rulebook (9.02.G.4):
+ * Grand Slams pay 16 for a last-qualifying-round loss and 8 for a
+ * second-round loss (major: [0, 8, 16]); the ATP Tour Masters 1000
+ * 48/56-draw variant this project's `tour` tier maps to publishes only
+ * the last-round-loss value (16) with no second-round breakdown, so
+ * index 1 here is an interpolated half-value, not independently
+ * sourced, same "illustrative between two real endpoints" caveat as the
+ * junior tables elsewhere in this codebase; ATP Tour 500 (this
+ * project's `challenger`) publishes a single last-round-loss value
+ * (13), so its array has only that one non-zero slot.
  */
 const QUALIFYING_POINTS: Readonly<Partial<Record<TournamentTier, ReadonlyArray<number>>>> = {
   //          qualifying rounds won: 0  1   2
-  major: [0, 10, 25],
-  tour: [0, 3, 8],
-  challenger: [0, 1, 3],
+  major: [0, 8, 16],
+  tour: [0, 8, 16],
+  challenger: [0, 13],
 };
 
 export function qualifyingPointsFor(tier: TournamentTier, qualifyingRoundsWon: number): number {

@@ -27,9 +27,9 @@ describe('doubles qualifying (draw-size-derived)', () => {
     expect(doublesQualifyingDrawSizeFor(32)).toBe(16);
   });
 
-  it('pays only tiny points for doubles qualifying elimination', () => {
-    expect(doublesQualifyingPointsFor(0)).toBe(0);
-    expect(doublesQualifyingPointsFor(1)).toBe(1);
-    expect(doublesQualifyingPointsFor(2)).toBe(3);
+  it('pays the real, sourced doubles qualifying points (2026 PIF ATP Rankings 9.02.G.6: 25 for a final-qualifying-round loss)', () => {
+    expect(doublesQualifyingPointsFor(0)).toBe(0); // lost round 1 — no points in the first round, ever
+    expect(doublesQualifyingPointsFor(1)).toBe(25); // lost the final (and only other) qualifying round
+    expect(doublesQualifyingPointsFor(2)).toBe(25); // clamps — there is no round beyond the final one
   });
 });

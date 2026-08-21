@@ -23,6 +23,7 @@ import {
   ManagerLadderRepository,
   PlayerRepository,
   RankingLedgerRepository,
+  TournamentRepository,
   TrainingScheduleRepository,
 } from '../ports/ports';
 
@@ -149,11 +150,17 @@ export class AdvanceWorldWeekUseCase {
     private readonly managerLadder: ManagerLadderRepository,
     private readonly managerLadderPolicy: ManagerLadderPolicy,
     private readonly developmentPolicy: PlayerDevelopmentPolicy,
+    private readonly tournaments: TournamentRepository,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
+
+    // Captured BEFORE advanceDay() mutates it — this is the week that's
+    // ENDING with this rollover, i.e. the week a manager had to actually
+    // register someone in, for the inactivity-penalty check below.
+    const endingWeek = world.currentWeek;
 
     // One tick = one game DAY now (see docs/day-tick-and-scheduling.md).
     // The clock advances (idempotency aside); the heavy weekly work
@@ -259,6 +266,36 @@ export class AdvanceWorldWeekUseCase {
     // score you must keep earning against or watch slide (see
     // docs/rocking-rackets-competitive-analysis.md §1d).
     await this.managerLadder.decayAll(this.managerLadderPolicy.weeklyDecayFactor());
+
+    // The EXTRA inactivity penalty (see ManagerLadderPolicy.inactivityPenaltyFactor's
+    // doc comment): a manager whose WHOLE roster registered zero entries
+    // (singles or doubles) anywhere during the week that just ended gets
+    // hit with a second, harsher decay on top of the routine one above.
+    // A manager with no active players at all owes nothing here — there
+    // was nobody to forget to register.
+    const playersByManager = new Map<ManagerId, typeof allPlayers>();
+    for (const player of allPlayers) {
+      if (player.managerId === null || player.isRetired()) continue;
+      const roster = playersByManager.get(player.managerId) ?? [];
+      roster.push(player);
+      playersByManager.set(player.managerId, roster);
+    }
+    const inactiveManagerIds: ManagerId[] = [];
+    for (const [managerId, roster] of playersByManager) {
+      let active = false;
+      for (const player of roster) {
+        const [singles, doubles] = await Promise.all([
+          this.tournaments.findByPlayerAndWeek(player.id, endingWeek),
+          this.tournaments.findDoublesByPlayerAndWeek(player.id, endingWeek),
+        ]);
+        if (singles.length > 0 || doubles.length > 0) {
+          active = true;
+          break;
+        }
+      }
+      if (!active) inactiveManagerIds.push(managerId);
+    }
+    await this.managerLadder.decayManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyFactor());
 
     await this.worlds.save(world);
     return { advanced: true, weekRolledOver: true, playersAged: allPlayers.length };

@@ -147,6 +147,13 @@ class InMemoryManagerLadderRepository implements ManagerLadderRepository {
     for (const [id, score] of this.scores) this.scores.set(id, score * factor);
   }
 
+  async decayManagers(managerIds: ManagerId[], factor: number): Promise<void> {
+    for (const id of managerIds) {
+      const score = this.scores.get(id);
+      if (score !== undefined) this.scores.set(id, score * factor);
+    }
+  }
+
   async topStandings(limit: number): Promise<ManagerLadderStanding[]> {
     return [...this.scores.entries()]
       .filter(([, score]) => score > 0)
