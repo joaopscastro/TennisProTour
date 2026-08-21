@@ -70,7 +70,22 @@ export class PromoteQualifiersUseCase {
       if (tournament.hasMainDraw) continue;
       if (!tournament.isQualifyingComplete()) continue;
 
-      const winners = tournament.qualifyingWinners();
+      // A tournament whose main draw came out too sparse to seed (see the
+      // "sparse field" branch below) is deliberately left with its
+      // winners already promoted and `hasMainDraw` still false — the
+      // guard above (`!tournament.hasMainDraw`) therefore can't tell
+      // "not yet promoted" apart from "promoted, but seeding failed" and
+      // reprocesses this tournament every subsequent day tick. Without
+      // this filter, re-promoting an already-promoted winner hits
+      // Tournament.promoteQualifier's own "already in the main draw"
+      // guard and throws, crashing the WHOLE advance-world-day job
+      // (every other system riding the same tick — aging, talent-pool
+      // refresh, ranking — never runs either) forever, once any
+      // tournament ever landed in this state. Found live during a
+      // fast-tick 5-season playtest: one such tournament blocked every
+      // single day tick from that point on, world-wide.
+      const alreadyPromoted = new Set(tournament.mainEntrants.map((e) => e.playerId));
+      const winners = tournament.qualifyingWinners().filter((playerId) => !alreadyPromoted.has(playerId));
       for (const playerId of winners) {
         tournament.promoteQualifier(playerId);
         result.promoted += 1;

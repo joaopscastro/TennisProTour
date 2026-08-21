@@ -204,4 +204,31 @@ describe('PromoteQualifiersUseCase', () => {
     expect(saved.hasMainDraw).toBe(false);
     expect(saved.mainEntrants).toHaveLength(2);
   });
+
+  it('does not crash on a subsequent tick when the too-sparse main draw was never actually seeded (real bug, found live)', async () => {
+    // A tournament that landed in the "promoted, but too sparse to seed"
+    // state above is NOT a terminal state as far as this use case's own
+    // filter (`!tournament.hasMainDraw`) can tell — it looks identical to
+    // "not yet promoted", so every subsequent day tick reprocesses it.
+    // Before this fix, re-calling Tournament.promoteQualifier on an
+    // already-promoted winner hit ITS OWN "already in the main draw"
+    // guard and threw, crashing the entire advance-world-day job (every
+    // other weekly/day system riding the same tick with it) on EVERY
+    // tick from that point on, world-wide — confirmed live during a
+    // fast-tick 5-season playtest run (165 consecutive job failures).
+    const tournaments = new InMemoryTournamentRepository();
+    const tournament = openWithQualifying(TournamentId('t-sparse-repeat'), 0);
+    playOutQualifying(tournament);
+    await tournaments.save(tournament);
+
+    const useCase = new PromoteQualifiersUseCase(tournaments, new BracketGenerator());
+    const first = await useCase.execute({ worldId: WORLD });
+    expect(first).toEqual({ mainDrawsSeeded: 0, promoted: 2 });
+
+    // Simulates the next day tick finding the exact same stuck state.
+    await expect(useCase.execute({ worldId: WORLD })).resolves.toEqual({ mainDrawsSeeded: 0, promoted: 0 });
+
+    const saved = (await tournaments.findById(TournamentId('t-sparse-repeat')))!;
+    expect(saved.mainEntrants).toHaveLength(2); // never double-promoted
+  });
 });

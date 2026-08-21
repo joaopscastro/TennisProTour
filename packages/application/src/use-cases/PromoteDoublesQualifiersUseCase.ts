@@ -46,7 +46,20 @@ export class PromoteDoublesQualifiersUseCase {
       if (tournament.hasDoublesDrawStarted) continue;
       if (!tournament.isDoublesQualifyingComplete()) continue;
 
-      for (const winner of tournament.doublesQualifyingWinners()) {
+      // The doubles analogue of PromoteQualifiersUseCase's own fix: a
+      // tournament whose doubles main draw came out too sparse to seed
+      // (the "sparse field" branch below) is left with its winners
+      // already promoted and `hasDoublesDrawStarted` still false, so the
+      // guard above can't distinguish "not yet promoted" from "promoted,
+      // seeding failed" and reprocesses this tournament every day tick.
+      // Unlike the singles side, `promoteDoublesQualifier` has no
+      // "already promoted" guard at all, so an unfiltered re-run doesn't
+      // even throw — it silently pushes the SAME pair into `_doublesPairs`
+      // a second time, corrupting the field. Filtering already-promoted
+      // pairs here fixes both failure modes at once.
+      const alreadyPromoted = new Set(tournament.doublesPairs.map((p) => p.pairId));
+      const winners = tournament.doublesQualifyingWinners().filter((pairId) => !alreadyPromoted.has(pairId));
+      for (const winner of winners) {
         tournament.promoteDoublesQualifier(winner);
         result.promoted += 1;
       }
