@@ -230,6 +230,41 @@ this:
   every player through the real `ClaimTalentPoolCandidateUseCase` — no
   `Player.hire()` shortcut, including a player deliberately claimed at
   the exact boundary age to prove U14 reachability, not just U16).
+- **Update — "U14 tournaments exist but the world never has real U14
+  players" was a real, reported gap, and it's now fixed by widening
+  `TALENT_POOL_AGE_RANGE` itself, not just disclosed as a future
+  tuning decision (the "reachable, not abundant" paragraph above
+  explicitly named this as the fix a future pass should make — this
+  is that pass).** Root cause: `TALENT_POOL_AGE_RANGE` — the age span
+  the WEEKLY talent-pool refresh (the primary way a manager discovers
+  new signings) actually generates from — started EXACTLY at the
+  U14/U16 boundary (`minWeeks: 14 * 52`), so only the single exact
+  integer week 728 out of a ~206-week draw ever landed U14 (~1-in-206
+  per generation, confirmed live: 0 genuine U14 free agents ever
+  showed up through ordinary play). The ONLY real U14 supply was
+  `EnsureFillOnlyPopulationUseCase`'s small 10-player safety floor —
+  anonymous bracket-filler players, generated purely to pad a draw,
+  never surfaced as a "new prospect" the way the talent pool is.
+  `TALENT_POOL_AGE_RANGE.minWeeks` is now `12 * 52` (matching the
+  fill-only floor's own U14 age range), so roughly HALF of every
+  weekly batch (624-728 of the 624-831 week span) now lands genuinely
+  U14-eligible — a real, ordinary supply through the normal scouting
+  flow a manager actually uses, not a fluke. `CreateCustomPlayerUseCase`
+  (Manager Pro's custom-player path) imports the same constant, so a
+  Pro manager can now name a genuine 12-13yo prospect too, same
+  fairness-of-range guarantee as before. Verified live against real
+  Postgres, not just reasoned about: 5 consecutive weekly refreshes (25
+  candidates generated, batch size unchanged at 5/week) produced a
+  13 u14 / 12 u16 split — close to the predicted ~50/50, a dramatic
+  change from the old ~0.5%. `seedJuniorCircuitWalkthrough.ts`'s
+  comments (which described the old 1-in-206 math as current) were
+  updated to match; its behavior needed no code change since it already
+  imported `TALENT_POOL_AGE_RANGE` rather than a hardcoded age. No test
+  hardcodes the production range's exact bounds (each test file that
+  exercises boundary/pricing behavior builds its own local `AgeRange`
+  literal), so no test needed updating. Domain 370, application 222,
+  api 80, worker 8 — all unchanged and green; full monorepo
+  `tsc --build --force` clean.
 - **Population math, sanity-checked, not just trusted constants.**
   `TALENT_POOL_BATCH_SIZE` = 5/week, `TALENT_POOL_EXPIRY_WEEKS` = 2 —
   a candidate generated in week *W* is still visible during the

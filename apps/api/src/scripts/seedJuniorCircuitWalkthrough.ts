@@ -55,18 +55,22 @@ import { buildDependencies } from '../composition';
  * ageInWeeks — is exactly what a real manager triggers via
  * POST /talent-pool/:id/claim.
  *
- * Real consequence of TALENT_POOL_AGE_RANGE = 14-16yo starting exactly
- * at the U14/U16 boundary (14*52 weeks): RankingBand.juniorEligibilityForAge
- * used to use a strict `<` check there, which meant NO generated player
- * could ever land in U14 — only U16 or older, regardless of the age
- * range. That was a real bug (real Tennis Europe eligibility is
- * inclusive, "14-and-under"), fixed by making the boundary check `<=`.
- * Step 3 below deliberately claims a second player at exactly
- * TALENT_POOL_AGE_RANGE.minWeeks to prove U14 is now genuinely
- * reachable through the real claim path, not just U16 — see
- * docs/junior-circuit-research-and-proposal.md's status section for
- * the full story (including why U14 stays RARE, not abundant, in the
- * ordinary weekly batch even after the fix).
+ * Real consequence of TALENT_POOL_AGE_RANGE originally being 14-16yo,
+ * starting exactly at the U14/U16 boundary (14*52 weeks):
+ * RankingBand.juniorEligibilityForAge used to use a strict `<` check
+ * there, which meant NO generated player could ever land in U14 — only
+ * U16 or older, regardless of the age range. That was a real bug (real
+ * Tennis Europe eligibility is inclusive, "14-and-under"), fixed by
+ * making the boundary check `<=`. At the time, that fix made U14
+ * technically reachable through the real claim path but not a real
+ * supply (only the single exact minimum-age week qualified, ~1-in-206
+ * per generation) — the range was later widened to 12-16yo specifically
+ * to fix that (see talentPoolAgeRange.ts), so U14 is now roughly half
+ * of every batch, not a fluke. Step 3 below still deliberately pins a
+ * "prodigy" player's age rather than rolling one, purely for a
+ * repeatable demo — not because U14 needs help being reached anymore.
+ * See docs/junior-circuit-research-and-proposal.md's status section for
+ * the original 1-in-206 finding this supersedes.
  */
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
@@ -78,11 +82,11 @@ const PLAYERS_PER_MANAGER = 2; // stays within the free-tier roster cap, same co
 // the real U16/senior boundary) in exactly 2 ticks, fast enough for
 // this script without being an unrealistic age to generate.
 const STAR_AGE_WEEKS = TALENT_POOL_AGE_RANGE.maxWeeks - 1;
-// Exactly the pool's minimum age — the ONE integer week in the whole
-// range that lands in U14 (see this file's header comment). Not a
-// random roll: deliberately pinned, same "shape the setup, not the
-// outcome" reasoning as STAR_AGE_WEEKS above, to reliably demonstrate
-// U14 reachability rather than relying on a ~1-in-206 chance per batch.
+// The pool's minimum age (12yo) — comfortably inside the range's U14-
+// eligible span (12-14yo, roughly half the batch now — see this file's
+// header comment). Not a random roll: deliberately pinned, same "shape
+// the setup, not the outcome" reasoning as STAR_AGE_WEEKS above, purely
+// for a repeatable demo.
 const PRODIGY_AGE_WEEKS = TALENT_POOL_AGE_RANGE.minWeeks;
 
 function log(...args: unknown[]): void {
@@ -185,7 +189,7 @@ async function main(): Promise<void> {
     (p) => p.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && p.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
   );
   const sample = availableAfterRefresh.slice(0, 5);
-  log(`Sample of ${sample.length} of the ${availableAfterRefresh.length} available free agents (proving the real 14-16yo range):`);
+  log(`Sample of ${sample.length} of the ${availableAfterRefresh.length} available free agents (proving the real 12-16yo range):`);
   for (const c of sample) {
     const years = (c.ageInWeeks / 52).toFixed(2);
     log(`  ${c.name}: age ${c.ageInWeeks}wk (${years}y), band ${juniorEligibilityForAge(c.ageInWeeks)}`);
@@ -198,8 +202,8 @@ async function main(): Promise<void> {
   log(
     `All ${availableAfterRefresh.length} available candidates within TALENT_POOL_AGE_RANGE: ${allInRange}. ` +
       `Band split: u14=${bandCounts.u14}, u16=${bandCounts.u16}, senior=${bandCounts.senior} ` +
-      `(u14 is rare by construction — only the exact minimum-age week qualifies, ~1 in 206 generations; ` +
-      `step 3 below claims one deliberately rather than waiting for the batch to roll one).`,
+      `(u14 should now be a real, roughly-half share of the batch, not a 1-in-206 fluke — the range was widened ` +
+      `to 12-16yo specifically to fix that).`,
   );
 
   log('\n=== 2. Claim the "star" through the REAL ClaimTalentPoolCandidateUseCase ===');
@@ -219,7 +223,7 @@ async function main(): Promise<void> {
       `This came from the SAME claim path a real manager uses — no Player.hire() shortcut.`,
   );
 
-  log('\n=== 3. Claim a "prodigy" at exactly the pool\'s minimum age, to prove U14 is now reachable through the real claim path ===');
+  log('\n=== 3. Claim a "prodigy" at the pool\'s minimum age, to demonstrate a real U14 signing through the real claim path ===');
   // A dedicated manager, NOT managerIdFor(2) — that id is reserved for
   // the step-6 cohort's own roster-cap accounting (managerIdFor(1) and
   // managerIdFor(2) both resolve to jw-m1, which already owns the star;
