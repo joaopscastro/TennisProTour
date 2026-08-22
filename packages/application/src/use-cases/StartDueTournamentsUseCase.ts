@@ -12,6 +12,7 @@ import {
 import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
+import { applyWildCards } from './applyWildCards';
 
 export interface StartDueTournamentsCommand {
   worldId: WorldId;
@@ -110,6 +111,15 @@ interface FillCandidate {
  * earlier in the SAME run — including a fresh candidate that was just
  * converted into a fillOnly Player moments ago for a different
  * tournament this same tick.
+ *
+ * **Wild cards** (see WildCardPolicy/applyWildCards) are applied to
+ * each due tournament's REAL registered qualifying entrants BEFORE the
+ * filler-padding above and before either bracket is seeded — a filler
+ * has no manager and never qualifies as a wild card candidate, and a
+ * wild card must be granted before the qualifying draw exists to
+ * bypass. Idempotent across repeated weekly runs on the same
+ * still-open tournament: once granted, a player is no longer in
+ * `qualifyingEntrants`, so a later run never reconsiders them.
  */
 export class StartDueTournamentsUseCase {
   constructor(
@@ -146,6 +156,15 @@ export class StartDueTournamentsUseCase {
     let filled = 0;
 
     for (const tournament of due) {
+      // The automatic wild card algorithm (see WildCardPolicy/
+      // applyWildCards) runs FIRST, before the qualifying field is
+      // padded with fillers below — it must only ever consider REAL,
+      // manager-registered qualifying entrants (a filler has no
+      // manager and shouldn't get a "break"), and it must run before
+      // the qualifying bracket is ever seeded, same requirement
+      // RegisterEntrantUseCase's own auto-start path has.
+      await applyWildCards(tournament, this.players, this.rankPositionByBand.senior);
+
       // At a tournament that holds qualifying, the QUALIFYING field is
       // filled from free agents too, alongside the human registrants
       // who chose to enter it — a half-empty qualifying draw would make

@@ -44,13 +44,6 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  /** Tournaments the manager has explicitly opted to enter via WILD
-   * CARD instead of the normal rank-based route — only ever offered as
-   * a choice on a row that would otherwise be blocked by a full
-   * qualifying field (see wildCardRoomFor/qualifyingFullFor below).
-   * There's no reason to spend one of a tournament's scarce wild card
-   * slots on a player who'd get in normally anyway. */
-  const [wildCardIds, setWildCardIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchOpenTournaments(playerId)
@@ -58,7 +51,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
         setTournaments(
           all.filter(
             (t) =>
-              (hasRoomFor(t) || wildCardRoomFor(t)) &&
+              hasRoomFor(t) &&
               !t.entrants.some((e) => e.playerId === playerId) &&
               (!week || (t.weekScheduled.season === week.season && t.weekScheduled.week === week.week)),
           ),
@@ -72,7 +65,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
     setSubmitting(true);
     setError(null);
     try {
-      const tournament = await registerEntrant(selectedId, playerId, managerId, wildCardIds.has(selectedId));
+      const tournament = await registerEntrant(selectedId, playerId, managerId);
       onEntered(tournament);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -107,14 +100,6 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
    * the exact "qualifying-full" refusal RegisterEntrantUseCase raises. */
   function qualifyingFullFor(t: TournamentDto): boolean {
     return t.qualifyingFieldFull === true;
-  }
-
-  /** True when this tournament still has an unclaimed wild card slot
-   * (see WildCardPolicy) — the escape hatch offered on a row that's
-   * otherwise blocked by a full qualifying field. Always false at a
-   * junior tier (wildCardSlots is 0 there). */
-  function wildCardRoomFor(t: TournamentDto): boolean {
-    return (t.wildCardSlots ?? 0) > (t.wildCardSlotsTaken ?? 0);
   }
 
   /** Whether this tournament still has room for THIS player. A
@@ -168,12 +153,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
             const overCap = overCapFor(t);
             const ageIneligible = ageIneligibleFor(t);
             const qualifyingFull = qualifyingFullFor(t);
-            const wildCardRoom = wildCardRoomFor(t);
-            const wantsWildCard = wildCardIds.has(t.id);
-            // A wild card bypasses the qualifying-full refusal, not
-            // age-eligibility or the weekly entry cap — see
-            // RegisterEntrantUseCase's own doc comment.
-            const blocked = overCap || ageIneligible || (qualifyingFull && !(wildCardRoom && wantsWildCard));
+            const blocked = overCap || ageIneligible || qualifyingFull;
             return (
               <button
                 key={t.id}
@@ -236,32 +216,10 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
                       : `Already entered ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
                   </div>
                 )}
-                {!ageIneligible && !overCap && qualifyingFull && !wildCardRoom && (
+                {!ageIneligible && !overCap && qualifyingFull && (
                   <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
                     Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize}) — no [Q] places left
                   </div>
-                )}
-                {!ageIneligible && !overCap && qualifyingFull && wildCardRoom && (
-                  <label
-                    className="flex items-center gap-[6px] text-[11px] font-semibold mt-[5px] cursor-pointer"
-                    style={{ color: wantsWildCard ? 'oklch(55% 0.14 145)' : 'oklch(78% 0.15 35)' }}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={wantsWildCard}
-                      onChange={(e) => {
-                        setWildCardIds((prev) => {
-                          const next = new Set(prev);
-                          if (e.target.checked) next.add(t.id);
-                          else next.delete(t.id);
-                          return next;
-                        });
-                        if (e.target.checked) setSelectedId(t.id);
-                      }}
-                    />
-                    Qualifying field full — request a wild card instead ({t.wildCardSlots - t.wildCardSlotsTaken} of {t.wildCardSlots} left)
-                  </label>
                 )}
               </button>
             );

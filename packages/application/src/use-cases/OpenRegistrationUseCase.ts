@@ -3,7 +3,7 @@ import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
 import { RandomSource, TournamentNameGenerator } from '@tennis-manager/domain';
-import { qualifierSlotsFor, qualifyingDrawSizeFor, doublesDrawSizeFor, doublesQualifierSlotsFor, doublesQualifyingDrawSizeFor } from '@tennis-manager/domain';
+import { qualifierSlotsFor, qualifyingDrawSizeFor, doublesDrawSizeFor, doublesQualifierSlotsFor, doublesQualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
 export interface OpenRegistrationCommand {
@@ -76,6 +76,11 @@ export class OpenRegistrationUseCase {
       // pre-qualifying behaviour.
       qualifyingDrawSize: qualifyingDrawSizeFor(command.tier, command.drawSize),
       qualifierSlots: qualifierSlotsFor(command.tier, command.drawSize),
+      // Wild cards (see WildCardPolicy) — derived once from the tier
+      // alone and stored, like qualifying above. 0 at every tier that
+      // holds no qualifying (there's nothing for a wild card to rescue
+      // anyone from there).
+      wildCardSlots: wildCardSlotsFor(command.tier),
       // Doubles (P7b + junior doubles) — derived once, stored, like
       // qualifying. Every tier holds a doubles draw.
       doublesDrawSize: doublesDrawSizeFor(command.tier, command.drawSize),

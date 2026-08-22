@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween, wildCardSlotsFor } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -185,7 +185,7 @@ export function toTournamentDto(
      * available for this tier's tournament, and how many are already
      * taken — 0/0 at every junior tier, which is what lets the UI stay
      * silent about wild cards there, same pattern as qualifierSlots. */
-    wildCardSlots: wildCardSlotsFor(tournament.tier),
+    wildCardSlots: tournament.wildCardSlots,
     wildCardSlotsTaken: tournament.entrants.filter((e) => entryTypeOf(e) === 'WC').length,
     /** True when a top-ranked player is OBLIGATED to count this event
      * even if they skip it (ObligatoryTournamentPolicy) — surfaced so
@@ -531,7 +531,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });
 
-  app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null; requestWildCard?: boolean } }>(
+  app.post<{ Params: { id: string }; Body: { playerId: string; seed?: number | null } }>(
     '/tournaments/:id/entrants',
     {
       schema: {
@@ -541,11 +541,6 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           properties: {
             playerId: { type: 'string', minLength: 1 },
             seed: { type: ['integer', 'null'], minimum: 1 },
-            /** Requests a WILD CARD entry (see WildCardPolicy) instead
-             * of the normal rank-based resolution — bypasses the
-             * ranking cutoff entirely, capped by the tournament's own
-             * finite wild-card slot count. */
-            requestWildCard: { type: 'boolean' },
           },
           additionalProperties: false,
         },
@@ -557,11 +552,15 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       const tournamentId = TournamentId(request.params.id);
       const player = await deps.players.findById(PlayerId(request.body.playerId));
       if (!player || player.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found in your roster' });
+      // Wild cards (see WildCardPolicy) are NOT requested here — they
+      // are granted automatically, by algorithm, the moment the field
+      // this registration might just have completed closes (see
+      // RegisterEntrantUseCase). There is no wild-card input on this
+      // route at all.
       await deps.registerEntrant.execute({
         tournamentId,
         playerId: PlayerId(request.body.playerId),
         seed: request.body.seed ?? null,
-        requestWildCard: request.body.requestWildCard ?? false,
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);

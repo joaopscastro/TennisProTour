@@ -61,6 +61,15 @@ export interface TournamentOpenProps {
    * before. */
   qualifyingDrawSize?: number;
   qualifierSlots?: number;
+  /** Wild card slots (see WildCardPolicy) — how many of this
+   * tournament's main-draw places are set aside for the automatic wild
+   * card algorithm, reducing DIRECT-registration capacity by the same
+   * amount (see `mainDrawCapacity`'s doc comment). Derived once at open
+   * time from the tier alone (`wildCardSlotsFor`) and stored, same
+   * "decided once, never re-derived mid-event" reasoning as
+   * qualifierSlots. Defaults to 0 — every pre-wild-card tournament, test
+   * call site and persisted row keeps its exact prior capacity. */
+  wildCardSlots?: number;
   /** Size of the DOUBLES draw (P7b) — how many pairs the doubles
    * bracket holds. Derived once at open time by the use case that opens
    * the tournament, stored like qualifyingDrawSize so a later balance
@@ -108,10 +117,26 @@ export class Tournament {
     readonly hostCountry: string | null,
     readonly qualifyingDrawSize: number,
     readonly qualifierSlots: number,
+    readonly wildCardSlots: number,
     readonly doublesDrawSize: number,
     readonly doublesQualifyingDrawSize: number,
     readonly doublesQualifierSlots: number,
   ) {}
+
+  /** Wild card slots (see WildCardPolicy) must leave room for at least
+   * one directly-accepted entrant alongside whatever qualifying already
+   * reserves — a real structural constraint (mainDrawCapacity would
+   * otherwise go negative or zero), not a balance preference. 0 is
+   * always valid (no wild cards). */
+  private static validateWildCardSlots(wildCardSlots: number, qualifierSlots: number, drawSize: DrawSize): void {
+    if (wildCardSlots === 0) return;
+    if (wildCardSlots < 0 || qualifierSlots + wildCardSlots >= drawSize) {
+      throw new Error(
+        `Wild card slots (${wildCardSlots}) plus reserved qualifier slots (${qualifierSlots}) must leave room ` +
+          `for at least one direct acceptance in a ${drawSize}-draw`,
+      );
+    }
+  }
 
   /** Both qualifying numbers are either 0 (no qualifying) or a
    * consistent pair: a power-of-two field, at least one reserved slot,
@@ -205,6 +230,7 @@ export class Tournament {
     const startDay = props.startDay ?? 1;
     const qualifyingDrawSize = props.qualifyingDrawSize ?? 0;
     const qualifierSlots = props.qualifierSlots ?? 0;
+    const wildCardSlots = props.wildCardSlots ?? 0;
     const doublesDrawSize = props.doublesDrawSize ?? 0;
     const doublesQualifyingDrawSize = props.doublesQualifyingDrawSize ?? 0;
     const doublesQualifierSlots = props.doublesQualifierSlots ?? 0;
@@ -212,9 +238,10 @@ export class Tournament {
     Tournament.validateName(props.name);
     Tournament.validateStartDay(startDay);
     Tournament.validateQualifying(qualifyingDrawSize, qualifierSlots, props.drawSize);
+    Tournament.validateWildCardSlots(wildCardSlots, qualifierSlots, props.drawSize);
     Tournament.validateDoublesDrawSize(doublesDrawSize);
     Tournament.validateDoublesQualifying(doublesQualifyingDrawSize, doublesQualifierSlots, doublesDrawSize);
-    return new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null, qualifyingDrawSize, qualifierSlots, doublesDrawSize, doublesQualifyingDrawSize, doublesQualifierSlots);
+    return new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null, qualifyingDrawSize, qualifierSlots, wildCardSlots, doublesDrawSize, doublesQualifyingDrawSize, doublesQualifierSlots);
   }
 
   /** Rehydrates a persisted tournament (repository adapters only).
@@ -243,6 +270,7 @@ export class Tournament {
     const startDay = props.startDay ?? 1;
     const qualifyingDrawSize = props.qualifyingDrawSize ?? 0;
     const qualifierSlots = props.qualifierSlots ?? 0;
+    const wildCardSlots = props.wildCardSlots ?? 0;
     const doublesDrawSize = props.doublesDrawSize ?? 0;
     const doublesQualifyingDrawSize = props.doublesQualifyingDrawSize ?? 0;
     const doublesQualifierSlots = props.doublesQualifierSlots ?? 0;
@@ -250,9 +278,10 @@ export class Tournament {
     Tournament.validateName(props.name);
     Tournament.validateStartDay(startDay);
     Tournament.validateQualifying(qualifyingDrawSize, qualifierSlots, props.drawSize);
+    Tournament.validateWildCardSlots(wildCardSlots, qualifierSlots, props.drawSize);
     Tournament.validateDoublesDrawSize(doublesDrawSize);
     Tournament.validateDoublesQualifying(doublesQualifyingDrawSize, doublesQualifierSlots, doublesDrawSize);
-    const tournament = new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null, qualifyingDrawSize, qualifierSlots, doublesDrawSize, doublesQualifyingDrawSize, doublesQualifierSlots);
+    const tournament = new Tournament(props.id, props.name, props.tier, props.surface, props.weekScheduled, props.drawSize, ageBand, startDay, props.hostCountry ?? null, qualifyingDrawSize, qualifierSlots, wildCardSlots, doublesDrawSize, doublesQualifyingDrawSize, doublesQualifierSlots);
     tournament._entrants = [...props.entrants];
     tournament.rounds = [...props.rounds];
     tournament.qualifyingRounds = [...(props.qualifyingRounds ?? [])];
@@ -286,11 +315,12 @@ export class Tournament {
   }
 
   /** How many main-draw places may be taken by DIRECT registration —
-   * the rest are reserved for whoever survives qualifying, and can only
-   * be taken via promoteQualifier(). Equals drawSize when there is no
-   * qualifying, so nothing changes for those tournaments. */
+   * the rest are reserved either for whoever survives qualifying
+   * (promoteQualifier()) or for the automatic wild card algorithm
+   * (grantWildCard()). Equals drawSize when there is neither qualifying
+   * nor wild cards, so nothing changes for those tournaments. */
   get mainDrawCapacity(): number {
-    return this.drawSize - this.qualifierSlots;
+    return this.drawSize - this.qualifierSlots - this.wildCardSlots;
   }
 
   /** Total rounds the qualifying bracket plays before exactly
@@ -442,6 +472,31 @@ export class Tournament {
       throw new Error(`Tournament ${this.id}'s main draw is full (${this.drawSize} entrants)`);
     }
     this._entrants[index] = { ...this._entrants[index], draw: 'main', entryType: 'Q' };
+  }
+
+  /**
+   * Grants an automatic WILD CARD (see WildCardPolicy/applyWildCards)
+   * to a player currently registered in the QUALIFYING field, moving
+   * them straight into the main draw instead — the mechanical opposite
+   * of registerEntrant() routing a below-cutoff player INTO qualifying.
+   * Must run BEFORE the qualifying draw is seeded: a wild card bypasses
+   * qualifying entirely, it doesn't win a place in it the way
+   * promoteQualifier() represents. `mainDrawCapacity` already reserves
+   * room for exactly `wildCardSlots` of these (see its own doc
+   * comment), so this never has to fight a direct registrant for space.
+   */
+  grantWildCard(playerId: PlayerId): void {
+    if (this.hasQualifyingDrawStarted) {
+      throw new Error(`Cannot grant a wild card: tournament ${this.id}'s qualifying draw is already seeded`);
+    }
+    const index = this._entrants.findIndex((entrant) => entrant.playerId === playerId);
+    if (index === -1) {
+      throw new Error(`Player ${playerId} is not a registered entrant of tournament ${this.id}`);
+    }
+    if (drawOf(this._entrants[index]) !== 'qualifying') {
+      throw new Error(`Player ${playerId} is not in tournament ${this.id}'s qualifying field`);
+    }
+    this._entrants[index] = { ...this._entrants[index], draw: 'main', entryType: 'WC' };
   }
 
   /** Seeds the MAIN bracket. For a tournament with qualifying this is

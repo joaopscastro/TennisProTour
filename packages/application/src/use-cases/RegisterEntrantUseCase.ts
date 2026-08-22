@@ -1,10 +1,11 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament, wildCardSlotsFor } from '@tennis-manager/domain';
+import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
+import { applyWildCards } from './applyWildCards';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -12,14 +13,6 @@ export interface RegisterEntrantCommand {
   /** Unseeded by default — direct roster-row "Enter" actions don't
    * carry a seed the way an admin-configured draw might. */
   seed?: number | null;
-  /** Requests a WILD CARD entry (see WildCardPolicy) instead of the
-   * normal rank-based direct-acceptance/qualifying resolution — a
-   * manager-initiated bypass of the ranking cutoff entirely, capped by
-   * the tournament's own finite wildCardSlotsFor(tier) slot count.
-   * Refused (not silently downgraded) once those slots are full, or at
-   * a tier that awards none at all (every junior tier). Defaults to
-   * false: every pre-existing caller is unaffected. */
-  requestWildCard?: boolean;
 }
 
 /**
@@ -77,15 +70,16 @@ export interface RegisterEntrantCommand {
  * everyone else earn their place — and it is inert at every tier below
  * `tour`, which must stay freely enterable since that's the route up.
  *
- * **Wild cards (`'WC'`)**: when `command.requestWildCard` is true, the
- * rank-based DA/`[Q]` resolution above is bypassed entirely — a real
- * wild card is awarded independent of ranking (see WildCardPolicy).
- * Always lands in the MAIN draw (never qualifying), and is capped by
- * the tournament's own finite `wildCardSlotsFor(tier)` slot count,
- * refused outright once full or at a tier that awards none (every
- * junior tier). The weekly entry cap and age-eligibility checks above
- * still apply in full — a wild card is a different way IN, not an
- * exemption from every other rule.
+ * **Wild cards (`'WC'`)**: NOT a manager action at all — see
+ * WildCardPolicy/applyWildCards. The moment this registration closes
+ * the qualifying (or main, at a tier with none) field — i.e. exactly
+ * where the auto-start below used to go straight to bracket generation
+ * — `applyWildCards` runs FIRST and automatically promotes up to the
+ * tier's wild card slot count of registered qualifying entrants who
+ * share the tournament's host country into the main draw, best-ranked
+ * first. A manager who registers a below-cutoff local player has no
+ * idea in advance whether they'll be promoted; it's discovered on the
+ * draw sheet like everything else here.
  */
 export class RegisterEntrantUseCase {
   constructor(
@@ -95,9 +89,9 @@ export class RegisterEntrantUseCase {
     /** The SENIOR rank query — only senior tiers hold qualifying, so
      * there's no per-band record to pass. Optional: omitted (as in the
      * many pre-qualifying unit tests) every entrant is a plain direct
-     * acceptance and the `[Q]` rule is simply inert, exactly as it is
-     * at a tier that holds no qualifying at all. The composition root
-     * always passes it. */
+     * acceptance and the `[Q]`/wild-card rules are simply inert, exactly
+     * as they are at a tier that holds no qualifying at all. The
+     * composition root always passes it. */
     private readonly seniorRankPosition?: RankPositionQuery,
     /** Doubles draw formation (P7b) — optional for the same test-compat
      * reason: omitted, the full-draw auto-start below seeds the singles
@@ -141,17 +135,21 @@ export class RegisterEntrantUseCase {
       );
     }
 
-    const entryType = command.requestWildCard
-      ? this.resolveWildCardEntryType(tournament)
-      : await this.resolveEntryTypeFor(tournament, command.playerId);
+    const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);
     // A `[Q]` registrant enters the QUALIFYING field, not the main draw
     // — the whole point of the full model: they must win their way in.
-    // A wild card ('WC') always lands in the MAIN draw — real wild
-    // cards bypass qualifying entirely, they don't earn a place in it.
     const draw: DrawPhase | undefined = entryType === 'Q' ? 'qualifying' : undefined;
     tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType, draw });
 
     if (isFullyRegistered(tournament)) {
+      // The automatic wild card algorithm runs FIRST — before either
+      // bracket is seeded — pulling any eligible local qualifying
+      // entrants into the main draw (see this class's doc comment and
+      // applyWildCards). Must happen before startQualifyingWithBracket:
+      // a wild card bypasses qualifying entirely, it can't be granted
+      // once that bracket already exists.
+      await applyWildCards(tournament, this.players, this.seniorRankPosition);
+
       // With qualifying, "the draw is full" starts the QUALIFYING
       // bracket, days before the main draw exists (deferred main-draw
       // seeding — the main draw is seeded by PromoteQualifiersUseCase
@@ -215,25 +213,6 @@ export class RegisterEntrantUseCase {
       );
     }
     return decision.entryType;
-  }
-
-  /** A wild card bypasses the rank-based DA/Q resolution entirely — see
-   * WildCardPolicy. Refuses outright at a tier that awards none, or
-   * once the tournament's own finite slot count is already taken (both
-   * real, not silently downgraded to an ordinary entry type — a
-   * manager who explicitly asked for a wild card and can't get one
-   * should know that, not quietly end up with a normal entry they
-   * didn't ask for). */
-  private resolveWildCardEntryType(tournament: Tournament): EntryType {
-    const slots = wildCardSlotsFor(tournament.tier);
-    if (slots === 0) {
-      throw new Error(`Tournament ${tournament.id} (tier ${tournament.tier}) does not award wild cards`);
-    }
-    const taken = tournament.entrants.filter((entrant) => entryTypeOf(entrant) === 'WC').length;
-    if (taken >= slots) {
-      throw new Error(`Tournament ${tournament.id}'s wild card slots are already full (${slots} available)`);
-    }
-    return 'WC';
   }
 }
 

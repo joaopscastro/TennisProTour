@@ -1,0 +1,1 @@
+ALTER TABLE "tournaments" ADD COLUMN "wild_card_slots" integer DEFAULT 0 NOT NULL;

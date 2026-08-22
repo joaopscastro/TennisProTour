@@ -14,7 +14,7 @@ import {
   WorldId,
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { qualifierSlotsFor, qualifyingDrawSizeFor } from '@tennis-manager/domain';
+import { qualifierSlotsFor, qualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
@@ -643,79 +643,144 @@ describe('RegisterEntrantUseCase', () => {
   });
 });
 
-describe('RegisterEntrantUseCase — wild cards', () => {
-  it('awards a wild card that lands directly in the main draw, bypassing rank entirely', async () => {
+describe('RegisterEntrantUseCase — automatic wild cards', () => {
+  /** A real qualifying event WITH wild card slots reserved and a host
+   * country recorded — exactly what OpenRegistrationUseCase produces
+   * for a real `tour`-tier tournament today. */
+  function openTourTournamentWithWildCards(id: TournamentId, hostCountry: string | null = 'Brazil'): Tournament {
+    return Tournament.open({
+      name: 'Wild Card Test Open',
+      id,
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      hostCountry,
+      qualifyingDrawSize: qualifyingDrawSizeFor('tour', 16),
+      qualifierSlots: qualifierSlotsFor('tour', 16),
+      wildCardSlots: wildCardSlotsFor('tour'),
+    });
+  }
+
+  async function wildCardSetup(rankedPoints: Array<{ playerId: string; points: number }> = []) {
     const tournaments = new InMemoryTournamentRepository();
     const players = new InMemoryPlayerRepository();
-    const tournamentId = TournamentId('t-wc');
-    await tournaments.save(openTournament(tournamentId)); // challenger tier: 1 wild card slot
-
-    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
-    await useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true });
-
-    const saved = await tournaments.findById(tournamentId);
-    expect(saved!.entrants[0]).toMatchObject({ playerId: PlayerId('p1'), entryType: 'WC' });
-    expect(saved!.mainEntrants).toHaveLength(1);
-  });
-
-  it('refuses a wild card once the tournament tier\'s finite slot count is already taken', async () => {
-    const tournaments = new InMemoryTournamentRepository();
-    const players = new InMemoryPlayerRepository();
-    const tournamentId = TournamentId('t-wc-full');
-    await tournaments.save(openTournament(tournamentId)); // challenger tier: exactly 1 slot
-
-    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
-    await useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true });
-
-    await expect(
-      useCase.execute({ tournamentId, playerId: PlayerId('p2'), requestWildCard: true }),
-    ).rejects.toThrow(/wild card slots are already full/);
-  });
-
-  it('refuses a wild card at a tier that awards none (every junior tier)', async () => {
-    const tournaments = new InMemoryTournamentRepository();
-    const players = new InMemoryPlayerRepository();
-    const tournamentId = TournamentId('t-wc-junior');
-    await savePlayer(players, PlayerId('p1'), U14_AGE);
-    await tournaments.save(openJuniorTournament(tournamentId));
-
-    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
-    await expect(
-      useCase.execute({ tournamentId, playerId: PlayerId('p1'), requestWildCard: true }),
-    ).rejects.toThrow(/does not award wild cards/);
-  });
-
-  it('still enforces the weekly entry cap on a wild card entry — it is a different way IN, not an exemption', async () => {
-    const tournaments = new InMemoryTournamentRepository();
-    const players = new InMemoryPlayerRepository();
-    const week: GameWeek = { season: 1, week: 3 };
-    const first = openTournament(TournamentId('t-wc-week-1'), week);
-    const second = openTournament(TournamentId('t-wc-week-2'), week);
-    await tournaments.save(first);
-    await tournaments.save(second);
-
-    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
-    await useCase.execute({ tournamentId: TournamentId('t-wc-week-1'), playerId: PlayerId('p1') });
-
-    await expect(
-      useCase.execute({ tournamentId: TournamentId('t-wc-week-2'), playerId: PlayerId('p1'), requestWildCard: true }),
-    ).rejects.toThrow(/has already entered/);
-  });
-
-  it('a wild card entrant still counts toward auto-starting the bracket once the draw fills', async () => {
-    const tournaments = new InMemoryTournamentRepository();
-    const players = new InMemoryPlayerRepository();
-    const tournamentId = TournamentId('t-wc-fill');
-    const tournament = openTournament(tournamentId);
-    for (let i = 1; i <= 15; i++) {
-      tournament.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+    const worlds = new InMemoryGameWorldRepository();
+    await worlds.save(GameWorld.reconstitute({ id: WorldId('main'), currentWeek: { season: 1, week: 1 }, lastAppliedTick: null }));
+    const ledger = new InMemoryRankingLedgerRepository();
+    for (const [index, ranked] of rankedPoints.entries()) {
+      await ledger.append({
+        playerId: PlayerId(ranked.playerId),
+        tournamentId: TournamentId(`past-${index}`),
+        tier: 'challenger',
+        ageBand: null,
+        points: ranked.points,
+        weekEarned: { season: 1, week: 1 },
+      });
     }
-    await tournaments.save(tournament);
+    const rankPosition = new RankPositionQuery(ledger, worlds, WorldId('main'), 'senior');
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), rankPosition);
+    return { tournaments, players, useCase };
+  }
 
-    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
-    await useCase.execute({ tournamentId, playerId: PlayerId('p16'), requestWildCard: true });
+  /** Registers enough ABOVE-CUTOFF (ranked, DA-eligible) players to
+   * fill mainDrawCapacity on their own — the wild card algorithm only
+   * ever runs once RegisterEntrantUseCase's auto-start actually
+   * triggers, which needs BOTH fields full (isFullyRegistered), not
+   * just qualifying. mainDrawCapacity for a 16-draw `tour` tournament
+   * with wild cards is 16 - 2 (qualifierSlots) - 2 (wildCardSlots) = 12. */
+  async function fillMainDrawWithDirectAcceptances(tournamentId: TournamentId, players: InMemoryPlayerRepository, useCase: RegisterEntrantUseCase): Promise<void> {
+    for (let i = 1; i <= 12; i++) {
+      await players.save(Player.hire(PlayerId(`da${i}`), `DA ${i}`, SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'Spain'));
+      await useCase.execute({ tournamentId, playerId: PlayerId(`da${i}`) });
+    }
+  }
+
+  /** 100 ranked players (rank 1..100, all inside DIRECT_ACCEPTANCE_CUTOFF)
+   * so any `daN` id used by fillMainDrawWithDirectAcceptances resolves
+   * as a direct acceptance regardless of iteration order. */
+  function rankedDirectAcceptances(): Array<{ playerId: string; points: number }> {
+    return Array.from({ length: 100 }, (_, i) => ({ playerId: `da${i + 1}`, points: 100000 - i }));
+  }
+
+  it('fills the entire qualifying field with locals below the cutoff, then automatically promotes the best-ranked ones to wild cards before the qualifying draw is seeded', async () => {
+    const { tournaments, players, useCase } = await wildCardSetup(rankedDirectAcceptances());
+    const tournamentId = TournamentId('tour-wc');
+    await tournaments.save(openTourTournamentWithWildCards(tournamentId, 'Brazil'));
+    await fillMainDrawWithDirectAcceptances(tournamentId, players, useCase);
+
+    // 8 unranked entrants: 2 Brazilian (locals), 6 from elsewhere —
+    // exactly fills the 8-player qualifying field.
+    await players.save(Player.hire(PlayerId('br1'), 'BR One', SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'Brazil'));
+    await players.save(Player.hire(PlayerId('br2'), 'BR Two', SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'Brazil'));
+    for (let i = 1; i <= 6; i++) {
+      await players.save(Player.hire(PlayerId(`fr${i}`), `FR ${i}`, SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'France'));
+    }
+
+    for (const id of ['br1', 'br2', 'fr1', 'fr2', 'fr3', 'fr4', 'fr5', 'fr6']) {
+      await useCase.execute({ tournamentId, playerId: PlayerId(id) });
+    }
 
     const saved = await tournaments.findById(tournamentId);
-    expect(saved!.hasStarted).toBe(true);
+    // Both fields are now full, so registration closed and the wild
+    // card algorithm ran before the qualifying bracket was seeded.
+    expect(saved!.hasQualifyingDrawStarted).toBe(true);
+
+    // wildCardSlotsFor('tour') = 2, and both Brazilian entrants (the
+    // only ones sharing the host country) got promoted — never a
+    // French entrant, however many of them registered.
+    const wcEntrants = saved!.entrants.filter((e) => e.entryType === 'WC');
+    expect(wcEntrants.map((e) => e.playerId).sort()).toEqual([PlayerId('br1'), PlayerId('br2')].sort());
+    for (const wc of wcEntrants) {
+      expect(saved!.mainEntrants.map((e) => e.playerId)).toContain(wc.playerId);
+      expect(saved!.qualifyingEntrants.map((e) => e.playerId)).not.toContain(wc.playerId);
+    }
+  });
+
+  it('never grants a wild card to a player from a different country than the tournament host', async () => {
+    const { tournaments, players, useCase } = await wildCardSetup(rankedDirectAcceptances());
+    const tournamentId = TournamentId('tour-wc-none-local');
+    await tournaments.save(openTourTournamentWithWildCards(tournamentId, 'Brazil'));
+    await fillMainDrawWithDirectAcceptances(tournamentId, players, useCase);
+
+    for (let i = 1; i <= 8; i++) {
+      await players.save(Player.hire(PlayerId(`fr${i}`), `FR ${i}`, SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'France'));
+      await useCase.execute({ tournamentId, playerId: PlayerId(`fr${i}`) });
+    }
+
+    const saved = await tournaments.findById(tournamentId);
+    expect(saved!.hasQualifyingDrawStarted).toBe(true);
+    expect(saved!.entrants.some((e) => e.entryType === 'WC')).toBe(false);
+  });
+
+  it('grants no wild cards at all when the tournament has no recorded host country', async () => {
+    const { tournaments, players, useCase } = await wildCardSetup(rankedDirectAcceptances());
+    const tournamentId = TournamentId('tour-wc-no-host');
+    await tournaments.save(openTourTournamentWithWildCards(tournamentId, null));
+    await fillMainDrawWithDirectAcceptances(tournamentId, players, useCase);
+
+    for (let i = 1; i <= 8; i++) {
+      await players.save(Player.hire(PlayerId(`br${i}`), `BR ${i}`, SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'Brazil'));
+      await useCase.execute({ tournamentId, playerId: PlayerId(`br${i}`) });
+    }
+
+    const saved = await tournaments.findById(tournamentId);
+    expect(saved!.hasQualifyingDrawStarted).toBe(true);
+    expect(saved!.entrants.some((e) => e.entryType === 'WC')).toBe(false);
+  });
+
+  it('never involves a manager choice — a below-cutoff registration is a plain [Q] entry with no wild-card option to request', async () => {
+    const { tournaments, players, useCase } = await wildCardSetup([]);
+    const tournamentId = TournamentId('tour-wc-no-request');
+    await tournaments.save(openTourTournamentWithWildCards(tournamentId, 'Brazil'));
+    await players.save(Player.hire(PlayerId('br1'), 'BR One', SENIOR_AGE, fixedAttributes(), ManagerId('m1'), 'Brazil'));
+
+    await useCase.execute({ tournamentId, playerId: PlayerId('br1') });
+
+    // Registering alone (field nowhere near full) leaves the player an
+    // ordinary [Q] entrant — the algorithm only ever runs once the
+    // field actually closes, never as a per-registration side effect.
+    const saved = await tournaments.findById(tournamentId);
+    expect(saved!.entrants[0].entryType).toBe('Q');
   });
 });

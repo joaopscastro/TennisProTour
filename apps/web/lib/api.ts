@@ -175,10 +175,14 @@ export interface TournamentDto {
     playerId: string;
     seed: number | null;
     /** How this entrant got their place — 'DA' (direct acceptance by
-     * ranking), 'Q' (came through qualifying), 'WC' (a wild card,
-     * bypassing rank entirely — see WildCardPolicy). Only ever 'Q' at a
+     * ranking), 'Q' (came through/is playing qualifying), 'WC' (an
+     * automatic wild card — see WildCardPolicy). A wild card is never
+     * requested by a manager: the algorithm promotes the best-ranked
+     * host-country locals out of qualifying into the main draw the
+     * moment registration for that field closes. Only ever 'Q' at a
      * tier that holds qualifying; 'WC' only at a tier that awards wild
-     * cards (every senior tier). */
+     * cards (a tier with qualifying, and only ever a registrant who
+     * shares the tournament's host country). */
     entryType: 'DA' | 'Q' | 'WC';
     /** Which draw they are in right now. A 'Q' entrant sits in
      * 'qualifying' until they actually win their way through, then
@@ -531,18 +535,8 @@ export function fetchTrainingSchedule(playerId: string, weeksAhead?: number): Pr
  * on any manager other than the dev-mode default silently
  * authenticates as the wrong manager and gets a real "Player not
  * found in your roster" 404, never the intended registration. */
-export function registerEntrant(
-  tournamentId: string,
-  playerId: string,
-  managerId?: string,
-  requestWildCard?: boolean,
-): Promise<TournamentDto> {
-  return sendJson(
-    'POST',
-    `/tournaments/${encodeURIComponent(tournamentId)}/entrants`,
-    requestWildCard ? { playerId, requestWildCard: true } : { playerId },
-    managerId,
-  );
+export function registerEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {
+  return sendJson('POST', `/tournaments/${encodeURIComponent(tournamentId)}/entrants`, { playerId }, managerId);
 }
 
 export function registerDoublesEntrant(tournamentId: string, playerId: string, managerId?: string): Promise<TournamentDto> {

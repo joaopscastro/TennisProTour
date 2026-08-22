@@ -228,6 +228,83 @@ describe('Tournament — the qualifying draw (full [Q] model)', () => {
   });
 });
 
+describe('Tournament — wild cards (WildCardPolicy)', () => {
+  /** A 16-draw tour event: 2 reserved qualifying places, 2 reserved
+   * wild card places — mainDrawCapacity is 16 - 2 - 2 = 12. */
+  function withWildCards(overrides: Partial<TournamentOpenProps> = {}): Tournament {
+    return Tournament.open(
+      baseProps({ tier: 'tour', drawSize: 16, qualifyingDrawSize: 8, qualifierSlots: 2, wildCardSlots: 2, ...overrides }),
+    );
+  }
+
+  it('holds no wild card slots by default — every pre-wild-card tournament is untouched', () => {
+    const plain = Tournament.open(baseProps());
+    expect(plain.wildCardSlots).toBe(0);
+    expect(plain.mainDrawCapacity).toBe(plain.drawSize);
+  });
+
+  it('reduces mainDrawCapacity by wildCardSlots, on top of any qualifierSlots reservation', () => {
+    const tournament = withWildCards();
+    expect(tournament.mainDrawCapacity).toBe(12);
+  });
+
+  it('rejects wild card slots that would leave no room for a direct acceptance', () => {
+    expect(() => Tournament.open(baseProps({ tier: 'tour', drawSize: 16, wildCardSlots: 16 }))).toThrow(
+      /must leave room/,
+    );
+    expect(() =>
+      Tournament.open(baseProps({ tier: 'tour', drawSize: 16, qualifyingDrawSize: 8, qualifierSlots: 2, wildCardSlots: 14 })),
+    ).toThrow(/must leave room/);
+  });
+
+  it('moves a registered QUALIFYING entrant straight into the main draw as a WC', () => {
+    const tournament = withWildCards();
+    tournament.registerEntrant({ playerId: PlayerId('q1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+
+    tournament.grantWildCard(PlayerId('q1'));
+
+    const entrant = tournament.entrants.find((e) => e.playerId === PlayerId('q1'))!;
+    expect(entrant.entryType).toBe('WC');
+    expect(tournament.mainEntrants.map((e) => e.playerId)).toEqual([PlayerId('q1')]);
+    expect(tournament.qualifyingEntrants).toHaveLength(0);
+  });
+
+  it('refuses a wild card for a player who is not a registered entrant at all', () => {
+    const tournament = withWildCards();
+    expect(() => tournament.grantWildCard(PlayerId('ghost'))).toThrow(/not a registered entrant/);
+  });
+
+  it('refuses a wild card for a player already in the main draw (nothing to promote them from)', () => {
+    const tournament = withWildCards();
+    tournament.registerEntrant({ playerId: PlayerId('da1'), seed: 1 });
+    expect(() => tournament.grantWildCard(PlayerId('da1'))).toThrow(/not in tournament.*qualifying field/);
+  });
+
+  it('refuses a wild card once the qualifying draw has already been seeded — the real "even before the qualy" constraint', () => {
+    const tournament = withWildCards();
+    for (let i = 1; i <= 8; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`q${i}`), seed: null, draw: 'qualifying', entryType: 'Q' });
+    }
+    tournament.startQualifyingWithBracket(new BracketGenerator().generate(tournament.qualifyingEntrants, 8));
+
+    expect(() => tournament.grantWildCard(PlayerId('q1'))).toThrow(/qualifying draw is already seeded/);
+  });
+
+  it('leaves room for exactly wildCardSlots promotions on top of a fully-registered direct-acceptance main draw', () => {
+    const tournament = withWildCards();
+    for (let i = 1; i <= 12; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`da${i}`), seed: i });
+    }
+    tournament.registerEntrant({ playerId: PlayerId('q1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('q2'), seed: null, draw: 'qualifying', entryType: 'Q' });
+
+    tournament.grantWildCard(PlayerId('q1'));
+    tournament.grantWildCard(PlayerId('q2'));
+
+    expect(tournament.mainEntrants).toHaveLength(14); // 12 DA + 2 WC, never overflowing the 16-draw
+  });
+});
+
 describe('Tournament doubles draw (P7b)', () => {
   function withDoubles(): Tournament {
     return Tournament.open(baseProps({ tier: 'challenger', drawSize: 16, doublesDrawSize: 4 }));

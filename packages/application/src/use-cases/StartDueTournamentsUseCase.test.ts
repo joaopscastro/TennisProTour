@@ -324,3 +324,56 @@ describe('StartDueTournamentsUseCase', () => {
     await expect(useCase.execute({ worldId: WorldId('missing') })).rejects.toThrow(/not found/);
   });
 });
+
+describe('StartDueTournamentsUseCase — automatic wild cards', () => {
+  /** A `tour`-tier tournament with real qualifying AND wild card slots
+   * reserved, exactly like OpenRegistrationUseCase would open one —
+   * mainDrawCapacity = 16 - 2 (qualifierSlots) - 2 (wildCardSlots) = 12. */
+  function openTourTournamentWithWildCards(id: string, hostCountry: string | null): Tournament {
+    return Tournament.open({
+      name: 'Weekly Sweep Wild Card Test',
+      id: TournamentId(id),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      hostCountry,
+      qualifyingDrawSize: 8,
+      qualifierSlots: 2,
+      wildCardSlots: 2,
+    });
+  }
+
+  it('promotes REAL local qualifying registrants to wild cards before padding the field with fillers', async () => {
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 1 });
+    const tournament = openTourTournamentWithWildCards('t-weekly-wc', 'Brazil');
+    tournament.registerEntrant({ playerId: PlayerId('br1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('fr1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    await tournaments.save(tournament);
+    await players.save(Player.hire(PlayerId('br1'), 'BR One', 25 * 52, attributes(50), ManagerId('m1'), 'Brazil'));
+    await players.save(Player.hire(PlayerId('fr1'), 'FR One', 25 * 52, attributes(50), ManagerId('m1'), 'France'));
+
+    await useCase.execute({ worldId });
+
+    const saved = await tournaments.findById(TournamentId('t-weekly-wc'));
+    const wcEntrants = saved!.entrants.filter((e) => e.entryType === 'WC');
+    expect(wcEntrants.map((e) => e.playerId)).toEqual([PlayerId('br1')]);
+    expect(saved!.mainEntrants.map((e) => e.playerId)).toContain(PlayerId('br1'));
+  });
+
+  it('never grants a wild card to a filler used to pad the qualifying field — only to a real registrant', async () => {
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 1 });
+    const tournament = openTourTournamentWithWildCards('t-weekly-wc-fillers', 'Brazil');
+    // No real qualifying registrants at all — the whole 8-player field
+    // will be padded entirely by fillOnly free agents.
+    await tournaments.save(tournament);
+    for (let i = 1; i <= 20; i++) {
+      await players.save(fillOnlyPlayer(`filler-br-${i}`, 25 * 52));
+    }
+
+    await useCase.execute({ worldId });
+
+    const saved = await tournaments.findById(TournamentId('t-weekly-wc-fillers'));
+    expect(saved!.entrants.some((e) => e.entryType === 'WC')).toBe(false);
+  });
+});

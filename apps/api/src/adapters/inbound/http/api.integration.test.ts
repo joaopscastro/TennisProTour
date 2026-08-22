@@ -570,40 +570,45 @@ describe('API', () => {
     expect(profile.json().seasonPrizeMoney).toBe(cAfterSweep!.seasonPrizeMoney);
   });
 
-  it('registers a wild card entrant through the real HTTP route, bypassing rank entirely, and refuses once the tier\'s slot cap is full', async () => {
-    expect(await hirePlayer('wc-a', 'm-wc')).toBe(201);
-    expect(await hirePlayer('wc-b', 'm-wc')).toBe(201);
-
+  it('automatically promotes a real Brazilian qualifying registrant to a wild card, never a French one, driven against real Postgres data', async () => {
+    const tournamentId = TournamentId('t-wildcard');
     const tournament = Tournament.open({
       name: 'Test Wild Card Field',
-      id: TournamentId('t-wildcard'),
-      tier: 'challenger', // 1 wild card slot (WildCardPolicy)
+      id: tournamentId,
+      tier: 'tour', // 2 wild card slots (WildCardPolicy), holds qualifying
       surface: 'hard',
+      hostCountry: 'Brazil',
       weekScheduled: { season: 1, week: 51 },
       drawSize: 16,
+      qualifyingDrawSize: 8,
+      qualifierSlots: 2,
+      wildCardSlots: 2,
     });
+    // Two REAL registered qualifying entrants (below the direct-
+    // acceptance cutoff, exactly what a manager's genuine registration
+    // produces) — one shares the tournament's host country, one doesn't.
+    tournament.registerEntrant({ playerId: PlayerId('wc-br'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('wc-fr'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    await deps.players.save(
+      Player.hire(PlayerId('wc-br'), 'BR Player', 25 * 52, fixedAttributes(30), ManagerId('m-wc'), 'Brazil'),
+    );
+    await deps.players.save(
+      Player.hire(PlayerId('wc-fr'), 'FR Player', 25 * 52, fixedAttributes(30), ManagerId('m-wc'), 'France'),
+    );
     await deps.tournaments.save(tournament);
 
-    const first = await app.inject({
-      method: 'POST',
-      url: '/tournaments/t-wildcard/entrants',
-      headers: { 'x-dev-manager-id': 'm-wc' },
-      payload: { playerId: 'wc-a', requestWildCard: true },
-    });
-    expect(first.statusCode).toBe(201);
-    const dto = first.json();
-    expect(dto.entrants.find((e: { playerId: string }) => e.playerId === 'wc-a')).toMatchObject({ entryType: 'WC' });
-    expect(dto.wildCardSlots).toBe(1);
-    expect(dto.wildCardSlotsTaken).toBe(1);
+    // Drives applyWildCards via the real weekly sweep, wired through
+    // composition.ts exactly as the worker calls it — this is a real
+    // Postgres round trip, not an in-memory fake.
+    await deps.startDueTournaments.execute({ worldId: WorldId('main') });
 
-    const second = await app.inject({
-      method: 'POST',
-      url: '/tournaments/t-wildcard/entrants',
-      headers: { 'x-dev-manager-id': 'm-wc' },
-      payload: { playerId: 'wc-b', requestWildCard: true },
-    });
-    expect(second.statusCode).toBe(409); // domain invariant violation, same generic mapping every other RegisterEntrantUseCase throw gets
-    expect(second.json().error).toMatch(/wild card slots are already full/);
+    const fetched = await app.inject({ method: 'GET', url: `/tournaments/${tournamentId}` });
+    expect(fetched.statusCode).toBe(200);
+    const dto = fetched.json();
+    expect(dto.entrants.find((e: { playerId: string }) => e.playerId === 'wc-br')).toMatchObject({ entryType: 'WC' });
+    expect(dto.entrants.find((e: { playerId: string }) => e.playerId === 'wc-fr')).toMatchObject({ entryType: 'Q' });
+    expect(dto.wildCardSlots).toBe(2);
+    expect(dto.wildCardSlotsTaken).toBe(1);
   });
 
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {

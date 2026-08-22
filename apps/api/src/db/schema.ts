@@ -562,6 +562,12 @@ export const tournaments = pgTable('tournaments', {
    * played — see TournamentOpenProps.qualifyingDrawSize. */
   qualifyingDrawSize: integer('qualifying_draw_size').notNull().default(0),
   qualifierSlots: integer('qualifier_slots').notNull().default(0),
+  /** Wild card slots (see WildCardPolicy) — how many main-draw places
+   * are reserved for the automatic wild card algorithm. 0 for every
+   * pre-wild-card row and every tier that holds no qualifying. Derived
+   * at open time (wildCardSlotsFor(tier)), stored like qualifierSlots
+   * so mainDrawCapacity can never resize an event already being played. */
+  wildCardSlots: integer('wild_card_slots').notNull().default(0),
   /** Size of the DOUBLES draw (P7b) — how many pairs the doubles bracket
    * holds. 0 = no doubles draw (every pre-P7b row). Derived at open time
    * (DoublesPolicy.doublesDrawSizeFor), stored like the qualifying sizes. */
