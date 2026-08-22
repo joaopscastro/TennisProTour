@@ -64,7 +64,7 @@ export class FormDoublesDrawUseCase {
     // the padding block below for why it matters more now than it did
     // when a filler could only ever cover a single odd leftover).
     let fillerIds: PlayerId[] = freeAgents
-      .filter((p) => isAgeEligibleForTournamentBand(p.ageInWeeks, tournament.ageBand))
+      .filter((p) => isAgeEligibleForTournamentBand(p.seasonAgeAnchorWeeks, tournament.ageBand))
       .map((p) => p.id)
       .filter((id) => !entrants.includes(id));
 

@@ -34,10 +34,12 @@ export interface RegisterEntrantCommand {
  * for registration."
  *
  * **Age eligibility**: a player may not register for a tournament with
- * a real junior `ageBand` (`u14`/`u16`) unless their CURRENT age is
+ * a real junior `ageBand` (`u14`/`u16`/`u18`) unless their SEASON-
+ * ANCHORED eligibility age (`Player.seasonAgeAnchorWeeks` — the real
+ * ITF "age as of January 1" rule, NOT their literal current age) is
  * eligible for it — see `isAgeEligibleForTournamentBand`'s doc comment
  * for the exact one-directional rule (playing UP into an older junior
- * band is allowed, playing down or a senior entering either junior
+ * band is allowed, playing down or a senior entering any junior
  * band is not). This closes a previously-disclosed gap ("nothing
  * enforces a registering player's actual age against a tournament's
  * ageBand"). Deliberately scoped to junior tournaments only — a junior
@@ -115,7 +117,7 @@ export class RegisterEntrantUseCase {
       if (!player) {
         throw new Error(`Player ${command.playerId} not found`);
       }
-      if (!isAgeEligibleForTournamentBand(player.ageInWeeks, tournament.ageBand)) {
+      if (!isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
         throw new Error(
           `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for a ` +
             `${tournament.ageBand} tournament — a player may play up into an older junior band, but not down ` +

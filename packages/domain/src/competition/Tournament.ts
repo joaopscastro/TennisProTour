@@ -31,7 +31,7 @@ export interface TournamentOpenProps {
   /** Required for junior tiers (J30-J500, JuniorMasters), forbidden for
    * senior tiers — validated in open()/reconstitute(). Lives on the
    * tournament instance, not folded into the tier name, so the same
-   * six J-grades work identically for u14 and u16 (see JuniorTier's
+   * six J-grades work identically for u14, u16, and u18 (see JuniorTier's
    * doc comment in CompetitionTypes.ts). */
   ageBand?: AgeBand | null;
   /** Day-within-week (1..7) the tournament begins on, relative to

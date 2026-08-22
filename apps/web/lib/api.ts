@@ -94,11 +94,11 @@ export interface EntitlementDto {
   xpBalance: number;
 }
 
-/** Which of a player's three independent rankings a roster-dashboard
+/** Which of a player's four independent rankings a roster-dashboard
  * row's rank/points came from — see DrizzleRosterDashboardQuery's
  * rankBand doc comment on the API side. Mirrors the domain's
  * RankingBand. */
-export type RankingBand = 'senior' | 'u14' | 'u16';
+export type RankingBand = 'senior' | 'u14' | 'u16' | 'u18';
 
 /** A free agent: a real, unowned `Player` (managerId null, not retired)
  * that lives in the world for its whole career whether or not anyone
@@ -134,7 +134,7 @@ export interface MatchOutcomeDto {
   setScores: Array<{ winnerGames: number; loserGames: number }>;
 }
 
-export type AgeBand = 'u14' | 'u16';
+export type AgeBand = 'u14' | 'u16' | 'u18';
 
 export interface TournamentDto {
   id: string;
@@ -672,7 +672,7 @@ export interface RankingsBoardDto {
   standings: RankingRowDto[];
 }
 
-/** Public player standings board (senior/u14/u16) — GET /rankings/:band. No
+/** Public player standings board (senior/u14/u16/u18) — GET /rankings/:band. No
  * auth required, unlike fetchManagerLeaderboard (there's no "self" row here,
  * a player isn't the authenticated caller). */
 export function fetchRankings(band: RankingBand, limit = 100): Promise<RankingsBoardDto> {

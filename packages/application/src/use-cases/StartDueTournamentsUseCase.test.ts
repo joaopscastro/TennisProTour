@@ -134,6 +134,7 @@ async function setup(currentWeek: GameWeek) {
     senior: new RankPositionQuery(rankingLedger, worlds, worldId, 'senior'),
     u14: new RankPositionQuery(rankingLedger, worlds, worldId, 'u14'),
     u16: new RankPositionQuery(rankingLedger, worlds, worldId, 'u16'),
+    u18: new RankPositionQuery(rankingLedger, worlds, worldId, 'u18'),
   };
   const useCase = new StartDueTournamentsUseCase(tournaments, worlds, players, bracketGenerator, rankPositionByBand);
   return { tournaments, worlds, players, rankingLedger, useCase };

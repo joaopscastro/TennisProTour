@@ -36,11 +36,12 @@ type Category = 'all' | 'senior' | 'junior';
  * junior tier" (see docs/ui-direction.md's age-band-badge convention),
  * so filtering by U14/U16 here matches that same mental model instead
  * of introducing a second, unfamiliar J-grade filter. */
-type TierFilterValue = 'u14' | 'u16' | 'futures' | 'challenger' | 'tour' | 'major';
+type TierFilterValue = 'u14' | 'u16' | 'u18' | 'futures' | 'challenger' | 'tour' | 'major';
 
 const TIER_CHIPS: Array<{ value: TierFilterValue; label: string }> = [
   { value: 'u14', label: 'U14' },
   { value: 'u16', label: 'U16' },
+  { value: 'u18', label: 'U18' },
   { value: 'futures', label: 'Futures' },
   { value: 'challenger', label: 'Challenger' },
   { value: 'tour', label: 'Tour' },
@@ -67,7 +68,7 @@ const DEFAULT_TIERS: readonly TierFilterValue[] = ['tour'];
 const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v1';
 
 const VALID_CATEGORIES: readonly Category[] = ['all', 'senior', 'junior'];
-const VALID_TIERS: readonly TierFilterValue[] = ['u14', 'u16', 'futures', 'challenger', 'tour', 'major'];
+const VALID_TIERS: readonly TierFilterValue[] = ['u14', 'u16', 'u18', 'futures', 'challenger', 'tour', 'major'];
 const VALID_SURFACES: readonly string[] = ['clay', 'grass', 'hard', 'indoor'];
 
 interface PersistedTournamentFilters {

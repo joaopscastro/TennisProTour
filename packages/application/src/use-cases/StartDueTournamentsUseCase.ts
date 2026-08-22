@@ -254,7 +254,7 @@ export class StartDueTournamentsUseCase {
     const rankOrder = new Map(ranked.map((r, index) => [r.playerId, index]));
 
     const eligible: FillCandidate[] = fillOnlyPlayers
-      .filter((p) => isAgeEligibleForTournamentBand(p.ageInWeeks, tournament.ageBand))
+      .filter((p) => isAgeEligibleForTournamentBand(p.seasonAgeAnchorWeeks, tournament.ageBand))
       .map((p): FillCandidate => ({ playerId: p.id, ageInWeeks: p.ageInWeeks }));
 
     const available: FillCandidate[] = [];

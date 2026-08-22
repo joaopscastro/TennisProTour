@@ -52,7 +52,7 @@ const SURFACE_COLOR: Record<string, string> = {
 const JUNIOR_BADGE = { bg: 'oklch(45% 0.1 240 / 0.35)', fg: 'oklch(85% 0.08 240)' };
 const ACHIEVEMENT_BADGE = { bg: 'oklch(45% 0.13 80 / 0.3)', fg: 'oklch(85% 0.14 85)' };
 
-const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16' };
+const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' };
 
 // Same focus-picker reference data / helpers as the roster dashboard's
 // "Set focus" dropdown (app/page.tsx) — deliberately not extracted to
@@ -253,7 +253,7 @@ function MatchResultRow({ m }: { m: PlayerMatchSummaryDto }) {
  * additional backend field needed for this rule. */
 function visibleCurrentBands(profile: PlayerProfileDto): RankingBand[] {
   const bands: RankingBand[] = ['senior'];
-  for (const band of ['u14', 'u16'] as const) {
+  for (const band of ['u14', 'u16', 'u18'] as const) {
     const current = profile.currentRankings.find((r) => r.band === band);
     const hasPeak = profile.peakRankings.some((p) => p.band === band);
     if (band === profile.currentEligibleBand || (current && current.rank !== null) || hasPeak) {

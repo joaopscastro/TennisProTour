@@ -21,7 +21,7 @@ import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishi
  * this one field.
  */
 export interface PlayerDormantCarryoverBonus {
-  readonly targetBand: 'senior' | 'u14' | 'u16';
+  readonly targetBand: 'senior' | 'u14' | 'u16' | 'u18';
   readonly bonusPoints: number;
 }
 
@@ -145,6 +145,29 @@ export interface PlayerProps {
    * has won since the season started" — the input to the season-end
    * bonus pool standings. */
   seasonPrizeMoney: number;
+  /** The player's age (in weeks) as of the most recent season boundary
+   * (game-week 1, "January 1" — see RankingBand.juniorEligibilityForAge's
+   * doc comment for the real ITF/Tennis Europe rule this implements: a
+   * junior's age category for the WHOLE year is fixed by their age on
+   * January 1 of that year, not their literal current age). This is the
+   * value junior age-band eligibility is actually computed against
+   * EVERYWHERE (tournament registration, filler selection, standings
+   * banding, roster/profile display) — never `ageInWeeks` directly for
+   * that purpose. A player who turns 14 in June stays U14-eligible for
+   * the rest of that season; they only become U16-eligible (or graduate
+   * out of U14 for good) at the NEXT season rollover, once this anchor
+   * is refreshed.
+   *
+   * Set to `ageInWeeks` at creation (hire()/generateFillOnly()) — a
+   * freshly generated player has no real "last January 1" yet, so their
+   * actual current age stands in until the next real one arrives — and
+   * refreshed to the just-aged `ageInWeeks` exactly once per season, at
+   * the season-rollover tick, via `anchorSeasonAge()` (called from
+   * AdvanceWorldWeekUseCase, AFTER that tick's aging has already been
+   * applied — so it captures the player's age as of week 1 of the new
+   * season, i.e. the actual January 1 moment). Never touched by any
+   * other weekly tick within a season. */
+  seasonAgeAnchorWeeks: number;
 }
 
 /** Aggregate root for the Player & Roster bounded context.
@@ -214,6 +237,7 @@ export class Player {
       fillOnly: false,
       careerPrizeMoney: 0,
       seasonPrizeMoney: 0,
+      seasonAgeAnchorWeeks: ageInWeeks,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -266,6 +290,7 @@ export class Player {
       fillOnly: true,
       careerPrizeMoney: 0,
       seasonPrizeMoney: 0,
+      seasonAgeAnchorWeeks: ageInWeeks,
     });
     player._domainEvents.push({
       type: 'FillOnlyPlayerGenerated',
@@ -359,6 +384,13 @@ export class Player {
 
   get seasonPrizeMoney(): number {
     return this.props.seasonPrizeMoney;
+  }
+
+  /** See PlayerProps.seasonAgeAnchorWeeks' doc comment — this, never
+   * `ageInWeeks`, is what junior age-band eligibility is computed
+   * against. */
+  get seasonAgeAnchorWeeks(): number {
+    return this.props.seasonAgeAnchorWeeks;
   }
 
   isRetired(): boolean {
@@ -548,6 +580,17 @@ export class Player {
 
   releaseFromManager(): void {
     this.props = { ...this.props, managerId: null };
+  }
+
+  /** Refreshes `seasonAgeAnchorWeeks` to this player's just-aged current
+   * `ageInWeeks` — called by AdvanceWorldWeekUseCase exactly once per
+   * season, at the season-rollover tick, AFTER that tick's aging has
+   * already been applied (so it captures the player's age as of week 1
+   * of the new season). Never called on an ordinary weekly rollover
+   * within a season — see PlayerProps.seasonAgeAnchorWeeks' doc comment
+   * for why the anchor must stay frozen the rest of the year. */
+  anchorSeasonAge(): void {
+    this.props = { ...this.props, seasonAgeAnchorWeeks: this.props.ageInWeeks };
   }
 
   /** Records a fresh dormant graduation-carryover bonus (called by

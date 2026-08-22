@@ -340,7 +340,7 @@ export default function RosterDashboardPage() {
   // player's live band actually changes to a higher one.
   useEffect(() => {
     if (typeof window === 'undefined' || !players) return;
-    const bandOrder: Record<string, number> = { u14: 0, u16: 1, senior: 2 };
+    const bandOrder: Record<string, number> = { u14: 0, u16: 1, u18: 2, senior: 3 };
     const queued: CelebrationMoment[] = [];
     for (const p of players) {
       // --- rank milestone ---
@@ -368,8 +368,8 @@ export default function RosterDashboardPage() {
       if (storedBand !== null && storedBand !== p.rankBand && bandOrder[p.rankBand] > (bandOrder[storedBand] ?? 0)) {
         queued.push({
           kind: 'graduation',
-          from: storedBand as 'u14' | 'u16',
-          to: p.rankBand as 'u16' | 'senior',
+          from: storedBand as 'u14' | 'u16' | 'u18',
+          to: p.rankBand as 'u16' | 'u18' | 'senior',
           playerId: p.id,
           playerName: p.name,
           nationality: p.nationality,

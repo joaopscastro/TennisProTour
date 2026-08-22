@@ -136,17 +136,22 @@ export interface AdvanceWorldWeekResult {
  * port and can be added without changing this use case's callers.
  *
  * Same tick is also where a junior graduation carryover gets recorded
- * (see domain/ranking/GraduationCarryover.ts): a player ages by
- * exactly one week per tick, and the U14/U16 boundaries are 104 weeks
- * apart, so comparing `juniorEligibilityForAge(ageInWeeks)` before and
- * after `agingService.advance()` is sufficient to detect a crossing —
- * a single tick can never skip past a boundary unnoticed. This only
- * ever RECORDS a dormant bonus on the player (their current total in
- * the band they're leaving, times GRADUATION_CARRYOVER_FRACTION) — it
- * never writes a ranking-ledger entry itself; see that module's doc
- * comment for why (a ranking must be earned, never granted from aging
- * alone). Consuming the bonus happens later, in SimulateMatchUseCase,
- * the only place real ranking-ledger entries are ever written.
+ * (see domain/ranking/GraduationCarryover.ts) — but ONLY on a SEASON
+ * rollover, not every weekly one. Junior age-band eligibility is
+ * anchored to `Player.seasonAgeAnchorWeeks` (the real ITF "age as of
+ * January 1" rule — see that field's doc comment), which this use case
+ * refreshes via `player.anchorSeasonAge()` exactly once a season,
+ * immediately after that tick's aging. Since the anchor never changes
+ * on an ordinary weekly rollover, comparing
+ * `juniorEligibilityForAge(seasonAgeAnchorWeeks)` before and after that
+ * refresh is sufficient to detect a crossing — a crossing simply cannot
+ * happen on any other tick. This only ever RECORDS a dormant bonus on
+ * the player (their current total in the band they're leaving, times
+ * GRADUATION_CARRYOVER_FRACTION) — it never writes a ranking-ledger
+ * entry itself; see that module's doc comment for why (a ranking must
+ * be earned, never granted from aging alone). Consuming the bonus
+ * happens later, in SimulateMatchUseCase, the only place real
+ * ranking-ledger entries are ever written.
  */
 export class AdvanceWorldWeekUseCase {
   constructor(
@@ -236,9 +241,23 @@ export class AdvanceWorldWeekUseCase {
       // that separate use case doesn't matter.
       if (seasonRolledOver) player.resetSeasonPrizeMoney();
       const agingService = (await isProManaged(player.managerId)) ? this.proAging : this.standardAging;
-      const bandBeforeAging = juniorEligibilityForAge(player.ageInWeeks);
+      // Junior-band eligibility is anchored to the player's age as of
+      // the season's start (see Player.seasonAgeAnchorWeeks' doc
+      // comment for the real ITF "age as of January 1" rule this
+      // implements), NOT their literal current age — so the anchor
+      // (and therefore a graduation crossing) can only ever change on
+      // a SEASON rollover, never an ordinary weekly one within a
+      // season. bandBeforeAging is read before anchorSeasonAge() below
+      // touches anything.
+      const bandBeforeAging = juniorEligibilityForAge(player.seasonAgeAnchorWeeks);
       agingService.advance(player);
-      const bandAfterAging = juniorEligibilityForAge(player.ageInWeeks);
+      if (seasonRolledOver) {
+        // Refresh the anchor to the just-aged age — this IS the real
+        // "January 1" moment (week 1 of the new season) — before
+        // reading the new band below.
+        player.anchorSeasonAge();
+      }
+      const bandAfterAging = juniorEligibilityForAge(player.seasonAgeAnchorWeeks);
       if (bandBeforeAging !== bandAfterAging) {
         const oldBandEntries = (await this.rankingLedger.findByPlayer(player.id)).filter((entry) =>
           matchesRankingBand(entry.ageBand, bandBeforeAging),

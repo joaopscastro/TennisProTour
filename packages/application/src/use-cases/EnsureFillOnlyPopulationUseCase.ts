@@ -23,14 +23,30 @@ export interface FillerBandFloor {
   ageRange: AgeRange;
 }
 
-/** Senior (17-37yo): enough to pad several senior draws (a week's senior
- * slate is ~2 futures + 2 challengers + a tour ≈ 192 entrants). U16
- * (14-16yo) and U14 (12-14yo) are smaller because the junior ladder's
- * draws are smaller and the weekly talent-pool refresh already produces
- * 14-16yo. Deliberately distinct from GENESIS_AGE_RANGE: this is the
- * recurring floor, not the one-time cold-start seed. */
+/** Senior (18-37yo): enough to pad several senior draws (a week's senior
+ * slate is ~2 futures + 2 challengers + a tour ≈ 192 entrants). U18
+ * (16-18yo), U16 (14-16yo), and U14 (12-14yo) are smaller because the
+ * junior ladder's draws are smaller and the weekly talent-pool refresh
+ * already produces 12-16yo. Deliberately distinct from
+ * GENESIS_AGE_RANGE: this is the recurring floor, not the one-time
+ * cold-start seed. Each band's ageRange is generated from an age that
+ * ALWAYS resolves to that band under `juniorEligibilityForAge` no
+ * matter when in the season it's generated (a filler's
+ * `seasonAgeAnchorWeeks` starts equal to its generated `ageInWeeks` —
+ * see Player.seasonAgeAnchorWeeks' doc comment — so this only needs to
+ * hold at generation time, not forever). */
 export const FILL_ONLY_FLOORS: ReadonlyArray<FillerBandFloor> = [
-  { band: 'senior', minimum: 200, ageRange: { minWeeks: 17 * 52, maxWeeks: 38 * 52 - 1 } },
+  // minWeeks is 18*52 + 1, NOT 17*52 — the senior range must start
+  // strictly ABOVE the U18 band's own ceiling (18*52). Before the U18
+  // band existed this could safely start at 17*52 (senior eligibility
+  // began at 16*52+1 back then), but now any age in (16*52, 18*52]
+  // resolves to 'u18' under juniorEligibilityForAge, not 'senior' — a
+  // range overlapping that would silently under-count the senior floor
+  // (some "senior" fillers would land in the u18 bucket instead) and
+  // over-count u18's, a real bug caught by this file's own test suite
+  // when the U18 band was added.
+  { band: 'senior', minimum: 200, ageRange: { minWeeks: 18 * 52 + 1, maxWeeks: 38 * 52 - 1 } },
+  { band: 'u18', minimum: 40, ageRange: { minWeeks: 16 * 52 + 1, maxWeeks: 18 * 52 } },
   { band: 'u16', minimum: 40, ageRange: { minWeeks: 14 * 52 + 1, maxWeeks: 16 * 52 } },
   { band: 'u14', minimum: 10, ageRange: { minWeeks: 12 * 52, maxWeeks: 14 * 52 } },
 ];
@@ -80,8 +96,13 @@ export class EnsureFillOnlyPopulationUseCase {
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
 
     const fillOnly = (await this.players.findAll()).filter((p) => p.fillOnly);
-    const counts: Record<RankingBand, number> = { senior: 0, u16: 0, u14: 0 };
-    for (const player of fillOnly) counts[juniorEligibilityForAge(player.ageInWeeks)] += 1;
+    const counts: Record<RankingBand, number> = { senior: 0, u18: 0, u16: 0, u14: 0 };
+    // Band-count by the SAME eligibility age the actual consumer
+    // (StartDueTournamentsUseCase.fillSlots' isAgeEligibleForTournamentBand
+    // check) uses — seasonAgeAnchorWeeks, never raw ageInWeeks — so this
+    // floor never under/over-counts relative to who's actually usable as
+    // a filler for a given band's draw right now.
+    for (const player of fillOnly) counts[juniorEligibilityForAge(player.seasonAgeAnchorWeeks)] += 1;
 
     let generated = 0;
     for (const floor of FILL_ONLY_FLOORS) {

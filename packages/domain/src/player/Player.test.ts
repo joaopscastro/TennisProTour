@@ -542,4 +542,49 @@ describe('Player', () => {
       expect(player.seasonPrizeMoney).toBe(8000);
     });
   });
+
+  describe('seasonAgeAnchorWeeks — the "age as of January 1" junior eligibility anchor', () => {
+    it('starts equal to ageInWeeks for a freshly hired or generated player — no real "last January 1" exists yet', () => {
+      const hired = Player.hire(PlayerId('p1'), 'João Silva', 13 * 52 + 51, startingAttributes(), ManagerId('m1'));
+      expect(hired.seasonAgeAnchorWeeks).toBe(13 * 52 + 51);
+
+      const filler = Player.generateFillOnly(
+        PlayerId('p2'),
+        'Filler',
+        13 * 52 + 51,
+        'youth',
+        startingAttributes(),
+      );
+      expect(filler.seasonAgeAnchorWeeks).toBe(13 * 52 + 51);
+    });
+
+    it('advanceWeek() (ordinary aging) never moves the anchor — the anchor only ever moves via anchorSeasonAge()', () => {
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 13 * 52 + 51, startingAttributes(), ManagerId('m1'));
+      player.advanceWeek(13 * 52 + 52, 'youth', startingAttributes());
+      expect(player.ageInWeeks).toBe(13 * 52 + 52);
+      expect(player.seasonAgeAnchorWeeks).toBe(13 * 52 + 51);
+    });
+
+    it('anchorSeasonAge() refreshes the anchor to the player\'s current ageInWeeks, exactly reproducing "13y51w on January 1 stays U14-eligible all year"', () => {
+      // A player who is 13y51w (one week short of turning 14) at the
+      // start of a season, then ages up to exactly 14y and beyond
+      // DURING that season, must stay U14-eligible the whole time — the
+      // real ITF/Tennis Europe "age as of January 1" rule the user
+      // asked for explicitly. The anchor captures that 13y51w moment and
+      // holds it until the NEXT season boundary.
+      const player = Player.hire(PlayerId('p1'), 'João Silva', 13 * 52 + 51, startingAttributes(), ManagerId('m1'));
+      player.anchorSeasonAge(); // simulates the season-rollover tick this player was hired into
+      expect(player.seasonAgeAnchorWeeks).toBe(13 * 52 + 51);
+
+      // Ages past 14 within the same season — anchor must NOT move.
+      player.advanceWeek(14 * 52 + 10, 'youth', startingAttributes());
+      expect(player.ageInWeeks).toBe(14 * 52 + 10);
+      expect(player.seasonAgeAnchorWeeks).toBe(13 * 52 + 51);
+
+      // Only the NEXT anchorSeasonAge() call (the next season boundary)
+      // refreshes it to the now-current age.
+      player.anchorSeasonAge();
+      expect(player.seasonAgeAnchorWeeks).toBe(14 * 52 + 10);
+    });
+  });
 });

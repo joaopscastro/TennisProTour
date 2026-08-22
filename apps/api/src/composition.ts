@@ -124,6 +124,7 @@ export interface Dependencies {
   rankPosition: RankPositionQuery;
   rankPositionU14: RankPositionQuery;
   rankPositionU16: RankPositionQuery;
+  rankPositionU18: RankPositionQuery;
   /** The multi-week entry planner read — given a player, their
    * tournament entries (or lack thereof) across the next several
    * upcoming GameWeeks in one response. See PlayerEntryPlannerQuery's
@@ -290,6 +291,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const rankPosition = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'senior');
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u16');
+  const rankPositionU18 = new RankPositionQuery(rankingLedger, worlds, WORLD_ID, 'u18');
   // Doubles ranking (P7b + junior doubles): the SAME ledger filtered to
   // `discipline: 'doubles'` AND one age band — best-14 senior, best-6
   // either junior band (doublesBestResultsCapFor, the real ITF junior
@@ -299,10 +301,12 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const rankPositionDoubles = doublesRankingFor('senior');
   const rankPositionDoublesU14 = doublesRankingFor('u14');
   const rankPositionDoublesU16 = doublesRankingFor('u16');
+  const rankPositionDoublesU18 = doublesRankingFor('u18');
   const doublesRankByBand: Record<RankingBand, RankPositionQuery> = {
     senior: rankPositionDoubles,
     u14: rankPositionDoublesU14,
     u16: rankPositionDoublesU16,
+    u18: rankPositionDoublesU18,
   };
   const managerXp = new DrizzleManagerXpRepository(options.db);
   const managerXpPolicy = new StandardManagerXpPolicy();
@@ -341,6 +345,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       senior: rankPosition,
       u14: rankPositionU14,
       u16: rankPositionU16,
+      u18: rankPositionU18,
     },
     WORLD_ID,
   );
@@ -399,6 +404,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     senior: rankPosition,
     u14: rankPositionU14,
     u16: rankPositionU16,
+    u18: rankPositionU18,
   };
   const formDoublesDraw = new FormDoublesDrawUseCase(
     tournaments,
@@ -462,6 +468,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const generateJuniorTournaments = new GenerateJuniorTournamentsUseCase(worlds, openRegistration, openTournament, {
     u14: rankPositionU14,
     u16: rankPositionU16,
+    u18: rankPositionU18,
   }, idGenerator);
   const generateSeniorTournaments = new GenerateSeniorTournamentsUseCase(worlds, tournaments, openRegistration, idGenerator);
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
@@ -486,6 +493,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     rankPosition,
     rankPositionU14,
     rankPositionU16,
+    rankPositionU18,
     entryPlanner,
     trainingSchedule,
     trainingScheduleQuery,

@@ -50,7 +50,7 @@ export class RegisterDoublesEntrantUseCase {
       throw new Error(`Player ${command.playerId} is not on manager ${command.managerId}'s roster`);
     }
 
-    if (isJuniorTier(tournament.tier) && !isAgeEligibleForTournamentBand(player.ageInWeeks, tournament.ageBand)) {
+    if (isJuniorTier(tournament.tier) && !isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
       throw new Error(
         `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for the ` +
           `${tournament.ageBand} doubles draw`,

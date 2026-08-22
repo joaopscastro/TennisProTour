@@ -197,11 +197,11 @@ async function main(): Promise<void> {
   const allInRange = availableAfterRefresh.every(
     (c) => c.ageInWeeks >= TALENT_POOL_AGE_RANGE.minWeeks && c.ageInWeeks <= TALENT_POOL_AGE_RANGE.maxWeeks,
   );
-  const bandCounts = { u14: 0, u16: 0, senior: 0 };
+  const bandCounts = { u14: 0, u16: 0, u18: 0, senior: 0 };
   for (const c of availableAfterRefresh) bandCounts[juniorEligibilityForAge(c.ageInWeeks)] += 1;
   log(
     `All ${availableAfterRefresh.length} available candidates within TALENT_POOL_AGE_RANGE: ${allInRange}. ` +
-      `Band split: u14=${bandCounts.u14}, u16=${bandCounts.u16}, senior=${bandCounts.senior} ` +
+      `Band split: u14=${bandCounts.u14}, u16=${bandCounts.u16}, u18=${bandCounts.u18}, senior=${bandCounts.senior} ` +
       `(u14 should now be a real, roughly-half share of the batch, not a 1-in-206 fluke — the range was widened ` +
       `to 12-16yo specifically to fix that).`,
   );
@@ -252,19 +252,20 @@ async function main(): Promise<void> {
   }
   log('  Confirmed: a REAL claimed player (no Player.hire() shortcut) is U14-eligible. The boundary bug is fixed.');
 
-  log('\n=== 4. This week\'s open junior tournaments, both bands ===');
+  log('\n=== 4. This week\'s open junior tournaments, all three bands ===');
   const genResult = await deps.generateJuniorTournaments.execute({ worldId });
   log(`GenerateJuniorTournamentsUseCase: opened=${genResult.opened}, mastersHeld=${genResult.mastersHeld}`);
   const world1 = (await deps.worlds.findById(worldId))!;
   const openThisWeek = (await deps.tournaments.findOpenForRegistration()).filter(
     (t) => t.weekScheduled.season === world1.currentWeek.season && t.weekScheduled.week === world1.currentWeek.week,
   );
-  const byBand: Record<string, string[]> = { u14: [], u16: [] };
+  const byBand: Record<string, string[]> = { u14: [], u16: [], u18: [] };
   for (const t of openThisWeek) {
     if (t.ageBand) byBand[t.ageBand].push(`${t.tier}(${t.id})`);
   }
   log(`U14 band (${byBand.u14.length}): ${byBand.u14.join(', ')}`);
   log(`U16 band (${byBand.u16.length}): ${byBand.u16.join(', ')}`);
+  log(`U18 band (${byBand.u18.length}): ${byBand.u18.join(', ')}`);
 
   log('\n=== 5. Register the prodigy into a real U14 tournament — closing the loop, not just checking eligibility in isolation ===');
   const u14Target = openThisWeek.find((t) => t.ageBand === 'u14');
@@ -371,7 +372,7 @@ async function main(): Promise<void> {
       `  Opened senior tournament "${seniorTournamentId}" (futures, hard, ${COHORT_SIZE}-draw). The senior tour has no ` +
         `age floor — a junior-age player entering it is a deliberately UNRESTRICTED case (real tennis allows turning ` +
         `pro before 18), not the gap that was fixed. isAgeEligibleForTournamentBand only ever blocks the OTHER ` +
-        `direction (too old for a real u14/u16 draw), so the cohort — still nominally youth-age by generation — ` +
+        `direction (too old for a real u14/u16/u18 draw), so the cohort — still nominally youth-age by generation — ` +
         'enters this senior draw exactly as a real manager could do today.',
     );
   }

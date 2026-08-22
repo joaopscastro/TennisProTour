@@ -203,7 +203,7 @@ export interface PeakRankingRepository {
    * silently swallowing the domain rule. */
   upsert(entry: PeakRankingEntry): Promise<void>;
   /** Every band a given player has ever peaked in (up to three: senior,
-   * u14, u16) — what the profile page's "peak rankings" section needs
+   * u14, u16, u18) — what the profile page's "peak rankings" section needs
    * in one call rather than three. */
   findAllForPlayer(playerId: PlayerId): Promise<PeakRankingEntry[]>;
 }

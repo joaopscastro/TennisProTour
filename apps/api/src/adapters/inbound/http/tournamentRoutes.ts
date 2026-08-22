@@ -345,7 +345,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           properties: {
             tournamentId: { type: 'string', minLength: 1 },
             tier: { type: 'string', enum: TOURNAMENT_TIERS },
-            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', null] },
+            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', 'u18', null] },
             surface: { type: 'string', enum: ['clay', 'grass', 'hard', 'indoor'] },
             weekScheduled: {
               type: 'object',
@@ -411,7 +411,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
           properties: {
             tournamentId: { type: 'string', minLength: 1 },
             tier: { type: 'string', enum: TOURNAMENT_TIERS },
-            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', null] },
+            ageBand: { type: ['string', 'null'], enum: ['u14', 'u16', 'u18', null] },
             surface: { type: 'string', enum: ['clay', 'grass', 'hard', 'indoor'] },
             weekScheduled: {
               type: 'object',

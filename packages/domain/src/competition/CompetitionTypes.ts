@@ -20,12 +20,15 @@ export type JuniorTier = 'j30' | 'j60' | 'j100' | 'j200' | 'j300' | 'j500' | 'ju
 
 export type TournamentTier = SeniorTier | JuniorTier;
 
-/** The two junior age bands this game models (U12 is deliberately out
+/** The three junior age bands this game models (U12 is deliberately out
  * of scope — see the research doc: real ITF/Tennis Europe under-12
  * play is unranked and unseeded, so there'd be no ranking-ledger
  * behavior to build for it). Lives on `Tournament`, not on
- * `TournamentTier` — see `JuniorTier`'s doc comment. */
-export type AgeBand = 'u14' | 'u16';
+ * `TournamentTier` — see `JuniorTier`'s doc comment. Eligibility for
+ * each band is NOT a function of a player's literal current age — see
+ * RankingBand.juniorEligibilityForAge's doc comment for the real
+ * ITF/Tennis Europe "age as of January 1" rule this game implements. */
+export type AgeBand = 'u14' | 'u16' | 'u18';
 
 export const SENIOR_TIER_VALUES: ReadonlyArray<SeniorTier> = ['futures', 'challenger', 'tour', 'major'];
 

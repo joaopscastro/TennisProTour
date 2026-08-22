@@ -104,6 +104,7 @@ class FakeTalentClaimPort implements TalentClaimPort {
       fillOnly: false,
       careerPrizeMoney: player.careerPrizeMoney,
       seasonPrizeMoney: player.seasonPrizeMoney,
+      seasonAgeAnchorWeeks: player.seasonAgeAnchorWeeks,
     });
     await this.players.save(signed);
     return { kind: 'claimed', player: signed, xpSpent: xpCost };

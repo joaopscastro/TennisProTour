@@ -10,7 +10,7 @@ import { AgeBand, TournamentTier } from '../competition/CompetitionTypes';
  * the winning pair — a tournament's doubles champion is two people, not
  * one — which is why this is a separate shape from TitleRecord rather
  * than a `discipline` flag on it. `ageBand` mirrors the tournament's band
- * (null for senior, u14/u16 for a junior doubles title).
+ * (null for senior, u14/u16/u18 for a junior doubles title).
  */
 export interface DoublesTitleRecord {
   readonly tournamentId: TournamentId;

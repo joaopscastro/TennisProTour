@@ -10,8 +10,8 @@ import { AgeBand, TournamentTier } from '../competition/CompetitionTypes';
  * anything later, but a ledger can simply be filtered.
  *
  * `ageBand` mirrors the tournament it was earned at
- * (`Tournament.ageBand`): null for a senior-tier result, `'u14'`/`'u16'`
- * for a junior one. This is what lets a cross-player query scope
+ * (`Tournament.ageBand`): null for a senior-tier result, `'u14'`/`'u16'`/
+ * `'u18'` for a junior one. This is what lets a cross-player query scope
  * itself to exactly one of a player's independent rankings (senior
  * tour, U14, U16) — see `RankingBand`/`RankPositionQuery` — without
  * re-deriving the band from `tier` (which alone can't distinguish a

@@ -33,15 +33,15 @@ export type CelebrationMoment =
   | {
       kind: 'rank';
       milestone: 1 | 10 | 100;
-      band: 'senior' | 'u14' | 'u16';
+      band: 'senior' | 'u14' | 'u16' | 'u18';
       playerId: string;
       playerName: string;
       nationality: string;
     }
   | {
       kind: 'graduation';
-      from: 'u14' | 'u16';
-      to: 'u16' | 'senior';
+      from: 'u14' | 'u16' | 'u18';
+      to: 'u16' | 'u18' | 'senior';
       playerId: string;
       playerName: string;
       nationality: string;
@@ -64,7 +64,7 @@ export type CelebrationMoment =
       tier: 'high' | 'elite';
     };
 
-const BAND_LABEL: Record<string, string> = { senior: 'Senior Tour', u14: 'U14 Circuit', u16: 'U16 Circuit' };
+const BAND_LABEL: Record<string, string> = { senior: 'Senior Tour', u14: 'U14 Circuit', u16: 'U16 Circuit', u18: 'U18 Circuit' };
 
 /* ---- Confetti (skipped entirely under reduced motion) ---------------------- */
 function Confetti({ colors, count = 46 }: { colors: string[]; count?: number }) {
@@ -209,7 +209,7 @@ function CardContent({ m }: { m: CelebrationMoment }) {
 
   if (m.kind === 'graduation') {
     const green = 'oklch(70% 0.15 148)';
-    const steps: Array<'u14' | 'u16' | 'senior'> = ['u14', 'u16', 'senior'];
+    const steps: Array<'u14' | 'u16' | 'u18' | 'senior'> = ['u14', 'u16', 'u18', 'senior'];
     const toIdx = steps.indexOf(m.to);
     return (
       <>

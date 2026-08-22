@@ -3,10 +3,10 @@ import { RankingBand } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 
-const VALID_BANDS: readonly RankingBand[] = ['senior', 'u14', 'u16'];
+const VALID_BANDS: readonly RankingBand[] = ['senior', 'u14', 'u16', 'u18'];
 
 /**
- * Public standings tables (senior/u14/u16) — the counterpart to
+ * Public standings tables (senior/u14/u16/u18) — the counterpart to
  * `/managers/leaderboard` for PLAYERS rather than managers. Closes the
  * "no dedicated junior standings page" gap: previously a manager could
  * only see a band's ranking through their own rostered players' rows on
@@ -29,6 +29,7 @@ export function registerRankingsRoutes(app: FastifyInstance, deps: Dependencies)
   const queryFor = (band: RankingBand): RankPositionQuery => {
     if (band === 'u14') return deps.rankPositionU14;
     if (band === 'u16') return deps.rankPositionU16;
+    if (band === 'u18') return deps.rankPositionU18;
     return deps.rankPosition;
   };
 
@@ -37,7 +38,7 @@ export function registerRankingsRoutes(app: FastifyInstance, deps: Dependencies)
     async (request, reply) => {
       const band = request.params.band as RankingBand;
       if (!VALID_BANDS.includes(band)) {
-        return reply.code(400).send({ error: `Unknown ranking band "${request.params.band}" (expected senior, u14, or u16)` });
+        return reply.code(400).send({ error: `Unknown ranking band "${request.params.band}" (expected senior, u14, u16, or u18)` });
       }
 
       const parsedLimit = Number(request.query.limit);

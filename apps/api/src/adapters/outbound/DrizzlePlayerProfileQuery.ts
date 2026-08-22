@@ -117,10 +117,25 @@ export class DrizzlePlayerProfileQuery {
     const player = await this.players.findById(playerId);
     if (!player) return null;
 
-    const [seniorRank, u14Rank, u16Rank, peaks, tournamentHistory, titleRecords, pairs, doublesTitleRecords, doublesPeakSenior, doublesPeakU14, doublesPeakU16] = await Promise.all([
+    const [
+      seniorRank,
+      u14Rank,
+      u16Rank,
+      u18Rank,
+      peaks,
+      tournamentHistory,
+      titleRecords,
+      pairs,
+      doublesTitleRecords,
+      doublesPeakSenior,
+      doublesPeakU14,
+      doublesPeakU16,
+      doublesPeakU18,
+    ] = await Promise.all([
       this.rankPositionByBand.senior.rankFor(playerId),
       this.rankPositionByBand.u14.rankFor(playerId),
       this.rankPositionByBand.u16.rankFor(playerId),
+      this.rankPositionByBand.u18.rankFor(playerId),
       this.peakRankings.findAllForPlayer(playerId),
       this.history.forPlayer(playerId),
       this.titles.findByPlayer(playerId),
@@ -129,6 +144,7 @@ export class DrizzlePlayerProfileQuery {
       this.doublesPeakRankings.findOne(playerId, 'senior'),
       this.doublesPeakRankings.findOne(playerId, 'u14'),
       this.doublesPeakRankings.findOne(playerId, 'u16'),
+      this.doublesPeakRankings.findOne(playerId, 'u18'),
     ]);
 
     // The player's non-dissolved pair (at most one by the use-case
@@ -187,13 +203,14 @@ export class DrizzlePlayerProfileQuery {
       managerId: player.managerId,
       ageInWeeks: player.ageInWeeks,
       stage: player.stage,
-      currentEligibleBand: juniorEligibilityForAge(player.ageInWeeks),
+      currentEligibleBand: juniorEligibilityForAge(player.seasonAgeAnchorWeeks),
       careerPrizeMoney: player.careerPrizeMoney,
       seasonPrizeMoney: player.seasonPrizeMoney,
       currentRankings: [
         { band: 'senior', totalPoints: seniorRank.totalPoints, rank: seniorRank.rank },
         { band: 'u14', totalPoints: u14Rank.totalPoints, rank: u14Rank.rank },
         { band: 'u16', totalPoints: u16Rank.totalPoints, rank: u16Rank.rank },
+        { band: 'u18', totalPoints: u18Rank.totalPoints, rank: u18Rank.rank },
       ],
       peakRankings: peaks.map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
       tournamentHistory,
@@ -207,7 +224,7 @@ export class DrizzlePlayerProfileQuery {
         talent: player.talent,
       }),
       doublesPartner,
-      doublesPeaks: [doublesPeakSenior, doublesPeakU14, doublesPeakU16]
+      doublesPeaks: [doublesPeakSenior, doublesPeakU14, doublesPeakU16, doublesPeakU18]
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
       doublesTitles: doublesTitleList,

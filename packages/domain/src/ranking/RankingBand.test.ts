@@ -14,8 +14,14 @@ describe('juniorEligibilityForAge', () => {
     expect(juniorEligibilityForAge(16 * 52)).toBe('u16');
   });
 
-  it('is senior from just past 16 years onward', () => {
-    expect(juniorEligibilityForAge(16 * 52 + 1)).toBe('senior');
+  it('is u18 from just past 16 years up to and including 18 years', () => {
+    expect(juniorEligibilityForAge(16 * 52 + 1)).toBe('u18');
+    expect(juniorEligibilityForAge(18 * 52 - 1)).toBe('u18');
+    expect(juniorEligibilityForAge(18 * 52)).toBe('u18');
+  });
+
+  it('is senior from just past 18 years onward', () => {
+    expect(juniorEligibilityForAge(18 * 52 + 1)).toBe('senior');
     expect(juniorEligibilityForAge(40 * 52)).toBe('senior');
   });
 
@@ -36,11 +42,11 @@ describe('juniorEligibilityForAge', () => {
     // the exact invariant AdvanceWorldWeekUseCase's before/after
     // comparison relies on to detect "a" crossing without needing to
     // figure out which one.
-    for (let age = 0; age < 20 * 52; age++) {
+    for (let age = 0; age < 22 * 52; age++) {
       const before = juniorEligibilityForAge(age);
       const after = juniorEligibilityForAge(age + 1);
       if (before !== after) {
-        const order = ['u14', 'u16', 'senior'];
+        const order = ['u14', 'u16', 'u18', 'senior'];
         expect(order.indexOf(after)).toBe(order.indexOf(before) + 1);
       }
     }
@@ -50,30 +56,38 @@ describe('juniorEligibilityForAge', () => {
 describe('isAgeEligibleForTournamentBand', () => {
   const U14_AGE = 10 * 52;
   const U16_AGE = 15 * 52;
+  const U18_AGE = 17 * 52;
   const SENIOR_AGE = 25 * 52;
 
   it('never restricts the senior tour (null ageBand) — any age, including junior, may enter', () => {
     expect(isAgeEligibleForTournamentBand(U14_AGE, null)).toBe(true);
     expect(isAgeEligibleForTournamentBand(U16_AGE, null)).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U18_AGE, null)).toBe(true);
     expect(isAgeEligibleForTournamentBand(SENIOR_AGE, null)).toBe(true);
   });
 
   it('allows a player to enter a tournament exactly matching their own current band', () => {
     expect(isAgeEligibleForTournamentBand(U14_AGE, 'u14')).toBe(true);
     expect(isAgeEligibleForTournamentBand(U16_AGE, 'u16')).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U18_AGE, 'u18')).toBe(true);
   });
 
-  it('allows "playing up" — a U14-eligible player may enter a U16 draw', () => {
+  it('allows "playing up" — a younger-eligible player may enter an older junior draw, any number of bands up', () => {
     expect(isAgeEligibleForTournamentBand(U14_AGE, 'u16')).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U14_AGE, 'u18')).toBe(true);
+    expect(isAgeEligibleForTournamentBand(U16_AGE, 'u18')).toBe(true);
   });
 
-  it('blocks "playing down" — a U16-eligible player may not enter a U14 draw', () => {
+  it('blocks "playing down" — an older-eligible player may not enter a younger junior draw', () => {
     expect(isAgeEligibleForTournamentBand(U16_AGE, 'u14')).toBe(false);
+    expect(isAgeEligibleForTournamentBand(U18_AGE, 'u14')).toBe(false);
+    expect(isAgeEligibleForTournamentBand(U18_AGE, 'u16')).toBe(false);
   });
 
-  it('blocks a senior player from either junior band', () => {
+  it('blocks a senior player from any junior band', () => {
     expect(isAgeEligibleForTournamentBand(SENIOR_AGE, 'u14')).toBe(false);
     expect(isAgeEligibleForTournamentBand(SENIOR_AGE, 'u16')).toBe(false);
+    expect(isAgeEligibleForTournamentBand(SENIOR_AGE, 'u18')).toBe(false);
   });
 });
 
@@ -83,9 +97,10 @@ describe('matchesRankingBand / bestResultsCapFor (sanity — full coverage lives
     expect(matchesRankingBand('u14', 'senior')).toBe(false);
   });
 
-  it('caps at 6 for either junior band, 18 for senior', () => {
+  it('caps at 6 for any junior band, 18 for senior', () => {
     expect(bestResultsCapFor('u14')).toBe(6);
     expect(bestResultsCapFor('u16')).toBe(6);
+    expect(bestResultsCapFor('u18')).toBe(6);
     expect(bestResultsCapFor('senior')).toBe(18);
   });
 });

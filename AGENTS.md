@@ -265,6 +265,115 @@ this:
   literal), so no test needed updating. Domain 370, application 222,
   api 80, worker 8 — all unchanged and green; full monorepo
   `tsc --build --force` clean.
+- **Update — junior age-band eligibility is now the REAL ITF/Tennis
+  Europe "age as of January 1" rule, not a player's literal current
+  age, and a new U18 band was added alongside U14/U16 — both requested
+  directly, after the talent-pool-range fix above still left junior
+  eligibility computed off raw `ageInWeeks` everywhere.** The concrete
+  ask: "if at January 1 they had 13yo and 51 weeks, they can enter
+  [U14]" — i.e. a player who turns 14 mid-season must stay U14-eligible
+  for the REST of that season, only re-evaluating at the next January
+  1, exactly how real Tennis Europe/ITF age categories work (this
+  game's `GameWeek` week-1-of-a-season IS its January 1 — one season =
+  one real year, `WEEKS_PER_SEASON = 52`). Before this, every
+  eligibility check (`juniorEligibilityForAge`) read `Player.ageInWeeks`
+  directly, so a player's band flipped THE INSTANT they turned 14/16/18,
+  never mind what season they were mid-tournament-run in.
+  **Mechanism — a new, real `Player` field, not a derived read**:
+  `Player.seasonAgeAnchorWeeks` (`packages/domain/src/player/Player.ts`)
+  is the age this player was AT THE START of their current season — set
+  to `ageInWeeks` at creation (`hire()`/`generateFillOnly()`; a freshly
+  generated player has no real "last January 1" yet, so their actual
+  current age stands in until the next real one arrives), and refreshed
+  to the just-aged `ageInWeeks` via a new `Player.anchorSeasonAge()`
+  method called EXACTLY once a season — never on an ordinary weekly
+  rollover — from `AdvanceWorldWeekUseCase`, immediately after that
+  tick's aging, gated on the SAME `seasonRolledOver` flag the season-
+  bonus-pool payout already uses. Every real eligibility call site now
+  reads `seasonAgeAnchorWeeks`, never `ageInWeeks`, for this purpose:
+  `RegisterEntrantUseCase`/`RegisterDoublesEntrantUseCase`'s age-gate,
+  `StartDueTournamentsUseCase`/`FormDoublesDrawUseCase`'s filler-
+  eligibility filters, `EnsureFillOnlyPopulationUseCase`'s band-floor
+  counting, and the roster dashboard/player-profile band displays
+  (`DrizzleRosterDashboardQuery`, `DrizzlePlayerProfileQuery`). **This
+  also fixed the graduation-carryover detection's own timing, which had
+  been silently wrong under the old model without anyone noticing**: it
+  used to compare `juniorEligibilityForAge(ageInWeeks)` before/after
+  EVERY weekly tick's aging, so a crossing could in principle fire on
+  any week; now that eligibility only ever changes at a season anchor
+  refresh, the comparison correctly runs against
+  `seasonAgeAnchorWeeks` before/after `anchorSeasonAge()`, so a
+  crossing (and the dormant bonus it records) can only ever happen on
+  the one tick a season it's actually supposed to.
+  **U18, added alongside this in the same pass** (the user asked for
+  both together, not sequentially): `AgeBand`
+  (`packages/domain/src/competition/CompetitionTypes.ts`) is now
+  `'u14' | 'u16' | 'u18'`, `RankingBand.ts` gained `U18_MAX_AGE_WEEKS =
+  18 * 52` (same inclusive-boundary discipline as U14/U16) and a
+  generalized `AGE_BAND_ORDER`-indexed `isAgeEligibleForTournamentBand`
+  (was hardcoded pairwise u14/u16 comparisons — now scales to any
+  number of bands without touching this function again). U18 is a REAL
+  third ladder, not a stub: its own `RankPositionQuery`
+  (`rankPositionU18`, wired everywhere `rankPositionU14`/`U16` already
+  were in `composition.ts`), its own weekly J30-J500 generation
+  (`GenerateJuniorTournamentsUseCase`'s `AGE_BANDS` array — the
+  generator was ALREADY band-agnostic, looping over whichever bands the
+  array lists, so this needed zero structural change there beyond
+  adding `'u18'`), its own `EnsureFillOnlyPopulationUseCase` floor (40
+  fillers, 16-18yo — same shape as U16's), its own doubles peak-ranking
+  band, its own `GET /rankings/u18` standings table and `/rankings`
+  frontend tab, and its own graduation step (U16 -> U18 -> senior,
+  `Celebration.tsx`'s ladder UI). **A real, previously-nonexistent bug
+  this surfaced and fixed, not just a mechanical rename**: adding U18
+  (ceiling 18*52 = 936 weeks) meant `EnsureFillOnlyPopulationUseCase`'s
+  pre-existing "senior" filler floor — ageRange 17-37yo, i.e. starting
+  at 884 weeks — silently OVERLAPPED the new U18 band's ceiling for
+  ages 884-936; a "senior" filler generated in that span would actually
+  count as U18 under `juniorEligibilityForAge`, permanently
+  under-supplying the senior floor. Caught by this file's own test
+  suite the moment U18 was added (`EnsureFillOnlyPopulationUseCase.test.ts`
+  failed “197 to be >= 200”), fixed by moving the senior floor's
+  `minWeeks` to `18 * 52 + 1` — every band's ageRange must resolve
+  cleanly into exactly that band, a real correctness constraint this
+  bug proved matters, not just a comment. TALENT_POOL_AGE_RANGE was
+  deliberately NOT widened to 18 — new prospects entering the talent
+  pool are always young (12-16yo, per this doc's own "new talent is
+  always young... growth happens through aging ticks" principle); a
+  17-18yo junior is a naturally-aged EXISTING signing, not a fresh
+  generation target, so U18 fillers come entirely from the fill-only
+  floor, same as how U16 supply already worked before this pass.
+  DB: `age_band`/`ranking_band` Postgres enums gained `'u18'`
+  (`ALTER TYPE ... ADD VALUE`), and a new `players.season_age_anchor_weeks`
+  integer column (migration `0046`) backfills every pre-existing row to
+  its own `age_in_weeks` (the same "treat now as their most recent
+  January 1" default the field's own doc comment discloses — a real,
+  necessary default since there's no historical record of past season
+  boundaries to derive it from). Verified live end-to-end against real
+  Postgres, not just unit-tested: hired a player at exactly 14×52 weeks
+  (728, the inclusive U14 edge) mid-season (week 30), ran one real
+  `AdvanceWorldWeekUseCase` tick (an ORDINARY weekly rollover, not a
+  season boundary) through the real composition, and confirmed the
+  player's raw `ageInWeeks` advanced to 729 (which alone would read as
+  U16) while `seasonAgeAnchorWeeks` stayed frozen at 728 and
+  `GET /players/:id/profile`'s `currentEligibleBand` correctly still
+  read `'u14'` — the exact "13y51w stays U14-eligible past their
+  birthday, same season" case the user described. Also confirmed a real
+  `GenerateJuniorTournamentsUseCase` run against Postgres opened 8
+  tournaments per band (u14/u16/u18) on an ordinary week, evenly split,
+  and that `rankPositionU18.sortedRankings()` round-trips without
+  error. New coverage: `Player.test.ts`'s `seasonAgeAnchorWeeks`
+  describe block (anchor starts at creation age; `advanceWeek()` never
+  moves it; `anchorSeasonAge()` refreshes it to current age); a new
+  `AdvanceWorldWeekUseCase.test.ts` case proving an ordinary mid-season
+  rollover never refreshes the anchor even after the player's raw age
+  crosses a boundary; the two existing graduation-carryover tests
+  updated to tick through a real season boundary (they previously
+  ticked an ordinary week, which no longer produces a crossing at all —
+  a real, deliberate behavior change, not a test relaxed to match a
+  regression); `RankingBand.test.ts` extended for the U18 boundary and
+  the generalized play-up/play-down rule. Domain 374 (was 370),
+  application 223 (was 222), api 80, worker 8 — all green; full
+  monorepo `tsc --build --force` and `apps/web` typecheck both clean.
 - **Population math, sanity-checked, not just trusted constants.**
   `TALENT_POOL_BATCH_SIZE` = 5/week, `TALENT_POOL_EXPIRY_WEEKS` = 2 —
   a candidate generated in week *W* is still visible during the

@@ -107,11 +107,12 @@ async function setup(week: GameWeek, schedule?: JuniorTournamentSchedulePolicy) 
   const openTournament = new OpenTournamentUseCase(tournaments, bracketGenerator, nameGenerator, nameRandom);
   const rankPositionU14 = new RankPositionQuery(rankingLedger, worlds, worldId, 'u14');
   const rankPositionU16 = new RankPositionQuery(rankingLedger, worlds, worldId, 'u16');
+  const rankPositionU18 = new RankPositionQuery(rankingLedger, worlds, worldId, 'u18');
   const useCase = new GenerateJuniorTournamentsUseCase(
     worlds,
     openRegistration,
     openTournament,
-    { u14: rankPositionU14, u16: rankPositionU16 },
+    { u14: rankPositionU14, u16: rankPositionU16, u18: rankPositionU18 },
     new SequentialIdGenerator(),
     schedule,
   );
@@ -119,7 +120,7 @@ async function setup(week: GameWeek, schedule?: JuniorTournamentSchedulePolicy) 
 }
 
 describe('GenerateJuniorTournamentsUseCase', () => {
-  it('opens the real StandardJuniorTournamentSchedulePolicy grades for BOTH age bands on a typical (non-special) week', async () => {
+  it('opens the real StandardJuniorTournamentSchedulePolicy grades for ALL THREE age bands on a typical (non-special) week', async () => {
     // Generation opens for NEXT week (setup week 2 -> opens week 3, abs
     // 1*52 + 3 = 55 -> odd, not divisible by 2/4/8, not week 52).
     const { tournaments, useCase } = await setup({ season: 1, week: 2 });
@@ -133,20 +134,19 @@ describe('GenerateJuniorTournamentsUseCase', () => {
       byTierAndBand.set(key, (byTierAndBand.get(key) ?? 0) + 1);
     }
 
-    expect(byTierAndBand.get('j30/u14')).toBe(3);
-    expect(byTierAndBand.get('j60/u14')).toBe(2);
-    expect(byTierAndBand.get('j100/u14')).toBe(1);
-    expect(byTierAndBand.get('j30/u16')).toBe(3);
-    expect(byTierAndBand.get('j60/u16')).toBe(2);
-    expect(byTierAndBand.get('j100/u16')).toBe(1);
-    // Not a J200/J300/J500 week.
-    expect(byTierAndBand.has('j200/u14')).toBe(false);
-    expect(byTierAndBand.has('j300/u14')).toBe(false);
-    expect(byTierAndBand.has('j500/u14')).toBe(false);
+    for (const band of ['u14', 'u16', 'u18']) {
+      expect(byTierAndBand.get(`j30/${band}`)).toBe(3);
+      expect(byTierAndBand.get(`j60/${band}`)).toBe(2);
+      expect(byTierAndBand.get(`j100/${band}`)).toBe(1);
+      // Not a J200/J300/J500 week.
+      expect(byTierAndBand.has(`j200/${band}`)).toBe(false);
+      expect(byTierAndBand.has(`j300/${band}`)).toBe(false);
+      expect(byTierAndBand.has(`j500/${band}`)).toBe(false);
+    }
 
-    expect(result.opened).toBe(12); // 6 per band x 2 bands
+    expect(result.opened).toBe(18); // 6 per band x 3 bands
     expect(result.mastersHeld).toBe(0);
-    expect(open).toHaveLength(12);
+    expect(open).toHaveLength(18);
   });
 
   it('every generated regular-grade tournament is real open registration (no entrants, not started, junior tier + matching ageBand)', async () => {
@@ -156,7 +156,7 @@ describe('GenerateJuniorTournamentsUseCase', () => {
     for (const t of await tournaments.findOpenForRegistration()) {
       expect(t.hasStarted).toBe(false);
       expect(t.entrants).toHaveLength(0);
-      expect(['u14', 'u16']).toContain(t.ageBand);
+      expect(['u14', 'u16', 'u18']).toContain(t.ageBand);
     }
   });
 

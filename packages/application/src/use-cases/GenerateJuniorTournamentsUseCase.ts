@@ -20,9 +20,9 @@ export interface GenerateJuniorTournamentsCommand {
 
 export interface GenerateJuniorTournamentsResult {
   /** Regular (open-registration) grade tournaments opened this tick,
-   * across both age bands. */
+   * across all three age bands. */
   opened: number;
-  /** How many juniorMasters fields (0, 1, or 2 — one per band) were
+  /** How many juniorMasters fields (0-3, one per band) were
    * actually held this tick. On a juniorMasters week, a band that
    * doesn't yet have `juniorMastersDrawSize` ranked players is
    * skipped, not filled with fabricated entrants — see execute()'s
@@ -30,7 +30,7 @@ export interface GenerateJuniorTournamentsResult {
   mastersHeld: number;
 }
 
-const AGE_BANDS: ReadonlyArray<AgeBand> = ['u14', 'u16'];
+const AGE_BANDS: ReadonlyArray<AgeBand> = ['u14', 'u16', 'u18'];
 /** Cosmetic-only rotation so a season's worth of generated tournaments
  * isn't monotonously all one surface — no gameplay weight, same
  * "illustrative, not sourced" status as the schedule policy's numbers. */
@@ -38,7 +38,7 @@ const SURFACE_ROTATION: ReadonlyArray<Surface> = ['hard', 'clay', 'grass', 'indo
 
 /**
  * The weekly junior-ladder content generator: the missing piece that
- * makes the six J-grade tiers × two age bands (see JuniorTier,
+ * makes the six J-grade tiers × three age bands (see JuniorTier,
  * AgeBand) actually reachable in play, not just representable in the
  * type system. Before this use case existed, NOTHING ever created a
  * junior tournament automatically — the only way one came into being

@@ -117,7 +117,12 @@ export class DrizzleRosterDashboardQuery {
      * this reads whichever one applies rather than always reading the
      * senior tour the way this query did before the junior circuit's
      * frontend surface existed. */
-    private readonly rankPositionQueries: { senior: RankPositionQuery; u14: RankPositionQuery; u16: RankPositionQuery },
+    private readonly rankPositionQueries: {
+      senior: RankPositionQuery;
+      u14: RankPositionQuery;
+      u16: RankPositionQuery;
+      u18: RankPositionQuery;
+    },
     private readonly worldId: WorldId,
   ) {
     this.players = new DrizzlePlayerRepository(db);
@@ -133,10 +138,11 @@ export class DrizzleRosterDashboardQuery {
     // per player — a manager has at most 4 players (roster cap), so
     // this stays cheap (3 queries total, not 3 * roster size) even as
     // the league-wide rankings tables grow.
-    const [seniorRanked, u14Ranked, u16Ranked, world] = await Promise.all([
+    const [seniorRanked, u14Ranked, u16Ranked, u18Ranked, world] = await Promise.all([
       this.rankPositionQueries.senior.sortedRankings(),
       this.rankPositionQueries.u14.sortedRankings(),
       this.rankPositionQueries.u16.sortedRankings(),
+      this.rankPositionQueries.u18.sortedRankings(),
       this.worlds.findById(this.worldId),
     ]);
     if (!world) throw new Error(`Game world ${this.worldId} not found`);
@@ -153,11 +159,19 @@ export class DrizzleRosterDashboardQuery {
         rank: new Map(u16Ranked.map((r, i) => [r.playerId, i + 1])),
         points: new Map(u16Ranked.map((r) => [r.playerId, r.totalPoints])),
       },
+      u18: {
+        rank: new Map(u18Ranked.map((r, i) => [r.playerId, i + 1])),
+        points: new Map(u18Ranked.map((r) => [r.playerId, r.totalPoints])),
+      },
     };
 
     return Promise.all(
       roster.map(async (player) => {
-        const rankBand = juniorEligibilityForAge(player.ageInWeeks);
+        // The band this player is actually ELIGIBLE for right now — see
+        // Player.seasonAgeAnchorWeeks' doc comment — never their literal
+        // current age, so this row's rank/band matches what a real
+        // tournament registration would allow this season.
+        const rankBand = juniorEligibilityForAge(player.seasonAgeAnchorWeeks);
         return {
           id: player.id,
           name: player.name,

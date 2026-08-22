@@ -16,6 +16,7 @@ const MEDAL = ['oklch(80% 0.15 90)', 'oklch(78% 0.02 250)', 'oklch(62% 0.11 55)'
 
 const BANDS: Array<{ key: RankingBand; label: string }> = [
   { key: 'senior', label: 'Senior' },
+  { key: 'u18', label: 'U18' },
   { key: 'u16', label: 'U16' },
   { key: 'u14', label: 'U14' },
 ];

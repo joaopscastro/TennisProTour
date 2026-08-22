@@ -22,6 +22,7 @@ import {
   TournamentId,
   TrainingPolicy,
   TrainingScheduleEntry,
+  WEEKS_PER_SEASON,
   WorldId,
 } from '@tennis-manager/domain';
 import {
@@ -1020,17 +1021,24 @@ describe('AdvanceWorldWeekUseCase', () => {
       };
     }
 
-    it('records a dormant bonus sized as GRADUATION_CARRYOVER_FRACTION of the old band total the exact week a player crosses U14 -> U16', async () => {
+    it('records a dormant bonus sized as GRADUATION_CARRYOVER_FRACTION of the old band total the exact SEASON a player crosses U14 -> U16', async () => {
       const worlds = new InMemoryGameWorldRepository();
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository();
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
+      // Junior eligibility is anchored to seasonAgeAnchorWeeks (the real
+      // ITF "age as of January 1" rule — see Player.seasonAgeAnchorWeeks'
+      // doc comment), which only ever refreshes on a SEASON rollover, not
+      // an ordinary weekly one — so the world must be sitting at the
+      // last week of a season for this tick to actually be that boundary.
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: WEEKS_PER_SEASON }, currentDay: 7, lastAppliedTick: null }));
 
       // 14*52 (not 14*52 - 1) is the real, inclusive U14 upper edge —
       // "14-and-under" — so this player is still U14-eligible one tick
       // before this test starts them; the tick below crosses them to
-      // 14*52 + 1, the first genuinely-U16 week.
+      // 14*52 + 1, the first genuinely-U16 week, and the same tick's
+      // season rollover immediately anchors that as their new eligibility
+      // age.
       const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52, startingAttributes(), ManagerId('m1'));
       player.pullDomainEvents();
       await players.save(player);
@@ -1146,7 +1154,10 @@ describe('AdvanceWorldWeekUseCase', () => {
       const players = new InMemoryPlayerRepository();
       const rankingLedger = new InMemoryRankingLedgerRepository();
       const worldId = WorldId('main');
-      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 7, lastAppliedTick: null }));
+      // See the first test in this describe block for why the world
+      // must be at the last week of a season for a crossing to happen
+      // at all now that eligibility is anchored, not raw-age-based.
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: WEEKS_PER_SEASON }, currentDay: 7, lastAppliedTick: null }));
 
       // See the first test in this describe block for why 14*52 (not
       // 14*52 - 1) is the correct starting age to cross on this tick.
@@ -1173,7 +1184,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         new InMemoryTournamentRepository(),
       );
 
-      await useCase.execute({ worldId, tickKey: 'tick-1' }); // crosses U14 -> U16, records a dormant bonus
+      await useCase.execute({ worldId, tickKey: 'tick-1' }); // season rollover: crosses U14 -> U16, records a dormant bonus
 
       const aged = await players.findById(PlayerId('p1'));
       expect(aged!.dormantCarryoverBonus).not.toBeNull(); // bonus WAS recorded...
@@ -1184,6 +1195,53 @@ describe('AdvanceWorldWeekUseCase', () => {
       const u16Rankings = new RankPositionQuery(rankingLedger, worlds, worldId, 'u16');
       expect(await u16Rankings.rankFor(PlayerId('p1'))).toEqual({ totalPoints: 0, rank: null });
       expect(await u16Rankings.sortedRankings()).toEqual([]);
+    });
+
+    it("an ordinary MID-SEASON weekly rollover never refreshes the eligibility anchor, even once the player's raw age has crossed a boundary — the real ITF 'age as of January 1' rule the user asked for", async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const worldId = WorldId('main');
+      // Week 30, not the last week of the season — this tick's rollover
+      // (week 30 -> 31) is an ORDINARY weekly one, not a season boundary.
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 30 }, currentDay: 7, lastAppliedTick: null }));
+
+      // Hired at exactly 14*52 — hire() sets seasonAgeAnchorWeeks equal
+      // to ageInWeeks at creation, so this player's anchor starts at
+      // 14*52 too (still genuinely U14-eligible, the inclusive edge).
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+        new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' }); // ordinary weekly rollover, NOT a season boundary
+
+      const aged = await players.findById(PlayerId('p1'));
+      // Raw age crossed the U14/U16 boundary this tick...
+      expect(aged!.ageInWeeks).toBe(14 * 52 + 1);
+      // ...but the eligibility anchor did NOT move, so the player is
+      // still genuinely U14-eligible for the rest of this season —
+      // exactly "13y51w on January 1 stays U14-eligible all year",
+      // just phrased from the other side of the boundary.
+      expect(aged!.seasonAgeAnchorWeeks).toBe(14 * 52);
+      expect(aged!.dormantCarryoverBonus).toBeNull(); // no crossing recorded either — none happened yet
     });
   });
 });

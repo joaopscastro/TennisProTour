@@ -69,7 +69,7 @@ export function SurfaceBadge({ surface, size = 'md' }: { surface: string; size?:
   );
 }
 
-export function AgeBandBadge({ band }: { band: 'u14' | 'u16' | null | undefined }) {
+export function AgeBandBadge({ band }: { band: 'u14' | 'u16' | 'u18' | null | undefined }) {
   if (!band) return null;
   return <span className="gc-badge" style={{ background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)', borderColor: 'oklch(60% 0.1 240 / 0.4)' }}>{band.toUpperCase()}</span>;
 }

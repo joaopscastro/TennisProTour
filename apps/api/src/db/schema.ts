@@ -42,7 +42,7 @@ export const tournamentTier = pgEnum('tournament_tier', [
   'major',
   // The combined junior ladder — see JuniorTier's doc comment in
   // packages/domain/src/competition/CompetitionTypes.ts. Age band
-  // (u14/u16) is NOT part of the tier; it's the separate ageBand
+  // (u14/u16/u18) is NOT part of the tier; it's the separate ageBand
   // column on `tournaments` below.
   'j30',
   'j60',
@@ -55,13 +55,13 @@ export const tournamentTier = pgEnum('tournament_tier', [
 /** Only set (non-null) for junior-tier tournaments — see
  * Tournament.ageBand's doc comment. U12 is deliberately out of scope
  * (real ITF/Tennis Europe U12 play is unranked and unseeded). */
-export const ageBand = pgEnum('age_band', ['u14', 'u16']);
-/** The three independent rankings a player can hold — see
+export const ageBand = pgEnum('age_band', ['u14', 'u16', 'u18']);
+/** The four independent rankings a player can hold — see
  * packages/domain/src/ranking/RankingBand.ts. Distinct from `ageBand`
  * above only in that it also has a 'senior' value (a tournament's
  * ageBand is null for senior tiers; a ranking band is never null, it's
  * explicitly 'senior' instead) — used on `players.dormant_carryover_target_band`. */
-export const rankingBand = pgEnum('ranking_band', ['senior', 'u14', 'u16']);
+export const rankingBand = pgEnum('ranking_band', ['senior', 'u14', 'u16', 'u18']);
 export const surface = pgEnum('surface', ['clay', 'grass', 'hard', 'indoor']);
 export const playerStage = pgEnum('player_stage', ['youth', 'prime', 'decline', 'retired']);
 /** Every attribute TrainingFocus can target — see
@@ -173,7 +173,7 @@ export const rankingLedger = pgTable(
       .references(() => tournaments.id),
     tier: tournamentTier('tier').notNull(),
     /** Mirrors the earning tournament's age_band — null for a senior
-     * result, u14/u16 for a junior one. Scopes this entry to exactly one
+     * result, u14/u16/u18 for a junior one. Scopes this entry to exactly one
      * of a player's independent rankings — see RankingBand (domain). */
     ageBand: ageBand('age_band'),
     points: doublePrecision('points').notNull(),
@@ -377,6 +377,16 @@ export const players = pgTable('players', {
    * fillOnly below). */
   managerId: text('manager_id'),
   ageInWeeks: integer('age_in_weeks').notNull(),
+  /** See Player.seasonAgeAnchorWeeks' doc comment (packages/domain) —
+   * this, never ageInWeeks, is what junior age-band eligibility is
+   * computed against everywhere (the real ITF "age as of January 1"
+   * rule). Defaults to 0 only as a column-add placeholder; the backfill
+   * migration that introduced this column sets every pre-existing row
+   * to its own age_in_weeks at the time (a reasonable "treat now as
+   * their most recent January 1" default — see that migration). Every
+   * real write path (hire/generateFillOnly/anchorSeasonAge) always sets
+   * a real value, so 0 should never actually be read back in practice. */
+  seasonAgeAnchorWeeks: integer('season_age_anchor_weeks').notNull().default(0),
   stage: playerStage('stage').notNull(),
   fatigue: integer('fatigue').notNull().default(0),
   /** Match rhythm counter (see Player.form's doc comment, packages/domain).
@@ -777,7 +787,7 @@ export const doublesTitles = pgTable(
       .references(() => players.id),
     tier: tournamentTier('tier').notNull(),
     /** Mirrors the tournament's age_band — null for a senior doubles
-     * title, u14/u16 for a junior one. */
+     * title, u14/u16/u18 for a junior one. */
     ageBand: ageBand('age_band'),
     seasonEarned: integer('season_earned').notNull(),
     weekEarned: integer('week_earned').notNull(),

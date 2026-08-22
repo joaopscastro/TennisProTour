@@ -116,7 +116,7 @@ describe('EnsureFillOnlyPopulationUseCase', () => {
 
     const byBand = new Map<string, number>();
     for (const p of players.all()) {
-      const band = juniorEligibilityForAge(p.ageInWeeks);
+      const band = juniorEligibilityForAge(p.seasonAgeAnchorWeeks);
       byBand.set(band, (byBand.get(band) ?? 0) + 1);
     }
     for (const floor of FILL_ONLY_FLOORS) {
@@ -144,8 +144,12 @@ describe('EnsureFillOnlyPopulationUseCase', () => {
     const result = await useCase.execute({ worldId });
 
     // 10 seniors already exist -> senior shortfall is 200 - 10 = 190;
-    // the u16 (40) and u14 (10) bands still generate their full floor.
-    const expected = 190 + FILL_ONLY_FLOORS[1].minimum + FILL_ONLY_FLOORS[2].minimum;
+    // the u18 (40), u16 (40), and u14 (10) bands still generate their
+    // full floor. Looked up by band name, not array index, so this
+    // doesn't silently drift if FILL_ONLY_FLOORS' order ever changes.
+    const seniorFloor = FILL_ONLY_FLOORS.find((f) => f.band === 'senior')!.minimum;
+    const otherFloors = FILL_ONLY_FLOORS.filter((f) => f.band !== 'senior').reduce((sum, f) => sum + f.minimum, 0);
+    const expected = seniorFloor - 10 + otherFloors;
     expect(result.generated).toBe(expected);
   });
 
