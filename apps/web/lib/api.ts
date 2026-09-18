@@ -326,6 +326,24 @@ function managerPath(managerId: string, resource: 'players' | 'roster-dashboard'
   return CLERK_ENABLED ? `/me/${resource}` : `/managers/${encodeURIComponent(managerId)}/${resource}`;
 }
 
+/**
+ * A few routes still accept a `managerId` in the request BODY. The API
+ * IGNORES that field — `requireManager` (bearer token, or the dev header)
+ * is the real identity boundary — and the route schemas only require it to
+ * be a non-empty string.
+ *
+ * When Clerk is disabled the page state carries a real dev manager id, so
+ * it is sent as-is. When Clerk is enabled the client has NO manager id (it
+ * is resolved from the session server-side, and useDevManagerId() is
+ * undefined), so send a non-empty placeholder purely to satisfy request
+ * validation instead of the empty string that would otherwise 400.
+ */
+const AUTHENTICATED_MANAGER_BODY_ID = 'me';
+
+function bodyManagerId(managerId: string | undefined): string {
+  return managerId && managerId.length > 0 ? managerId : AUTHENTICATED_MANAGER_BODY_ID;
+}
+
 /** An HTTP error that carries its status code, so callers can tell a
  * real failure from an expected 404 ("no such resource yet"). */
 function httpError(status: number, message: string): Error & { status: number } {
@@ -374,7 +392,7 @@ export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
 }
 
 export function claimTalentPoolCandidate(playerId: string, managerId: string): Promise<PlayerDto> {
-  return sendJson('POST', `/talent-pool/${encodeURIComponent(playerId)}/claim`, { managerId }, managerId);
+  return sendJson('POST', `/talent-pool/${encodeURIComponent(playerId)}/claim`, { managerId: bodyManagerId(managerId) }, managerId);
 }
 
 /** Pro-only, credit-gated: bypasses the talent pool (choose your own
@@ -383,7 +401,7 @@ export function claimTalentPoolCandidate(playerId: string, managerId: string): P
  * name/nationality are the manager's choice. See
  * CreateCustomPlayerUseCase's doc comment on the API side. */
 export function createCustomPlayer(input: { managerId: string; name: string; nationality: string }): Promise<PlayerDto> {
-  return sendJson('POST', '/players/custom', input, input.managerId);
+  return sendJson('POST', '/players/custom', { ...input, managerId: bodyManagerId(input.managerId) }, input.managerId);
 }
 
 /** One explicit training-schedule entry — see
@@ -621,7 +639,7 @@ export async function fetchPlayersByIds(ids: Iterable<string>): Promise<Map<stri
 }
 
 export function createProCheckoutSession(managerId: string): Promise<{ url: string }> {
-  return sendJson('POST', '/billing/checkout', { managerId }, managerId);
+  return sendJson('POST', '/billing/checkout', { managerId: bodyManagerId(managerId) }, managerId);
 }
 
 /** Persistent world-clock chrome (Sidebar) and the scouting page's

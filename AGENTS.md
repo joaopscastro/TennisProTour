@@ -1411,7 +1411,12 @@ analytics trail. No game systems, no balance constants, no sim changes.
   is UX cleanup, not a security fix: the API already ignores
   `x-dev-manager-id` under `AUTH_MODE=clerk`; it just stops prefilling a
   fake manager for a signed-in user. `CLERK_ENABLED` is now exported from
-  `lib/api.ts` so the hook and the HTTP client can't disagree.
+  `lib/api.ts` so the hook and the HTTP client can't disagree. One
+  consequence found while implementing it: three routes (`/talent-pool/:id/
+  claim`, `/players/custom`, `/billing/checkout`) still accept an IGNORED
+  `managerId` in the request body whose schema requires a non-empty string,
+  so `lib/api.ts` sends a `'me'` placeholder under Clerk — the empty dev
+  default would otherwise 400 those calls.
 - **Minimal in-house analytics.** One append-only table
   (`analytics_events`, migration `0049`), one port (`AnalyticsPort`), one
   adapter (`DrizzleAnalyticsAdapter`), five emits. No third-party SDK, no
