@@ -246,6 +246,27 @@ export interface Dependencies {
 }
 
 /**
+ * Resolves the auth mode, failing CLOSED. An explicit AUTH_MODE is the
+ * only thing that can select the spoofable dev header path
+ * (`x-dev-manager-id`, see auth.ts's requireManager). An unset AUTH_MODE
+ * now defaults to 'clerk' in EVERY environment — never inferred from
+ * NODE_ENV, which would silently leave a non-production deploy (staging,
+ * preview, a mis-set NODE_ENV) accepting spoofable identities. A typo'd
+ * value is still rejected loudly rather than quietly treated as clerk.
+ *
+ * Exported so apps/api/src/index.ts performs its Clerk-secret boot
+ * validation against the exact same resolution, rather than re-deriving
+ * the default and risking drift.
+ */
+export function resolveAuthMode(): 'clerk' | 'development' {
+  const raw = process.env.AUTH_MODE;
+  if (raw !== undefined && raw !== 'clerk' && raw !== 'development') {
+    throw new Error(`AUTH_MODE must be "clerk" or "development", got "${raw}"`);
+  }
+  return raw === 'development' ? 'development' : 'clerk';
+}
+
+/**
  * The composition root: the one place that knows concrete adapter
  * classes and wires them into use cases via plain constructor
  * injection. No DI container on purpose (see CLAUDE.md's reasoning
@@ -253,12 +274,13 @@ export interface Dependencies {
  * to bottom, and the compiler checks it.
  */
 export function buildDependencies(options: CompositionOptions): Dependencies {
-  const authMode = process.env.AUTH_MODE ?? (process.env.NODE_ENV === 'production' ? 'clerk' : 'development');
-  if (authMode !== 'clerk' && authMode !== 'development') throw new Error('AUTH_MODE must be clerk or development');
-  if (authMode === 'clerk' && !process.env.CLERK_SECRET_KEY) throw new Error('CLERK_SECRET_KEY is required when AUTH_MODE=clerk');
-  if (authMode === 'clerk' && process.env.NODE_ENV === 'production' && !process.env.CLERK_AUTHORIZED_PARTIES) {
-    throw new Error('CLERK_AUTHORIZED_PARTIES is required in production');
-  }
+  const authMode = resolveAuthMode();
+  // NOTE: the Clerk secret/authorized-parties boot checks deliberately do
+  // NOT live here. buildDependencies is shared by apps/worker and every
+  // seed script, none of which serve HTTP or need Clerk config; requiring
+  // it here would force Clerk secrets on HTTP-less processes. The
+  // validation lives in apps/api/src/index.ts, the one entry point that
+  // actually serves authenticated requests.
 
   const managers = new DrizzleManagerAccountRepository(options.db);
   const auth = authMode === 'clerk'

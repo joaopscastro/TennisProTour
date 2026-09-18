@@ -17,6 +17,7 @@ import {
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
+import { resolveMatchLogDirectory } from '../matchLogDirectory';
 
 /**
  * Junior-circuit walkthrough / verification script — NOT part of the
@@ -125,7 +126,7 @@ async function main(): Promise<void> {
   const db = createDb(connectionString);
   const deps = buildDependencies({
     db,
-    matchLogDirectory: process.env.MATCH_LOG_DIR ?? './data/match-logs',
+    matchLogDirectory: resolveMatchLogDirectory(),
     logEvent: () => {},
   });
   const random: RandomSource = { next: () => Math.random() };

@@ -1300,6 +1300,53 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    79 (was 75), all green; `tsc --build --force` and
    `npm run typecheck -w apps/web` both clean.
 
+## Phase 0 launch gate (infra/config hardening)
+
+A small, deliberately-scoped pass closing the pre-launch gaps that would
+have made a first real deployment unsafe or silently broken. No game
+systems touched, no balance constants changed.
+
+- **Auth fails CLOSED.** `resolveAuthMode()`
+  (`apps/api/src/composition.ts`) now defaults an unset `AUTH_MODE` to
+  `'clerk'` in EVERY environment — it is never inferred from `NODE_ENV`
+  any more, so a non-production deploy (staging, preview, a mis-set
+  `NODE_ENV`) can no longer silently accept the spoofable
+  `x-dev-manager-id` header. Selecting the development adapter requires an
+  explicit `AUTH_MODE=development`; a typo'd value still throws. The
+  Clerk-secret/authorized-parties boot checks MOVED out of
+  `buildDependencies` and into `apps/api/src/index.ts`, because
+  `buildDependencies` is shared by `apps/worker` and every seed script,
+  none of which serve HTTP and none of which should be forced to carry
+  Clerk config. Tests and `scripts/boot-smoke-test.sh` now set
+  `AUTH_MODE=development` explicitly.
+- **CI scheduler expectation fixed.** `scripts/check-worker-schedulers.js`
+  still expected the removed `{ world: 'advance-world-week', matches:
+  'simulate-due-matches' }` pair; it now expects the single real
+  scheduler `{ world: 'advance-world-day' }` (match simulation is folded
+  into the day tick — see the day-tick section), so the boot smoke test
+  passes again.
+- **Match-log storage is now cross-process safe.** The old
+  `MATCH_LOG_DIR ?? './data/match-logs'` resolved against each process's
+  cwd, so under root `npm run dev` the worker wrote replays to
+  `apps/worker/data/match-logs` while the API served them from
+  `apps/api/data/match-logs` — every auto-simulated replay 404'd. A single
+  shared `resolveMatchLogDirectory()` helper
+  (`apps/api/src/matchLogDirectory.ts`, exported from the api package)
+  anchors an unset/relative value to an ABSOLUTE repo-root path and is
+  used by both entry points and all five seed/utility scripts, so the two
+  can never drift again. The resolved absolute path is logged at boot by
+  both processes, and `MATCH_LOG_DIR` is documented in `.env.example` as
+  optional/absolute. Unset does NOT hard-fail.
+- **World heartbeat.** `/world/clock` now always exposes `lastTickAt` (the
+  real wall-clock time of the last tick that actually advanced the world,
+  from `game_worlds.updated_at` via `findLastTickAt`) and `stale` (elapsed
+  > 2× the expected cadence — `WORLD_TICK_INTERVAL_MS` in interval mode,
+  the gap between consecutive cron firings in cron mode). `/health`
+  includes the same heartbeat so external uptime monitoring can alert on a
+  stalled tick without the UI, and the sidebar renders a small "World
+  stalled" chip only when stale. A shared `worldHeartbeat()` keeps the two
+  responses consistent.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

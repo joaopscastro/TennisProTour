@@ -3,6 +3,7 @@ import { GameWorld, ManagerId, Player, PlayerId, StandardAgingPolicy, StandardPl
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
+import { resolveMatchLogDirectory } from '../matchLogDirectory';
 import { MathRandomSource } from '../adapters/outbound/MathRandomSource';
 
 /**
@@ -31,7 +32,7 @@ import { MathRandomSource } from '../adapters/outbound/MathRandomSource';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const port = Number(process.env.PORT ?? 3000);
-const matchLogDirectory = process.env.MATCH_LOG_DIR ?? './data/match-logs';
+const matchLogDirectory = resolveMatchLogDirectory();
 const webBaseUrl = process.env.WEB_BASE_URL ?? 'http://localhost:3001';
 
 const TOURNAMENT_ID = 'seed-open';

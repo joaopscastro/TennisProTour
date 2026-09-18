@@ -30,10 +30,54 @@ import { Dependencies, WORLD_ID } from '../../../composition';
  *   from real applied-tick data instead of two processes needing to
  *   agree on an un-observable schedule.
  */
+/** How many expected tick periods without a real advance before the
+ * world is considered stalled. Two periods tolerates one missed/retried
+ * firing without raising a false alarm. */
+const STALE_AFTER_EXPECTED_PERIODS = 2;
+
+/**
+ * The world's heartbeat, derived from `game_worlds.updated_at` — the
+ * real wall-clock time of the last tick that ACTUALLY advanced the world
+ * (`AdvanceWorldWeekUseCase` only calls `worlds.save()`, which bumps
+ * `updated_at`, on a genuine advance — never on a no-op/duplicate
+ * firing; see DrizzleGameWorldRepository.findLastTickAt).
+ *
+ * `stale` compares the elapsed time against twice the expected tick
+ * cadence: `WORLD_TICK_INTERVAL_MS` in interval mode, or the gap between
+ * the next two scheduled cron times in cron mode. A world that has never
+ * ticked (null) is a fresh world, not a stalled one, so it never reads
+ * as stale.
+ *
+ * Shared by GET /world/clock and GET /health (app.ts) so the two can
+ * never report different heartbeats.
+ */
+export async function worldHeartbeat(deps: Dependencies): Promise<{ lastTickAt: string | null; stale: boolean }> {
+  const lastTickAtRaw = await deps.worlds.findLastTickAt(WORLD_ID);
+
+  const intervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
+  const intervalMs = intervalMsRaw ? Number(intervalMsRaw) : null;
+  let expectedGapMs: number;
+  if (intervalMs !== null && Number.isFinite(intervalMs) && intervalMs > 0) {
+    expectedGapMs = intervalMs;
+  } else {
+    const cron = process.env.WORLD_TICK_CRON ?? '0 3 * * *';
+    const iterator = parseExpression(cron);
+    const first = iterator.next().toDate().getTime();
+    expectedGapMs = iterator.next().toDate().getTime() - first;
+  }
+
+  return {
+    lastTickAt: lastTickAtRaw ? lastTickAtRaw.toISOString() : null,
+    stale: lastTickAtRaw !== null && Date.now() - lastTickAtRaw.getTime() > STALE_AFTER_EXPECTED_PERIODS * expectedGapMs,
+  };
+}
+
 export function registerWorldRoutes(app: FastifyInstance, deps: Dependencies): void {
   app.get('/world/clock', async () => {
     const world = await deps.worlds.findById(WORLD_ID);
     if (!world) throw new Error('World not found');
+
+    const heartbeat = await worldHeartbeat(deps);
 
     const intervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
     const intervalMs = intervalMsRaw ? Number(intervalMsRaw) : null;
@@ -72,6 +116,11 @@ export function registerWorldRoutes(app: FastifyInstance, deps: Dependencies): v
       daysPerWeek: DAYS_PER_WEEK,
       nextTickAt: nextTickAt.toISOString(),
       nextWeekTickAt: nextWeekTickAt.toISOString(),
+      // World heartbeat — see worldHeartbeat. A stalled tick means every
+      // other clock-derived screen is frozen too, so it's surfaced here
+      // (and on /health) rather than left to be inferred.
+      lastTickAt: heartbeat.lastTickAt,
+      stale: heartbeat.stale,
     };
   });
 }

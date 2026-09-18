@@ -9,12 +9,15 @@ config({ path: resolve(__dirname, '../../../.env') });
 import IORedis from 'ioredis';
 import { Queue, Worker } from 'bullmq';
 import { GameWorld, WorldId } from '@tennis-manager/domain';
-import { buildDependencies, createDb } from '@tennis-manager/api';
+import { buildDependencies, createDb, resolveMatchLogDirectory } from '@tennis-manager/api';
 import { AdvanceWorldJobData, makeAdvanceWorldHandler } from './jobs/handlers';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
-const matchLogDirectory = process.env.MATCH_LOG_DIR ?? './data/match-logs';
+// Shared, repo-root-anchored resolution (see matchLogDirectory.ts) — the
+// worker and the API must agree on ONE directory or auto-simulated
+// replays 404 when served by the API.
+const matchLogDirectory = resolveMatchLogDirectory();
 const worldId = process.env.WORLD_ID ?? 'main';
 // World tick is now one game DAY per firing (see
 // docs/day-tick-and-scheduling.md). Default: daily 03:00 UTC. Match
@@ -94,6 +97,7 @@ async function main(): Promise<void> {
       msg: 'worker up',
       worldTick: worldTickIntervalMs !== null ? { mode: 'interval', everyMsPerDay: worldTickIntervalMs } : { mode: 'cron', pattern: worldTickCron },
       worldId,
+      matchLogDirectory,
     }),
   );
 

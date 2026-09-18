@@ -10,7 +10,7 @@ import { registerTournamentRoutes } from './adapters/inbound/http/tournamentRout
 import { registerBillingRoutes } from './adapters/inbound/http/billingRoutes';
 import { registerTalentPoolRoutes } from './adapters/inbound/http/talentPoolRoutes';
 import { registerAuthRoutes } from './adapters/inbound/http/authRoutes';
-import { registerWorldRoutes } from './adapters/inbound/http/worldRoutes';
+import { registerWorldRoutes, worldHeartbeat } from './adapters/inbound/http/worldRoutes';
 import { registerManagerRoutes } from './adapters/inbound/http/managerRoutes';
 import { registerDoublesRoutes } from './adapters/inbound/http/doublesRoutes';
 import { registerMastersCupRoutes } from './adapters/inbound/http/mastersCupRoutes';
@@ -53,7 +53,15 @@ export function buildApp(options: AppOptions): FastifyInstance {
   app.register(helmet);
   app.register(rateLimit, { max: 300, timeWindow: '1 minute' });
 
-  app.get('/health', async () => ({ status: 'ok' }));
+  // Liveness + world heartbeat in one shot, so external uptime monitoring
+  // can alert on a stalled world tick without needing the web UI. One
+  // indexed read (game_worlds by PK) — deliberately no world parse/throw
+  // on failure: a heartbeat read error must not take /health down, it
+  // just reports not-stale rather than a false alert.
+  app.get('/health', async () => {
+    const heartbeat = await worldHeartbeat(options.deps).catch(() => ({ lastTickAt: null, stale: false }));
+    return { status: 'ok', ...heartbeat };
+  });
 
   // Self-maintaining API discoverability (no OpenAPI/swagger package in
   // this codebase, and a hand-maintained list would drift the moment a

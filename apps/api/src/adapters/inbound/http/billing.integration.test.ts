@@ -14,6 +14,10 @@ import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
 
 const connectionString = testConnectionString();
+// Auth fails CLOSED when AUTH_MODE is unset (defaults to clerk), so the
+// suite must opt into the development adapter explicitly to keep using
+// the x-dev-manager-id header.
+process.env.AUTH_MODE = 'development';
 const WEBHOOK_SECRET = 'whsec_test_secret';
 
 const pool = new Pool({ connectionString });

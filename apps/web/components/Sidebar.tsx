@@ -116,6 +116,11 @@ export function Sidebar({ active, tier, xpBalance }: Props) {
               <span style={{ fontSize: 11, color: 'var(--gc-ink-mute)' }}>Next day</span>
               <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--gc-gold)', fontVariantNumeric: 'tabular-nums' }}>{formatCountdown(remainingMs)}</span>
             </div>
+            {worldClock.stale && (
+              <div className="gc-badge" style={{ marginTop: 8, display: 'inline-flex', fontSize: 9, color: 'oklch(72% 0.19 25)', borderColor: 'oklch(60% 0.2 25 / 0.55)' }}>
+                World stalled
+              </div>
+            )}
           </div>
         )}
 

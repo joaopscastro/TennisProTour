@@ -29,6 +29,10 @@ import { buildApp } from '../../../app';
 
 const connectionString = testConnectionString();
 process.env.INTERNAL_ADMIN_TOKEN ??= 'test-admin';
+// Auth fails CLOSED when AUTH_MODE is unset (defaults to clerk), so the
+// suite must opt into the development adapter explicitly to keep using
+// the x-dev-manager-id header.
+process.env.AUTH_MODE = 'development';
 
 const pool = new Pool({ connectionString });
 const db = drizzle(pool, { schema });
@@ -51,8 +55,11 @@ beforeAll(async () => {
   // test database.
   await db
     .insert(schema.gameWorlds)
-    .values({ id: 'main', season: 1, week: 52, currentDay: 1 })
-    .onConflictDoUpdate({ target: schema.gameWorlds.id, set: { season: 1, week: 52, currentDay: 1, lastAppliedTick: null } });
+    .values({ id: 'main', season: 1, week: 52, currentDay: 1, updatedAt: new Date() })
+    // updated_at is the world heartbeat (GET /world/clock, GET /health):
+    // refresh it here too, or a row left over from an older run reads as
+    // "stalled" even though this suite just brought the world up.
+    .onConflictDoUpdate({ target: schema.gameWorlds.id, set: { season: 1, week: 52, currentDay: 1, lastAppliedTick: null, updatedAt: new Date() } });
   matchLogDirectory = await mkdtemp(join(tmpdir(), 'api-match-logs-'));
   deps = buildDependencies({
     db,
@@ -153,10 +160,15 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
 }
 
 describe('API', () => {
-  it('serves the health check', async () => {
+  it('serves the health check with the world heartbeat', async () => {
     const response = await app.inject({ method: 'GET', url: '/health' });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ status: 'ok' });
+    const body = response.json() as { status: string; lastTickAt: string | null; stale: boolean };
+    expect(body.status).toBe('ok');
+    // The suite's beforeAll upserts the 'main' world, so updated_at is
+    // fresh — never stale here. lastTickAt is an ISO string or null.
+    expect(body.lastTickAt === null || typeof body.lastTickAt === 'string').toBe(true);
+    expect(body.stale).toBe(false);
   });
 
   it('self-describes every registered route via GET /routes, collected from the real Fastify registration (not a hand-maintained list)', async () => {

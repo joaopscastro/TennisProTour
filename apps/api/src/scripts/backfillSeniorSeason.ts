@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { WorldId } from '@tennis-manager/domain';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
+import { resolveMatchLogDirectory } from '../matchLogDirectory';
 
 /**
  * One-off backfill: opens the senior-tour slate for every week from the
@@ -23,7 +24,7 @@ async function main(): Promise<void> {
   const db = createDb(connectionString);
   const deps = buildDependencies({
     db,
-    matchLogDirectory: process.env.MATCH_LOG_DIR ?? './data/match-logs',
+    matchLogDirectory: resolveMatchLogDirectory(),
     // eslint-disable-next-line no-console
     logEvent: () => {},
   });

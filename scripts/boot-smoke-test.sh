@@ -17,8 +17,10 @@ DATABASE_URL="${DATABASE_URL:-postgresql://tennis:tennis@localhost:5432/tennis_m
 REDIS_URL="${REDIS_URL:-redis://localhost:6379}"
 API_PORT="${BOOT_SMOKE_API_PORT:-3919}"
 
-API_MATCH_LOG_DIR="$(mktemp -d)"
-WORKER_MATCH_LOG_DIR="$(mktemp -d)"
+# ONE shared dir for both processes: the API serves replay blobs the
+# worker writes, so separate dirs would mask exactly the cross-process
+# mismatch this suite should catch (see matchLogDirectory.ts).
+MATCH_LOG_DIR="$(mktemp -d)"
 LOG_DIR="$(mktemp -d)"
 
 API_PID=""
@@ -41,7 +43,7 @@ cleanup() {
     echo "--- apps/worker dist/index.js log ---"
     cat "$LOG_DIR/worker.log" 2>/dev/null || true
   fi
-  rm -rf "$API_MATCH_LOG_DIR" "$WORKER_MATCH_LOG_DIR" "$LOG_DIR"
+  rm -rf "$MATCH_LOG_DIR" "$LOG_DIR"
   exit "$status"
 }
 trap cleanup EXIT
@@ -57,7 +59,11 @@ echo "==> Booting apps/api/dist/index.js on port $API_PORT"
   cd apps/api
   export DATABASE_URL="$DATABASE_URL"
   export PORT="$API_PORT"
-  export MATCH_LOG_DIR="$API_MATCH_LOG_DIR"
+  export MATCH_LOG_DIR="$MATCH_LOG_DIR"
+  # Auth now fails CLOSED (unset AUTH_MODE = clerk), and this smoke test
+  # has no Clerk keys — so the API must be explicitly told to use the
+  # development adapter, exactly as local dev does.
+  export AUTH_MODE=development
   exec node dist/index.js
 ) > "$LOG_DIR/api.log" 2>&1 &
 API_PID=$!
@@ -86,7 +92,10 @@ echo "==> Booting apps/worker/dist/index.js"
   cd apps/worker
   export DATABASE_URL="$DATABASE_URL"
   export REDIS_URL="$REDIS_URL"
-  export MATCH_LOG_DIR="$WORKER_MATCH_LOG_DIR"
+  export MATCH_LOG_DIR="$MATCH_LOG_DIR"
+  # Symmetry only — the worker serves no HTTP auth — but keeps the two
+  # processes' environments identical to avoid surprising divergence.
+  export AUTH_MODE=development
   export WORLD_ID="boot-smoke-test"
   exec node dist/index.js
 ) > "$LOG_DIR/worker.log" 2>&1 &
@@ -109,6 +118,6 @@ if [ "$schedulers_up" != true ]; then
   echo "apps/worker did not register its scheduled jobs within 10s" >&2
   exit 1
 fi
-echo "apps/worker is up and both scheduled jobs (advance-world-week, simulate-due-matches) are registered"
+echo "apps/worker is up and the advance-world-day scheduler is registered"
 
 echo "==> Boot smoke test passed"

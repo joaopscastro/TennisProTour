@@ -631,6 +631,12 @@ export interface WorldClockDto {
   daysPerWeek: number;
   nextTickAt: string;
   nextWeekTickAt: string;
+  /** Wall-clock time of the last tick that actually advanced the world
+   * (null on a never-ticked fresh world). Present with `stale` so the UI
+   * can surface a frozen world tick instead of counting down to a
+   * schedule that isn't firing. See worldRoutes.ts's worldHeartbeat. */
+  lastTickAt: string | null;
+  stale: boolean;
 }
 
 export function fetchWorldClock(): Promise<WorldClockDto> {

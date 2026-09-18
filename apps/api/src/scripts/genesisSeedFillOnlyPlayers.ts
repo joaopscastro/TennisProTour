@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { GameWorld, WorldId } from '@tennis-manager/domain';
 import { createDb } from '../db/client';
 import { buildDependencies } from '../composition';
+import { resolveMatchLogDirectory } from '../matchLogDirectory';
 
 /**
  * One-time genesis seed (docs/tournament-fill-system.md item 3): run
@@ -32,7 +33,7 @@ async function main(): Promise<void> {
   const db = createDb(connectionString);
   const deps = buildDependencies({
     db,
-    matchLogDirectory: process.env.MATCH_LOG_DIR ?? './data/match-logs',
+    matchLogDirectory: resolveMatchLogDirectory(),
     // eslint-disable-next-line no-console
     logEvent: (message, payload) => console.log(JSON.stringify({ msg: message, ...payload })),
   });

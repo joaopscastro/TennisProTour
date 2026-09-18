@@ -8,7 +8,8 @@
 export * as schema from './db/schema';
 export { createDb, Db } from './db/client';
 export { testConnectionString } from './db/testConnection';
-export { buildDependencies, CompositionOptions, Dependencies } from './composition';
+export { buildDependencies, resolveAuthMode, CompositionOptions, Dependencies } from './composition';
+export { resolveMatchLogDirectory } from './matchLogDirectory';
 export { buildApp, AppOptions } from './app';
 export { DrizzlePlayerRepository } from './adapters/outbound/DrizzlePlayerRepository';
 export { DrizzleTournamentRepository } from './adapters/outbound/DrizzleTournamentRepository';

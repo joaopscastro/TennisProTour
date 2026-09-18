@@ -1,19 +1,20 @@
 #!/usr/bin/env node
-// Confirms apps/worker actually registered its two repeatable job
-// schedulers in Redis. Used by scripts/boot-smoke-test.sh — a worker
+// Confirms apps/worker actually registered its repeatable job
+// scheduler(s) in Redis. Used by scripts/boot-smoke-test.sh — a worker
 // process that's merely "still running" could have silently failed
 // its upsertJobScheduler() calls (e.g. bad Redis connection options),
 // so this checks the real BullMQ state, not just process liveness.
-// Exits 0 once both schedulers are present, 1 otherwise.
+// Exits 0 once the expected scheduler(s) are present, 1 otherwise.
 const { Queue } = require('bullmq');
 const IORedis = require('ioredis');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
-// Must match apps/worker/src/index.ts: queue name -> scheduler id.
+// Must match apps/worker/src/index.ts. There is no separate match-sweep
+// job anymore: the day tick folds match simulation into
+// advance-world-day (see the worker entry point's own doc comment).
 const EXPECTED = {
-  world: 'advance-world-week',
-  matches: 'simulate-due-matches',
+  world: 'advance-world-day',
 };
 
 async function schedulerExists(connection, queueName, schedulerId) {
