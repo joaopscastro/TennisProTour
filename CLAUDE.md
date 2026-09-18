@@ -1341,6 +1341,47 @@ systems touched, no balance constants changed.
   stalled" chip only when stale. A shared `worldHeartbeat()` keeps the two
   responses consistent.
 
+## Phase 1 — deploy artifacts (host-portable, no target chosen)
+
+A deliberately host-agnostic pass: there is NO `docker-compose.prod.yml`
+and no provider-specific config anywhere, because the deploy target isn't
+chosen yet. The Dockerfile builds named targets any orchestrator can run.
+
+- **Next.js standalone output.** `apps/web/next.config.js` (new — there
+  was no config before) sets `output: 'standalone'` and
+  `outputFileTracingRoot: path.join(__dirname, '../../')`. The tracing
+  root is REQUIRED: npm hoists node_modules to the repo root, so without
+  it Next would trace from `apps/web` and miss every hoisted dependency
+  (the exact monorepo caveat in Next's own docs). Verified with a real
+  `next build`: the server entry is `.next/standalone/apps/web/server.js`
+  (the `apps/web` segment is preserved). `next build` does NOT copy
+  `.next/static` (nor `public/`, which this app currently lacks) into the
+  standalone dir, so the Dockerfile copies `.next/static` in manually —
+  without it every JS/CSS asset 404s.
+- **One multi-stage `Dockerfile`** at the repo root, named targets:
+  `base` → `deps` (`npm ci` from the lockfile) → `build` (`npx tsc
+  --build`, then `npm run build -w apps/web`) → runtime targets `api`,
+  `worker`, `web`, and a one-shot `migrate`. Directory DEPTH is
+  load-bearing: `apps/*/dist` resolve `../../../.env` and the default
+  `../../../data/match-logs`, so every stage keeps `/app/apps/<name>` —
+  flattening the tree breaks both. Runtime targets `USER node` and create
+  the replay dir owned by it.
+- **`NEXT_PUBLIC_*` are BUILD-TIME.** `docker build` must receive
+  `NEXT_PUBLIC_API_URL` / `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` /
+  `NEXT_PUBLIC_AUTH_MODE` as `--build-arg`; they are inlined into the
+  client bundle and CANNOT be changed by runtime container env. No
+  dev-manager-id build arg exists on purpose.
+- **Migrations are a one-shot release step.** The `migrate` target (from
+  `build`, WORKDIR `apps/api`, `npx drizzle-kit migrate`) runs BEFORE
+  api/worker start. api and worker share one Postgres; the API is never a
+  migration entrypoint. Serialized by the deploying orchestrator, not by
+  the app.
+- **Replay-dir topology constraint.** api and worker must share ONE
+  `MATCH_LOG_DIR` filesystem (a mounted volume in the deployed topology)
+  and the same `MATCH_LOG_PUBLIC_BASE_URL`, or the worker writes blobs the
+  API can't serve. `.env.example` is now the full inventory, grouped by
+  app, with these deploy notes stated at the top.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
