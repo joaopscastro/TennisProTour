@@ -64,6 +64,9 @@ RUN npm run build -w apps/web
 # run this once before either starts, never migrate from the API entrypoint.
 FROM build AS migrate
 WORKDIR /app/apps/api
+# Migrations only read drizzle/ and write to Postgres, so the release step runs
+# as the same non-root user as every other runtime target.
+USER node
 CMD ["npx","drizzle-kit","migrate"]
 
 # ---- api runtime -----------------------------------------------------------

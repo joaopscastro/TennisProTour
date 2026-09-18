@@ -10,7 +10,7 @@ node_modules
 data/
 .env
 .env.*
-*.tsbuildinfo
+**/*.tsbuildinfo
 test-results/
 playwright-report/
 balance-report*.json
