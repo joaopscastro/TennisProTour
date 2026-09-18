@@ -35,11 +35,21 @@ export async function requireManager(
   }
 
   try {
-    return await deps.ensureManagerAccount.execute({
+    const manager = await deps.ensureManagerAccount.execute({
       authSubject: identity.subject,
       displayName: identity.displayName,
       developmentManagerId: developmentManagerId ? ManagerId(developmentManagerId) : undefined,
     });
+    // One row per manager per real UTC day — the dedupe key is what makes
+    // that exactly-once under concurrent requests. Fire-and-forget: the
+    // adapter never throws, so this can't fail the request.
+    void deps.analytics.record({
+      name: 'app_open',
+      managerId: manager.id,
+      dedupeKey: `app_open:${manager.id}:${new Date().toISOString().slice(0, 10)}`,
+      props: {},
+    });
+    return manager;
   } catch (error) {
     if (error instanceof Error && (error.message === 'Manager account is suspended' || error.message === 'Manager account has been deleted')) {
       await reply.code(403).send({ error: error.message });

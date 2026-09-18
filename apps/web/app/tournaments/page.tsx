@@ -16,6 +16,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { SeasonEvents } from '../../components/SeasonEvents';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
+import { useDevManagerId } from '../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -416,8 +417,9 @@ function WeekRegisterPicker({
  * so eligibility/cap rules never drift between the two entry points).
  */
 function PlannerView() {
-  const [managerId, setManagerId] = useState('seed-m1');
-  const [managerIdInput, setManagerIdInput] = useState('seed-m1');
+  const devManagerId = useDevManagerId();
+  const [managerId, setManagerId] = useState(devManagerId ?? '');
+  const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [roster, setRoster] = useState<PlayerDto[] | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [planner, setPlanner] = useState<PlannerWeekDto[] | null>(null);

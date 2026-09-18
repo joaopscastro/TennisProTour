@@ -26,6 +26,7 @@ import {
   setTrainingScheduleEntry,
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
+import { useDevManagerId } from '../../../lib/managerContext';
 import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
 import { useCountdown, formatCountdownClock } from '../../../lib/useCountdown';
 import { Avatar } from '../../../components/ui/Avatar';
@@ -299,12 +300,12 @@ export default function PlayerProfilePage() {
 
   // Free-agent signing (managerId null) — a manager can sign any
   // browsable free agent straight from their profile, same flow the
-  // Scouting page uses. Dev manager defaults to seed-m1 (Clerk fills the
-  // real one in production).
+  // Scouting page uses. The dev manager id comes from useDevManagerId()
+  // and is empty under Clerk, where identity is the signed-in session.
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [signing, setSigning] = useState(false);
   const [signError, setSignError] = useState<string | null>(null);
-  const devManagerId = process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1';
+  const devManagerId = useDevManagerId() ?? '';
 
   // Doubles partner invitation (P7a): from a managed player owned by a
   // DIFFERENT manager, invite them to be one of my players' doubles

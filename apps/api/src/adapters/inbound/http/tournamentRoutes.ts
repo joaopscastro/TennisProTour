@@ -564,6 +564,12 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);
+      // Fire-and-forget (analytics never throws) — see AnalyticsPort.
+      void deps.analytics.record({
+        name: 'tournament_entered',
+        managerId: manager.id,
+        props: { tournamentId, tier: tournament!.tier, ageBand: tournament!.ageBand },
+      });
       return reply.code(201).send(toTournamentDto(tournament!));
     },
   );
@@ -595,6 +601,12 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);
+      // Fire-and-forget (analytics never throws) — see AnalyticsPort.
+      void deps.analytics.record({
+        name: 'tournament_entered',
+        managerId: manager.id,
+        props: { tournamentId, tier: tournament!.tier, ageBand: tournament!.ageBand, doubles: true },
+      });
       return reply.code(201).send(toTournamentDto(tournament!));
     },
   );

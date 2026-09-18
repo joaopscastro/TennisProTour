@@ -1382,6 +1382,42 @@ chosen yet. The Dockerfile builds named targets any orchestrator can run.
   API can't serve. `.env.example` is now the full inventory, grouped by
   app, with these deploy notes stated at the top.
 
+## Phase 1 — enterability (sign-in gate, dev defaults, minimal analytics)
+
+The second half of "make it enterable": a real signup surface, removal of
+dev-only identity defaults from production builds, and a tiny in-house
+analytics trail. No game systems, no balance constants, no sim changes.
+
+- **Real sign-in surface.** `apps/web/components/AuthGate.tsx` (client) is
+  the ENTIRE signup surface: with `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` set,
+  a signed-out visitor sees a minimal landing panel with Clerk's
+  `<SignInButton mode="modal">`; a signed-in visitor sees the app; with the
+  key unset (local dev) children render unchanged. It wraps `{children}`
+  inside `layout.tsx`'s `ClerkProvider` — no new route, no middleware.
+  `AuthGate` branches on the build-time `CLERK_ENABLED` constant while
+  `useAuth` lives in a child, so the hook is never called without a
+  provider.
+- **No dev-identity defaults in production.**
+  `apps/web/lib/managerContext.ts`'s `useDevManagerId()` returns the
+  `NEXT_PUBLIC_DEV_MANAGER_ID` (default `'seed-m1'`) ONLY when
+  `CLERK_ENABLED` is false, else `undefined` — the eight hardcoded
+  `useState('seed-m1')`-style defaults across the web app now use it. This
+  is UX cleanup, not a security fix: the API already ignores
+  `x-dev-manager-id` under `AUTH_MODE=clerk`; it just stops prefilling a
+  fake manager for a signed-in user. `CLERK_ENABLED` is now exported from
+  `lib/api.ts` so the hook and the HTTP client can't disagree.
+- **Minimal in-house analytics.** One append-only table
+  (`analytics_events`, migration `0049`), one port (`AnalyticsPort`), one
+  adapter (`DrizzleAnalyticsAdapter`), five emits. No third-party SDK, no
+  new dependency. `props` carries ids/enums ONLY — never IP, user-agent,
+  referrer, email/name, or free text; replay opens are deliberately
+  UNATTRIBUTED (`managerId: null`). The events: `app_open` (auth.ts, one
+  row per manager per UTC day via `dedupeKey`), `player_signed`
+  (pool + custom), `tournament_entered` (singles + doubles),
+  `replay_opened`, `checkout_started`. **The adapter NEVER throws** — a
+  failed analytics write must never break the request that produced it, so
+  every call site fires-and-forgets (`void deps.analytics.record(...)`).
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

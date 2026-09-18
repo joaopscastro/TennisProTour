@@ -10,11 +10,13 @@ import {
 import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, PageShell, Hero, Panel } from '../../components/ui/primitives';
 import { AnimatedNumber } from '../../components/ui/motion';
+import { useDevManagerId } from '../../lib/managerContext';
 
 const MEDAL = ['oklch(80% 0.15 90)', 'oklch(78% 0.02 250)', 'oklch(62% 0.11 55)'];
 
 export default function ManagersPage() {
-  const [managerId] = useState(process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1');
+  const devManagerId = useDevManagerId();
+  const [managerId] = useState(devManagerId ?? '');
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [board, setBoard] = useState<ManagerLeaderboardDto | null>(null);
   const [error, setError] = useState<string | null>(null);

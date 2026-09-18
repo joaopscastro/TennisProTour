@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ClerkAuthBridge } from '../components/ClerkAuthBridge';
+import { AuthGate } from '../components/AuthGate';
 
 export const metadata: Metadata = {
   title: 'Grand Circuit',
@@ -11,12 +12,16 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const publishableKey = process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  // AuthGate sits INSIDE ClerkProvider, so its useAuth has a provider. With
+  // no key it simply passes children through (local dev unchanged).
   const content = publishableKey ? (
     <ClerkProvider publishableKey={publishableKey}>
       <ClerkAuthBridge />
-      {children}
+      <AuthGate>{children}</AuthGate>
     </ClerkProvider>
-  ) : children;
+  ) : (
+    <AuthGate>{children}</AuthGate>
+  );
 
   return (
     <html lang="en">

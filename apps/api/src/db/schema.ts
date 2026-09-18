@@ -1,4 +1,4 @@
-import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, primaryKey, text, timestamp } from 'drizzle-orm/pg-core';
+import { boolean, doublePrecision, index, integer, jsonb, pgEnum, pgTable, primaryKey, serial, text, timestamp } from 'drizzle-orm/pg-core';
 
 /**
  * Drizzle schema for the Player & Roster and Competition contexts.
@@ -925,3 +925,41 @@ export const worldTeamCups = pgTable('world_team_cups', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Minimal, in-house product analytics (Phase 1 — "make it enterable"):
+ * one append-only row per tracked event. Deliberately NOT a third-party
+ * SDK and NOT a domain aggregate — no behavior, no invariants, just a
+ * best-effort audit trail, so a serial PK (not a branded domain id) and
+ * a plain adapter are the whole surface.
+ *
+ * PRIVACY / SCOPE (enforced by what callers may pass): `props` is for
+ * ids and enums only. Never store IP, user-agent, referrer, email/name,
+ * or any free text. `managerId` is nullable because a replay open is
+ * deliberately UNATTRIBUTED (`app_open`/`player_signed`/`tournament_entered`/
+ * `checkout_started` carry the acting manager; `replay_opened` does not).
+ *
+ * `dedupe_key` is an OPTIONAL unique guard for exactly-once-per-period
+ * events — currently only `app_open` (`app_open:<managerId>:<yyyy-mm-dd>`),
+ * so a manager opening the app many times in a day records once. Null for
+ * every event that should always insert; Postgres treats NULLs as distinct,
+ * so an unset key never blocks a row.
+ *
+ * The two indexes serve the only query shapes this data is for: "how many
+ * of event X over time" and "what did manager Y do over time".
+ */
+export const analyticsEvents = pgTable(
+  'analytics_events',
+  {
+    id: serial('id').primaryKey(),
+    managerId: text('manager_id'),
+    name: text('name').notNull(),
+    dedupeKey: text('dedupe_key').unique(),
+    props: jsonb('props').$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index('idx_analytics_events_name_created_at').on(table.name, table.createdAt),
+    index('idx_analytics_events_manager_created_at').on(table.managerId, table.createdAt),
+  ],
+);

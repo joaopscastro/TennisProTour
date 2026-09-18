@@ -525,3 +525,30 @@ export interface WorldTeamCupRepository {
   findBySeason(season: number): Promise<WorldTeamCup | null>;
   save(cup: WorldTeamCup): Promise<void>;
 }
+
+/**
+ * Best-effort product analytics (Phase 1 — "make it enterable"). One narrow
+ * port, deliberately not part of any aggregate's repository: an event is
+ * fire-and-forget telemetry, not domain state, so there is no aggregate,
+ * invariant, or read side here — only a write.
+ *
+ * The real adapter MUST never throw: a failed analytics write must never
+ * break the request that produced it. Callers fire-and-forget it.
+ *
+ * `props` is restricted by convention to ids and enums. NEVER pass IP,
+ * user-agent, referrer, email/name, or any free text (see the
+ * analytics_events schema doc comment on the API side).
+ */
+export interface AnalyticsEvent {
+  name: string;
+  /** Omitted/null = deliberately unattributed (e.g. replay opens). */
+  managerId?: ManagerId | null;
+  /** Optional exactly-once-per-period guard (e.g. app_open per manager per
+   * day); a unique conflict is ignored. Omitted = always insert. */
+  dedupeKey?: string;
+  props?: Record<string, unknown>;
+}
+
+export interface AnalyticsPort {
+  record(event: AnalyticsEvent): Promise<void>;
+}

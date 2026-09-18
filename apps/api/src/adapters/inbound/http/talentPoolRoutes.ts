@@ -88,6 +88,12 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
         playerId: PlayerId(request.params.id),
         managerId: manager.id,
       });
+      // Fire-and-forget (analytics never throws) — see AnalyticsPort.
+      void deps.analytics.record({
+        name: 'player_signed',
+        managerId: manager.id,
+        props: { playerId: player.id, method: 'pool' },
+      });
       return reply.code(201).send(toPlayerDto(player));
     },
   );

@@ -94,6 +94,14 @@ export function buildApp(options: AppOptions): FastifyInstance {
     async (request, reply) => {
       try {
         const blob = await readFile(join(options.matchLogDirectory, request.params.file), 'utf8');
+        // Replay opens are deliberately UNATTRIBUTED (managerId null): this
+        // route needs no auth and records no viewer identity. Fire-and-forget
+        // (analytics never throws) — see AnalyticsPort.
+        void options.deps.analytics.record({
+          name: 'replay_opened',
+          managerId: null,
+          props: { matchId: request.params.file },
+        });
         return reply
           .header('content-type', 'application/json')
           .header('cache-control', 'public, max-age=31536000, immutable')

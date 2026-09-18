@@ -26,7 +26,10 @@ export function registerBillingRoutes(app: FastifyInstance, deps: Dependencies):
     async (request, reply) => {
       const manager = await requireManager(request, reply, deps);
       if (!manager) return;
-      return deps.billing.createProCheckoutSession(manager.id);
+      const session = await deps.billing.createProCheckoutSession(manager.id);
+      // Fire-and-forget (analytics never throws) — see AnalyticsPort.
+      void deps.analytics.record({ name: 'checkout_started', managerId: manager.id, props: {} });
+      return session;
     },
   );
 

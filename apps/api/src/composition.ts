@@ -69,7 +69,9 @@ import { MathRandomSource } from './adapters/outbound/MathRandomSource';
 import { CryptoIdGenerator } from './adapters/outbound/CryptoIdGenerator';
 import { ClerkAuthAdapter, DevelopmentAuthAdapter } from './adapters/outbound/ClerkAuthAdapter';
 import { DrizzleManagerAccountRepository } from './adapters/outbound/DrizzleManagerAccountRepository';
+import { DrizzleAnalyticsAdapter } from './adapters/outbound/DrizzleAnalyticsAdapter';
 import { EnsureManagerAccountUseCase } from '@tennis-manager/application';
+import { AnalyticsPort } from '@tennis-manager/application';
 
 export interface CompositionOptions {
   db: Db;
@@ -102,6 +104,10 @@ export interface Dependencies {
   auth: ClerkAuthAdapter | DevelopmentAuthAdapter;
   ensureManagerAccount: EnsureManagerAccountUseCase;
   authMode: 'clerk' | 'development';
+  /** Best-effort product analytics (Phase 1 — "make it enterable"),
+   * fire-and-forget from route handlers. DrizzleAnalyticsAdapter never
+   * throws, so a failed event can't break the request; see its doc. */
+  analytics: AnalyticsPort;
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
@@ -286,6 +292,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const auth = authMode === 'clerk'
     ? new ClerkAuthAdapter(process.env.CLERK_SECRET_KEY!, (process.env.CLERK_AUTHORIZED_PARTIES ?? '').split(',').map((value) => value.trim()).filter(Boolean))
     : new DevelopmentAuthAdapter();
+  const analytics = new DrizzleAnalyticsAdapter(options.db);
   const players = new DrizzlePlayerRepository(options.db);
   const tournaments = new DrizzleTournamentRepository(options.db);
   const matchLogs = new FilesystemMatchLogStore({
@@ -508,6 +515,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     auth,
     ensureManagerAccount,
     authMode,
+    analytics,
     players,
     tournaments,
     worlds,

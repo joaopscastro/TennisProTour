@@ -3,7 +3,11 @@
  * monorepo layout note on apps/web). */
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3000';
-const CLERK_ENABLED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
+/** Build-time switch: is a real identity provider configured? Exported so
+ * AuthGate and the dev-manager-default hook (lib/managerContext.ts) read
+ * the SAME determination this client uses to decide whether to send a
+ * bearer token or the dev header — they can never drift. */
+export const CLERK_ENABLED = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 let authTokenProvider: (() => Promise<string | null>) | null = null;
 
 export function setAuthTokenProvider(provider: (() => Promise<string | null>) | null): void {

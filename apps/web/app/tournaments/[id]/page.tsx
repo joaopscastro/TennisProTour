@@ -23,6 +23,7 @@ import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/prim
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
+import { useDevManagerId } from '../../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -582,7 +583,7 @@ export default function TournamentBracketPage() {
 
   // Doubles solo entry (P7b) — pick one of my players to sign up into
   // this tournament's doubles field (paired at draw formation).
-  const devManagerId = process.env.NEXT_PUBLIC_DEV_MANAGER_ID ?? 'seed-m1';
+  const devManagerId = useDevManagerId() ?? '';
   const [doublesRoster, setDoublesRoster] = useState<RosterDashboardEntryDto[] | null>(null);
   const [doublesPick, setDoublesPick] = useState<string | null>(null);
   const [doublesBusy, setDoublesBusy] = useState(false);

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { createProCheckoutSession, EntitlementDto, fetchEntitlement } from '../../lib/api';
+import { useDevManagerId } from '../../lib/managerContext';
 import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, Hero, SectionLabel } from '../../components/ui/primitives';
 
@@ -25,8 +26,9 @@ const CONVENIENCE_PERKS = [
 ];
 
 export default function ManagerProPage() {
-  const [managerId, setManagerId] = useState('seed-m1');
-  const [managerIdInput, setManagerIdInput] = useState('seed-m1');
+  const devManagerId = useDevManagerId();
+  const [managerId, setManagerId] = useState(devManagerId ?? '');
+  const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);

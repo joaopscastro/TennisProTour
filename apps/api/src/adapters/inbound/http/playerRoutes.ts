@@ -84,6 +84,12 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
         name: request.body.name,
         nationality: request.body.nationality,
       });
+      // Fire-and-forget (analytics never throws) — see AnalyticsPort.
+      void deps.analytics.record({
+        name: 'player_signed',
+        managerId: manager.id,
+        props: { playerId: player.id, method: 'custom' },
+      });
       return reply.code(201).send(toPlayerDto(player));
     },
   );

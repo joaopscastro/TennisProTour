@@ -16,6 +16,7 @@ import { PlayerCard } from '../../components/ui/PlayerCard';
 import { AnimatedNumber, Delta } from '../../components/ui/motion';
 import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
+import { useDevManagerId } from '../../lib/managerContext';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -24,8 +25,9 @@ function overallOf(c: TalentPoolCandidateDto): number {
 }
 
 export default function ScoutingPage() {
-  const [managerId, setManagerId] = useState('seed-m1');
-  const [managerIdInput, setManagerIdInput] = useState('seed-m1');
+  const devManagerId = useDevManagerId();
+  const [managerId, setManagerId] = useState(devManagerId ?? '');
+  const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [candidates, setCandidates] = useState<TalentPoolCandidateDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);

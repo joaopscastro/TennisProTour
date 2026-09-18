@@ -24,6 +24,7 @@ import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
 import { WEEKS_PER_SEASON, flagFor, stageLabel } from '../lib/format';
+import { useDevManagerId } from '../lib/managerContext';
 import { Avatar } from '../components/ui/Avatar';
 import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
 import { AnimatedNumber, AnimatedOvrRing, Delta, RankShift, FlashOnGain, usePersistedPrevious } from '../components/ui/motion';
@@ -197,8 +198,9 @@ function AnimatedAffinityBar({ playerId, surfaceKey, value, letter }: { playerId
 // ---------------------------------------------------------------------------
 
 export default function RosterDashboardPage() {
-  const [managerId, setManagerId] = useState('seed-m1');
-  const [managerIdInput, setManagerIdInput] = useState('seed-m1');
+  const devManagerId = useDevManagerId();
+  const [managerId, setManagerId] = useState(devManagerId ?? '');
+  const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [players, setPlayers] = useState<RosterDashboardEntryDto[] | null>(null);
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [error, setError] = useState<string | null>(null);
