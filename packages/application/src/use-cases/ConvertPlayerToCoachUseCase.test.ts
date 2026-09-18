@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   Coach,
+  CoachId,
   DoublesPair,
   ManagerId,
   PairId,
@@ -11,7 +12,16 @@ import {
   StandardCoachConversionPolicy,
   SurfaceAffinities,
 } from '@tennis-manager/domain';
-import { BillingPort, CoachRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
+import {
+  BillingPort,
+  CoachConversionOutcome,
+  CoachConversionPort,
+  CoachRepository,
+  EventPublisherPort,
+  IdGeneratorPort,
+  ManagerXpRepository,
+  PlayerRepository,
+} from '../ports/ports';
 import { ConvertPlayerToCoachUseCase } from './ConvertPlayerToCoachUseCase';
 import { FREE_COACH_CAP, PRO_COACH_CAP } from './coachCap';
 import { InMemoryDoublesPairRepository } from './doublesTestHelpers';
@@ -107,6 +117,55 @@ class RecordingEventPublisher implements EventPublisherPort {
   }
 }
 
+/**
+ * In-memory stand-in for the real (Postgres-transaction) adapter: it
+ * performs the same four writes in the same order (spend, release,
+ * dissolve pairs, create coach) so the use case's observable effects are
+ * exercised end to end. The REAL atomic rollback behavior is covered by
+ * a Postgres-backed integration test (api package), not here.
+ */
+class InMemoryCoachConversionPort implements CoachConversionPort {
+  constructor(
+    private readonly players: InMemoryPlayerRepository,
+    private readonly coaches: InMemoryCoachRepository,
+    private readonly managerXp: InMemoryManagerXpRepository,
+    private readonly pairs: InMemoryDoublesPairRepository,
+  ) {}
+
+  async convertAndCharge(input: {
+    playerId: PlayerId;
+    managerId: ManagerId;
+    coachId: CoachId;
+    xpCost: number;
+    coachRating: number;
+    sourcePlayerName: string;
+  }): Promise<CoachConversionOutcome> {
+    const player = await this.players.findById(input.playerId);
+    if (!player || player.managerId !== input.managerId) {
+      return { kind: 'player-unavailable' };
+    }
+    const spent = await this.managerXp.spendXpIfSufficient(input.managerId, input.xpCost);
+    if (!spent) {
+      return { kind: 'insufficient-xp', required: input.xpCost, balance: await this.managerXp.balanceFor(input.managerId) };
+    }
+    player.releaseFromManager();
+    await this.players.save(player);
+    for (const pair of await this.pairs.findByPlayer(input.playerId)) {
+      pair.dissolve();
+      await this.pairs.save(pair);
+    }
+    const coach = Coach.reconstitute({
+      id: input.coachId,
+      managerId: input.managerId,
+      coachRating: input.coachRating,
+      sourcePlayerId: input.playerId,
+      sourcePlayerName: input.sourcePlayerName,
+    });
+    await this.coaches.save(coach);
+    return { kind: 'converted', coach, xpSpent: input.xpCost };
+  }
+}
+
 function attributesAt(value: number): PlayerAttributes {
   return new PlayerAttributes({
     technical: { serve: Skill.of(value), forehand: Skill.of(value), backhand: Skill.of(value), volley: Skill.of(value) },
@@ -133,12 +192,11 @@ function makeUseCase(
   return new ConvertPlayerToCoachUseCase(
     players,
     coaches,
-    managerXp,
     new StandardCoachConversionPolicy(),
     new SequentialIdGenerator(),
     events,
     billing,
-    pairs,
+    new InMemoryCoachConversionPort(players, coaches, managerXp, pairs),
   );
 }
 

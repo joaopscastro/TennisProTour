@@ -31,6 +31,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import domain from '@tennis-manager/domain';
+import application from '@tennis-manager/application';
 
 const {
   StatisticalMatchSimulator,
@@ -43,7 +44,25 @@ const {
   StandardTrainingPolicy,
   StandardPlayerDevelopmentPolicy,
   weakestTrainableAttribute,
+  formModifier,
+  FORM_SWEET_SPOT_MIN,
+  FORM_SWEET_SPOT_MAX,
+  FORM_RUSTY_THRESHOLD,
+  FORM_STALE_THRESHOLD,
+  fatigueCostForMatch,
 } = domain;
+// The weekly form decay and daily fatigue recovery live in the application
+// layer (applied by AdvanceWorldWeekUseCase, not the domain), so they're
+// imported rather than re-hardcoded here — the same "never duplicate a
+// production constant" discipline the report's meta block already uses.
+const { FORM_WEEKLY_DECAY, FATIGUE_RECOVERY_PER_DAY } = application;
+// FATIGUE_RECOVERY_PER_DAY overrides the production daily recovery for this
+// run only, so a retuning pass can compare candidate values against real
+// trajectory data (same pattern as DIVISOR):
+//   for r in 5 4 3 2; do FATIGUE_RECOVERY_PER_DAY=$r node apps/api/scripts/balance-simulation.mjs; done
+const FATIGUE_RECOVERY = process.env.FATIGUE_RECOVERY_PER_DAY
+  ? Number(process.env.FATIGUE_RECOVERY_PER_DAY)
+  : FATIGUE_RECOVERY_PER_DAY;
 
 const TRIALS_PER_BUCKET = Number(process.env.TRIALS_PER_BUCKET ?? 3000);
 const REPORT_PATH = process.env.BALANCE_REPORT ?? 'balance-report.json';
@@ -279,6 +298,114 @@ for (let week = 1; week <= maxWeeks; week++) {
   }
 }
 
+// --- Bucket 6: form (match rhythm) -> win rate --------------------------
+// Two otherwise IDENTICAL players (equal skill, fatigue 0, neutral hard
+// court); only A's `form` varies, against B's fixed form 0 (the most-rusty
+// anchor). formModifier is a BAND function, not monotonic — rusty below 8,
+// neutral 8-11, +2 sweet spot 12-25, neutral 26-30, stale penalty above 30
+// — so this is a curve with a peak, not a gradient. This is the ONE core
+// effective-rating modifier the divisor retune never measured (the pass
+// re-checked fatigue/home/surface, but form is applied on the same scale
+// and was left unmeasured), which is exactly what docs/rocking-rackets-
+// competitive-analysis.md §5 flags as the main open balance question.
+const FORM_LEVELS = [0, 4, 7, 8, 11, 12, 18, 25, 26, 30, 31, 40, 50];
+const formResults = FORM_LEVELS.map((form) => {
+  const playerA = participant('formA', { skill: 50, form });
+  const playerB = participant('formB', { skill: 50, form: 0 });
+  return {
+    formA: form,
+    modifier: formModifier(form),
+    winRateA: winRateA(playerA, playerB, 'hard', TRIALS_PER_BUCKET),
+  };
+});
+// The +2 sweet-spot bonus must actually be the curve's peak, or the band
+// labels are lying about what they reward.
+const peakFormRow = formResults.reduce((best, row) => (row.winRateA > best.winRateA ? row : best), formResults[0]);
+const formPeakInSweetSpot = peakFormRow.formA >= FORM_SWEET_SPOT_MIN && peakFormRow.formA <= FORM_SWEET_SPOT_MAX;
+
+// --- Bucket 7: realistic form trajectory --------------------------------
+// Bucket 6 says what a given form VALUE is worth; this says which form
+// values a real player actually REACHES. A form value only matters if
+// production throughput can sit in the band, so this replays the real
+// accrual (+1 per match, SimulateMatchUseCase) and the real weekly decay
+// (FORM_WEEKLY_DECAY, AdvanceWorldWeekUseCase) exactly — via the real
+// Player.applyMatchForm/decayForm, not a re-derived recurrence — for a full
+// season under several realistic schedules. The last 4 samples give the
+// steady state. `startForm` seeds a schedule that begins mid-rhythm then
+// stops (idle trajectories always start at 0 otherwise, which hides the
+// decay behaviour entirely).
+const FORM_TRAJECTORY_WEEKS = 52;
+const FORM_SCHEDULES = [
+  { name: 'idle (never plays)', matchesPerWeek: 0 },
+  { name: 'went idle from form 20', matchesPerWeek: 0, startForm: 20 },
+  { name: 'senior: first-round exits', matchesPerWeek: 1 },
+  { name: 'senior: mid run', matchesPerWeek: 2 },
+  { name: 'senior: deep run', matchesPerWeek: 3 },
+  { name: 'senior: title run', matchesPerWeek: 5 },
+  { name: 'junior: 3 tournaments/week', matchesPerWeek: 6 },
+];
+const formTrajectories = FORM_SCHEDULES.map(({ name, matchesPerWeek, startForm = 0 }) => {
+  const player = makeCatchupPlayer(`form-${name}`, { skill: 50, ceilingHeadroom: EXPECTED_CEILING_HEADROOM });
+  if (startForm > 0) player.applyMatchForm(startForm);
+  const samples = [];
+  for (let week = 1; week <= FORM_TRAJECTORY_WEEKS; week++) {
+    for (let m = 0; m < matchesPerWeek; m++) player.applyMatchForm(1);
+    player.decayForm(FORM_WEEKLY_DECAY);
+    if (week > FORM_TRAJECTORY_WEEKS - 4) samples.push(player.form);
+  }
+  const steadyStateForm = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+  const band =
+    steadyStateForm < FORM_RUSTY_THRESHOLD
+      ? 'rusty'
+      : steadyStateForm >= FORM_SWEET_SPOT_MIN && steadyStateForm <= FORM_SWEET_SPOT_MAX
+        ? 'sweet-spot'
+        : steadyStateForm > FORM_STALE_THRESHOLD
+          ? 'stale'
+          : 'neutral';
+  return { schedule: name, matchesPerWeek, steadyStateForm, band, modifier: formModifier(steadyStateForm) };
+});
+
+// --- Bucket 8: realistic fatigue trajectory -----------------------------
+// Bucket 2 measured what a given fatigue VALUE is worth; this measures what
+// fatigue real schedules actually produce. Fatigue has BOTH an accrual (per
+// match, fatigueCostForMatch) and a recovery (per DAY tick —
+// FATIGUE_RECOVERY_PER_DAY, applied on all 7 days of the week). Under the
+// senior weekly entry cap of 1 tournament, a champion plays at most 5-7
+// matches in a week, against 7 × recovery — so whether fatigue EVER
+// accumulates depends entirely on that constant's scaling to the day-tick
+// cadence. This is the exact "especially their scaling to our day-tick
+// cadence" concern docs/rocking-rackets-competitive-analysis.md §5 calls
+// the main open balance question. Matches are modelled as consecutive days
+// at the start of the week (a real run's shape), each followed by that
+// day's recovery — the real Player mutators, not a re-derived recurrence.
+const FATIGUE_TRAJECTORY_WEEKS = 52;
+const FATIGUE_SCHEDULES = [
+  { name: 'idle', matchesPerWeek: 0 },
+  { name: 'senior: R1 exit', matchesPerWeek: 1 },
+  { name: 'senior: deep run', matchesPerWeek: 3 },
+  { name: 'senior: 32-draw title', matchesPerWeek: 5 },
+  { name: 'junior: 3 tournaments', matchesPerWeek: 6 },
+  { name: 'senior: 128-draw major title', matchesPerWeek: 7 },
+];
+const FATIGUE_STAMINAS = [50, 20];
+const fatigueTrajectories = [];
+for (const { name, matchesPerWeek } of FATIGUE_SCHEDULES) {
+  for (const stamina of FATIGUE_STAMINAS) {
+    const player = makeCatchupPlayer(`fatigue-${name}-${stamina}`, { skill: 50, ceilingHeadroom: EXPECTED_CEILING_HEADROOM });
+    const costPerMatch = fatigueCostForMatch(stamina);
+    const samples = [];
+    for (let week = 1; week <= FATIGUE_TRAJECTORY_WEEKS; week++) {
+      for (let day = 1; day <= 7; day++) {
+        if (day <= matchesPerWeek) player.applyMatchFatigue(costPerMatch);
+        player.recoverFatigue(FATIGUE_RECOVERY);
+      }
+      if (week > FATIGUE_TRAJECTORY_WEEKS - 4) samples.push(player.fatigue);
+    }
+    const steadyStateFatigue = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
+    fatigueTrajectories.push({ schedule: name, matchesPerWeek, stamina, costPerMatch, steadyStateFatigue });
+  }
+}
+
 function isMonotonicNonDecreasing(rows, key) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].winRateA < rows[i - 1].winRateA - 0.02) return false; // small tolerance for sampling noise
@@ -297,6 +424,7 @@ const report = {
     weeklyXpPerTalent: developmentPolicy.weeklyTalentIncome(100) / 100,
     xpPerSkillPoint: developmentPolicy.experienceCostPerSkillPoint(),
     baseGainYouth: BASE_GAIN_YOUTH,
+    fatigueRecoveryPerDay: FATIGUE_RECOVERY,
   },
   ratingGap: {
     description: 'Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.',
@@ -324,6 +452,24 @@ const report = {
     startingOverall: { mediocre: Math.round(48), strong: Math.round(80) },
     rows: catchupRows,
   },
+  form: {
+    description: "Win rate for A (equal skill to B, both fatigue 0, neutral hard court) as A's form varies, against B's fixed form 0 (most-rusty). formModifier is a band function, so this is a peaked curve, not a gradient — the peak should sit inside the [12,25] sweet spot.",
+    rows: formResults,
+    peakForm: peakFormRow.formA,
+    peakWinRateA: peakFormRow.winRateA,
+    peakInSweetSpot: formPeakInSweetSpot,
+  },
+  formTrajectory: {
+    description:
+      'Steady-state form a real schedule reaches over a 52-week season, replaying the production accrual (+1/match, SimulateMatchUseCase) and weekly decay (FORM_WEEKLY_DECAY, AdvanceWorldWeekUseCase) through the real Player mutators. Shows whether the sweet spot is reachable at all, and whether an idle player truly decays back to neutral.',
+    rows: formTrajectories,
+  },
+  fatigueTrajectory: {
+    description:
+      'Steady-state fatigue a real weekly schedule reaches over a 52-week season, replaying the production per-match cost (fatigueCostForMatch) and per-day recovery (FATIGUE_RECOVERY_PER_DAY, applied on all 7 days) through the real Player mutators. Rows are per schedule × stamina. A senior plays at most 5-7 matches/week (the 1/week entry cap), so this directly tests whether fatigue ever accumulates on the senior tour at all.',
+    recoveryPerDay: FATIGUE_RECOVERY,
+    rows: fatigueTrajectories,
+  },
 };
 
 writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
@@ -349,5 +495,27 @@ console.log('  week  mediocre OVR  strong OVR  strong win rate over mediocre');
 for (const row of catchupRows) {
   console.log(
     `  ${String(row.week).padStart(4)}  ${String(row.mediocreOverall).padStart(12)}  ${String(row.strongOverall).padStart(10)}  ${(row.winRateStrongOverMediocre * 100).toFixed(1)}%`,
+  );
+}
+
+console.log('\nForm (A) -> win rate for A (B fixed at form 0):');
+for (const row of formResults) {
+  console.log(`  form ${String(row.formA).padStart(3)} (modifier ${row.modifier >= 0 ? '+' : ''}${row.modifier.toFixed(1)}) -> ${(row.winRateA * 100).toFixed(1)}%`);
+}
+console.log(`  peak at form ${peakFormRow.formA} (${(peakFormRow.winRateA * 100).toFixed(1)}%), inside the sweet spot: ${formPeakInSweetSpot}`);
+
+console.log('\nForm trajectory (52-week steady state by schedule):');
+console.log('  schedule                          matches/wk  steady form  band');
+for (const row of formTrajectories) {
+  console.log(
+    `  ${row.schedule.padEnd(32)}  ${String(row.matchesPerWeek).padStart(10)}  ${String(row.steadyStateForm).padStart(11)}  ${row.band}`,
+  );
+}
+
+console.log(`\nFatigue trajectory (52-week steady state, recovery ${FATIGUE_RECOVERY}/day):`);
+console.log('  schedule                          matches/wk  stamina  cost/match  steady fatigue');
+for (const row of fatigueTrajectories) {
+  console.log(
+    `  ${row.schedule.padEnd(32)}  ${String(row.matchesPerWeek).padStart(10)}  ${String(row.stamina).padStart(7)}  ${String(row.costPerMatch).padStart(10)}  ${String(row.steadyStateFatigue).padStart(14)}`,
   );
 }

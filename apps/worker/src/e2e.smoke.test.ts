@@ -52,6 +52,7 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
 
     // Clean slate, same convention as the other integration suites
     // (child tables first, for the FKs).
+    await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
     await db.delete(schema.rankingLedger);
     await db.delete(schema.titles);
     await db.delete(schema.peakRankings);

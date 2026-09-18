@@ -1,6 +1,6 @@
 import { PlayerId, TournamentId, isAgeEligibleForTournamentBand, isJuniorTier } from '@tennis-manager/domain';
 import { ManagerId } from '@tennis-manager/domain';
-import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 
 export interface RegisterDoublesEntrantCommand {
@@ -35,6 +35,9 @@ export class RegisterDoublesEntrantUseCase {
   constructor(
     private readonly tournaments: TournamentRepository,
     private readonly players: PlayerRepository,
+    /** Atomic weekly-cap guard (see WeeklyEntryGuardPort) — optional for
+     * test compatibility, always passed by the composition root. */
+    private readonly weeklyEntryGuard?: WeeklyEntryGuardPort,
   ) {}
 
   async execute(command: RegisterDoublesEntrantCommand): Promise<void> {
@@ -66,6 +69,28 @@ export class RegisterDoublesEntrantUseCase {
           `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
           `(cap: ${cap})`,
       );
+    }
+
+    // Atomic guard against the check-then-write race above (see
+    // WeeklyEntryGuardPort) — shares its claims with the singles path,
+    // so a singles registration and a doubles registration racing for
+    // the same player can't both slip through.
+    if (this.weeklyEntryGuard) {
+      const claimed = await this.weeklyEntryGuard.tryClaimEntry({
+        playerId: command.playerId,
+        week: tournament.weekScheduled,
+        isJunior: isJuniorTier(tournament.tier),
+        tournamentId: tournament.id,
+        cap,
+      });
+      if (!claimed) {
+        const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+        throw new Error(
+          `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
+            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+            `(a concurrent entry was registered first)`,
+        );
+      }
     }
 
     // The aggregate enforces "holds a doubles draw", "not started", and

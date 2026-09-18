@@ -43,6 +43,12 @@ class InMemoryPracticeSessionRepository implements PracticeSessionRepository {
   async record(playerId: PlayerId, day: GameDay): Promise<void> {
     this.recorded.add(this.key(playerId, day));
   }
+  async tryRecord(playerId: PlayerId, day: GameDay): Promise<boolean> {
+    const key = this.key(playerId, day);
+    if (this.recorded.has(key)) return false;
+    this.recorded.add(key);
+    return true;
+  }
 }
 
 const WORLD = WorldId('main');
@@ -76,13 +82,37 @@ describe('RunPracticeSessionUseCase', () => {
     expect(await practices.recordedOn(PlayerId('p1'), TODAY)).toBe(true);
   });
 
-  it('refuses a second practice the same day', async () => {
-    const { players, worlds, useCase } = setup();
+  it('refuses a second practice the same day, awarding nothing on the refused attempt', async () => {
+    const { players, worlds, ladder, useCase } = setup();
     await worlds.save(GameWorld.reconstitute({ id: WORLD, currentWeek: { season: 1, week: 3 }, currentDay: 2, lastAppliedTick: null }));
     await players.save(makePlayer(PlayerId('p1'), ManagerId('m1')));
 
     await useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') });
+    const afterFirst = await players.findById(PlayerId('p1'));
+    const ladderAfterFirst = await ladder.scoreFor(ManagerId('m1'));
+
     await expect(useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') })).rejects.toThrow(/already practiced today/);
+
+    // The refused attempt awarded nothing extra.
+    const afterSecond = await players.findById(PlayerId('p1'));
+    expect(afterSecond!.fatigue).toBe(afterFirst!.fatigue);
+    expect(afterSecond!.experience).toBe(afterFirst!.experience);
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBe(ladderAfterFirst);
+  });
+
+  it('two concurrent practices for the same player/day award exactly once (atomic day-claim)', async () => {
+    const { players, worlds, ladder, useCase } = setup();
+    await worlds.save(GameWorld.reconstitute({ id: WORLD, currentWeek: { season: 1, week: 3 }, currentDay: 2, lastAppliedTick: null }));
+    await players.save(makePlayer(PlayerId('p1'), ManagerId('m1')));
+
+    const results = await Promise.allSettled([
+      useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') }),
+      useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') }),
+    ]);
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    // Credited exactly once, not twice — the double-click double-spend.
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBe(15);
   });
 
   it('refuses a player the manager does not own', async () => {

@@ -1,5 +1,5 @@
 import { ManagerId } from '@tennis-manager/domain';
-import { ManagerAccount, ManagerAccountRepository, IdGeneratorPort } from '../ports/ports';
+import { ManagerAccount, ManagerAccountRepository, IdGeneratorPort, ManagerXpRepository } from '../ports/ports';
 
 export interface EnsureManagerAccountCommand {
   authSubject: string;
@@ -9,6 +9,19 @@ export interface EnsureManagerAccountCommand {
   developmentManagerId?: ManagerId;
 }
 
+/**
+ * PLACEHOLDER starter XP a brand-new manager is granted the moment their
+ * account is created — the onboarding fix. Without it a fresh account has
+ * 0 XP, every talent-pool claim costs ≥50 XP, and XP is only ever earned
+ * from match results, so a new manager literally could not acquire their
+ * first player. 500 is enough to sign one or two free agents (the
+ * youngest cost ~50 XP, a strong prime-age prospect ~150-250) so a new
+ * manager has a real choice, without being so generous it buys an elite
+ * roster outright — this is a start, not a leg-up (CLAUDE.md principle
+ * #1). Not tuned; flagged like every other placeholder.
+ */
+export const STARTER_XP_BALANCE = 500;
+
 /** Resolves an authenticated external identity to the application's own
  * manager profile. This is intentionally separate from authentication so
  * Clerk can be replaced without changing ownership checks or community
@@ -17,6 +30,7 @@ export class EnsureManagerAccountUseCase {
   constructor(
     private readonly managers: ManagerAccountRepository,
     private readonly ids: IdGeneratorPort,
+    private readonly managerXp: ManagerXpRepository,
   ) {}
 
   async execute(command: EnsureManagerAccountCommand): Promise<ManagerAccount> {
@@ -58,6 +72,12 @@ export class EnsureManagerAccountUseCase {
       status: 'active',
     };
     await this.managers.save(account);
+    // Onboarding grant — only on genuine creation (every existing-account
+    // path above returns early), so a returning manager never re-gets it.
+    // A concurrent first-request race could double it; a few hundred XP
+    // is a negligible, self-correcting edge, not worth a transactional
+    // insert for.
+    await this.managerXp.credit(account.id, STARTER_XP_BALANCE);
     return account;
   }
 }

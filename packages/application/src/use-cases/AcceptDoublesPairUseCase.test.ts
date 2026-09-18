@@ -54,4 +54,24 @@ describe('AcceptDoublesPairUseCase', () => {
       new AcceptDoublesPairUseCase(pairs, players).execute({ pairId: active.id, managerId: ManagerId('m1') }),
     ).rejects.toThrow(/not awaiting acceptance/);
   });
+
+  it('re-verifies the one-active-pair invariant at acceptance — refuses when a player is already in another pair', async () => {
+    const players = new InMemoryPlayerRepository();
+    const pairs = new InMemoryDoublesPairRepository();
+    await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
+    await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
+    await players.save(makePlayer(PlayerId('c'), ManagerId('m1')));
+
+    // 'a' is already ACTIVE with 'c' — hand-seeded, since the create path
+    // would itself refuse to add a second pair for 'a'.
+    await pairs.save(DoublesPair.activate(PairId('p-active'), PlayerId('a'), PlayerId('c')));
+    // ...while a stale PENDING invite ('a' + 'b') still sits around.
+    const pending = DoublesPair.propose(PairId('p-pending'), PlayerId('a'), PlayerId('b'));
+    await pairs.save(pending);
+
+    await expect(
+      new AcceptDoublesPairUseCase(pairs, players).execute({ pairId: pending.id, managerId: ManagerId('m2') }),
+    ).rejects.toThrow(/already in another doubles pair/);
+    expect((await pairs.findById(pending.id))!.isPending).toBe(true);
+  });
 });

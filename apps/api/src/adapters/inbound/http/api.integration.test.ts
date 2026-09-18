@@ -67,6 +67,7 @@ beforeEach(async () => {
   // ranking_ledger/titles have FKs to both players and tournaments —
   // must go before either; peak_rankings/training_schedule only
   // reference players.
+  await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
@@ -835,7 +836,10 @@ describe('API', () => {
   it("reports a manager's entitlement tier", async () => {
     const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement', headers: { 'x-dev-manager-id': 'some-free-manager' } });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 0 });
+    // xpBalance is STARTER_XP_BALANCE (500): the first request for a
+    // never-seen manager creates the account, and account creation now
+    // grants starter XP so a new manager can afford a first signing.
+    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 500 });
   });
 
   it('lists available free-agent players and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {

@@ -596,6 +596,14 @@ export const tournaments = pgTable('tournaments', {
    * findOpenForRegistration() is a flag filter, not an EXISTS probe
    * against tournament_matches. */
   hasStarted: boolean('has_started').notNull().default(false),
+  /** Optimistic-concurrency token (see Tournament.persistenceVersion).
+   * Bumped on every DrizzleTournamentRepository.save; a whole-aggregate
+   * write only lands if the stored token still matches the one the
+   * aggregate was loaded with, so two concurrent modifications of the
+   * same tournament can never silently drop one another (the previous
+   * unconditional delete+reinsert was last-writer-wins). Defaults to 1
+   * for every pre-existing row. */
+  version: integer('version').notNull().default(1),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
@@ -840,6 +848,38 @@ export const practiceSessions = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.playerId, table.season, table.week, table.day] })],
+);
+
+/**
+ * Concurrency guard for the weekly entry cap (juniorEntryCap.ts): "at
+ * most N tournaments per player per week" cannot be expressed as a DB
+ * constraint, and the previous check-then-write let two concurrent
+ * registrations (into two DIFFERENT tournaments) both pass the count
+ * check and both land. DrizzleWeeklyEntryGuardAdapter.tryClaimEntry()
+ * takes a Postgres advisory lock scoped to (player, season, week, band),
+ * recounts, and inserts a row here only if the player is still under the
+ * cap. The row deduplicates against the real entry by
+ * (player, week, band, tournament) — the count unions this table with
+ * the real tournament_entries/tournament_doubles_entrants, so a claim
+ * never double-counts once its tournament save lands. Claims are
+ * meaningful only for their own week.
+ */
+export const weeklyEntryClaims = pgTable(
+  'weekly_entry_claims',
+  {
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    season: integer('season').notNull(),
+    week: integer('week').notNull(),
+    isJunior: boolean('is_junior').notNull(),
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id),
+  },
+  (table) => [
+    primaryKey({ columns: [table.playerId, table.season, table.week, table.isJunior, table.tournamentId] }),
+  ],
 );
 
 /**

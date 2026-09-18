@@ -49,7 +49,11 @@ export class RunPracticeSessionUseCase {
     const world = await this.worlds.findById(this.worldId);
     const today = world?.currentGameDay ?? { season: 1, week: 1, day: 1 };
 
-    if (await this.practices.recordedOn(command.playerId, today)) {
+    // Claim today's practice slot ATOMICALLY (a conditional insert) BEFORE
+    // awarding anything. A plain read-then-write would let two concurrent
+    // requests both see "not yet practiced" and both award XP/fatigue/
+    // ladder — the double-click double-spend this closes.
+    if (!(await this.practices.tryRecord(command.playerId, today))) {
       throw new Error(`Player ${command.playerId} has already practiced today`);
     }
 
@@ -62,7 +66,6 @@ export class RunPracticeSessionUseCase {
     await this.players.save(player);
 
     await this.managerLadder.credit(command.managerId, ladderPoints);
-    await this.practices.record(command.playerId, today);
 
     return { experience, fatigue, ladderPoints };
   }

@@ -15,12 +15,20 @@ export interface PlayerMatchSummary {
   opponentId: string;
   opponentName: string;
   opponentNationality: string;
-  /** 'win'/'loss' for a decided match; 'pending' for the player's next,
-   * not-yet-simulated match. */
+  /** 'win'/'loss' for a decided AND aired match; 'pending' for the
+   * player's next not-yet-aired match (whether truly un-simulated or
+   * simulated-but-inside its staggered reveal window — the result is
+   * hidden either way until the match airs). */
   result: 'win' | 'loss' | 'pending';
   /** MatchOutcome.setScores verbatim, oriented winner-first — null for a
-   * pending match. */
+   * not-yet-aired match. */
   setScores: Array<{ winnerGames: number; loserGames: number }> | null;
+  /** The match's scheduled reveal start (ISO), when the staggered
+   * schedule has assigned one — null for a match that hasn't been
+   * simulated yet. The profile counts down to this. */
+  scheduledStartAt: string | null;
+  /** Real-time seconds the reveal occupies (0 when not scheduled). */
+  revealSeconds: number;
 }
 
 export interface PlayerMatchesResult {
@@ -41,11 +49,12 @@ const RECENT_LIMIT = 5;
  * exactly like DrizzlePlayerTournamentHistoryQuery does — this is the
  * per-match sibling of that per-tournament query.
  *
- * Deliberately exposes NO per-match countdown/time: matches are swept
- * synchronously when due, with no per-match schedule to count down to
- * (see docs/CLAUDE.md's world-clock section — building a fake per-match
- * timer would misrepresent how simulation actually behaves). The "next"
- * match is honest about being the next match, not "in Xm Ys".
+ * Respects the staggered-match-schedule reveal window (see
+ * matchSchedule.ts): a decided match whose reveal window hasn't ended is
+ * NOT a "recent result" — it is the "next" match, shown with its
+ * scheduledStartAt so the profile can count down ("playing in 3:45")
+ * rather than spoil the result before it airs. A match is "aired" once
+ * it has an outcome AND (no schedule, or its reveal window has elapsed).
  */
 export class DrizzlePlayerMatchesQuery {
   constructor(private readonly db: Db) {}
@@ -96,11 +105,19 @@ export class DrizzlePlayerMatchesQuery {
         opponentNationality: opponent?.nationality ?? 'XX',
         result,
         setScores: result === 'pending' ? null : match.setScores ?? [],
+        scheduledStartAt: match.scheduledStartAt ? match.scheduledStartAt.toISOString() : null,
+        revealSeconds: match.revealSeconds ?? 0,
       };
     };
 
+    const now = Date.now();
+    const aired = (r: (typeof rows)[number]): boolean =>
+      r.match.winnerId !== null &&
+      (r.match.scheduledStartAt === null ||
+        now >= r.match.scheduledStartAt.getTime() + (r.match.revealSeconds ?? 0) * 1000);
+
     const decided = rows
-      .filter((r) => r.match.winnerId !== null)
+      .filter(aired)
       .sort(
         (a, b) =>
           b.tournament.seasonScheduled - a.tournament.seasonScheduled ||
@@ -112,17 +129,23 @@ export class DrizzlePlayerMatchesQuery {
       .slice(0, RECENT_LIMIT)
       .map((r) => toSummary(r, r.match.winnerId === playerId ? 'win' : 'loss'));
 
-    // "Next" = the earliest-round pending match in the newest-scheduled
-    // tournament the player is still alive in.
-    const pending = rows
-      .filter((r) => r.match.winnerId === null)
-      .sort(
-        (a, b) =>
-          b.tournament.seasonScheduled - a.tournament.seasonScheduled ||
-          b.tournament.weekScheduled - a.tournament.weekScheduled ||
-          a.match.roundNumber - b.match.roundNumber,
+    // "Next" = the earliest not-yet-aired match the player is still alive
+    // in. Simulated-but-not-aired matches (scheduledStartAt set) come
+    // first — ordered by their reveal start — because they're closest;
+    // truly pending matches (no schedule yet, their round isn't due)
+    // follow.
+    const notAired = rows.filter((r) => !aired(r));
+    notAired.sort((a, b) => {
+      const aStart = a.match.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      const bStart = b.match.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
+      if (aStart !== bStart) return aStart - bStart;
+      return (
+        b.tournament.seasonScheduled - a.tournament.seasonScheduled ||
+        b.tournament.weekScheduled - a.tournament.weekScheduled ||
+        a.match.roundNumber - b.match.roundNumber
       );
-    const next = pending.length > 0 ? toSummary(pending[0], 'pending') : null;
+    });
+    const next = notAired.length > 0 ? toSummary(notAired[0], 'pending') : null;
 
     return { recent, next };
   }

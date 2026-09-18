@@ -1,46 +1,47 @@
 {
   "meta": {
-    "runAt": "2026-08-21T12:24:15.927Z",
+    "runAt": "2026-09-18T16:24:23.425Z",
     "trialsPerBucket": 3000,
     "pointProbabilityDivisor": 80,
     "weeklyXpPerTalent": 0.3,
     "xpPerSkillPoint": 18,
-    "baseGainYouth": 1
+    "baseGainYouth": 1,
+    "fatigueRecoveryPerDay": 3
   },
   "ratingGap": {
     "description": "Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.",
     "rows": [
       {
         "gap": 0,
-        "winRateA": 0.5106666666666667
+        "winRateA": 0.5026666666666667
       },
       {
         "gap": 2,
-        "winRateA": 0.562
+        "winRateA": 0.5736666666666667
       },
       {
         "gap": 5,
-        "winRateA": 0.6776666666666666
+        "winRateA": 0.6683333333333333
       },
       {
         "gap": 8,
-        "winRateA": 0.7536666666666667
+        "winRateA": 0.749
       },
       {
         "gap": 10,
-        "winRateA": 0.807
+        "winRateA": 0.7986666666666666
       },
       {
         "gap": 15,
-        "winRateA": 0.894
+        "winRateA": 0.8996666666666666
       },
       {
         "gap": 20,
-        "winRateA": 0.9586666666666667
+        "winRateA": 0.948
       },
       {
         "gap": 30,
-        "winRateA": 0.9933333333333333
+        "winRateA": 0.991
       },
       {
         "gap": 40,
@@ -58,7 +59,7 @@
     "rows": [
       {
         "fatigueA": 0,
-        "winRateA": 0.5043333333333333
+        "winRateA": 0.5116666666666667
       },
       {
         "fatigueA": 10,
@@ -66,27 +67,27 @@
       },
       {
         "fatigueA": 20,
-        "winRateA": 0.39566666666666667
+        "winRateA": 0.4046666666666667
       },
       {
         "fatigueA": 30,
-        "winRateA": 0.3446666666666667
+        "winRateA": 0.3546666666666667
       },
       {
         "fatigueA": 40,
-        "winRateA": 0.306
+        "winRateA": 0.30633333333333335
       },
       {
         "fatigueA": 60,
-        "winRateA": 0.23466666666666666
+        "winRateA": 0.22833333333333333
       },
       {
         "fatigueA": 80,
-        "winRateA": 0.163
+        "winRateA": 0.14733333333333334
       },
       {
         "fatigueA": 100,
-        "winRateA": 0.102
+        "winRateA": 0.11233333333333333
       }
     ],
     "monotonicNonIncreasing": true
@@ -96,38 +97,38 @@
     "rows": [
       {
         "affinityGap": 0,
-        "winRateA": 0.494
+        "winRateA": 0.5163333333333333
       },
       {
         "affinityGap": 5,
-        "winRateA": 0.5283333333333333
+        "winRateA": 0.5423333333333333
       },
       {
         "affinityGap": 10,
-        "winRateA": 0.6123333333333333
+        "winRateA": 0.599
       },
       {
         "affinityGap": 20,
-        "winRateA": 0.7063333333333334
+        "winRateA": 0.682
       },
       {
         "affinityGap": 30,
-        "winRateA": 0.7743333333333333
+        "winRateA": 0.7843333333333333
       },
       {
         "affinityGap": 40,
-        "winRateA": 0.837
+        "winRateA": 0.8453333333333334
       },
       {
         "affinityGap": 60,
-        "winRateA": 0.842
+        "winRateA": 0.8516666666666667
       }
     ],
     "monotonic": true
   },
   "homeAdvantage": {
     "description": "Match win rate for A (equal skill to B in every other respect) with HOME_ADVANTAGE_BONUS applied — a regression check for the finding that drove the POINT_PROBABILITY_DIVISOR retuning.",
-    "winRateA": 0.5866666666666667
+    "winRateA": 0.5896666666666667
   },
   "rosterGapCatchup": {
     "description": "Real weekly production growth math (StandardPlayerDevelopmentPolicy + StandardTrainingPolicy via Player.applyTraining), not raw sim: a mediocre-start roster (48 OVR, physical ceilings ~70.5) vs. a strong-start roster (80 OVR, physical ceilings ~99), same talent (50) and same expected ceiling headroom (22.5, PlayerGenerationPolicy's real distribution average — headroom is rolled independently of rarity tier), training its weakest attribute every week. Rows are the strong roster's match win rate over the mediocre one at each checkpoint, out to 3 seasons.",
@@ -140,31 +141,248 @@
         "week": 13,
         "mediocreOverall": 49,
         "strongOverall": 81,
-        "winRateStrongOverMediocre": 0.9955
+        "winRateStrongOverMediocre": 0.997
       },
       {
         "week": 26,
         "mediocreOverall": 51,
         "strongOverall": 83,
-        "winRateStrongOverMediocre": 0.9955
+        "winRateStrongOverMediocre": 0.994
       },
       {
         "week": 52,
         "mediocreOverall": 54,
         "strongOverall": 86,
-        "winRateStrongOverMediocre": 0.9945
+        "winRateStrongOverMediocre": 0.9965
       },
       {
         "week": 104,
-        "mediocreOverall": 60,
-        "strongOverall": 92,
-        "winRateStrongOverMediocre": 0.9955
+        "mediocreOverall": 59,
+        "strongOverall": 91,
+        "winRateStrongOverMediocre": 0.994
       },
       {
         "week": 156,
-        "mediocreOverall": 61,
-        "strongOverall": 93,
-        "winRateStrongOverMediocre": 0.9965
+        "mediocreOverall": 63,
+        "strongOverall": 95,
+        "winRateStrongOverMediocre": 0.996
+      }
+    ]
+  },
+  "form": {
+    "description": "Win rate for A (equal skill to B, both fatigue 0, neutral hard court) as A's form varies, against B's fixed form 0 (most-rusty). formModifier is a band function, so this is a peaked curve, not a gradient — the peak should sit inside the [12,25] sweet spot.",
+    "rows": [
+      {
+        "formA": 0,
+        "modifier": -2.4,
+        "winRateA": 0.5013333333333333
+      },
+      {
+        "formA": 4,
+        "modifier": -1.2,
+        "winRateA": 0.5516666666666666
+      },
+      {
+        "formA": 7,
+        "modifier": -0.3,
+        "winRateA": 0.567
+      },
+      {
+        "formA": 8,
+        "modifier": 0,
+        "winRateA": 0.582
+      },
+      {
+        "formA": 11,
+        "modifier": 0,
+        "winRateA": 0.5913333333333334
+      },
+      {
+        "formA": 12,
+        "modifier": 2,
+        "winRateA": 0.6436666666666667
+      },
+      {
+        "formA": 18,
+        "modifier": 2,
+        "winRateA": 0.643
+      },
+      {
+        "formA": 25,
+        "modifier": 2,
+        "winRateA": 0.6206666666666667
+      },
+      {
+        "formA": 26,
+        "modifier": 0,
+        "winRateA": 0.586
+      },
+      {
+        "formA": 30,
+        "modifier": 0,
+        "winRateA": 0.5726666666666667
+      },
+      {
+        "formA": 31,
+        "modifier": -0.3,
+        "winRateA": 0.5723333333333334
+      },
+      {
+        "formA": 40,
+        "modifier": -3,
+        "winRateA": 0.468
+      },
+      {
+        "formA": 50,
+        "modifier": -6,
+        "winRateA": 0.37533333333333335
+      }
+    ],
+    "peakForm": 12,
+    "peakWinRateA": 0.6436666666666667,
+    "peakInSweetSpot": true
+  },
+  "formTrajectory": {
+    "description": "Steady-state form a real schedule reaches over a 52-week season, replaying the production accrual (+1/match, SimulateMatchUseCase) and weekly decay (FORM_WEEKLY_DECAY, AdvanceWorldWeekUseCase) through the real Player mutators. Shows whether the sweet spot is reachable at all, and whether an idle player truly decays back to neutral.",
+    "rows": [
+      {
+        "schedule": "idle (never plays)",
+        "matchesPerWeek": 0,
+        "steadyStateForm": 0,
+        "band": "rusty",
+        "modifier": -2.4
+      },
+      {
+        "schedule": "went idle from form 20",
+        "matchesPerWeek": 0,
+        "steadyStateForm": 3,
+        "band": "rusty",
+        "modifier": -1.5
+      },
+      {
+        "schedule": "senior: first-round exits",
+        "matchesPerWeek": 1,
+        "steadyStateForm": 3,
+        "band": "rusty",
+        "modifier": -1.5
+      },
+      {
+        "schedule": "senior: mid run",
+        "matchesPerWeek": 2,
+        "steadyStateForm": 9,
+        "band": "neutral",
+        "modifier": 0
+      },
+      {
+        "schedule": "senior: deep run",
+        "matchesPerWeek": 3,
+        "steadyStateForm": 14,
+        "band": "sweet-spot",
+        "modifier": 2
+      },
+      {
+        "schedule": "senior: title run",
+        "matchesPerWeek": 5,
+        "steadyStateForm": 26,
+        "band": "neutral",
+        "modifier": 0
+      },
+      {
+        "schedule": "junior: 3 tournaments/week",
+        "matchesPerWeek": 6,
+        "steadyStateForm": 31,
+        "band": "stale",
+        "modifier": -0.3
+      }
+    ]
+  },
+  "fatigueTrajectory": {
+    "description": "Steady-state fatigue a real weekly schedule reaches over a 52-week season, replaying the production per-match cost (fatigueCostForMatch) and per-day recovery (FATIGUE_RECOVERY_PER_DAY, applied on all 7 days) through the real Player mutators. Rows are per schedule × stamina. A senior plays at most 5-7 matches/week (the 1/week entry cap), so this directly tests whether fatigue ever accumulates on the senior tour at all.",
+    "recoveryPerDay": 3,
+    "rows": [
+      {
+        "schedule": "idle",
+        "matchesPerWeek": 0,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "idle",
+        "matchesPerWeek": 0,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "senior: R1 exit",
+        "matchesPerWeek": 1,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "senior: R1 exit",
+        "matchesPerWeek": 1,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "senior: deep run",
+        "matchesPerWeek": 3,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "senior: deep run",
+        "matchesPerWeek": 3,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 0
+      },
+      {
+        "schedule": "senior: 32-draw title",
+        "matchesPerWeek": 5,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 91
+      },
+      {
+        "schedule": "senior: 32-draw title",
+        "matchesPerWeek": 5,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 91
+      },
+      {
+        "schedule": "junior: 3 tournaments",
+        "matchesPerWeek": 6,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 94
+      },
+      {
+        "schedule": "junior: 3 tournaments",
+        "matchesPerWeek": 6,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 94
+      },
+      {
+        "schedule": "senior: 128-draw major title",
+        "matchesPerWeek": 7,
+        "stamina": 50,
+        "costPerMatch": 6,
+        "steadyStateFatigue": 97
+      },
+      {
+        "schedule": "senior: 128-draw major title",
+        "matchesPerWeek": 7,
+        "stamina": 20,
+        "costPerMatch": 7,
+        "steadyStateFatigue": 97
       }
     ]
   }

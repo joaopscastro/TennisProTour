@@ -371,3 +371,131 @@ pessimistic simulation predicted in live play — not "catch-up
 mechanics," but attributes silently unable to move at all. With the fix,
 live play should now track the deterministic simulation's own curves
 much more closely.
+
+## Fatigue/form pass: the day-tick-scaling question, answered with data
+
+The docs repeatedly flag the fatigue/form constants as "the main open
+balance question," specifically *"especially their scaling to our
+day-tick cadence"* (`docs/rocking-rackets-competitive-analysis.md` §5).
+Both are PLACEHOLDERs. The divisor retune re-checked fatigue's *win-rate*
+curve but never form at all, and never asked whether real schedules can
+actually *reach* the values those curves describe. This pass closes both
+gaps: three new buckets in `apps/api/scripts/balance-simulation.mjs`, all
+replaying the production mutators directly rather than a re-derived
+recurrence, and one production constant changed.
+
+### What was added to the tool
+
+1. **`form`** — win rate for A as A's form varies (equal skill/fatigue,
+   neutral hard court), against B fixed at form 0 (most-rusty). This is
+   the one core `effectiveRating` modifier the divisor retune never
+   measured.
+2. **`formTrajectory`** — the steady-state form a real 52-week schedule
+   reaches, replaying the production accrual (`+1` per match,
+   `SimulateMatchUseCase`) and weekly decay (`FORM_WEEKLY_DECAY = 0.85`,
+   `AdvanceWorldWeekUseCase`) through the real `Player.applyMatchForm` /
+   `decayForm`.
+3. **`fatigueTrajectory`** — the same for fatigue, replaying
+   `fatigueCostForMatch` per match and `FATIGUE_RECOVERY_PER_DAY` on all
+   seven days of the week through `Player.applyMatchFatigue` /
+   `recoverFatigue`. `FATIGUE_RECOVERY_PER_DAY` is also an env override
+   (`FATIGUE_RECOVERY_PER_DAY=3 node …`), same compare-candidates
+   workflow as `DIVISOR`.
+
+### Finding 1 — fatigue was dead on the senior tour (retuned 5 → 3/day)
+
+The senior tour is capped at **one tournament per week**. A 32-draw
+champion plays 5 matches (a 128-draw major, 7), at ~6 fatigue each for a
+mid-stamina player. Recovery was **5/day × 7 days = 35/week**. So even a
+player who won a 32-draw title *every single week* netted **negative**
+(30 − 35) and sat at fatigue 0 forever — the fatigue mechanic, and the
+whole "do I rest my player?" decision it exists to create, did nothing on
+the senior tour. Only 6-7-match weeks (junior 3-entry play, or a major
+title) ever accumulated.
+
+Measured steady-state fatigue after a 52-week season (production value of
+5/day):
+
+| schedule | matches/wk | mid stamina (cost 6) | low stamina (cost 7) |
+|---|---|---|---|
+| idle | 0 | 0 | 0 |
+| senior: R1 exit | 1 | 0 | 0 |
+| senior: deep run | 3 | 0 | 0 |
+| senior: 32-draw title | 5 | **0** | **0** |
+| junior: 3 tournaments | 6 | 51 | 90 |
+| senior: 128-draw major title | 7 | 95 | 95 |
+
+**Retuned `FATIGUE_RECOVERY_PER_DAY` from 5 to 3.** The accumulation
+threshold moves from ~5.8 to ~3.5 matches/week: an early exit or a deep
+run stays free, while a sustained semifinal-or-better schedule builds
+fatigue and eventually forces a rest week — the intended "which
+tournaments do I enter" tension. After the retune the same table reads:
+
+| schedule | matches/wk | steady fatigue |
+|---|---|---|
+| idle / R1 exit / deep run | 0-3 | 0 |
+| senior: 32-draw title | 5 | 91 |
+| junior: 3 tournaments | 6 | 94 |
+| senior: 128-draw major title | 7 | 97 |
+
+*Not changed*: `BASE_MATCH_FATIGUE` (8) and the sim penalty
+(`fatigue × 0.15`) were left alone — moving the single recovery constant
+is the minimal change that revives the mechanic, and changing accrual,
+recovery, and penalty together would make the effect unattributable. 3 is
+still a PLACEHOLDER validated against *simulated trajectories*, not live
+play.
+
+### Finding 2 — the form curve is sound, and the sweet spot is reachable (measured, NOT retuned)
+
+The form modifier is a *band* function, not a gradient (rusty `<8`,
+neutral `8-11`, `+2` sweet spot `12-25`, neutral `26-30`, stale `>30`), so
+this is a peaked curve. Measured win rate for A vs B at form 0:
+
+| A's form | modifier | win rate A |
+|---|---|---|
+| 0 | −2.4 | 50.4% |
+| 8 | 0.0 | 58.3% |
+| 12-25 | +2.0 | 63-64% |
+| 30 | 0.0 | 57.8% |
+| 40 | −3.0 | 48.5% |
+| 50 | −6.0 | 37.2% |
+
+The peak is genuinely inside the `[12,25]` sweet spot, so the band labels
+are truthful; the sweet spot is a real, felt edge (~64% vs the most-rusty
+anchor) without being decisive. And the trajectory bucket shows the band
+is *reachable*: only a "deep run" schedule (3 matches/week) sits at form
+14 (sweet spot), while winning every week (5 matches → 26) and junior
+3-entry play (6 → 31) drift to neutral/stale — the intended over-playing
+penalty, arriving exactly where the design says it should. **No form
+constant was changed**, because the data does not say to change one.
+
+### Disclosed, NOT fixed: form decay has a minor integer-rounding artifact
+
+`Player.decayForm` uses `Math.round(form × 0.85)`, which makes **1, 2, and
+3 fixed points** — measured: a player who "went idle from form 20" stalls
+at form **3** instead of decaying to 0. This is the same *shape* as the
+`Skill` rounding bug fixed earlier, but with a far smaller blast radius:
+form 3 is still inside the **rusty** band (`<8`), so the *band* is
+unaffected — only the rusty penalty's magnitude differs (−1.5 instead of
+−2.4). Fixing it properly means either carrying fractional form (a DB
+migration, like `Skill`'s `raw`) or switching to `Math.floor`, and floor
+has its own distortion the other way (1 match/week would pin at form 0
+permanently). Since neither is clearly better than the current behavior
+and the band is unaffected, this pass **documents it rather than swapping
+one arbitrary rounding for another** — revisit only alongside a broader
+reason to carry fractional player state.
+
+### What this pass did and did not do
+
+- **Applied**: `FATIGUE_RECOVERY_PER_DAY` 5 → 3
+  (`packages/application/src/use-cases/AdvanceWorldWeekUseCase.ts`), with
+  its doc comment rewritten to the measured rationale.
+- **Built**: the `form`, `formTrajectory`, and `fatigueTrajectory` buckets
+  (+ the `FATIGUE_RECOVERY_PER_DAY` env override) in
+  `apps/api/scripts/balance-simulation.mjs`.
+- **Not done**: no change to `BASE_MATCH_FATIGUE`, the fatigue sim
+  penalty, or any form constant — the data did not support moving them.
+  The pre-existing PLACEHOLDERs outside the fatigue/form pair (aging
+  thresholds, the training-redesign deltas, `DIRECT_ACCEPTANCE_CUTOFF`,
+  the prize-money tables, etc.) remain untouched and still need their own
+  passes.

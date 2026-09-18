@@ -797,6 +797,12 @@ export interface PlayerMatchSummaryDto {
   opponentNationality: string;
   result: 'win' | 'loss' | 'pending';
   setScores: Array<{ winnerGames: number; loserGames: number }> | null;
+  /** The match's scheduled reveal start (ISO), when the staggered
+   * schedule has assigned one — null before simulation. The profile
+   * counts down to this ("playing in 3:45"). */
+  scheduledStartAt: string | null;
+  /** Real-time seconds the reveal occupies (0 when not scheduled). */
+  revealSeconds: number;
 }
 
 /** The profile page's "latest results + next match" strip. Carries no

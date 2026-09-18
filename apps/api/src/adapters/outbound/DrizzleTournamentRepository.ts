@@ -15,7 +15,7 @@ import {
   drawOf,
 } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
-import { TournamentRepository } from '@tennis-manager/application';
+import { ConcurrentModificationError, TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments } from '../../db/schema';
 
@@ -104,13 +104,34 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     };
 
     await this.db.transaction(async (tx) => {
-      await tx
-        .insert(tournaments)
-        .values(tournamentRow)
-        .onConflictDoUpdate({
-          target: tournaments.id,
-          set: { ...tournamentRow, updatedAt: new Date() },
-        });
+      // Optimistic-concurrency guard (see Tournament.persistenceVersion):
+      // a whole-aggregate write must land only if no other writer has
+      // saved this tournament since this instance was loaded. Without
+      // it, two concurrent registrations for the same tournament both
+      // loaded the same pre-write state and the second save silently
+      // dropped the first's entrant (delete+reinsert, last-writer-wins).
+      const expectedVersion = tournament.persistenceVersion;
+      if (expectedVersion === 0) {
+        const inserted = await tx
+          .insert(tournaments)
+          .values({ ...tournamentRow, version: 1 })
+          .onConflictDoNothing({ target: tournaments.id })
+          .returning({ version: tournaments.version });
+        if (inserted.length === 0) {
+          throw new ConcurrentModificationError(tournament.id);
+        }
+        tournament.markPersisted(inserted[0].version);
+      } else {
+        const updated = await tx
+          .update(tournaments)
+          .set({ ...tournamentRow, version: expectedVersion + 1, updatedAt: new Date() })
+          .where(and(eq(tournaments.id, tournament.id), eq(tournaments.version, expectedVersion)))
+          .returning({ version: tournaments.version });
+        if (updated.length === 0) {
+          throw new ConcurrentModificationError(tournament.id);
+        }
+        tournament.markPersisted(updated[0].version);
+      }
 
       await tx.delete(tournamentEntries).where(eq(tournamentEntries.tournamentId, tournament.id));
       if (tournament.entrants.length > 0) {
@@ -289,6 +310,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
           persistentPairId: p.persistentPairId ? PairId(p.persistentPairId) : undefined,
         })),
       doublesQualifyingRounds: toDoublesRounds(doublesMatchRows.filter((m) => m.draw === 'qualifying')),
+      persistenceVersion: row.version,
     });
   }
 }

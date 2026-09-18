@@ -330,6 +330,20 @@
       "when": 1787400163633,
       "tag": "0046_light_vance_astro",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789746065928,
+      "tag": "0047_amazing_jazinda",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789746329066,
+      "tag": "0048_keen_nextwave",
+      "breakpoints": true
     }
   ]
 }

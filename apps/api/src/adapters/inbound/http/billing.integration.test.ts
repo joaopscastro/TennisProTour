@@ -50,6 +50,7 @@ beforeEach(async () => {
   // ranking_ledger/titles have FKs to both players and tournaments —
   // must go before either; peak_rankings/training_schedule only
   // reference players.
+  await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);

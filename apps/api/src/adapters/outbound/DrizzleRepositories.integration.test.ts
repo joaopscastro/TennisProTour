@@ -17,6 +17,7 @@ import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { Coach, CoachId } from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
+import { ConcurrentModificationError } from '@tennis-manager/application';
 import { testConnectionString } from '../../db/testConnection';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepository';
@@ -24,6 +25,8 @@ import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
+import { DrizzleCoachConversionAdapter } from './DrizzleCoachConversionAdapter';
+import { DrizzleWeeklyEntryGuardAdapter } from './DrizzleWeeklyEntryGuardAdapter';
 import { DrizzleCoachRepository } from './DrizzleCoachRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
 import { DrizzleTitleRepository } from './DrizzleTitleRepository';
@@ -56,6 +59,7 @@ beforeEach(async () => {
   // FKs to both players and tournaments, so they have to go before
   // either; peak_rankings/training_schedule only reference players.
   // doubles_pairs references players, so it goes before players too.
+  await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
   await db.delete(schema.peakRankings);
@@ -547,6 +551,56 @@ describe('DrizzleTournamentRepository', () => {
     await tournamentRepository.save(original);
     expect(await tournamentRepository.findOpenForRegistration()).toHaveLength(0);
   });
+
+  it('refuses a stale whole-aggregate write instead of silently dropping a concurrent registration', async () => {
+    await savePlayers(4);
+    const original = Tournament.open({
+      name: 'Concurrency Cup',
+      id: TournamentId('tc1'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(original);
+
+    // Two writers load the SAME version independently (the real race:
+    // two managers registering for the same tournament at once)...
+    const writerA = (await tournamentRepository.findById(TournamentId('tc1')))!;
+    const writerB = (await tournamentRepository.findById(TournamentId('tc1')))!;
+    writerA.registerEntrant({ playerId: PlayerId('p1'), seed: 1 });
+    writerB.registerEntrant({ playerId: PlayerId('p2'), seed: 2 });
+
+    // ...the first to save lands and is persisted...
+    await tournamentRepository.save(writerA);
+    // ...the second is refused loudly (mapped to a retryable 409 by the
+    // HTTP layer) rather than clobbering writer A's entrant — the whole
+    // point, since the previous delete+reinsert was last-writer-wins.
+    await expect(tournamentRepository.save(writerB)).rejects.toThrow(ConcurrentModificationError);
+
+    const reloaded = await tournamentRepository.findById(TournamentId('tc1'));
+    expect(reloaded!.entrants.map((e) => e.playerId)).toEqual([PlayerId('p1')]);
+  });
+
+  it('allows the SAME instance to be saved repeatedly (the version is written back), so multi-save use cases still work', async () => {
+    await savePlayers(2);
+    const original = Tournament.open({
+      name: 'Multi Save Open',
+      id: TournamentId('tc2'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(original); // v1
+    original.registerEntrant({ playerId: PlayerId('p1'), seed: 1 });
+    await tournamentRepository.save(original); // v2
+    original.registerEntrant({ playerId: PlayerId('p2'), seed: 2 });
+    await tournamentRepository.save(original); // v3
+
+    const reloaded = await tournamentRepository.findById(TournamentId('tc2'));
+    expect([...reloaded!.entrants.map((e) => e.playerId)].sort()).toEqual([PlayerId('p1'), PlayerId('p2')]);
+  });
 });
 
 describe('DrizzleRankingLedgerRepository', () => {
@@ -948,6 +1002,168 @@ describe('DrizzleTalentClaimAdapter', () => {
       expect(reloaded!.fillOnly).toBe(false);
     },
   );
+});
+
+describe('DrizzleWeeklyEntryGuardAdapter', () => {
+  const guard = new DrizzleWeeklyEntryGuardAdapter(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const week = { season: 1, week: 10 };
+
+  async function savePlayer(id: string): Promise<void> {
+    await playerRepository.save(Player.hire(PlayerId(id), 'Guard Player', 25 * 52, attributes(50), ManagerId('m1')));
+  }
+
+  async function saveOpenTournament(id: string, tier: 'challenger' | 'j100'): Promise<Tournament> {
+    const tournament = Tournament.open({
+      name: `Guard ${id}`,
+      id: TournamentId(id),
+      tier,
+      ageBand: tier === 'j100' ? 'u16' : null,
+      surface: 'hard',
+      weekScheduled: week,
+      drawSize: 32,
+    });
+    await tournamentRepository.save(tournament);
+    return tournament;
+  }
+
+  it('refuses a second same-band entry when the player is already entered at cap 1', async () => {
+    await savePlayer('gp1');
+    const first = await saveOpenTournament('gt1', 'challenger');
+    first.registerEntrant({ playerId: PlayerId('gp1'), seed: null });
+    await tournamentRepository.save(first);
+    await saveOpenTournament('gt2', 'challenger');
+
+    const claimed = await guard.tryClaimEntry({
+      playerId: PlayerId('gp1'),
+      week,
+      isJunior: false,
+      tournamentId: TournamentId('gt2'),
+      cap: 1,
+    });
+    expect(claimed).toBe(false);
+  });
+
+  it('under concurrent claims for TWO different tournaments at cap 1, exactly one succeeds', async () => {
+    await savePlayer('gp1');
+    await saveOpenTournament('gt1', 'challenger');
+    await saveOpenTournament('gt2', 'challenger');
+
+    const [a, b] = await Promise.all([
+      guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt1'), cap: 1 }),
+      guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt2'), cap: 1 }),
+    ]);
+    expect([a, b].filter(Boolean)).toHaveLength(1);
+  });
+
+  it('allows re-claiming the SAME tournament — a retry is not blocked by its own earlier claim', async () => {
+    await savePlayer('gp1');
+    await saveOpenTournament('gt1', 'challenger');
+
+    expect(
+      await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt1'), cap: 1 }),
+    ).toBe(true);
+    expect(
+      await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt1'), cap: 1 }),
+    ).toBe(true);
+  });
+
+  it('counts junior and senior entries independently', async () => {
+    await savePlayer('gp1');
+    const senior = await saveOpenTournament('gt-s', 'challenger');
+    senior.registerEntrant({ playerId: PlayerId('gp1'), seed: null });
+    await tournamentRepository.save(senior);
+    await saveOpenTournament('gt-j', 'j100');
+
+    // The senior entry does NOT consume the junior band's weekly cap.
+    expect(
+      await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: true, tournamentId: TournamentId('gt-j'), cap: 1 }),
+    ).toBe(true);
+  });
+});
+
+describe('DrizzleCoachConversionAdapter', () => {
+  const adapter = new DrizzleCoachConversionAdapter(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const coachRepository = new DrizzleCoachRepository(db);
+  const xpRepository = new DrizzleManagerXpRepository(db);
+  const pairRepository = new DrizzleDoublesPairRepository(db);
+
+  async function saveRosteredPlayer(id: string, managerId: ManagerId): Promise<void> {
+    const player = Player.hire(PlayerId(id), 'Marta Silva', 25 * 52, attributes(60), managerId, 'BR');
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+  }
+
+  function conversionInput(playerId: string, managerId: string, coachId: string) {
+    return {
+      playerId: PlayerId(playerId),
+      managerId: ManagerId(managerId),
+      coachId: CoachId(coachId),
+      xpCost: 40,
+      coachRating: 72,
+      sourcePlayerName: 'Marta Silva',
+    };
+  }
+
+  it('converts atomically: debits XP, releases the player, dissolves pairs, and creates the coach', async () => {
+    await saveRosteredPlayer('cp1', ManagerId('m1'));
+    await saveRosteredPlayer('cp2', ManagerId('m1'));
+    await xpRepository.credit(ManagerId('m1'), 100);
+    await pairRepository.save(DoublesPair.activate(PairId('pair-1'), PlayerId('cp1'), PlayerId('cp2')));
+
+    const outcome = await adapter.convertAndCharge(conversionInput('cp1', 'm1', 'coach1'));
+
+    expect(outcome.kind).toBe('converted');
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(60);
+    expect((await playerRepository.findById(PlayerId('cp1')))!.managerId).toBeNull();
+    const coaches = await coachRepository.findByManager(ManagerId('m1'));
+    expect(coaches).toHaveLength(1);
+    expect(coaches[0].coachRating).toBe(72);
+    expect((await pairRepository.findById(PairId('pair-1')))!.isDissolved).toBe(true);
+  });
+
+  it('refuses and spends nothing when the manager cannot afford the conversion', async () => {
+    await saveRosteredPlayer('cp1', ManagerId('m1'));
+    await xpRepository.credit(ManagerId('m1'), 10);
+
+    const outcome = await adapter.convertAndCharge(conversionInput('cp1', 'm1', 'coach1'));
+
+    expect(outcome).toEqual({ kind: 'insufficient-xp', required: 40, balance: 10 });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(10);
+    expect((await playerRepository.findById(PlayerId('cp1')))!.managerId).toBe(ManagerId('m1'));
+    expect(await coachRepository.findByManager(ManagerId('m1'))).toHaveLength(0);
+  });
+
+  it('rolls back the XP debit when the player turns out not to be owned by the manager', async () => {
+    await saveRosteredPlayer('cp1', ManagerId('someone-else'));
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.convertAndCharge(conversionInput('cp1', 'm1', 'coach1'));
+
+    // The XP debit already applied inside the transaction is undone by
+    // the rollback — the whole reason this is one transaction instead of
+    // a spend-then-release sequence in application code.
+    expect(outcome).toEqual({ kind: 'player-unavailable' });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100);
+    expect((await playerRepository.findById(PlayerId('cp1')))!.managerId).toBe(ManagerId('someone-else'));
+    expect(await coachRepository.findByManager(ManagerId('m1'))).toHaveLength(0);
+  });
+
+  it('under concurrent conversions of the SAME player, exactly one succeeds and the XP is charged once', async () => {
+    await saveRosteredPlayer('cp1', ManagerId('m1'));
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const [a, b] = await Promise.all([
+      adapter.convertAndCharge(conversionInput('cp1', 'm1', 'coach1')),
+      adapter.convertAndCharge(conversionInput('cp1', 'm1', 'coach2')),
+    ]);
+
+    expect([a, b].filter((o) => o.kind === 'converted')).toHaveLength(1);
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(60);
+    expect(await coachRepository.findByManager(ManagerId('m1'))).toHaveLength(1);
+  });
 });
 
 describe('DrizzleCoachRepository', () => {

@@ -37,15 +37,22 @@ export interface AdvanceWorldWeekCommand {
 }
 
 /** Fatigue recovered per DAY tick (every advanced day, mid-week and on
- * the weekly rollover alike) — the recovery half of the fatigue system
+ * the weekly rollover alike) - the recovery half of the fatigue system
  * whose accrual lives in SimulateMatchUseCase (fatigueCostForMatch).
- * RR recovers 50/day on a ~0–500+ scale; scaled to our 0–100 fatigue
- * scale and the per-match accrual (BASE_MATCH_FATIGUE = 8), 5/day makes
- * a player who plays a match every day of a deep run slowly accumulate
- * fatigue, while idle days bleed it back off — the scheduling tension
- * that is the whole point. PLACEHOLDER, owned by the fatigue/form
- * tuning pass (docs/rocking-rackets-competitive-analysis.md §5). */
-export const FATIGUE_RECOVERY_PER_DAY = 5;
+ *
+ * Retuned from 5 to 3 by the fatigue/form pass (docs/balance-tuning-
+ * report.md's "Fatigue trajectory" section). At 5/day a week gave back 35
+ * fatigue, while the ENTIRE senior tour is capped at one tournament a week
+ * (5 matches for a 32-draw champion, ~6 fatigue per match): a player who
+ * WON a title every single week still netted negative and sat at fatigue 0
+ * forever, so the mechanic was dead on the senior tour. 3/day moves the
+ * accumulation threshold to ~4 matches/week - ordinary play (an early exit
+ * through a deep run) stays free, while a sustained semifinal-or-better
+ * schedule slowly builds fatigue and eventually forces a rest week, which
+ * is the "which tournaments do I enter" tension the system exists for.
+ * Still a PLACEHOLDER, verified against simulated trajectories rather than
+ * live play (docs/rocking-rackets-competitive-analysis.md §5). */
+export const FATIGUE_RECOVERY_PER_DAY = 3;
 
 /** Multiplicative form decay applied once per WEEKLY rollover (0.85 =
  * lose 15%/week). RR decays −8%/week in a faster-moving real-time

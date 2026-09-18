@@ -49,6 +49,8 @@ import { DrizzlePlayerTournamentHistoryQuery } from './adapters/outbound/Drizzle
 import { DrizzlePlayerProfileQuery } from './adapters/outbound/DrizzlePlayerProfileQuery';
 import { DrizzlePlayerMatchesQuery } from './adapters/outbound/DrizzlePlayerMatchesQuery';
 import { DrizzleTalentClaimAdapter } from './adapters/outbound/DrizzleTalentClaimAdapter';
+import { DrizzleCoachConversionAdapter } from './adapters/outbound/DrizzleCoachConversionAdapter';
+import { DrizzleWeeklyEntryGuardAdapter } from './adapters/outbound/DrizzleWeeklyEntryGuardAdapter';
 import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
 import { DrizzleManagerLadderRepository } from './adapters/outbound/DrizzleManagerLadderRepository';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
@@ -314,6 +316,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const managerLadderPolicy = new StandardManagerLadderPolicy();
   const developmentPolicy = new StandardPlayerDevelopmentPolicy();
   const talentClaim = new DrizzleTalentClaimAdapter(options.db);
+  const coachConversion = new DrizzleCoachConversionAdapter(options.db);
   const talentClaimPricingPolicy = new StandardTalentClaimPricingPolicy();
   const coaches = new DrizzleCoachRepository(options.db);
   const doublesPairs = new DrizzleDoublesPairRepository(options.db);
@@ -324,7 +327,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const worldTeamCups = new DrizzleWorldTeamCupRepository(options.db);
   const coachConversionPolicy = new StandardCoachConversionPolicy();
   const idGenerator = new CryptoIdGenerator();
-  const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator);
+  const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator, managerXp);
   // A separate RandomSource instance from the match simulator's — both
   // just wrap Math.random() statelessly, so sharing wouldn't be wrong,
   // but keeping them distinct avoids implying any ordering coupling
@@ -416,7 +419,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     bracketGenerator,
     new MathRandomSource(),
   );
-  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players);
+  const weeklyEntryGuard = new DrizzleWeeklyEntryGuardAdapter(options.db);
+  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players, weeklyEntryGuard);
 
   // Masters Cup (P8b): the season-end capstone, generated on a season-end
   // rollover, simulated match-by-match, and advanced from groups to
@@ -526,7 +530,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ensureFillOnlyPopulation: new EnsureFillOnlyPopulationUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
     openTournament,
     openRegistration,
-    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw, weeklyEntryGuard),
     simulateMatch,
     advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy, tournaments),
     generateJuniorTournaments,
@@ -554,12 +558,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     convertPlayerToCoach: new ConvertPlayerToCoachUseCase(
       players,
       coaches,
-      managerXp,
       coachConversionPolicy,
       idGenerator,
       events,
       billing,
-      doublesPairs,
+      coachConversion,
     ),
     doublesPairs,
     createDoublesPair: new CreateDoublesPairUseCase(players, doublesPairs, idGenerator),

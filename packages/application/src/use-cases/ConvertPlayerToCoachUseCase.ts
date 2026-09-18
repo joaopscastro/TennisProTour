@@ -1,5 +1,5 @@
 import { Coach, CoachConversionPolicy, CoachId, ManagerId, PlayerId } from '@tennis-manager/domain';
-import { BillingPort, CoachRepository, DoublesPairRepository, EventPublisherPort, IdGeneratorPort, ManagerXpRepository, PlayerRepository } from '../ports/ports';
+import { BillingPort, CoachConversionPort, CoachRepository, EventPublisherPort, IdGeneratorPort, PlayerRepository } from '../ports/ports';
 import { maxCoachCountFor } from './coachCap';
 
 export interface ConvertPlayerToCoachCommand {
@@ -18,6 +18,14 @@ export interface ConvertPlayerToCoachCommand {
  * better coach). There is deliberately no release/undo path for a
  * Coach once created — see Coach's own doc comment.
  *
+ * **The multi-write step is now ATOMIC** via `CoachConversionPort`
+ * (DrizzleCoachConversionAdapter): spending the XP, releasing the
+ * player, dissolving their doubles pairs, and creating the coach all
+ * happen in ONE DB transaction, so a failure can never leave XP spent
+ * with no coach (the old, disclosed bug — three separate writes with a
+ * mid-sequence failure window). The reads below (ownership, capacity,
+ * pricing) stay here.
+ *
  * Coach cap: free tier is capped at FREE_COACH_CAP (1); Manager Pro
  * raises it to PRO_COACH_CAP (2) — see coachCap.ts. This is a
  * DELIBERATE, DISCLOSED exception to CLAUDE.md principle #1's usual
@@ -28,31 +36,23 @@ export interface ConvertPlayerToCoachCommand {
  * rosterCap.ts) — one BillingPort.isProSubscriber() call, no new
  * pattern invented for it.
  *
- * Race safety note, stated honestly rather than silently glossed over:
- * unlike ClaimTalentPoolCandidateUseCase (which the user's own
- * concurrency-test requirement was explicitly scoped to), the coach
- * cap check below is a plain check-then-act, NOT protected by an
- * atomic conditional UPDATE the way the XP spend itself is
- * (spendXpIfSufficient still guarantees a manager can never overspend
- * their XP balance even under a cap race). Two near-simultaneous
- * conversions by the same manager could theoretically both pass the
- * cap check before either coach is saved, exceeding the cap by one.
- * This mirrors an existing, already-accepted gap in this codebase (the
- * roster-size cap check in ClaimTalentPoolCandidateUseCase has the
- * exact same shape) — worth tightening later with the same kind of
- * atomic-guard treatment if it matters in practice, but out of scope
- * for this pass.
+ * Remaining disclosed gap: the CAP check above is still a plain
+ * check-then-act (not covered by the transaction), so two
+ * near-simultaneous conversions by the same manager could theoretically
+ * both pass the cap check before either coach is saved, exceeding the
+ * cap by one. The XP spend itself can never overspend (the port's
+ * conditional UPDATE guarantees it). Tightening the cap needs the same
+ * kind of atomic-guard treatment; out of scope for this pass.
  */
 export class ConvertPlayerToCoachUseCase {
   constructor(
     private readonly players: PlayerRepository,
     private readonly coaches: CoachRepository,
-    private readonly managerXp: ManagerXpRepository,
     private readonly conversionPolicy: CoachConversionPolicy,
     private readonly idGenerator: IdGeneratorPort,
     private readonly events: EventPublisherPort,
     private readonly billing: BillingPort,
-    private readonly pairs: DoublesPairRepository,
+    private readonly conversion: CoachConversionPort,
   ) {}
 
   async execute(command: ConvertPlayerToCoachCommand): Promise<Coach> {
@@ -76,35 +76,37 @@ export class ConvertPlayerToCoachUseCase {
     const overallRating = player.attributes.overallRating();
     const ageInWeeks = player.ageInWeeks;
     const xpCost = this.conversionPolicy.conversionCostFor(overallRating, ageInWeeks);
-
-    const spent = await this.managerXp.spendXpIfSufficient(command.managerId, xpCost);
-    if (!spent) {
-      const balance = await this.managerXp.balanceFor(command.managerId);
-      throw new Error(
-        `Manager ${command.managerId} has insufficient XP to convert this player to a coach (needs ${xpCost}, has ${balance})`,
-      );
-    }
-
     const coachRating = this.conversionPolicy.coachRatingFor(overallRating, ageInWeeks);
 
-    // The player leaves the roster entirely — their slot becomes free
-    // again (see Coach's doc comment on why this is a one-way move).
-    player.releaseFromManager();
-    await this.players.save(player);
+    const outcome = await this.conversion.convertAndCharge({
+      playerId: command.playerId,
+      managerId: command.managerId,
+      coachId: CoachId(this.idGenerator.generate()),
+      xpCost,
+      coachRating,
+      sourcePlayerName: player.name,
+    });
 
-    // Same doubles cascade as ReleasePlayerUseCase (P7a): a converted
-    // player becomes a free agent, so any pair they were in can no
-    // longer stand. dissolve() is idempotent.
-    const involving = await this.pairs.findByPlayer(player.id);
-    for (const pair of involving) {
-      pair.dissolve();
-      await this.pairs.save(pair);
+    if (outcome.kind === 'insufficient-xp') {
+      throw new Error(
+        `Manager ${command.managerId} has insufficient XP to convert this player to a coach ` +
+          `(needs ${outcome.required}, has ${outcome.balance})`,
+      );
+    }
+    if (outcome.kind === 'player-unavailable') {
+      throw new Error(`Player ${command.playerId} is not on manager ${command.managerId}'s roster`);
     }
 
-    const coach = Coach.convert(CoachId(this.idGenerator.generate()), command.managerId, coachRating, player.id, player.name);
-    await this.coaches.save(coach);
-    await this.events.publish(coach.pullDomainEvents());
+    // The atomic path reconstitutes the coach straight from the
+    // transaction's row (emitting no aggregate events), so publish the
+    // conversion fact here rather than pulling it off the aggregate.
+    await this.events.publish([
+      {
+        type: 'PlayerConvertedToCoach',
+        payload: { coachId: outcome.coach.id, managerId: command.managerId, sourcePlayerId: command.playerId, coachRating: outcome.coach.coachRating },
+      },
+    ]);
 
-    return coach;
+    return outcome.coach;
   }
 }

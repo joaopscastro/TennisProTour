@@ -27,6 +27,7 @@ import {
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
 import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
+import { useCountdown, formatCountdownClock } from '../../../lib/useCountdown';
 import { Avatar } from '../../../components/ui/Avatar';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { AppFrame, Hero, Flag, StatBar, OvrRing, SurfaceBadge } from '../../../components/ui/primitives';
@@ -242,6 +243,30 @@ function MatchResultRow({ m }: { m: PlayerMatchSummaryDto }) {
       <div className="flex-none text-[12.5px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: won ? 'oklch(72% 0.13 145)' : 'var(--gc-ink-mute)' }}>
         {m.setScores ? formatScoreline(m.setScores, won) : ''}
       </div>
+    </div>
+  );
+}
+
+/** The "next up" match's live status: a ticking "playing in 00:03:45"
+ * countdown to its scheduled reveal start, then "Live now" during the
+ * reveal window, or "Awaiting simulation" when no schedule exists yet
+ * (the round isn't due). */
+function NextMatchStatus({ m }: { m: PlayerMatchSummaryDto }) {
+  const remainingMs = useCountdown(m.scheduledStartAt);
+  if (!m.scheduledStartAt) {
+    return <div className="text-[10.5px] text-white/55 mt-[6px] italic">Awaiting simulation</div>;
+  }
+  if (remainingMs > 0) {
+    return (
+      <div className="text-[10.5px] mt-[6px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(85% 0.09 200)' }}>
+        Playing in {formatCountdownClock(remainingMs)}
+      </div>
+    );
+  }
+  return (
+    <div className="text-[10.5px] mt-[6px] font-bold flex items-center gap-[6px] justify-end" style={{ color: 'oklch(80% 0.16 45)' }}>
+      <span className="gc-live-dot" style={{ background: 'oklch(70% 0.17 45)' }} />
+      Live now
     </div>
   );
 }
@@ -659,8 +684,9 @@ export default function PlayerProfilePage() {
         )}
 
         {/* Latest results + next match — the profile's most immediate,
-            "what just happened / what's next" strip. No per-match timer
-            by design (see DrizzlePlayerMatchesQuery's doc comment). */}
+            "what just happened / what's next" strip. The next match shows
+            a live "playing in X" countdown to its scheduled reveal start
+            (see NextMatchStatus). */}
         {matches && (matches.recent.length > 0 || matches.next) && (
           <div className="mb-[24px]">
             <SectionLabel>Matches</SectionLabel>
@@ -688,7 +714,7 @@ export default function PlayerProfilePage() {
                 </div>
                 <div className="flex-none text-right">
                   <SurfaceBadge surface={matches.next.surface} />
-                  <div className="text-[10.5px] text-white/55 mt-[6px] italic">Awaiting simulation</div>
+                  <NextMatchStatus m={matches.next} />
                 </div>
               </div>
             )}

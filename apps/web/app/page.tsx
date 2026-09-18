@@ -118,6 +118,34 @@ function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
 
 const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, prime: 1, youth: 2, retired: 3 };
 
+/** First-run guidance shown on an empty roster — a brand-new manager's
+ * landing state. The core loop in three steps, each linking to where it
+ * actually happens, so a fresh signup knows what to do instead of facing
+ * a blank squad list. */
+const FIRST_RUN_STEPS: Array<{ n: number; title: string; body: string; href: string; cta: string }> = [
+  {
+    n: 1,
+    title: 'Sign a prospect',
+    body: 'Claim a free agent from the shared talent pool. It costs XP — you start with enough for your first player.',
+    href: '/scouting',
+    cta: 'Browse talent pool',
+  },
+  {
+    n: 2,
+    title: 'Enter a tournament',
+    body: 'Register them for an open tournament this week. The planner maps out the weeks ahead.',
+    href: '/tournaments',
+    cta: 'Find a tournament',
+  },
+  {
+    n: 3,
+    title: 'Climb the rankings',
+    body: 'Matches play out live on the bracket; every win earns ranking points and XP.',
+    href: '/rankings',
+    cta: 'See the rankings',
+  },
+];
+
 type SortBy = 'fatigue' | 'stage' | 'overall' | 'name';
 
 // ---------------------------------------------------------------------------
@@ -682,14 +710,49 @@ export default function RosterDashboardPage() {
         )}
 
         {showEmpty && (
-          <div style={{ marginTop: 20, textAlign: 'center' }}>
-            <Panel grain style={{ padding: '64px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+          <div style={{ marginTop: 20 }}>
+            <Panel grain style={{ padding: '44px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, textAlign: 'center' }}>
               <Avatar id="empty-roster-slot" size={72} />
-              <div style={{ fontSize: 19, fontWeight: 800 }}>Your academy has no players yet</div>
-              <div style={{ fontSize: 14, maxWidth: 380, lineHeight: 1.55, color: 'var(--gc-ink-mute)' }}>
-                Claim your first prospect from the talent pool to start entering tournaments. You have {slotCount} roster slot{slotCount === 1 ? '' : 's'} waiting.
+              <div>
+                <div style={{ fontSize: 22, fontWeight: 850 }}>Welcome to the circuit</div>
+                <div style={{ fontSize: 14, maxWidth: 460, lineHeight: 1.55, color: 'var(--gc-ink-mute)', marginTop: 8 }}>
+                  Your academy is empty — {slotCount} roster slot{slotCount === 1 ? '' : 's'} ready and waiting. Here&apos;s the loop:
+                </div>
               </div>
-              <Link href="/scouting" style={{ textDecoration: 'none', marginTop: 4 }}><Button variant="primary" style={{ padding: '12px 24px', fontSize: 14 }}>Browse talent pool →</Button></Link>
+
+              <div className="flex flex-col gap-[10px]" style={{ width: '100%', maxWidth: 500, textAlign: 'left' }}>
+                {FIRST_RUN_STEPS.map((step) => (
+                  <div
+                    key={step.n}
+                    className="flex items-start gap-[12px] rounded-[10px] px-[14px] py-[12px]"
+                    style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-s2)' }}
+                  >
+                    <div
+                      className="flex-none w-[24px] h-[24px] rounded-full grid place-items-center text-[12px] font-extrabold"
+                      style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
+                    >
+                      {step.n}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontSize: 13.5, fontWeight: 750 }}>{step.title}</div>
+                      <div style={{ fontSize: 12.5, color: 'var(--gc-ink-mute)', lineHeight: 1.5, marginTop: 2 }}>{step.body}</div>
+                    </div>
+                    <Link
+                      href={step.href}
+                      className="flex-none self-center no-underline text-[12px] font-semibold hover:underline"
+                      style={{ color: 'var(--gc-ball)' }}
+                    >
+                      {step.cta} →
+                    </Link>
+                  </div>
+                ))}
+              </div>
+
+              {entitlement && entitlement.xpBalance > 0 && (
+                <div style={{ fontSize: 13, color: 'var(--gc-ink-dim)' }}>
+                  You have <strong style={{ color: 'var(--gc-gold)' }}>{entitlement.xpBalance} XP</strong> — enough to sign your first player.
+                </div>
+              )}
             </Panel>
           </div>
         )}

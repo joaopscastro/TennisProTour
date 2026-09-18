@@ -1,7 +1,7 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
-import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
@@ -100,6 +100,11 @@ export class RegisterEntrantUseCase {
      * bracket but leaves the doubles draw to the weekly
      * StartDueTournamentsUseCase. The composition root always passes it. */
     private readonly formDoublesDraw?: FormDoublesDrawUseCase,
+    /** Atomic weekly-cap guard (see WeeklyEntryGuardPort). Optional for
+     * the same test-compat reason as the collaborators above — omitted,
+     * the cap is the pre-existing (concurrency-unsafe) check-then-write;
+     * the composition root always passes it. */
+    private readonly weeklyEntryGuard?: WeeklyEntryGuardPort,
   ) {}
 
   async execute(command: RegisterEntrantCommand): Promise<void> {
@@ -135,6 +140,30 @@ export class RegisterEntrantUseCase {
           `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
           `(cap: ${cap})`,
       );
+    }
+
+    // The concurrent half of the same rule: the read above is a fast,
+    // friendly pre-check, but two registrations for this player into two
+    // DIFFERENT tournaments can both pass it before either lands (the
+    // count is read-then-write). tryClaimEntry re-checks atomically under
+    // a per-player advisory lock and records a claim, so the second
+    // writer sees the first even before its tournament save commits.
+    if (this.weeklyEntryGuard) {
+      const claimed = await this.weeklyEntryGuard.tryClaimEntry({
+        playerId: command.playerId,
+        week: tournament.weekScheduled,
+        isJunior: isJuniorTier(tournament.tier),
+        tournamentId: tournament.id,
+        cap,
+      });
+      if (!claimed) {
+        const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+        throw new Error(
+          `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
+            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+            `(a concurrent entry was registered first)`,
+        );
+      }
     }
 
     const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);

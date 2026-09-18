@@ -82,6 +82,16 @@ export interface TournamentOpenProps {
    * the singles qualifying sizes. Both 0 = no doubles qualifying. */
   doublesQualifyingDrawSize?: number;
   doublesQualifierSlots?: number;
+  /** Opaque optimistic-concurrency token (a persistence concern, NOT a
+   * domain concept): repository adapters bump it on every save and
+   * refuse a write whose token no longer matches the stored row, so two
+   * concurrent modifications of the SAME tournament (e.g. two managers
+   * registering for the last slots at once) can never silently
+   * overwrite one another with a last-writer-wins whole-aggregate
+   * write. Absent/0 for a freshly opened, never-persisted aggregate;
+   * reconstitute() sets it from the stored row and adapters write the
+   * new value back via markPersisted() after each successful save. */
+  persistenceVersion?: number;
 }
 
 /**
@@ -104,6 +114,8 @@ export class Tournament {
   private _doublesPairs: TournamentDoublesPair[] = [];
   private _doublesQualifyingPairs: TournamentDoublesPair[] = [];
   private domainEvents: DomainEvent[] = [];
+  /** See TournamentOpenProps.persistenceVersion. 0 = never persisted. */
+  private _persistenceVersion = 0;
 
   private constructor(
     readonly id: TournamentId,
@@ -290,7 +302,28 @@ export class Tournament {
     tournament.doublesRounds = [...(props.doublesRounds ?? [])];
     tournament._doublesQualifyingPairs = [...(props.doublesQualifyingPairs ?? [])];
     tournament.doublesQualifyingRounds = [...(props.doublesQualifyingRounds ?? [])];
+    tournament._persistenceVersion = props.persistenceVersion ?? 0;
     return tournament;
+  }
+
+  /** See TournamentOpenProps.persistenceVersion. Read by repository
+   * adapters to build the conditional write; never read by a domain
+   * rule. */
+  get persistenceVersion(): number {
+    return this._persistenceVersion;
+  }
+
+  /** Records the optimistic-concurrency token the database now holds
+   * for this aggregate (repository adapters only, called right after a
+   * successful save). Necessary because several use cases save the SAME
+   * in-memory instance more than once in a run (StartDueTournamentsUseCase's
+   * fillSlots + bracket seed; RegisterEntrantUseCase's singles save
+   * followed by doubles formation) — without writing the new token back,
+   * the second save's conditional write would fail against the token the
+   * first save just superseded. Still a persistence concern, not a
+   * domain one — no domain rule ever reads it. */
+  markPersisted(version: number): void {
+    this._persistenceVersion = version;
   }
 
   /** EVERY entrant, both draws. Unchanged for tournaments without

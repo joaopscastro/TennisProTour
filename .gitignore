@@ -9,3 +9,6 @@ playwright-report/
 .env
 .env.local
 .env.*.local
+.idea/
+balance-report-*.json
+playtest-report*.json

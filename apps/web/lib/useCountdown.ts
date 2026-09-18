@@ -37,3 +37,15 @@ export function formatCountdown(remainingMs: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m ${String(seconds).padStart(2, '0')}s`;
 }
+
+/** "00:03:45" (or "1:02:03" past an hour) — the tight clock format the
+ * "playing in X" match countdown uses, distinct from formatCountdown's
+ * coarse "4h 12m" buckets. */
+export function formatCountdownClock(remainingMs: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+  return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+}

@@ -33,4 +33,16 @@ export class DrizzlePracticeSessionRepository implements PracticeSessionReposito
       .values({ playerId, season: day.season, week: day.week, day: day.day })
       .onConflictDoNothing();
   }
+
+  /** The race-safe day claim: `.onConflictDoNothing().returning()` yields
+   * the inserted row only if THIS statement actually inserted it, so two
+   * concurrent calls can't both get `true`. */
+  async tryRecord(playerId: PlayerId, day: GameDay): Promise<boolean> {
+    const rows = await this.db
+      .insert(practiceSessions)
+      .values({ playerId, season: day.season, week: day.week, day: day.day })
+      .onConflictDoNothing()
+      .returning({ playerId: practiceSessions.playerId });
+    return rows.length > 0;
+  }
 }
