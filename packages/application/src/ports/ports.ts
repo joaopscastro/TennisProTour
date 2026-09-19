@@ -140,6 +140,17 @@ export interface OutboundEmail {
   subject: string;
   text: string;
   html: string;
+  /**
+   * The manager this email is for, when known. ADDITIVE/optional: the
+   * transport only needs it to build a recipient-specific unsubscribe
+   * link (see the Resend adapter), so a channel without one (the
+   * logging adapter, every test fake) can simply ignore it. Deliberately
+   * on the outbound shape rather than baked into the rendered body: the
+   * application layer renders transport-neutral product copy, while the
+   * unsubscribe footer is a transport concern — it needs the signing
+   * secret and public base URL, both of which live in infrastructure.
+   */
+  managerId?: ManagerId;
 }
 
 /**

@@ -135,6 +135,10 @@ export class SendManagerDigestsUseCase {
         subject: rendered.subject,
         text: rendered.text,
         html: rendered.html,
+        // Lets the transport build a recipient-specific unsubscribe link
+        // (the application layer never knows the signing secret or public
+        // base URL — see OutboundEmail's own doc comment).
+        managerId,
       });
       await this.deliveries.markSent(managerId, RESULTS_DIGEST_KIND, command.windowKey);
       result.sent += 1;

@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 config({ path: resolve(__dirname, '../../../.env') });
 
 import { createDb } from './db/client';
-import { buildDependencies, resolveAuthMode } from './composition';
+import { buildDependencies, resolveAuthMode, resolveNotificationEmailMode } from './composition';
 import { resolveMatchLogDirectory } from './matchLogDirectory';
 import { buildApp } from './app';
 
@@ -32,6 +32,15 @@ async function main(): Promise<void> {
     if (process.env.NODE_ENV === 'production' && !process.env.CLERK_AUTHORIZED_PARTIES) {
       throw new Error('CLERK_AUTHORIZED_PARTIES is required in production');
     }
+  }
+  // Notifications fail OFF (unset = no digest scheduler registered), so
+  // only a deliberate `resend` deploy can be misconfigured here — and a
+  // missing key then throws at boot rather than surfacing later as a
+  // stream of silently-`failed` deliveries. Same boot-check style as
+  // CLERK_SECRET_KEY above; resolved through the composition's own
+  // resolver so the two can't disagree.
+  if (resolveNotificationEmailMode() === 'resend' && !process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY is required when NOTIFICATION_EMAIL_MODE=resend');
   }
   // INTERNAL_ADMIN_TOKEN is optional in dev, but silently disabling the
   // only server-to-server admin gate in production should at least be
@@ -75,6 +84,11 @@ async function main(): Promise<void> {
       : { worldTick: { mode: 'cron', pattern: worldTickCron } },
     'world tick cadence resolved',
   );
+
+  // One explicit line stating the resolved notification email mode, so a
+  // silent `off` (the fail-safe default) is visible rather than a mystery
+  // "why did nobody get a digest" later. See resolveNotificationEmailMode.
+  app.log.info({ notificationEmailMode: deps.notificationEmailMode }, 'notification email mode resolved');
 
   await app.listen({ port, host: '0.0.0.0' });
 }

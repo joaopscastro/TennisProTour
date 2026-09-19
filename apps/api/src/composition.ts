@@ -1,4 +1,5 @@
 import Stripe from 'stripe';
+import { createClerkClient } from '@clerk/backend';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { TournamentNameGenerator } from '@tennis-manager/domain';
 import { StatisticalMatchSimulator } from '@tennis-manager/domain';
@@ -35,6 +36,8 @@ import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { DeleteManagerAccountUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
+import { SendManagerDigestsUseCase } from '@tennis-manager/application';
+import { ManagerContactPort } from '@tennis-manager/application';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { PlayerEntryPlannerQuery } from '@tennis-manager/application';
 import { PlayerTrainingScheduleQuery } from '@tennis-manager/application';
@@ -70,6 +73,13 @@ import { CryptoIdGenerator } from './adapters/outbound/CryptoIdGenerator';
 import { ClerkAuthAdapter, DevelopmentAuthAdapter } from './adapters/outbound/ClerkAuthAdapter';
 import { DrizzleManagerAccountRepository } from './adapters/outbound/DrizzleManagerAccountRepository';
 import { DrizzleAnalyticsAdapter } from './adapters/outbound/DrizzleAnalyticsAdapter';
+import { DrizzleNotificationDeliveryRepository } from './adapters/outbound/DrizzleNotificationDeliveryRepository';
+import { DrizzleNotificationPreferenceRepository } from './adapters/outbound/DrizzleNotificationPreferenceRepository';
+import { DrizzleManagerDigestQuery } from './adapters/outbound/DrizzleManagerDigestQuery';
+import { LoggingNotificationAdapter } from './adapters/outbound/LoggingNotificationAdapter';
+import { ResendEmailAdapter } from './adapters/outbound/ResendEmailAdapter';
+import { ClerkManagerContactAdapter } from './adapters/outbound/ClerkManagerContactAdapter';
+import { NullManagerContactAdapter } from './adapters/outbound/NullManagerContactAdapter';
 import { EnsureManagerAccountUseCase } from '@tennis-manager/application';
 import { AnalyticsPort } from '@tennis-manager/application';
 
@@ -108,6 +118,19 @@ export interface Dependencies {
    * fire-and-forget from route handlers. DrizzleAnalyticsAdapter never
    * throws, so a failed event can't break the request; see its doc. */
   analytics: AnalyticsPort;
+  /** Notifications (STAGE 2) — the resolved email mode ('off' | 'log' |
+   * 'resend', default 'off') and the pieces the scheduler/route need.
+   * Unlike auth (which FAILS CLOSED), this fails OFF: unconfigured means
+   * the digest scheduler is not even registered, so a half-wired deploy
+   * cannot send. */
+  notificationEmailMode: NotificationEmailMode;
+  notificationDeliveries: DrizzleNotificationDeliveryRepository;
+  notificationPreferences: DrizzleNotificationPreferenceRepository;
+  notificationContacts: ManagerContactPort;
+  /** The per-manager results digest sender — run from its own
+   * `notifications` worker queue (see apps/worker/src/index.ts), never
+   * from the frozen `advance-world-day` handler. */
+  notificationDigest: SendManagerDigestsUseCase;
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
   worlds: DrizzleGameWorldRepository;
@@ -272,6 +295,24 @@ export function resolveAuthMode(): 'clerk' | 'development' {
   return raw === 'development' ? 'development' : 'clerk';
 }
 
+/** Which transport the manager digest goes out on. Unlike AUTH_MODE
+ * (which fails CLOSED to the safe-spoofing-resistant 'clerk'), this
+ * fails OFF — an unset value registers no digest scheduler at all, so a
+ * half-configured deployment can't send email. Exported so
+ * apps/api/src/index.ts validates a `resend` deploy against the exact
+ * same resolution (and can throw on a missing RESEND_API_KEY) rather
+ * than re-deriving the default. */
+export type NotificationEmailMode = 'off' | 'log' | 'resend';
+
+export function resolveNotificationEmailMode(): NotificationEmailMode {
+  const raw = process.env.NOTIFICATION_EMAIL_MODE;
+  if (raw === undefined || raw === '') return 'off';
+  if (raw !== 'off' && raw !== 'log' && raw !== 'resend') {
+    throw new Error(`NOTIFICATION_EMAIL_MODE must be "off", "log", or "resend", got "${raw}"`);
+  }
+  return raw;
+}
+
 /**
  * The composition root: the one place that knows concrete adapter
  * classes and wires them into use cases via plain constructor
@@ -293,6 +334,24 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ? new ClerkAuthAdapter(process.env.CLERK_SECRET_KEY!, (process.env.CLERK_AUTHORIZED_PARTIES ?? '').split(',').map((value) => value.trim()).filter(Boolean))
     : new DevelopmentAuthAdapter();
   const analytics = new DrizzleAnalyticsAdapter(options.db);
+  // Notifications (STAGE 2). `off`/`log` resolve no address and log
+  // instead of sending; only `resend` wires the real Clerk lookup and the
+  // Resend transport. Constructed here (not lazily) so the resolved mode
+  // is inspectable on Dependencies and the api index can boot-check it.
+  const notificationEmailMode = resolveNotificationEmailMode();
+  const notificationDeliveries = new DrizzleNotificationDeliveryRepository(options.db);
+  const notificationPreferences = new DrizzleNotificationPreferenceRepository(options.db);
+  const notificationContacts: ManagerContactPort = notificationEmailMode === 'resend'
+    ? new ClerkManagerContactAdapter(managers, createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY ?? '' }))
+    : new NullManagerContactAdapter();
+  const notifications = notificationEmailMode === 'resend'
+    ? new ResendEmailAdapter({
+        apiKey: process.env.RESEND_API_KEY ?? '',
+        fromEmail: process.env.NOTIFICATION_FROM_EMAIL ?? 'Tennis Manager <notifications@example.com>',
+        appBaseUrl: process.env.NOTIFICATION_APP_BASE_URL ?? `http://localhost:${process.env.PORT ?? 3000}`,
+        unsubscribeSecret: process.env.NOTIFICATION_UNSUBSCRIBE_SECRET ?? null,
+      })
+    : new LoggingNotificationAdapter(options.logEvent);
   const players = new DrizzlePlayerRepository(options.db);
   const tournaments = new DrizzleTournamentRepository(options.db);
   const matchLogs = new FilesystemMatchLogStore({
@@ -438,6 +497,18 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     u16: rankPositionU16,
     u18: rankPositionU18,
   };
+  // Built here (not beside the other notification adapters) because it
+  // needs `rankPositionByBand` for each player's live, band-scoped rank —
+  // the same instances StartDueTournamentsUseCase reads.
+  const notificationDigest = new SendManagerDigestsUseCase(
+    new DrizzleManagerDigestQuery(options.db),
+    notificationDeliveries,
+    notificationPreferences,
+    notificationContacts,
+    notifications,
+    rankPositionByBand,
+    (message) => options.logEvent(message, {}),
+  );
   const formDoublesDraw = new FormDoublesDrawUseCase(
     tournaments,
     players,
@@ -516,6 +587,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ensureManagerAccount,
     authMode,
     analytics,
+    notificationEmailMode,
+    notificationDeliveries,
+    notificationPreferences,
+    notificationContacts,
+    notificationDigest,
     players,
     tournaments,
     worlds,

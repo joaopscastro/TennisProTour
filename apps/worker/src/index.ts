@@ -11,6 +11,7 @@ import { Queue, Worker } from 'bullmq';
 import { GameWorld, WorldId } from '@tennis-manager/domain';
 import { buildDependencies, createDb, resolveMatchLogDirectory } from '@tennis-manager/api';
 import { AdvanceWorldJobData, makeAdvanceWorldHandler } from './jobs/handlers';
+import { makeSendManagerDigestsHandler } from './jobs/notificationJobs';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -47,6 +48,11 @@ if (worldTickIntervalMsRaw !== undefined && (!Number.isFinite(worldTickIntervalM
 }
 
 const WORLD_QUEUE = 'world';
+const NOTIFICATIONS_QUEUE = 'notifications';
+// One digest run per day by default; overridable for fast local/test
+// cycles. Only matters when a real digest mode is configured — in the
+// fail-safe 'off' default the scheduler is not registered at all.
+const DEFAULT_NOTIFICATION_DIGEST_INTERVAL_MS = 86_400_000;
 
 async function main(): Promise<void> {
   const db = createDb(connectionString);
@@ -93,6 +99,38 @@ async function main(): Promise<void> {
   const workers = [
     new Worker<AdvanceWorldJobData>(WORLD_QUEUE, async (job) => advanceWorld(job.data), { connection }),
   ];
+  const queues: Queue[] = [worldQueue];
+
+  // Notifications (STAGE 2): its OWN queue + scheduler, only when a real
+  // digest mode is configured. In the default 'off' mode nothing is
+  // registered and no email path can run — the fail-safe direction.
+  const notificationEmailMode = deps.notificationEmailMode;
+  if (notificationEmailMode !== 'off') {
+    const notificationsQueue = new Queue(NOTIFICATIONS_QUEUE, { connection });
+    queues.push(notificationsQueue);
+
+    const digestIntervalMsRaw = process.env.NOTIFICATION_DIGEST_INTERVAL_MS;
+    const digestIntervalMs = digestIntervalMsRaw ? Number(digestIntervalMsRaw) : DEFAULT_NOTIFICATION_DIGEST_INTERVAL_MS;
+    if (!Number.isFinite(digestIntervalMs) || digestIntervalMs <= 0) {
+      throw new Error(`NOTIFICATION_DIGEST_INTERVAL_MS must be a positive number of milliseconds, got "${digestIntervalMsRaw}"`);
+    }
+
+    // upsert = safe across restarts/deploys, same as the world scheduler.
+    await notificationsQueue.upsertJobScheduler('send-manager-digests', { every: digestIntervalMs }, {
+      name: 'send-manager-digests',
+    });
+
+    const sendManagerDigests = makeSendManagerDigestsHandler(deps);
+    workers.push(new Worker(NOTIFICATIONS_QUEUE, async () => sendManagerDigests(), { connection }));
+
+    // eslint-disable-next-line no-console
+    console.log(JSON.stringify({ msg: 'notification digest scheduler registered', everyMs: digestIntervalMs }));
+  }
+
+  // One explicit line stating the resolved mode, mirroring the cadence
+  // log above — so a silent `off` (or a mismatch with apps/api) is visible.
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify({ msg: 'notification email mode resolved', mode: notificationEmailMode }));
 
   for (const worker of workers) {
     worker.on('completed', (job, result) => {
@@ -110,6 +148,7 @@ async function main(): Promise<void> {
     JSON.stringify({
       msg: 'worker up',
       worldTick: worldTickIntervalMs !== null ? { mode: 'interval', everyMsPerDay: worldTickIntervalMs } : { mode: 'cron', pattern: worldTickCron },
+      notificationEmailMode,
       worldId,
       matchLogDirectory,
     }),
@@ -117,7 +156,7 @@ async function main(): Promise<void> {
 
   const shutdown = async () => {
     await Promise.all(workers.map((worker) => worker.close()));
-    await worldQueue.close();
+    await Promise.all(queues.map((queue) => queue.close()));
     connection.disconnect();
     process.exit(0);
   };
