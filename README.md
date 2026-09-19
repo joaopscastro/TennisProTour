@@ -63,50 +63,55 @@ defaults (`postgresql://tennis:tennis@localhost:5432/tennis_manager`,
 `redis://localhost:6379`) if you need to point at something other than
 the bundled docker-compose services (docker-compose.yml only runs
 Postgres + Redis — apps/api/apps/worker/apps/web are plain Node
-processes on your host, not containerized); the worker's schedules are
-overridable via `WORLD_TICK_CRON` (default Mondays 03:00 UTC) and
-`MATCH_SWEEP_CRON` (default every 5 minutes). See "Fast local tick
-cadence" below for `WORLD_TICK_INTERVAL_MS`, a dev/test-only override
-of `WORLD_TICK_CRON`.
+processes on your host, not containerized); the world tick's cadence is
+set by `WORLD_TICK_INTERVAL_MS` (the compressed production clock — see
+"World tick cadence" below) or, when unset, by `WORLD_TICK_CRON` (daily
+03:00 UTC). There is no separate match-sweep job — match simulation is
+folded into the one day tick.
 
-### Fast local tick cadence (dev/test only)
+### World tick cadence
 
 The world tick — aging, training, tournament generation/fill, ranking,
-all of `AdvanceWorldWeekUseCase` — fires once per **real** week by
-default (`WORLD_TICK_CRON`), same as production. Waiting a real week to
-see anything move is a bad loop for local development, so
-`apps/worker` also accepts `WORLD_TICK_INTERVAL_MS`: when set, it fires
-every N milliseconds instead, on top of the exact same handler/use-case
-path (nothing about the tick's own logic changes, only how often it
-runs). Since one tick always advances the world by exactly one game
-week, `WORLD_TICK_INTERVAL_MS=3600000` means **1 game week per real
-hour**.
-
-**Easiest way — persists across restarts, no need to remember it each
-time:** copy `.env.example` to `.env` at the repo root (gitignored,
-never committed) and uncomment `WORLD_TICK_INTERVAL_MS`. Both
-`apps/api` and `apps/worker` load this same file automatically on
-startup (explicit, cwd-independent — see the top of each `src/index.ts`),
-regardless of which directory you actually launch them from, so
-`npm run dev` picks it up with no extra flags. Delete the line (or the
-whole file) to go back to real-week cadence.
-
-For a one-off run without touching `.env`, the env var also works
-inline:
+match simulation, all of `AdvanceWorldWeekUseCase` — advances the game by
+exactly **one game day**. Production runs on a **compressed clock**: one
+game day = **2 real hours**, set with
 
 ```
-WORLD_TICK_INTERVAL_MS=3600000 npm run start -w apps/worker   # hourly instead of weekly
+WORLD_TICK_INTERVAL_MS=7200000
 ```
 
-- **Production default: unset.** `WORLD_TICK_CRON`'s real-week cadence
-  stays in full control unless you deliberately set this — this is a
-  dev/test override, not a new default, and it must never be set in a
-  production environment.
+(≈30 real days per game season). `apps/worker` schedules the tick every N
+milliseconds (BullMQ `every:`) on the exact same handler/use-case path —
+nothing about the tick's own logic changes, only how often it runs. Unset
+falls back to `WORLD_TICK_CRON` (default daily 03:00 UTC).
+
+**Set it identically on both `apps/api` and `apps/worker`.** They share
+one repo-root `.env` automatically on startup (explicit, cwd-independent —
+see the top of each `src/index.ts`), regardless of launch directory, so
+`npm run dev` picks it up with no extra flags. If only one process sees it,
+`apps/api`'s `/world/clock` countdown silently projects the daily cron
+instead and the "world stalled" threshold becomes 48h. Both processes log
+the resolved cadence at boot — compare those two lines when in doubt.
+
+**A sub-daily `WORLD_TICK_CRON` cannot substitute for this.** The day
+tick's idempotency key hashes to the UTC date, so a second same-day firing
+is refused as a duplicate (`tickKey.ts`); only interval mode buckets real
+time finely enough to tick more than once a day.
+
+For a one-off run without touching `.env`, the env var also works inline:
+
+```
+WORLD_TICK_INTERVAL_MS=7200000 npm run start -w apps/worker   # 2h per game day
+```
+
 - The `GET /world/clock` countdown (Sidebar, Scouting's "next refresh")
-  picks this up automatically — no separate frontend config. In
-  interval mode it's anchored to the real time of the last tick that
-  actually advanced the world (`game_worlds.updated_at`), not a
-  parsed cron expression; see `worldRoutes.ts`'s doc comment.
+  picks this up automatically — no separate frontend config. In interval
+  mode it's anchored to the real time of the last tick that actually
+  advanced the world (`game_worlds.updated_at`), not a parsed cron
+  expression; see `worldRoutes.ts`'s doc comment.
+- The countdown re-fetches when it expires (and when the tab regains
+  focus), so an open tab recovers across a tick instead of sticking at
+  zero — required at a 2h/day cadence, invisible at a daily one.
 - Match replay's "Premiere" live-edge cap is unaffected either way — it
   only ever measures real elapsed time since a match's own
   `simulatedAt`, independent of how fast the world itself is ticking

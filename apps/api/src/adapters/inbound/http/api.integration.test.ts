@@ -244,6 +244,27 @@ describe('API', () => {
     }
   });
 
+  it('reports the world as stale in interval mode once elapsed exceeds two tick intervals', async () => {
+    process.env.WORLD_TICK_INTERVAL_MS = '60000'; // 1 minute per game day
+    try {
+      // 3 minutes without an applied tick is > 2 x the 1-minute interval.
+      const threeMinutesAgo = new Date(Date.now() - 3 * 60_000);
+      await db.update(schema.gameWorlds).set({ updatedAt: threeMinutesAgo }).where(eq(schema.gameWorlds.id, 'main'));
+
+      const health = await app.inject({ method: 'GET', url: '/health' });
+      expect(health.statusCode).toBe(200);
+      expect((health.json() as { stale: boolean }).stale).toBe(true);
+
+      const clock = await app.inject({ method: 'GET', url: '/world/clock' });
+      expect(clock.statusCode).toBe(200);
+      expect((clock.json() as { stale: boolean }).stale).toBe(true);
+    } finally {
+      delete process.env.WORLD_TICK_INTERVAL_MS;
+      // Restore the heartbeat so later tests don't inherit a stalled world.
+      await db.update(schema.gameWorlds).set({ updatedAt: new Date() }).where(eq(schema.gameWorlds.id, 'main'));
+    }
+  });
+
   it('requires authenticated manager identity and isolates manager-owned actions', async () => {
     expect((await app.inject({ method: 'GET', url: '/me/players' })).statusCode).toBe(401);
     expect(await hirePlayer('owned-p1', 'm1')).toBe(201);

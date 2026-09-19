@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ClerkAuthControls } from './ClerkAuthControls';
 import { fetchWorldClock, WorldClockDto } from '../lib/api';
@@ -31,12 +31,21 @@ interface Props {
  *  countdown) is treated as chrome, per ui-direction-v2-game-feel.md §1. */
 export function Sidebar({ active, tier, xpBalance }: Props) {
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    fetchWorldClock().then((clock) => { if (!cancelled) setWorldClock(clock); }).catch(() => {});
-    return () => { cancelled = true; };
+  const loadClock = useCallback(() => {
+    fetchWorldClock().then(setWorldClock).catch(() => {});
   }, []);
-  const remainingMs = useCountdown(worldClock?.nextTickAt ?? null);
+  useEffect(() => {
+    loadClock();
+    // A tab that was hidden across a tick (or left open with no ticks
+    // applied yet) re-reads the clock the moment it becomes visible again,
+    // so "Day N/7" recovers without a manual refresh.
+    const onVisible = () => { if (document.visibilityState === 'visible') loadClock(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [loadClock]);
+  // Re-fetch when the countdown expires — without this, at the compressed
+  // 2h/day cadence every open tab's "Next day" would hit zero and stick.
+  const remainingMs = useCountdown(worldClock?.nextTickAt ?? null, loadClock);
 
   return (
     <div

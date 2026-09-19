@@ -27,6 +27,12 @@ describe('revealWindowSecondsFor', () => {
     expect(revealWindowSecondsFor(2, 86400)).toBe(MATCH_REVEAL_CAP_SECONDS);
   });
 
+  it('pins the compressed production cadence (WORLD_TICK_INTERVAL_MS=7200000, a 2h day)', () => {
+    // 7200s day: a 16-match round -> 450s each; a 64-match round -> 112s each.
+    expect(revealWindowSecondsFor(16, 7200)).toBe(450);
+    expect(revealWindowSecondsFor(64, 7200)).toBe(112);
+  });
+
   it('never returns less than 1 second', () => {
     expect(revealWindowSecondsFor(1000, 60)).toBeGreaterThanOrEqual(1);
   });

@@ -60,6 +60,22 @@ async function main(): Promise<void> {
   // a 404 when a replay is opened. See matchLogDirectory.ts.
   app.log.info({ matchLogDirectory }, 'match-log store directory resolved');
 
+  // One explicit line stating the resolved world-tick cadence. The API
+  // doesn't schedule the tick, but it recomputes /world/clock's countdown
+  // from this same value — so logging it here makes the api↔worker
+  // coupling auditable at a glance. Interval mode (WORLD_TICK_INTERVAL_MS
+  // set) is the production mechanism for the compressed clock, not a
+  // dev-only path.
+  const worldTickIntervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
+  const worldTickIntervalMs = worldTickIntervalMsRaw ? Number(worldTickIntervalMsRaw) : null;
+  const worldTickCron = process.env.WORLD_TICK_CRON ?? '0 3 * * *';
+  app.log.info(
+    worldTickIntervalMs !== null && Number.isFinite(worldTickIntervalMs) && worldTickIntervalMs > 0
+      ? { worldTick: { mode: 'interval', everyMsPerDay: worldTickIntervalMs } }
+      : { worldTick: { mode: 'cron', pattern: worldTickCron } },
+    'world tick cadence resolved',
+  );
+
   await app.listen({ port, host: '0.0.0.0' });
 }
 

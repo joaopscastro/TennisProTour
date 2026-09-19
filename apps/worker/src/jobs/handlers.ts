@@ -25,10 +25,12 @@ export interface AdvanceWorldJobData {
 
 /**
  * `tickIntervalMs` mirrors whatever WORLD_TICK_INTERVAL_MS index.ts
- * resolved (null = default real-week cadence) — passed in explicitly
+ * resolved (null = the daily cron cadence) — passed in explicitly
  * rather than read from process.env here, so this handler's tick-key
  * choice is a pure function of its arguments and stays unit-testable
- * without env-var side effects.
+ * without env-var side effects. Non-null means the compressed production
+ * clock (ship value 7_200_000 = 2 real hours per game day), not a
+ * dev-only path.
  */
 export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: number | null) {
   return async (data: AdvanceWorldJobData) => {

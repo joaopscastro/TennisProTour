@@ -27,14 +27,18 @@ const worldId = process.env.WORLD_ID ?? 'main';
 const worldTickCron = process.env.WORLD_TICK_CRON ?? '0 3 * * *';
 
 /**
- * Dev/test override: fire the world tick every N milliseconds instead
- * of the real-week cron above — e.g. WORLD_TICK_INTERVAL_MS=3600000
- * for an hourly cadence so aging/training/tournament generation are
- * actually observable in a normal working session. With the day tick,
- * this is now MS-PER-DAY: a dev game-week is 7 x this value. Unset (the
- * production default) keeps worldTickCron in full control, byte-for-byte
- * the same behavior as before this override existed. See README.md's
- * "Fast local tick cadence" section.
+ * The production mechanism for a COMPRESSED world clock: fire the world
+ * tick every N milliseconds instead of the daily cron above. One tick =
+ * one game DAY, so this is MS-PER-DAY; the ship cadence is
+ * WORLD_TICK_INTERVAL_MS=7200000 (2 real hours per game day, ~30 real
+ * days per season). Unset keeps worldTickCron in full control.
+ *
+ * It MUST be set identically on both apps/worker (which schedules the
+ * tick) and apps/api (whose /world/clock countdown recomputes it) — a
+ * mismatch makes the UI project the daily cron instead, and the stale
+ * threshold silently becomes 48h. A sub-daily CRON cannot substitute for
+ * this: the day tick's idempotency key hashes to the UTC date, so a
+ * second same-day firing is refused as a duplicate (see tickKey.ts).
  */
 const worldTickIntervalMsRaw = process.env.WORLD_TICK_INTERVAL_MS;
 const worldTickIntervalMs = worldTickIntervalMsRaw ? Number(worldTickIntervalMsRaw) : null;
@@ -53,6 +57,16 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     logEvent: (message, payload) => console.log(JSON.stringify({ msg: message, ...payload })),
   });
+
+  // One explicit line stating the resolved cadence, so a misconfiguration
+  // (interval set on one process only, or an invalid value) is visible in
+  // logs instead of only as a slowly-drifting UI countdown.
+  // eslint-disable-next-line no-console
+  console.log(JSON.stringify(
+    worldTickIntervalMs !== null
+      ? { msg: 'world tick cadence resolved', mode: 'interval', everyMsPerDay: worldTickIntervalMs }
+      : { msg: 'world tick cadence resolved', mode: 'cron', pattern: worldTickCron },
+  ));
 
   // First boot of a fresh database: create the world clock at S1W1.
   if (!(await deps.worlds.findById(WorldId(worldId)))) {

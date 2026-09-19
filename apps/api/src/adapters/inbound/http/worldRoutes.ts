@@ -13,14 +13,15 @@ import { Dependencies, WORLD_ID } from '../../../composition';
  * apps/worker is actually running in (see index.ts's
  * WORLD_TICK_INTERVAL_MS):
  *
- * - Cron mode (the production default): via cron-parser against the
- *   same WORLD_TICK_CRON string apps/worker reads (already a
+ * - Cron mode (WORLD_TICK_INTERVAL_MS unset): via cron-parser against
+ *   the same WORLD_TICK_CRON string apps/worker reads (already a
  *   transitive dependency of bullmq, added here directly). This DOES
  *   mean WORLD_TICK_CRON must be kept identical between the two
  *   processes — the same disclosed coupling CLAUDE.md already
  *   documents for WORLD_ID matching across apps/api and apps/worker.
- * - Interval mode (WORLD_TICK_INTERVAL_MS set, e.g. for fast local dev
- *   cycles): anchored to game_worlds.updated_at (via
+ * - Interval mode (WORLD_TICK_INTERVAL_MS set — the production
+ *   mechanism for the compressed 2h/day clock, 7_200_000): anchored to
+ *   game_worlds.updated_at (via
  *   DrizzleGameWorldRepository.findLastTickAt) plus the interval —
  *   the real wall-clock time of the last tick that ACTUALLY advanced
  *   the world (AdvanceWorldWeekUseCase only saves on a genuine

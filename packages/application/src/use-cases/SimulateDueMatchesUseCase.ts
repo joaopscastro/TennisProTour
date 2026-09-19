@@ -9,8 +9,9 @@ export interface SimulateDueMatchesCommand {
   /** The real-time length of one game DAY (in seconds) — what the
    * staggered-schedule reveal window is derived from (a round's matches
    * divide it evenly). Omitted = DEFAULT_DAY_WINDOW_SECONDS (the 24h
-   * production cron day). The worker passes WORLD_TICK_INTERVAL_MS/1000
-   * in dev; tests omit it. */
+   * fallback day). The worker passes WORLD_TICK_INTERVAL_MS/1000 whenever
+   * the compressed production clock is active (ship: 7200s = 2h/day);
+   * tests omit it. */
   dayWindowSeconds?: number;
 }
 

@@ -74,21 +74,33 @@ export default function ScoutingPage() {
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  useEffect(() => {
+  const loadClock = useCallback(() => {
     fetchWorldClock()
       .then(setWorldClock)
       .catch(() => setWorldClock(null));
   }, []);
 
+  // Re-read the clock AND the pool when the weekly rollover arrives or the
+  // tab regains focus. At the compressed 2h/day production cadence, a
+  // fetch-once countdown would hit zero and stick in any tab left open —
+  // and with the rollover having passed, the pool itself has changed.
+  const refreshClockAndPool = useCallback(() => {
+    loadClock();
+    void load();
+  }, [loadClock, load]);
+
+  useEffect(() => {
+    refreshClockAndPool();
+    const onVisible = () => { if (document.visibilityState === 'visible') refreshClockAndPool(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [refreshClockAndPool]);
+
   // The talent pool refreshes on the weekly rollover only (the
   // RefreshTalentPoolUseCase runs inside advance-world-week, gated on
   // weekRolledOver), NOT on every day tick — so this counts down to
   // nextWeekTickAt (the next day-7 -> day-1 rollover), not nextTickAt.
-  const refreshRemainingMs = useCountdown(worldClock?.nextWeekTickAt ?? null);
+  const refreshRemainingMs = useCountdown(worldClock?.nextWeekTickAt ?? null, refreshClockAndPool);
 
   useEffect(() => {
     fetchEntitlement(managerId)

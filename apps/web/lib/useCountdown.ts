@@ -1,20 +1,50 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+/** How often an already-expired target re-triggers `onExpire` while it
+ * remains expired. At the default daily cadence a countdown reaching zero
+ * and sticking was invisible; at the compressed 2h/day production cadence
+ * every open tab would freeze within hours, because a countdown can only
+ * ever count toward a FIXED timestamp and the page fetched it once. The
+ * callback lets the caller re-fetch the source. Retrying keeps recovery
+ * eventual even if the re-fetch lands a moment before the worker actually
+ * applies the tick (which returns the same now-past timestamp), while
+ * being long enough not to hammer a genuinely stalled worker. */
+const EXPIRE_RETRY_MS = 10_000;
 
 /** Ticks once a second against a fixed target timestamp, purely
- * client-side — no re-fetch needed to stay accurate, since the target
- * itself (nextTickAt) doesn't move between world-clock fetches. Shared
- * by the Sidebar's world clock and the Scouting page's "next refresh"
- * countdown so both read the same countdown mechanics, not two
- * independently-written setInterval loops. */
-export function useCountdown(target: string | null): number {
+ * client-side. `onExpire` (optional) fires when the target passes — throttled
+ * to at most once per `EXPIRE_RETRY_MS` — so a caller can re-fetch whatever
+ * produced the target and unfreeze an open tab. Shared by the Sidebar's
+ * world clock and the Scouting page's "next refresh" countdown so both read
+ * the same countdown mechanics, not two independently-written setInterval
+ * loops. */
+export function useCountdown(target: string | null, onExpire?: () => void): number {
   const [remainingMs, setRemainingMs] = useState(() => (target ? new Date(target).getTime() - Date.now() : 0));
+  // Kept in a ref (synced in its own effect, declared before the ticking
+  // effect so it always runs first) so a caller passing an inline closure
+  // doesn't restart the interval every render.
+  const onExpireRef = useRef(onExpire);
+  useEffect(() => {
+    onExpireRef.current = onExpire;
+  });
+  const lastExpireFireRef = useRef(0);
 
   useEffect(() => {
     if (!target) return;
     const targetMs = new Date(target).getTime();
-    const tick = () => setRemainingMs(Math.max(0, targetMs - Date.now()));
+    const tick = () => {
+      const remaining = Math.max(0, targetMs - Date.now());
+      setRemainingMs(remaining);
+      if (remaining <= 0) {
+        const now = Date.now();
+        if (now - lastExpireFireRef.current >= EXPIRE_RETRY_MS) {
+          lastExpireFireRef.current = now;
+          onExpireRef.current?.();
+        }
+      }
+    };
     tick();
     const interval = setInterval(tick, 1000);
     return () => clearInterval(interval);

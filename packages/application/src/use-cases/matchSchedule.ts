@@ -16,14 +16,17 @@ import { MatchLog } from '@tennis-manager/domain';
  * The reveal window is DERIVED from the day length, not a fixed constant:
  * a round's matches divide the day evenly (`revealWindowSecondsFor`), so
  * they tile the day exactly and the "starts and ends within the day"
- * invariant holds for any draw size and any day length (prod's 24-hour
- * cron day or a fast dev `WORLD_TICK_INTERVAL_MS`). A lone match (e.g. a
- * final) would otherwise claim the whole day, so the window is capped at
- * MATCH_REVEAL_CAP_SECONDS. All constants are PLACEHOLDER values.
+ * invariant holds for any draw size and any day length (the 24h cron day,
+ * or the compressed production `WORLD_TICK_INTERVAL_MS` day — ship value
+ * 7_200_000ms = a 2h day, so a 16-match round gets 450s each). A lone
+ * match (e.g. a final) would otherwise claim the whole day, so the window
+ * is capped at MATCH_REVEAL_CAP_SECONDS. All constants are PLACEHOLDER
+ * values.
  */
 export const MATCH_REVEAL_CAP_SECONDS = 900;
-/** The production day window (one cron day = 24h). Used when the worker
- * runs on the default cron rather than WORLD_TICK_INTERVAL_MS. */
+/** The fallback day window when the worker runs on the default daily
+ * cron (one cron day = 24h). With WORLD_TICK_INTERVAL_MS set, the worker
+ * passes the compressed day length instead. */
 export const DEFAULT_DAY_WINDOW_SECONDS = 86400;
 
 /** The real-time reveal window for one round's matches — the day window

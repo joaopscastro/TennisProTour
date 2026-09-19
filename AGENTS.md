@@ -758,6 +758,35 @@ pool still only refreshes weekly). `WORLD_TICK_CRON` (and the
 `apps/api`↔`apps/worker` keep-in-sync coupling described above) still
 applies verbatim — only its default value changed from weekly to daily.
 
+**Update — interval mode is now PRODUCTION-GRADE (not a dev/test
+override), and the ship clock runs COMPRESSED: `WORLD_TICK_INTERVAL_MS=
+7200000`, i.e. one game day = 2 real hours (~30 real days per season).
+This supersedes the "dev/test override" framing in the interval-mode
+paragraph above (which itself predates the day tick).** Three things now
+matter operationally, all surfaced in the boot logs of BOTH processes:
+(1) **api↔worker coupling.** `WORLD_TICK_INTERVAL_MS` must be set
+identically on both — `apps/worker` schedules the tick, `apps/api`
+recomputes `/world/clock` from it. If only one process sees it, the
+countdown falls back to projecting the daily cron and the stale threshold
+silently becomes 48h while everything still "works". Both
+`apps/api/src/index.ts` and `apps/worker/src/index.ts` now log the
+resolved cadence (interval + ms, or cron + pattern) at boot so the
+mismatch is visible. (2) **A sub-daily `WORLD_TICK_CRON` cannot compress
+the clock.** The day tick's idempotency key (`isoDayTickKey`) hashes to
+the UTC date, so a second same-day firing is refused as a duplicate and
+the world silently stops at one tick/day — interval mode's
+`intervalTickKey` buckets real time into `intervalMs` slots instead, which
+is the only mechanism that ticks more than once a day. (3) **The
+fetch-once UI limitation is FIXED.** `useCountdown` gained an optional
+`onExpire` callback (throttled to one retry per 10s while the target stays
+past), and the Sidebar + Scouting page now re-fetch the world clock when
+it expires and on `visibilitychange`. This was invisible at the old daily
+cadence; at 2h/day a tab left open used to hit zero and stick "Day N/7"
+and Scouting's "arrives in …" forever. Scouting additionally reloads the
+pool on that expiry, since the weekly refresh has run by then. The earlier
+"one cosmetic loose end: Scouting's static 'weekly' copy" note is
+unchanged (still dev-only UI copy, still numerically correct either way).
+
 **Update — fatigue and form (the two per-player constraint systems that
 turn "which tournaments do I enter?" into a real decision — see
 `docs/rocking-rackets-competitive-analysis.md`).** Both are integer
