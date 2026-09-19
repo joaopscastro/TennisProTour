@@ -69,6 +69,11 @@ beforeEach(async () => {
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
+  // Notification tables FK managers.id — truncated here even though this
+  // suite leaves manager rows in place, so no delivery/preference row
+  // leaks across tests.
+  await db.delete(schema.notificationDeliveries);
+  await db.delete(schema.managerNotificationStates);
 });
 
 afterAll(async () => {

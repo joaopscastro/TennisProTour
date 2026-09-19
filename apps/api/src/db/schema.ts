@@ -963,3 +963,52 @@ export const analyticsEvents = pgTable(
     index('idx_analytics_events_manager_created_at').on(table.managerId, table.createdAt),
   ],
 );
+
+/**
+ * Notifications bounded context (STAGE 1) — a manager's digest
+ * preferences. ABSENCE OF A ROW MEANS OPTED IN (the product decision is
+ * default ON), so a manager only ever has a row here once they've
+ * explicitly changed the setting. `digest_opt_out` is the one preference
+ * today; the PK is the manager id (one row per manager).
+ */
+export const managerNotificationStates = pgTable('manager_notification_states', {
+  managerId: text('manager_id')
+    .primaryKey()
+    .references(() => managers.id),
+  digestOptOut: boolean('digest_opt_out').notNull().default(false),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Notifications bounded context (STAGE 1) — the delivery ledger that
+ * makes "at most one results digest per manager per window" a structural
+ * guarantee rather than a convention. The composite primary key
+ * (manager_id, kind, window_key) is the load-bearing part: a second
+ * same-window INSERT for the same manager+kind can only ever be an
+ * ON CONFLICT, so `tryClaim` (`.onConflictDoNothing().returning()`) is
+ * true for exactly the call that actually created the row — the same
+ * race-safe claim shape DrizzlePracticeSessionRepository.tryRecord uses.
+ *
+ * `covered_until` is the cursor: the instant the digest covered UP TO.
+ * The next run uses the most recent SENT delivery's `covered_until` as
+ * its `since`, so a failed send never advances the cursor (a failed
+ * row's `covered_until` is deliberately NOT read back — see
+ * DrizzleNotificationDeliveryRepository.previousCoveredUntil).
+ * `window_key` is a UTC date (YYYY-MM-DD); `status` moves
+ * sending -> sent | failed.
+ */
+export const notificationDeliveries = pgTable(
+  'notification_deliveries',
+  {
+    managerId: text('manager_id')
+      .notNull()
+      .references(() => managers.id),
+    kind: text('kind').notNull(),
+    windowKey: text('window_key').notNull(),
+    coveredUntil: timestamp('covered_until', { withTimezone: true }).notNull(),
+    status: text('status').notNull().default('sending'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp('sent_at', { withTimezone: true }),
+  },
+  (table) => [primaryKey({ columns: [table.managerId, table.kind, table.windowKey] })],
+);

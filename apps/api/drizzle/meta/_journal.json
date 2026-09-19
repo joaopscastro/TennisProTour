@@ -351,6 +351,13 @@
       "when": 1789765637950,
       "tag": "0049_sleepy_mysterio",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789837551995,
+      "tag": "0050_vengeful_fantastic_four",
+      "breakpoints": true
     }
   ]
 }

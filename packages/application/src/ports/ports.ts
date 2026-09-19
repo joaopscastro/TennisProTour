@@ -129,6 +129,75 @@ export interface EventPublisherPort {
 }
 
 /**
+ * Notifications bounded context (STAGE 1) — the outbound email shape
+ * that leaves the process. Deliberately data-only (subject/text/html
+ * already rendered by a pure application-layer function, see
+ * managerDigest.ts's renderDigestEmail), so an adapter's only job is
+ * transport and the product copy stays unit-testable without I/O.
+ */
+export interface OutboundEmail {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}
+
+/**
+ * The transport boundary. Kept as one narrow method (an email is the
+ * only channel STAGE 1 needs); push/other channels get their own typed
+ * methods when they arrive, rather than a generic "send anything" blob.
+ */
+export interface NotificationPort {
+  sendEmail(message: OutboundEmail): Promise<void>;
+}
+
+/**
+ * Resolves a manager's contact address. Deliberately returns null (never
+ * throws) for an unknown manager: "we have no address for this manager"
+ * is an ordinary, expected outcome the digest use case skips over, not
+ * an error. Keeping the "unknown" case non-throwing is what lets the
+ * per-manager loop stay tolerant (see SendManagerDigestsUseCase).
+ */
+export interface ManagerContactPort {
+  emailFor(managerId: ManagerId): Promise<string | null>;
+}
+
+/**
+ * The notification delivery ledger (see the `notification_deliveries`
+ * schema doc comment). The composite (managerId, kind, windowKey) key is
+ * the structural "at most one send per manager per window" guard —
+ * `tryClaim` is an atomic conditional insert.
+ */
+export interface NotificationDeliveryRepository {
+  /** ATOMICALLY claims this manager+kind+window slot: inserts the
+   * delivery row and returns TRUE only if THIS call created it, FALSE
+   * if a row already exists (a previous/parallel send for the same
+   * window). Records `coveredUntil` as the row's initial cursor. The
+   * caller must only ever send after this returns true — otherwise two
+   * near-simultaneous runs can both pass a read-then-write check and
+   * double-send. Same race-safe claim shape as
+   * PracticeSessionRepository.tryRecord. */
+  tryClaim(managerId: ManagerId, kind: string, windowKey: string, coveredUntil: Date): Promise<boolean>;
+  /** The cursor to resume from: the latest `coveredUntil` among this
+   * manager+kind's SENT deliveries, or null if none has ever succeeded.
+   * Deliberately ignores failed/sending rows, so a failed send never
+   * advances the cursor and its window is re-covered on the next run. */
+  previousCoveredUntil(managerId: ManagerId, kind: string): Promise<Date | null>;
+  markSent(managerId: ManagerId, kind: string, windowKey: string): Promise<void>;
+  markFailed(managerId: ManagerId, kind: string, windowKey: string): Promise<void>;
+}
+
+/**
+ * A manager's notification preferences. ABSENCE OF A ROW MEANS OPTED IN
+ * (default ON) — `isOptedOut` returns false for a manager who has never
+ * touched the setting, and `setOptOut` upserts.
+ */
+export interface NotificationPreferenceRepository {
+  isOptedOut(managerId: ManagerId): Promise<boolean>;
+  setOptOut(managerId: ManagerId, optOut: boolean): Promise<void>;
+}
+
+/**
  * Stores the "fake live" replay blob produced alongside every
  * simulated match. Deliberately NOT a repository for an aggregate —
  * a MatchLog is an immutable artifact, not a domain entity with

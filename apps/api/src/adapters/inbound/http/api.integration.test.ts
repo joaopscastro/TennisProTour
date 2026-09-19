@@ -89,6 +89,9 @@ beforeEach(async () => {
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
+  // Notification tables FK managers.id — must go before the managers wipe.
+  await db.delete(schema.notificationDeliveries);
+  await db.delete(schema.managerNotificationStates);
   // Not previously truncated — harmless as long as every test's manager
   // account only ever ends up 'active' (re-upserting an active row back
   // to active is idempotent). The account-deletion tests below leave a

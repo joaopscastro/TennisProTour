@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
@@ -53,6 +53,8 @@ import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRanking
 import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
 import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
 import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
+import { DrizzleNotificationDeliveryRepository } from './DrizzleNotificationDeliveryRepository';
+import { DrizzleNotificationPreferenceRepository } from './DrizzleNotificationPreferenceRepository';
 
 const connectionString = testConnectionString();
 
@@ -77,6 +79,9 @@ beforeEach(async () => {
   // FKs to both players and tournaments, so they have to go before
   // either; peak_rankings/training_schedule only reference players.
   // doubles_pairs references players, so it goes before players too.
+  // Notification tables FK managers.id — before anything they reference.
+  await db.delete(schema.notificationDeliveries);
+  await db.delete(schema.managerNotificationStates);
   await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
@@ -1518,5 +1523,81 @@ describe('retired players are never draw fillers (real Postgres)', () => {
     const entrantIds = reloaded!.entrants.map((entrant) => entrant.playerId as string);
     expect(entrantIds).toContain('live-filler');
     expect(entrantIds).not.toContain('retired-filler');
+  });
+});
+
+describe('DrizzleNotificationDeliveryRepository + DrizzleNotificationPreferenceRepository', () => {
+  const deliveries = new DrizzleNotificationDeliveryRepository(db);
+  const preferences = new DrizzleNotificationPreferenceRepository(db);
+  const managerId = ManagerId('notif-m1');
+  const KIND = 'results_digest';
+
+  // The notification tables FK managers.id, so a real manager row must
+  // exist. This suite never truncates managers, so upsert idempotently.
+  beforeEach(async () => {
+    await db
+      .insert(schema.managers)
+      .values({
+        id: managerId,
+        authSubject: 'notif-subject',
+        displayName: 'Notif Manager',
+        publicHandle: 'notif-manager',
+      })
+      .onConflictDoNothing();
+  });
+
+  it('tryClaim is true exactly once per (manager, kind, window)', async () => {
+    const coveredUntil = new Date('2026-01-10T00:00:00.000Z');
+    expect(await deliveries.tryClaim(managerId, KIND, '2026-01-10', coveredUntil)).toBe(true);
+    expect(await deliveries.tryClaim(managerId, KIND, '2026-01-10', coveredUntil)).toBe(false);
+    // A different window is a different slot.
+    expect(await deliveries.tryClaim(managerId, KIND, '2026-01-11', coveredUntil)).toBe(true);
+  });
+
+  it('previousCoveredUntil only advances on SENT deliveries', async () => {
+    const first = new Date('2026-01-10T00:00:00.000Z');
+    const second = new Date('2026-01-11T00:00:00.000Z');
+
+    expect(await deliveries.previousCoveredUntil(managerId, KIND)).toBeNull();
+    await deliveries.tryClaim(managerId, KIND, '2026-01-10', first);
+    // Claimed but not sent yet — the cursor has not advanced.
+    expect(await deliveries.previousCoveredUntil(managerId, KIND)).toBeNull();
+
+    await deliveries.markSent(managerId, KIND, '2026-01-10');
+    expect((await deliveries.previousCoveredUntil(managerId, KIND))!.toISOString()).toBe(first.toISOString());
+
+    await deliveries.tryClaim(managerId, KIND, '2026-01-11', second);
+    await deliveries.markFailed(managerId, KIND, '2026-01-11');
+    // A failed send must NOT advance the cursor — still the first window.
+    expect((await deliveries.previousCoveredUntil(managerId, KIND))!.toISOString()).toBe(first.toISOString());
+  });
+
+  it('markSent / markFailed round-trip the status column', async () => {
+    const t = new Date('2026-01-12T00:00:00.000Z');
+    await deliveries.tryClaim(managerId, KIND, 'sent-window', t);
+    await deliveries.markSent(managerId, KIND, 'sent-window');
+    const [sentRow] = await db
+      .select()
+      .from(schema.notificationDeliveries)
+      .where(and(eq(schema.notificationDeliveries.managerId, managerId), eq(schema.notificationDeliveries.windowKey, 'sent-window')));
+    expect(sentRow.status).toBe('sent');
+    expect(sentRow.sentAt).not.toBeNull();
+
+    await deliveries.tryClaim(managerId, KIND, 'failed-window', t);
+    await deliveries.markFailed(managerId, KIND, 'failed-window');
+    const [failedRow] = await db
+      .select()
+      .from(schema.notificationDeliveries)
+      .where(and(eq(schema.notificationDeliveries.managerId, managerId), eq(schema.notificationDeliveries.windowKey, 'failed-window')));
+    expect(failedRow.status).toBe('failed');
+    expect(failedRow.sentAt).toBeNull();
+  });
+
+  it('preference defaults to opted-in (false) and round-trips an opt-out', async () => {
+    expect(await preferences.isOptedOut(managerId)).toBe(false);
+    await preferences.setOptOut(managerId, true);
+    expect(await preferences.isOptedOut(managerId)).toBe(true);
+    await preferences.setOptOut(managerId, false);
+    expect(await preferences.isOptedOut(managerId)).toBe(false);
   });
 });
