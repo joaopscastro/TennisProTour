@@ -707,6 +707,23 @@ export function fetchRankings(band: RankingBand, limit = 100): Promise<RankingsB
   return getJson(`/rankings/${band}?limit=${limit}`);
 }
 
+/** The manager's email-digest preference. Default is ON: the backend
+ * treats an absent row as opted in, so `digestOptOut: false` is the
+ * normal, never-touched state. The one toggle lives on the Manager Pro
+ * page (no separate preferences centre). The signed unsubscribe link in
+ * each email flips the same flag without a sign-in. */
+export interface NotificationPreferencesDto {
+  digestOptOut: boolean;
+}
+
+export function fetchNotificationPreferences(managerId?: string): Promise<NotificationPreferencesDto> {
+  return getJson('/me/notification-preferences', managerId);
+}
+
+export function setNotificationPreferences(digestOptOut: boolean, managerId?: string): Promise<NotificationPreferencesDto> {
+  return sendJson('PUT', '/me/notification-preferences', { digestOptOut }, managerId);
+}
+
 export interface PlayerTournamentHistoryEntryDto {
   tournamentId: string;
   name: string;

@@ -1,7 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { createProCheckoutSession, EntitlementDto, fetchEntitlement } from '../../lib/api';
+import {
+  createProCheckoutSession,
+  EntitlementDto,
+  fetchEntitlement,
+  fetchNotificationPreferences,
+  setNotificationPreferences,
+} from '../../lib/api';
 import { useDevManagerId } from '../../lib/managerContext';
 import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, Hero, SectionLabel } from '../../components/ui/primitives';
@@ -32,6 +38,10 @@ export default function ManagerProPage() {
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  // null = not loaded yet; the toggle is disabled until we know the real
+  // preference rather than showing a guessed state.
+  const [digestOptOut, setDigestOptOut] = useState<boolean | null>(null);
+  const [savingPreference, setSavingPreference] = useState(false);
 
   const load = useCallback(async (id: string) => {
     setError(null);
@@ -41,6 +51,13 @@ export default function ManagerProPage() {
       setEntitlement(null);
       setError(e instanceof Error ? e.message : String(e));
     }
+    try {
+      setDigestOptOut((await fetchNotificationPreferences(id)).digestOptOut);
+    } catch {
+      // Leave the toggle disabled if the preference read failed — the
+      // rest of the page is still usable.
+      setDigestOptOut(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -48,6 +65,20 @@ export default function ManagerProPage() {
   }, [managerId, load]);
 
   const tier = entitlement?.tier ?? 'free';
+
+  const handleToggleDigest = useCallback(async () => {
+    if (digestOptOut === null) return;
+    setSavingPreference(true);
+    setError(null);
+    try {
+      const next = await setNotificationPreferences(!digestOptOut, managerId);
+      setDigestOptOut(next.digestOptOut);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSavingPreference(false);
+    }
+  }, [digestOptOut, managerId]);
 
   const handleUpgrade = useCallback(async () => {
     setCheckingOut(true);
@@ -166,6 +197,39 @@ export default function ManagerProPage() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* EMAIL NOTIFICATIONS */}
+        <SectionLabel>Email notifications</SectionLabel>
+        <div className="text-[12.5px] mb-3 -mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
+          Your weekly results digest — a short recap of your players&rsquo; results, titles, and next matches.
+        </div>
+        <div className="gc-card rounded-[12px] p-[18px_20px] mb-8 flex items-center justify-between gap-6 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[14.5px] font-semibold" style={{ color: 'var(--gc-ink)' }}>
+              Weekly results digest
+            </div>
+            <div className="text-[12.5px] mt-1 leading-[1.55]" style={{ color: 'var(--gc-ink-mute)' }}>
+              On by default. Every email carries a one-click unsubscribe link, and you can turn it off here any time.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={digestOptOut === false}
+            aria-label="Weekly results digest"
+            onClick={handleToggleDigest}
+            disabled={digestOptOut === null || savingPreference}
+            className="gc-btn flex-none justify-center disabled:opacity-60"
+            style={{
+              minWidth: 96,
+              background: digestOptOut === false ? 'oklch(88% 0.19 122 / 0.18)' : 'var(--gc-s3)',
+              color: digestOptOut === false ? 'var(--gc-ball)' : 'var(--gc-ink-dim)',
+              border: '1px solid var(--gc-line)',
+            }}
+          >
+            {digestOptOut === null ? 'Loading…' : digestOptOut ? 'Off' : 'On'}
+          </button>
         </div>
 
         {/* THE ONE PERK WITH A REAL EDGE */}

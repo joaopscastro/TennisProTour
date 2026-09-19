@@ -16,6 +16,7 @@ import { registerDoublesRoutes } from './adapters/inbound/http/doublesRoutes';
 import { registerMastersCupRoutes } from './adapters/inbound/http/mastersCupRoutes';
 import { registerWorldTeamCupRoutes } from './adapters/inbound/http/worldTeamCupRoutes';
 import { registerRankingsRoutes } from './adapters/inbound/http/rankingsRoutes';
+import { registerNotificationRoutes } from './adapters/inbound/http/notificationRoutes';
 
 export interface AppOptions {
   deps: Dependencies;
@@ -126,6 +127,7 @@ export function buildApp(options: AppOptions): FastifyInstance {
   registerMastersCupRoutes(app, options.deps);
   registerWorldTeamCupRoutes(app, options.deps);
   registerRankingsRoutes(app, options.deps);
+  registerNotificationRoutes(app, options.deps);
 
   app.setErrorHandler<Error & { statusCode?: number }>((error, request, reply) => {
     // Fastify schema-validation errors arrive with a statusCode; keep it.

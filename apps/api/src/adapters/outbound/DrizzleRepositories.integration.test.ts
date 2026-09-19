@@ -32,7 +32,9 @@ import {
   EventPublisherPort,
   FILL_ONLY_FLOORS,
   IdGeneratorPort,
+  ManagerContactPort,
   RankPositionQuery,
+  SendManagerDigestsUseCase,
   StartDueTournamentsUseCase,
 } from '@tennis-manager/application';
 import { testConnectionString } from '../../db/testConnection';
@@ -56,6 +58,7 @@ import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
 import { DrizzleNotificationDeliveryRepository } from './DrizzleNotificationDeliveryRepository';
 import { DrizzleNotificationPreferenceRepository } from './DrizzleNotificationPreferenceRepository';
 import { DrizzleManagerDigestQuery } from './DrizzleManagerDigestQuery';
+import { LoggingNotificationAdapter } from './LoggingNotificationAdapter';
 
 const connectionString = testConnectionString();
 
@@ -1761,5 +1764,114 @@ describe('DrizzleManagerDigestQuery', () => {
     const data = await digestQuery.load({ managerId, since, until });
     const alice = data.find((p) => p.playerId === PlayerId('digest-alice'))!;
     expect(alice.results).toHaveLength(0);
+  });
+});
+
+describe('SendManagerDigestsUseCase (real Postgres, logging adapter)', () => {
+  const managerId = ManagerId('digest-e2e-m1');
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const deliveries = new DrizzleNotificationDeliveryRepository(db);
+  const preferences = new DrizzleNotificationPreferenceRepository(db);
+  const ledger = new DrizzleRankingLedgerRepository(db);
+  const worlds = new DrizzleGameWorldRepository(db);
+  const worldId = WorldId('main');
+  const rankPositionByBand: Record<RankingBand, RankPositionQuery> = {
+    senior: new RankPositionQuery(ledger, worlds, worldId, 'senior'),
+    u14: new RankPositionQuery(ledger, worlds, worldId, 'u14'),
+    u16: new RankPositionQuery(ledger, worlds, worldId, 'u16'),
+    u18: new RankPositionQuery(ledger, worlds, worldId, 'u18'),
+  };
+
+  // Deterministic contact + a captured log sink, so the test can assert
+  // both the delivered message and that the transport was the LOGGING
+  // one (no network anywhere in this suite).
+  const contacts: ManagerContactPort = { emailFor: async () => 'digest-e2e@example.com' };
+  const logEntries: Array<{ message: string; payload: Record<string, unknown> }> = [];
+  const notifications = new LoggingNotificationAdapter((message, payload) => logEntries.push({ message, payload }));
+
+  const useCase = new SendManagerDigestsUseCase(
+    new DrizzleManagerDigestQuery(db),
+    deliveries,
+    preferences,
+    contacts,
+    notifications,
+    rankPositionByBand,
+  );
+
+  // Fixed "now" so the digest window is (2026-01-10T00:00, 2026-01-11T00:00].
+  const now = new Date('2026-01-11T00:00:00.000Z');
+  const windowKey = '2026-01-11';
+
+  beforeEach(async () => {
+    logEntries.length = 0;
+    await db
+      .insert(schema.managers)
+      .values({
+        id: managerId,
+        authSubject: 'digest-e2e-subject',
+        displayName: 'Digest E2E Manager',
+        publicHandle: 'digest-e2e-manager',
+      })
+      .onConflictDoNothing();
+
+    const alice = Player.hire(PlayerId('digest-e2e-alice'), 'Alice E2E', 20 * 52, attributes(60), managerId, 'LV');
+    alice.pullDomainEvents();
+    await playerRepository.save(alice);
+
+    const opponent = Player.generateFillOnly(PlayerId('digest-e2e-opp'), 'Opponent E2E', 20 * 52, 'prime', attributes(45), 'LV');
+    opponent.pullDomainEvents();
+    await playerRepository.save(opponent);
+
+    await db.insert(schema.tournaments).values({
+      id: 'digest-e2e-t1',
+      name: 'E2E Digest Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 5,
+      drawSize: 16,
+    });
+
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'digest-e2e-t1',
+      draw: 'main',
+      roundNumber: 3,
+      matchIndex: 0,
+      entrantA: PlayerId('digest-e2e-alice'),
+      entrantB: PlayerId('digest-e2e-opp'),
+      winnerId: PlayerId('digest-e2e-alice'),
+      loserId: PlayerId('digest-e2e-opp'),
+      setScores: [{ winnerGames: 6, loserGames: 4 }],
+      scheduledStartAt: new Date('2026-01-10T12:00:00.000Z'),
+      revealSeconds: 600,
+    });
+  });
+
+  it('claims, sends once through the logging adapter, and is a no-op on a second same-day run', async () => {
+    const first = await useCase.execute({ now, windowKey });
+    expect(first).toEqual({ sent: 1, skipped: 0, failed: 0 });
+
+    // The logging transport recorded exactly one {to, subject}.
+    expect(logEntries).toHaveLength(1);
+    expect(logEntries[0].payload).toMatchObject({
+      to: 'digest-e2e@example.com',
+      subject: 'Tennis Manager - your weekly results digest',
+    });
+
+    // The claim row exists and is marked sent.
+    const rows = await db
+      .select()
+      .from(schema.notificationDeliveries)
+      .where(eq(schema.notificationDeliveries.managerId, managerId));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind).toBe('results_digest');
+    expect(rows[0].windowKey).toBe(windowKey);
+    expect(rows[0].status).toBe('sent');
+
+    // A second same-day run finds the window already claimed and sends nothing.
+    const second = await useCase.execute({ now, windowKey });
+    expect(second.sent).toBe(0);
+    expect(second.failed).toBe(0);
+    expect(logEntries).toHaveLength(1);
   });
 });
