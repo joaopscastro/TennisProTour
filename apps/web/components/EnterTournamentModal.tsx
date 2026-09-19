@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
+import { TournamentRewardsLadder, TournamentRewardSummary } from './TournamentRewards';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -114,6 +115,8 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
     return mainEntrants < mainCapacity;
   }
 
+  const selectedTournament = tournaments?.find((t) => t.id === selectedId) ?? null;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -137,7 +140,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
           </div>
         )}
 
-        <div className="flex flex-col gap-2 overflow-y-auto" style={{ minHeight: 60 }}>
+        <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0" style={{ minHeight: 60 }}>
           {tournaments === null && !error && (
             <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
               Loading open tournaments…
@@ -221,10 +224,20 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
                     Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize}) — no [Q] places left
                   </div>
                 )}
+                <TournamentRewardSummary tournament={t} />
               </button>
             );
           })}
         </div>
+
+        {selectedTournament && (
+          <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--gc-line)' }}>
+            <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase mb-[7px]" style={{ color: 'var(--gc-ink-mute)' }}>
+              What you&apos;re playing for — {selectedTournament.name}
+            </div>
+            <TournamentRewardsLadder tournament={selectedTournament} />
+          </div>
+        )}
 
         <div className="flex justify-end gap-2 mt-5">
           <button

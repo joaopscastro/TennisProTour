@@ -147,6 +147,7 @@ export function PlayerCard({
   form,
   h2h,
   badges,
+  stats,
   footer,
   accent,
   hover,
@@ -165,6 +166,10 @@ export function PlayerCard({
   form?: PlayerTournamentHistoryEntryDto[] | null;
   h2h?: React.ReactNode;
   badges?: React.ReactNode;
+  /** Optional stats snapshot (e.g. the scouting page's per-attribute
+   * bars) rendered between the rank/form row and the badges. Omitted
+   * everywhere else, so every existing caller is unchanged. */
+  stats?: React.ReactNode;
   footer?: React.ReactNode;
   accent?: string;
   hover?: boolean;
@@ -224,6 +229,7 @@ export function PlayerCard({
         </div>
       )}
 
+      {stats}
       {badges}
       {h2h}
       {footer && <div style={{ marginTop: 'auto', paddingTop: 4 }}>{footer}</div>}

@@ -1429,6 +1429,86 @@ analytics trail. No game systems, no balance constants, no sim changes.
   failed analytics write must never break the request that produced it, so
   every call site fires-and-forgets (`void deps.analytics.record(...)`).
 
+## Core-loop comprehension pass (Pass A + Pass B)
+
+A deliberately frontend-mostly pass closing player-facing comprehension
+gaps where the DATA ALREADY EXISTED on a DTO but was never surfaced — no
+new game systems, no simulator changes, no balance-constant tuning
+except the one deliberate correction in B2 below.
+
+**Pass A — the game explains itself.**
+- **A1: tournament rewards are now visible at the point of entry.** A new
+  shared `apps/web/components/TournamentRewards.tsx` renders the DTO's
+  existing `pointsBreakdown`/`prizeMoneyBreakdown`: `TournamentRewardSummary`
+  (one scannable Champion→first-round line, used in `EnterTournamentModal`
+  and the planner's `WeekRegisterPicker`) and `TournamentRewardsLadder`
+  (the full compact ladder, shown for the SELECTED tournament in the
+  modal). Both read the same domain tables the sim awards from, so they
+  can't drift. The "first round: no points" note is stated wherever the
+  ladder appears (the real rule, not a UI quirk). No new query — field
+  strength (entrants vs draw size) was already shown and no cheap
+  additional signal was added.
+- **A2: the scouting list is now comparable.** `PlayerCard` gained an
+  optional `stats` slot (every existing caller unchanged);
+  `apps/web/app/scouting/page.tsx` passes a compact two-column
+  `AttributeSnapshot` of the DTO's already-present current attributes
+  (technical/physical/mental), and a sort control (Youngest — the
+  unchanged default — Overall rating, Cheapest to sign), sorted
+  client-side with "Show more" pagination preserved and reset to the top
+  on a sort change. Hidden potential/ceilings are still never surfaced
+  on any list.
+- **A3: the replay now shows "what decided it" — and honestly reports a
+  real persistence gap.** Investigated first: `StatisticalMatchSimulator.
+  effectiveRating` reads fatigue and form AT SIMULATION TIME, but NEITHER
+  is persisted with the match — `MatchLog` carries only points/games/
+  duration + `simulatedAt`, and the `tournament_matches` row carries only
+  entrants/outcome/schedule. There is no per-match fatigue/form history
+  anywhere. So the new panel deliberately does not fabricate them: it
+  renders surface, home/away (derived from nationality vs. the
+  tournament's `hostCountry` — both stable, so this IS the match's real
+  home bonus), and each player's CURRENT fatigue/form/surface-affinity,
+  each explicitly labelled "now". Closing the gap for real needs a schema
+  change (stamp the inputs onto the match row or the log) and is left as
+  its own scoped piece, not guessed at here.
+- **A4: the first ranking moment explains itself.** A shared
+  `RANKING_EARNED_NOTE` ("A ranking is earned by winning — a first-round
+  loss pays no points.") in `apps/web/lib/format.ts` is shown on the
+  roster's Rank column whenever a player is unranked, and on the player
+  profile's "Current standing" card for a null/0-point band. Same idea as
+  the tournament detail page's existing copy, now where a new player
+  actually first meets "#NR / 0 pts".
+- **A5: the roster has a "what's next" cue.** `apps/web/app/page.tsx`
+  fetches each roster player's `GET /players/:id/current-matches` (roster
+  cap is tiny — 2/4, so N parallel existing reads, no new read model) plus
+  the world clock, and each row renders a `RosterNextMatch` line: the next
+  opponent + tournament, with a live countdown ONLY when the match already
+  has a `scheduledStartAt`, "live now" during its reveal window, and an
+  honest "awaiting simulation" when it has no schedule yet — never a faked
+  countdown. The squad section header also shows the world's "Next day in
+  …" using the same `nextTickAt` the sidebar counts to.
+
+**Pass B — honesty and small corrections.**
+- **B1: killed the `clutch` documentation lie.** `PlayerAttributes.ts`'s
+  `clutch` comment claimed a "bonus on break/tiebreak points" that has
+  never existed: `clutch` is only ever read as one of the two mental
+  attributes inside the 0.2-weighted mental average of `effectiveRating`
+  (via `weightedMentalAverage`), exactly like `consistency`. The comment
+  now says that, and explicitly records that no break/tiebreak mechanic
+  exists. No new tiebreak mechanic was implemented (the attribute already
+  matters through the mental term).
+- **B2: fixed the manager-XP value inversion.** `StandardManagerXpPolicy`
+  used `(BASE_XP + bonus) * tierMultiplier`, so a MAJOR first-round LOSS
+  ((10+0)×5 = 50) out-earned a FUTURES TITLE ((10+15)×1.5 = 38) — a direct
+  violation of "ranked to win, never paid for showing up". The win bonus is
+  now ADDITIVE after the tier multiplier (`BASE_XP * mult + (win ? 60 : 0)`),
+  which structurally guarantees the intended property: `WIN_BONUS` (60) >
+  `BASE_XP × (max − min multiplier)` (10 × 4.5 = 45), so a title at ANY
+  tier always beats a first-round loss at ANY tier, while higher tiers
+  still pay strictly more for the same result. After: major title 110
+  (was 125), futures title 75 (was 38), j30 title 65 (was 13), major loss
+  50 (unchanged), j30 loss 5 (unchanged). A new regression test pins the
+  cross-tier invariant; the existing relational tests still pass.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

@@ -28,6 +28,103 @@ const SURFACE_COLOR: Record<string, string> = {
   indoor: 'var(--sf-indoor)',
 };
 
+const KNOWN_SURFACES = ['clay', 'grass', 'hard', 'indoor'] as const;
+type KnownSurface = (typeof KNOWN_SURFACES)[number];
+
+/** The form band a value sits in — mirrors StatisticalMatchSimulator's
+ * `formModifier` bands (rusty/warming/sharp/well-played/overplayed), the
+ * same bands the roster's form gauge labels. Presentation only. */
+function formBandLabel(form: number): string {
+  if (form > 30) return 'overplayed';
+  if (form >= 12 && form <= 25) return 'match sharp';
+  if (form >= 26) return 'well-played';
+  if (form >= 8) return 'warming up';
+  return 'rusty';
+}
+
+interface DecidedItProps {
+  tournament: TournamentDto;
+  playerA: PlayerDto | null;
+  playerB: PlayerDto | null;
+  nameA: string;
+  nameB: string;
+  accent?: string;
+}
+
+/**
+ * "What decided it" — the hidden rating inputs a reader of a scoreline
+ * cannot see, made legible.
+ *
+ * **Honest data-availability note (a real gap, not glossed over here):**
+ * the simulator's `effectiveRating` reads each player's fatigue and form
+ * AT SIMULATION TIME, but neither is persisted with the match — the
+ * `MatchLog` blob carries only points/games/duration, and the
+ * `tournament_matches` row carries only the entrants, outcome and
+ * reveal schedule. There is no per-match fatigue/form history anywhere.
+ * So this panel deliberately does NOT present the values that actually
+ * fed THIS match as if it did. What it renders is:
+ *   - surface (the tournament's, stable),
+ *   - home/away (derived from nationality vs. the tournament's host
+ *     country — both stable, so this IS the match's real home bonus),
+ *   - each player's CURRENT fatigue and form, and their CURRENT surface
+ *     affinity, every one explicitly labelled "now".
+ * Closing the gap for real needs a schema change (stamp the inputs onto
+ * the match row or the log) and is deliberately left as its own scoped
+ * piece of work rather than fabricated here.
+ */
+function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, accent }: DecidedItProps) {
+  const surface = (KNOWN_SURFACES as readonly string[]).includes(tournament.surface)
+    ? (tournament.surface as KnownSurface)
+    : null;
+  const affinityOf = (p: PlayerDto | null): number | null => (p && surface ? p.attributes.surfaceAffinities[surface] : null);
+  const isHome = (p: PlayerDto | null): boolean => tournament.hostCountry != null && p?.nationality === tournament.hostCountry;
+
+  const row = (label: string, a: React.ReactNode, b: React.ReactNode, hint?: string) => (
+    <div key={label} className="grid items-center gap-x-[8px] px-[10px] py-[6px]" style={{ gridTemplateColumns: '1.3fr 1fr 1fr', borderTop: '1px solid var(--gc-line)' }}>
+      <div className="text-[11px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
+        {label}
+        {hint && <div className="text-[9.5px] font-normal" style={{ color: 'var(--gc-ink-faint)' }}>{hint}</div>}
+      </div>
+      <div className="text-[12px] font-semibold text-right [font-variant-numeric:tabular-nums]">{a}</div>
+      <div className="text-[12px] font-semibold text-right [font-variant-numeric:tabular-nums]">{b}</div>
+    </div>
+  );
+
+  const formCell = (p: PlayerDto | null) =>
+    p ? <>{p.form}<span className="font-normal" style={{ color: 'var(--gc-ink-faint)' }}> · {formBandLabel(p.form)}</span></> : '—';
+
+  return (
+    <div className="mb-[14px] gc-card rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
+      <div className="flex items-center gap-[8px] px-[10px] py-[8px]">
+        <span className="text-[10.5px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>What decided it</span>
+        {accent && (
+          <span className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[1px] rounded-[3px] text-white" style={{ background: accent }}>
+            {tournament.surface}
+          </span>
+        )}
+        {tournament.hostCountry && <span className="text-[10.5px]" style={{ color: 'var(--gc-ink-faint)' }}>Host: {tournament.hostCountry}</span>}
+      </div>
+      <div className="grid gap-x-[8px] px-[10px] py-[5px] text-[10px] font-bold tracking-[0.4px] uppercase" style={{ gridTemplateColumns: '1.3fr 1fr 1fr', color: 'var(--gc-ink-faint)' }}>
+        <span />
+        <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameA}</span>
+        <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameB}</span>
+      </div>
+      {row('Home / away', isHome(playerA) ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', isHome(playerB) ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', 'stable for this match')}
+      {row('Fatigue', playerA ? `${playerA.fatigue}/100` : '—', playerB ? `${playerB.fatigue}/100` : '—', 'current, not at match time')}
+      {row('Form', formCell(playerA), formCell(playerB), 'current, not at match time')}
+      {row(
+        surface ? `Surface affinity (${surface})` : 'Surface affinity',
+        affinityOf(playerA) ?? '—',
+        affinityOf(playerB) ?? '—',
+        'current',
+      )}
+      <div className="px-[10px] py-[8px] text-[10.5px] leading-[1.5]" style={{ color: 'var(--gc-ink-mute)', borderTop: '1px solid var(--gc-line)' }}>
+        The sim blends each player&apos;s technical, physical and mental ability, adds their surface affinity, then applies a fatigue penalty, a form modifier and a home bonus on the day. Fatigue and form shown here are their values <em>now</em> — they change as matches are played and are not recorded per match, so they are context, not the exact numbers that decided this one.
+      </div>
+    </div>
+  );
+}
+
 interface MatchContext {
   tournament: TournamentDto;
   roundNumber: number;
@@ -209,6 +306,17 @@ export default function ReplayPage() {
               mirror
             />
           </div>
+        )}
+
+        {context && (
+          <WhatDecidedIt
+            tournament={context.tournament}
+            playerA={context.playerA}
+            playerB={context.playerB}
+            nameA={playerAName}
+            nameB={playerBName}
+            accent={accent}
+          />
         )}
 
         {log && (

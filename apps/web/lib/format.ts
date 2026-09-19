@@ -66,6 +66,14 @@ export function flagFor(nationality: string): string {
 
 export const WEEKS_PER_SEASON = 52;
 
+/** The one explanation shown wherever a player is unranked or on zero
+ * points — a first-round loss earns no ranking points at any tier, so a
+ * new player's "#NR / 0 pts" is the honest, expected starting state, not
+ * a bug. Shared so the roster and the profile say the same thing
+ * (matches the tournament detail page's "a ranking is earned by
+ * winning" copy). */
+export const RANKING_EARNED_NOTE = 'A ranking is earned by winning — a first-round loss pays no points.';
+
 export interface SetScore {
   winnerGames: number;
   loserGames: number;

@@ -156,7 +156,22 @@ export interface PlayerAttributesProps {
   };
   mental: {
     consistency: Skill;
-    clutch: Skill; // "mentality" in Rocking Rackets terms — bonus on break/tiebreak points
+    /** `clutch` ("mentality" in Rocking Rackets terms). What it ACTUALLY
+     * does: it is one of the two mental attributes averaged into
+     * `effectiveRating`'s 0.2-weighted mental term (see
+     * StatisticalMatchSimulator.effectiveRating / weightedMentalAverage),
+     * exactly like `consistency` — a higher value makes the player a
+     * little stronger in every point of every match.
+     *
+     * It is NOT a bonus on break/tiebreak points. This comment used to
+     * claim that, but no such mechanic has ever existed: the simulator
+     * has no break-point- or tiebreak-specific term and never reads
+     * `clutch` outside that mental average. Corrected here rather than
+     * implemented — the attribute already matters through the mental
+     * term, and inventing a new tiebreak mechanic to match a stale
+     * comment would be the wrong direction (see CLAUDE.md's "avoid
+     * systems for their own sake" discipline). */
+    clutch: Skill;
   };
   /** Doubles skill (P7b) — its own axis, distinct from the singles
    * clusters above. Optional/additive: absent means `Skill.of(0)` (a

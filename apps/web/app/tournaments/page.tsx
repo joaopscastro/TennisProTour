@@ -14,6 +14,7 @@ import {
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
 import { SeasonEvents } from '../../components/SeasonEvents';
+import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
@@ -380,6 +381,7 @@ function WeekRegisterPicker({
                 Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize})
               </div>
             )}
+            <TournamentRewardSummary tournament={t} />
           </button>
         );
       })}

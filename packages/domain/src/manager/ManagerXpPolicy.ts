@@ -21,23 +21,42 @@ export interface ManagerXpPolicy {
  * placeholder constants safe to ship for validating the architecture,
  * but worth a dedicated tuning pass before launch.
  *
- * Formula: xp = BASE_XP + (win ? WIN_BONUS : 0), scaled by a per-tier
- * multiplier — mirrors the same tier-weighting shape ranking points
- * already use (major > tour > challenger > futures), reusing that
- * established ordering rather than inventing a new one, with the
- * junior ladder as its own separate, lower scale below futures.
+ * Formula: xp = BASE_XP * tierMultiplier + (win ? WIN_BONUS : 0). The
+ * per-tier multiplier scales the PARTICIPATION component only, reusing
+ * the same tier ordering ranking points already use (major > tour >
+ * challenger > futures, with the junior ladder as its own separate,
+ * lower scale below futures); a WIN's bonus is added on top at a flat
+ * rate, never multiplied down by a low tier's factor and never shrinking
+ * a low tier's win below a high tier's mere participation.
+ *
+ * **Why the win bonus sits OUTSIDE the multiplier — a real, deliberate
+ * correction of the original `(BASE_XP + bonus) * multiplier` shape.**
+ * With the bonus folded into the multiplier, a low tier shrank the win
+ * component while a high tier inflated the participation component, so
+ * a MAJOR first-round LOSS (10 × 5 = 50) out-earned a FUTURES TITLE
+ * (25 × 1.5 = 38) — directly contradicting this project's own
+ * "ranked to win, never paid for showing up" principle (CLAUDE.md
+ * design principle #1 and the ranking-points rule that a first-round
+ * loss earns zero). Keeping the bonus additive structurally guarantees
+ * the intended property: because WIN_BONUS (60) exceeds
+ * BASE_XP × (max multiplier − min multiplier) = 10 × (5 − 0.5) = 45,
+ * a title at ANY tier always out-earns a first-round loss at ANY tier,
+ * while higher tiers still pay strictly more for the same result.
  */
 export class StandardManagerXpPolicy implements ManagerXpPolicy {
-  /** PLACEHOLDER: base XP awarded for any deciding match result,
-   * regardless of outcome — participation has some value. Not tuned. */
+  /** PLACEHOLDER: base XP for any deciding result, before the tier
+   * multiplier — participation has some value. Not tuned. */
   private static readonly BASE_XP = 10;
 
-  /** PLACEHOLDER: extra XP on top of BASE_XP for a win specifically.
-   * Not tuned. */
-  private static readonly WIN_BONUS = 15;
+  /** PLACEHOLDER: flat extra XP for a WIN, added AFTER the tier
+   * multiplier so it can never be shrunk by a low tier. Not tuned, but
+   * sized (60 > 45) so it structurally guarantees a title at any tier
+   * beats a first-round loss at any tier — the actual point of this
+   * shape, not an arbitrary value. */
+  private static readonly WIN_BONUS = 60;
 
-  /** PLACEHOLDER: per-tier multiplier applied to (BASE_XP + bonus).
-   * Senior tiers keep the original major > tour > challenger > futures
+  /** PLACEHOLDER: per-tier multiplier applied to BASE_XP only. Senior
+   * tiers keep the original major > tour > challenger > futures
    * ordering. The junior ladder is its own separate, lower-XP scale
    * below futures, ascending with grade (j30 lowest, juniorMasters
    * highest) — junior and senior XP aren't meant to be on one
@@ -59,7 +78,8 @@ export class StandardManagerXpPolicy implements ManagerXpPolicy {
   };
 
   xpFor(result: 'win' | 'loss', tier: TournamentTier): number {
-    const raw = StandardManagerXpPolicy.BASE_XP + (result === 'win' ? StandardManagerXpPolicy.WIN_BONUS : 0);
-    return Math.round(raw * StandardManagerXpPolicy.TIER_MULTIPLIER[tier]);
+    const participation = StandardManagerXpPolicy.BASE_XP * StandardManagerXpPolicy.TIER_MULTIPLIER[tier];
+    const winBonus = result === 'win' ? StandardManagerXpPolicy.WIN_BONUS : 0;
+    return Math.round(participation + winBonus);
   }
 }

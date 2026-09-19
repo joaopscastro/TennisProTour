@@ -27,4 +27,22 @@ describe('StandardManagerXpPolicy', () => {
   it('awards some XP for a loss (participation has value), not zero', () => {
     expect(policy.xpFor('loss', 'j30')).toBeGreaterThan(0);
   });
+
+  // Regression guard for a real inversion the original
+  // `(BASE_XP + bonus) * multiplier` formula had: the LOWEST tier's title
+  // must out-earn the HIGHEST tier's mere participation. Under the old
+  // shape a major first-round loss (50) beat a futures title (38) — a
+  // direct violation of "ranked to win, never paid for showing up". The
+  // win bonus is now additive after the tier multiplier, which makes
+  // this hold structurally; this test would catch a regression back to
+  // the multiplicative shape.
+  it('a title at ANY tier out-earns a first-round loss at ANY tier', () => {
+    const allTiers = [
+      'futures', 'challenger', 'tour', 'major',
+      'juniorMasters', 'j500', 'j300', 'j200', 'j100', 'j60', 'j30',
+    ] as const;
+    const lowestTitle = Math.min(...allTiers.map((t) => policy.xpFor('win', t)));
+    const highestLoss = Math.max(...allTiers.map((t) => policy.xpFor('loss', t)));
+    expect(lowestTitle).toBeGreaterThan(highestLoss);
+  });
 });

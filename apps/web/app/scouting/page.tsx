@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   EntitlementDto,
   TalentPoolCandidateDto,
@@ -11,7 +11,7 @@ import {
   fetchWorldClock,
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
-import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel } from '../../components/ui/primitives';
+import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, StatBar } from '../../components/ui/primitives';
 import { PlayerCard } from '../../components/ui/PlayerCard';
 import { AnimatedNumber, Delta } from '../../components/ui/motion';
 import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
@@ -22,6 +22,32 @@ function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
   const all = [...Object.values(technical), ...Object.values(physical), ...Object.values(mental)];
   return Math.round(all.reduce((sum, v) => sum + v, 0) / all.length);
+}
+
+/** How the free-agent grid is ordered. "Youngest" is the long-standing
+ * default (see the "youngest first" copy) — the other two are the
+ * comparison axes a scout actually weighs a prospect on. Sorted
+ * client-side over data the DTO already carries; no new query. */
+type ScoutSort = 'youngest' | 'overall' | 'cost';
+
+/** A compact per-attribute snapshot so two prospects can be compared
+ * without opening each profile. Deliberately only CURRENT attributes —
+ * hidden potential/ceilings stay profile-only by design (see
+ * talentPoolRoutes' DTO note); nothing here can leak a ceiling. */
+function AttributeSnapshot({ attributes }: { attributes: TalentPoolCandidateDto['attributes'] }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 18px' }}>
+      {Object.entries(attributes.technical).map(([name, value]) => (
+        <StatBar key={`t-${name}`} label={name} value={value} />
+      ))}
+      {Object.entries(attributes.physical).map(([name, value]) => (
+        <StatBar key={`p-${name}`} label={name} value={value} />
+      ))}
+      {Object.entries(attributes.mental).map(([name, value]) => (
+        <StatBar key={`m-${name}`} label={name} value={value} />
+      ))}
+    </div>
+  );
 }
 
 export default function ScoutingPage() {
@@ -37,6 +63,7 @@ export default function ScoutingPage() {
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const [shown, setShown] = useState(48);
+  const [sortBy, setSortBy] = useState<ScoutSort>('youngest');
 
   const load = useCallback(async () => {
     setError(null);
@@ -113,6 +140,18 @@ export default function ScoutingPage() {
 
   const xpBalance = entitlement?.xpBalance ?? 0;
 
+  // "Youngest" stays the default (and the backend already returns the
+  // pool youngest-first), so this only re-orders when the scout picks
+  // another axis. Ties fall back to age so the order is stable.
+  const sortedCandidates = useMemo(() => {
+    if (!candidates) return [];
+    const copy = [...candidates];
+    if (sortBy === 'overall') copy.sort((a, b) => overallOf(b) - overallOf(a) || a.ageInWeeks - b.ageInWeeks);
+    else if (sortBy === 'cost') copy.sort((a, b) => a.claimCost - b.claimCost || a.ageInWeeks - b.ageInWeeks);
+    else copy.sort((a, b) => a.ageInWeeks - b.ageInWeeks);
+    return copy;
+  }, [candidates, sortBy]);
+
   return (
     <AppFrame>
       {celebrations.length > 0 && (
@@ -178,9 +217,30 @@ export default function ScoutingPage() {
 
         {candidates && candidates.length > 0 && (
           <>
-            <SectionLabel>{candidates.length} free agent{candidates.length === 1 ? '' : 's'} available · youngest first</SectionLabel>
+            <SectionLabel
+              right={
+                <select
+                  className="gc-select"
+                  value={sortBy}
+                  onChange={(e) => {
+                    setSortBy(e.target.value as ScoutSort);
+                    // Jump back to the top of the newly-ordered list so
+                    // the sorted head is actually visible, not buried
+                    // behind however far "Show more" had already gone.
+                    setShown(48);
+                  }}
+                  style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
+                >
+                  <option value="youngest">Sort: Youngest</option>
+                  <option value="overall">Sort: Overall rating</option>
+                  <option value="cost">Sort: Cheapest to sign</option>
+                </select>
+              }
+            >
+              {candidates.length} free agent{candidates.length === 1 ? '' : 's'} available
+            </SectionLabel>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-              {candidates.slice(0, shown).map((c, idx) => {
+              {sortedCandidates.slice(0, shown).map((c, idx) => {
                 const busy = claimingId === c.id;
                 const claimedOut = claimedOutId === c.id;
                 const affordable = xpBalance >= c.claimCost;
@@ -197,6 +257,7 @@ export default function ScoutingPage() {
                     href={`/players/${c.id}`}
                     className={`gc-rise${claimedOut ? ' gc-claimed-out' : ''}`}
                     style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
+                    stats={<AttributeSnapshot attributes={c.attributes} />}
                     footer={
                       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
                         <div>

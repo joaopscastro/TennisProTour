@@ -6,24 +6,29 @@ import {
   DoublesPairDto,
   EntitlementDto,
   PlayerLifecycleStage,
+  PlayerMatchesDto,
   RosterDashboardEntryDto,
   Surface,
   TrainingFocus,
+  WorldClockDto,
   acceptDoublesPair,
   createDoublesPair,
   dissolveDoublesPair,
   fetchDoublesPairs,
   fetchEntitlement,
+  fetchPlayerMatches,
   fetchRosterDashboard,
+  fetchWorldClock,
   releasePlayer,
   runPractice,
   setTrainingFocus,
 } from '../lib/api';
+import { useCountdown, formatCountdown, formatCountdownClock } from '../lib/useCountdown';
 import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { WEEKS_PER_SEASON, flagFor, stageLabel } from '../lib/format';
+import { RANKING_EARNED_NOTE, WEEKS_PER_SEASON, flagFor, stageLabel } from '../lib/format';
 import { useDevManagerId } from '../lib/managerContext';
 import { Avatar } from '../components/ui/Avatar';
 import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
@@ -195,6 +200,39 @@ function AnimatedAffinityBar({ playerId, surfaceKey, value, letter }: { playerId
   );
 }
 
+/** Per-player "what's next" cue — the player's next match from
+ * GET /players/:id/current-matches, with a live countdown ONLY to a
+ * match that already has a scheduled reveal start. A truly pending
+ * match (no schedule yet — its round isn't due) honestly reads
+ * "awaiting simulation" rather than counting down to a time that
+ * doesn't exist yet. */
+function RosterNextMatch({ matches }: { matches: PlayerMatchesDto | null | undefined }) {
+  const next = matches?.next ?? null;
+  const remainingMs = useCountdown(next?.scheduledStartAt ?? null);
+  // Still loading (no entry yet) — render nothing rather than flashing
+  // "No match scheduled" before the per-player read comes back.
+  if (matches === undefined) return null;
+  if (!next) {
+    return (
+      <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-faint)' }}>No match scheduled</div>
+    );
+  }
+  const live = next.scheduledStartAt !== null && remainingMs <= 0;
+  return (
+    <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-mute)' }}>
+      <span style={{ color: 'var(--gc-ink-dim)', fontWeight: 600 }}>Next:</span> vs {next.opponentName}
+      <span style={{ color: 'var(--gc-ink-faint)' }}> · {next.tournamentName}</span>
+      {next.scheduledStartAt === null ? (
+        <span style={{ color: 'var(--gc-ink-faint)', fontStyle: 'italic' }}> · awaiting simulation</span>
+      ) : live ? (
+        <span style={{ color: 'oklch(70% 0.17 45)', fontWeight: 700 }}> · live now</span>
+      ) : (
+        <span style={{ color: 'oklch(78% 0.1 200)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}> · in {formatCountdownClock(remainingMs)}</span>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 
 export default function RosterDashboardPage() {
@@ -203,6 +241,12 @@ export default function RosterDashboardPage() {
   const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [players, setPlayers] = useState<RosterDashboardEntryDto[] | null>(null);
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
+  // "What's next" cue: each player's next match (the same read the player
+  // profile uses) plus the world clock's next tick, so the roster can say
+  // when something is actually going to happen without faking a countdown
+  // for a match that hasn't been scheduled yet.
+  const [matchesByPlayer, setMatchesByPlayer] = useState<Record<string, PlayerMatchesDto | null>>({});
+  const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('fatigue');
   const [openFocusMenu, setOpenFocusMenu] = useState<string | null>(null);
@@ -212,10 +256,24 @@ export default function RosterDashboardPage() {
   const load = useCallback(async (id: string) => {
     setError(null);
     try {
-      const [roster, ent, pairs] = await Promise.all([fetchRosterDashboard(id), fetchEntitlement(id), fetchDoublesPairs(id)]);
+      const [roster, ent, pairs, clock] = await Promise.all([
+        fetchRosterDashboard(id),
+        fetchEntitlement(id),
+        fetchDoublesPairs(id),
+        fetchWorldClock().catch(() => null),
+      ]);
       setPlayers(roster);
       setEntitlement(ent);
       setDoublesPairs(pairs);
+      setWorldClock(clock);
+      // One "next match" read per roster player — the roster cap is tiny
+      // (2/4), so N parallel GETs to the existing per-player route is
+      // cheaper than a new read model. Failures degrade to "no match"
+      // rather than blanking the board.
+      const matchEntries = await Promise.all(
+        roster.map(async (p) => [p.id, await fetchPlayerMatches(p.id).catch(() => null)] as const),
+      );
+      setMatchesByPlayer(Object.fromEntries(matchEntries));
     } catch (e) {
       setPlayers(null);
       setEntitlement(null);
@@ -246,6 +304,11 @@ export default function RosterDashboardPage() {
     });
     return copy;
   }, [players, sortBy]);
+
+  // Counts down to the world's next DAY tick (the same nextTickAt the
+  // sidebar and the player profile count to) — the honest "when does the
+  // world move next" signal, distinct from any single match's schedule.
+  const nextTickMs = useCountdown(worldClock?.nextTickAt ?? null);
 
   const handleSelectFocus = useCallback(
     async (playerId: string, focus: TrainingFocus) => {
@@ -485,12 +548,19 @@ export default function RosterDashboardPage() {
         {hasPlayers && (
           <>
             <SectionLabel right={
-              <select className="gc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}>
-                <option value="fatigue">Sort: Fatigue</option>
-                <option value="stage">Sort: Nearest decline</option>
-                <option value="overall">Sort: Overall rating</option>
-                <option value="name">Sort: Name</option>
-              </select>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                {worldClock && (
+                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)', fontVariantNumeric: 'tabular-nums' }}>
+                    Next day in {formatCountdown(nextTickMs)}
+                  </span>
+                )}
+                <select className="gc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}>
+                  <option value="fatigue">Sort: Fatigue</option>
+                  <option value="stage">Sort: Nearest decline</option>
+                  <option value="overall">Sort: Overall rating</option>
+                  <option value="name">Sort: Name</option>
+                </select>
+              </div>
             }>Squad · {usedSlots} player{usedSlots === 1 ? '' : 's'}</SectionLabel>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -512,6 +582,7 @@ export default function RosterDashboardPage() {
                           <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 2 }}>
                             Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)} · <span style={{ color: 'var(--gc-ink-faint)' }}>{p.lastResult ?? 'No matches yet'}</span>
                           </div>
+                          <RosterNextMatch matches={matchesByPlayer[p.id]} />
                         </div>
                       </div>
 
@@ -526,6 +597,11 @@ export default function RosterDashboardPage() {
                         <AnimatedRankPlate playerId={p.id} rank={p.rank} points={p.points} />
                         {p.rankBand !== 'senior' && (
                           <span className="gc-badge" style={{ marginTop: 4, background: 'oklch(45% 0.1 240 / 0.3)', color: 'oklch(84% 0.09 240)' }}>{p.rankBand}</span>
+                        )}
+                        {p.rank == null && (
+                          <div style={{ marginTop: 5, fontSize: 10, lineHeight: 1.4, color: 'var(--gc-ink-faint)', maxWidth: 160 }}>
+                            {RANKING_EARNED_NOTE}
+                          </div>
                         )}
                       </div>
 

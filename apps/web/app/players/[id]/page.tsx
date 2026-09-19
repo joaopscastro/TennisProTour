@@ -34,6 +34,7 @@ import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Ce
 import { AppFrame, Hero, Flag, StatBar, OvrRing, SurfaceBadge } from '../../../components/ui/primitives';
 import { FormDots, RankPill, ArchetypeBadge } from '../../../components/ui/PlayerCard';
 import {
+  RANKING_EARNED_NOTE,
   WEEKS_PER_SEASON,
   flagFor,
   formatMoney,
@@ -834,6 +835,11 @@ export default function PlayerProfilePage() {
                 <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
                   {entry.totalPoints} pts
                 </div>
+                {entry.rank === null && (
+                  <div className="text-[10px] mt-[4px] leading-[1.4]" style={{ color: 'var(--gc-ink-faint)' }}>
+                    {RANKING_EARNED_NOTE}
+                  </div>
+                )}
               </div>
             );
           })}
