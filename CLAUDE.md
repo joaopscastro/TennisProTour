@@ -1460,6 +1460,48 @@ analytics trail. No game systems, no balance constants, no sim changes.
   failed analytics write must never break the request that produced it, so
   every call site fires-and-forgets (`void deps.analytics.record(...)`).
 
+## Phase 1 — alpha activation (world bootstrap + runbook)
+
+The alpha needs a world a tester can play **the same day**, not one that is
+empty until the weekly tick has run for a while.
+`apps/api/src/scripts/bootstrapTestWorld.ts` (`npm run bootstrap -w apps/api`)
+is that: run with the worker STOPPED, it turns an empty world playable in
+one shot and is idempotent on re-run. Phases: (0) ensure the `GameWorld`
+row exists; (1) `EnsureFillOnlyPopulationUseCase` top-up (idempotent, ~290
+free agents); (2) a FIXED-ID (`bootstrap-demo-futures`) 16-draw futures
+scheduled THIS week, opened + force-started via `StartDueTournamentsUseCase`
+so its round 1 airs on the very next tick — the "watch something
+immediately" draw, guarded on `findById` + `!hasStarted` so a re-run never
+saves over an already-seeded bracket; (3) an enterable current-week senior
+slate via `GenerateSeniorTournamentsUseCase`'s `week` override and its
+per-(week,tier) idempotency guard; (4) the rest of the season's senior
+calendar (weeks current+1..52); (5) the junior ladder, **guarded** —
+`GenerateJuniorTournamentsUseCase` is NOT idempotent and has no week
+override, so it only runs when no junior tournament is already open for
+`addWeeks(currentWeek, 1)`. It deliberately writes **no** `seed-*` rows and
+no manager rows (it never calls anything in `seed.ts`). Real-Postgres
+integration coverage lives in
+`apps/api/src/scripts/bootstrapTestWorld.integration.test.ts` (free agents
+> 0; a current-week open senior tournament; the demo draw exists AND is
+started; no `seed-*` manager/tournament rows; a second run generates 0
+fillers and opens 0 tournaments). The script is structured as an exported,
+testable `bootstrapWorld(deps, worldId, log)` core plus a CLI wrapper
+(`require.main === module` guard), so the test drives the real logic rather
+than re-implementing it.
+
+`docs/alpha-runbook.md` is the owner-facing, ordered bring-up checklist
+(Clerk incl. the build-time publishable key vs runtime secret and the
+fail-closed API; host topology incl. worker-exactly-once and the
+per-service-volume `MATCH_LOG_DIR` split trap; the required/optional,
+build-time/runtime env inventory; bootstrap; smoke checks; invite; halt).
+It links to `README.md` / `docs/security-and-identity.md` / `.env.example`
+rather than duplicating them. The alpha cadence is
+`WORLD_TICK_INTERVAL_MS=900000` (one game day = 15 real minutes), set
+identically on api AND worker; at that cadence a 128-draw first round airs
+each match in ~14s while 16/32-draw rounds get 112s/56s — the reason the
+bootstrap seeds a small watchable demo draw. Stripe is NOT needed for the
+free alpha and notifications default `off`.
+
 ## Core-loop comprehension pass (Pass A + Pass B)
 
 A deliberately frontend-mostly pass closing player-facing comprehension
