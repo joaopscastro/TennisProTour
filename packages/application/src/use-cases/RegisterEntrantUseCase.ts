@@ -113,12 +113,23 @@ export class RegisterEntrantUseCase {
       throw new Error(`Tournament ${command.tournamentId} not found`);
     }
 
+    // Loaded up front so a retired player is refused at EVERY tier, not
+    // just junior ones. Retirement keeps the roster row (managerId is
+    // retained), so a stale UI could otherwise still offer a retired
+    // player. A missing player only throws in the junior branch below —
+    // preserving the pre-existing senior behavior, where the HTTP route
+    // (not this use case) owns roster validation, so unit tests that
+    // register senior entrants without a saved Player still work.
+    const player = await this.players.findById(command.playerId);
+    if (player?.isRetired()) {
+      throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
+    }
+
     if (isJuniorTier(tournament.tier)) {
       // Tournament.validateAgeBand guarantees ageBand is non-null
       // exactly when the tier is a junior tier, so this branch is
       // always where the age check belongs too — no separate `if
       // (tournament.ageBand)` needed.
-      const player = await this.players.findById(command.playerId);
       if (!player) {
         throw new Error(`Player ${command.playerId} not found`);
       }

@@ -95,7 +95,12 @@ export class EnsureFillOnlyPopulationUseCase {
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
 
-    const fillOnly = (await this.players.findAll()).filter((p) => p.fillOnly);
+    // Retired players are never live draw fillers — without this
+    // exclusion they keep counting toward the per-band floor forever
+    // (nothing deletes a retired player), so the count over-reports a
+    // supply that can no longer pad a draw and the real shortfall is
+    // silently under-generated until the live pool runs dry.
+    const fillOnly = (await this.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
     const counts: Record<RankingBand, number> = { senior: 0, u18: 0, u16: 0, u14: 0 };
     // Band-count by the SAME eligibility age the actual consumer
     // (StartDueTournamentsUseCase.fillSlots' isAgeEligibleForTournamentBand

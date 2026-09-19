@@ -16,8 +16,25 @@ import {
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { Coach, CoachId } from '@tennis-manager/domain';
+import {
+  GameWorld,
+  juniorEligibilityForAge,
+  RandomSource,
+  RankingBand,
+  StandardAgingPolicy,
+  StandardPlayerGenerationPolicy,
+  WorldId,
+} from '@tennis-manager/domain';
 import * as schema from '../../db/schema';
-import { ConcurrentModificationError } from '@tennis-manager/application';
+import {
+  ConcurrentModificationError,
+  EnsureFillOnlyPopulationUseCase,
+  EventPublisherPort,
+  FILL_ONLY_FLOORS,
+  IdGeneratorPort,
+  RankPositionQuery,
+  StartDueTournamentsUseCase,
+} from '@tennis-manager/application';
 import { testConnectionString } from '../../db/testConnection';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepository';
@@ -35,6 +52,7 @@ import { DrizzleDoublesTitleRepository } from './DrizzleDoublesTitleRepository';
 import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRankingRepository';
 import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
 import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
+import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
 
 const connectionString = testConnectionString();
 
@@ -1382,5 +1400,123 @@ describe('DrizzleWorldTeamCupRepository', () => {
     const reloaded = await repository.findBySeason(1);
     expect(reloaded!.groups[0].ties[0].rubbers[0].outcome).not.toBeNull();
     expect(reloaded!.groups[0].ties[0].winner).toBeNull(); // 1-0, not decided yet
+  });
+});
+
+/** Minimal fakes for the two ports EnsureFillOnlyPopulationUseCase needs
+ * that have no real adapter under test here — the player/world
+ * repositories driving these cases are the REAL Drizzle ones. */
+class SequentialFillerIdGenerator implements IdGeneratorPort {
+  private counter = 0;
+  generate(): string {
+    this.counter += 1;
+    return `retired-filler-gen-${this.counter}`;
+  }
+}
+
+class NoopEventPublisher implements EventPublisherPort {
+  async publish(): Promise<void> {}
+}
+
+const realRandom: RandomSource = { next: () => Math.random() };
+
+/**
+ * Real-Postgres regression coverage for the retired-filler bug: every
+ * filler filter used `fillOnly` alone, and because retirement keeps the
+ * `players` row (and `fillOnly`) forever, a retired player still counted
+ * toward the population floor and could still be selected to pad a
+ * real draw. The application unit tests use in-memory fakes, so they
+ * never exercise the real `findAll()` read path that genuinely returns
+ * retired rows — these cases do, against an actual database.
+ */
+describe('retired players are never draw fillers (real Postgres)', () => {
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const worldRepository = new DrizzleGameWorldRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+  const rankingLedgerRepository = new DrizzleRankingLedgerRepository(db);
+
+  function rankingsFor(worldId: WorldId): Record<RankingBand, RankPositionQuery> {
+    return {
+      senior: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'senior'),
+      u18: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u18'),
+      u16: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u16'),
+      u14: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u14'),
+    };
+  }
+
+  function retiredFiller(id: string): Player {
+    const player = Player.generateFillOnly(PlayerId(id), `Retired ${id}`, 25 * 52, 'retired', attributes(40), 'US');
+    player.pullDomainEvents();
+    return player;
+  }
+
+  it('does not count a retired fill-only player toward EnsureFillOnlyPopulationUseCase floors', async () => {
+    const worldId = WorldId('retired-floor-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+    // A retired senior-age fill-only player. Without the fix this one
+    // row counts as live senior supply, so only totalFloor - 1 players
+    // would be generated.
+    await playerRepository.save(retiredFiller('retired-senior-filler'));
+
+    const useCase = new EnsureFillOnlyPopulationUseCase(
+      worldRepository,
+      playerRepository,
+      new NoopEventPublisher(),
+      new StandardPlayerGenerationPolicy(),
+      realRandom,
+      new SequentialFillerIdGenerator(),
+      new StandardAgingPolicy(),
+    );
+
+    const totalFloor = FILL_ONLY_FLOORS.reduce((sum, floor) => sum + floor.minimum, 0);
+    const result = await useCase.execute({ worldId });
+
+    expect(result.generated).toBe(totalFloor);
+
+    const liveSenior = (await playerRepository.findAll())
+      .filter((p) => p.fillOnly && !p.isRetired())
+      .filter((p) => juniorEligibilityForAge(p.seasonAgeAnchorWeeks) === 'senior');
+    expect(liveSenior.length).toBe(FILL_ONLY_FLOORS.find((floor) => floor.band === 'senior')!.minimum);
+  });
+
+  it('never selects a retired fill-only player to pad a started tournament draw', async () => {
+    const worldId = WorldId('retired-selection-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+    // One retired and one live candidate, both senior, both unclaimed.
+    // With the bug both are eligible and fillSlots selects both (filled
+    // === 2); fixed, only the live one is available (filled === 1).
+    await playerRepository.save(retiredFiller('retired-filler'));
+    const live = Player.generateFillOnly(PlayerId('live-filler'), 'Live Filler', 25 * 52, 'prime', attributes(40), 'US');
+    live.pullDomainEvents();
+    await playerRepository.save(live);
+
+    const tournament = Tournament.open({
+      name: 'Retired Filler Regression Open',
+      id: TournamentId('retired-selection-t'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    tournament.pullDomainEvents();
+    await tournamentRepository.save(tournament);
+
+    const useCase = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const result = await useCase.execute({ worldId });
+
+    expect(result.filled).toBe(1);
+
+    const reloaded = await tournamentRepository.findById(TournamentId('retired-selection-t'));
+    const entrantIds = reloaded!.entrants.map((entrant) => entrant.playerId as string);
+    expect(entrantIds).toContain('live-filler');
+    expect(entrantIds).not.toContain('retired-filler');
   });
 });

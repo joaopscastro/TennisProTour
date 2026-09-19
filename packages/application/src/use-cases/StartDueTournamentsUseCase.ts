@@ -248,7 +248,10 @@ export class StartDueTournamentsUseCase {
     const band: RankingBand = tournament.ageBand ?? 'senior';
 
     const [fillOnlyPlayers, ranked] = await Promise.all([
-      this.players.findAll().then((all) => all.filter((p) => p.fillOnly)),
+      // A retired player is never a live filler: nothing deletes a
+      // retired player, and without this exclusion they would still be
+      // selected into a real tournament draw they can never play.
+      this.players.findAll().then((all) => all.filter((p) => p.fillOnly && !p.isRetired())),
       this.rankPositionByBand[band].sortedRankings(),
     ]);
     const rankOrder = new Map(ranked.map((r, index) => [r.playerId, index]));

@@ -1532,6 +1532,12 @@ except the one deliberate correction in B2 below.
   50 (unchanged), j30 loss 5 (unchanged). A new regression test pins the
   cross-tier invariant; the existing relational tests still pass.
 
+## Retired players are never fillers; the managed-vs-newcomer gap is deliberately deferred
+
+**Bug + fix (retired players drifting into the filler pool).** Every filler filter used `p.fillOnly` alone. Nothing deletes a retired player and retirement keeps `fillOnly` set, so a retired player still counted toward `EnsureFillOnlyPopulationUseCase`'s per-band floor (over-reporting supply and silently under-generating the real shortfall) and could still be selected by `StartDueTournamentsUseCase.fillSlots` to pad a real draw they can never play. Fixed by adding `&& !p.isRetired()` to both filters, and by refusing a retired player at registration in `RegisterEntrantUseCase`/`RegisterDoublesEntrantUseCase` (retirement retains `managerId`, so a stale UI could otherwise still offer one). Regression coverage lives in `DrizzleRepositories.integration.test.ts` against real Postgres — it proves the read path a fake can't: the real `findAll()` genuinely returns retired rows.
+
+**Deferral — the managed-vs-newcomer OVR gap is deliberately NOT being fixed now.** Incumbent managed rosters reach ~75-85 OVR while a newcomer starts at ~48. This is real and is deliberately left open. The filler-drift investigation that surfaced the bug above also measured the drift and found it BOUNDED (~+5-8 OVR, then saturates) — far smaller than the ~30-point gap it was suspected of causing. Stopping fill-only development outright was considered and REJECTED: it would reverse a deliberate design decision, buying back ~8 OVR against a 30-point problem. The real lever is level-matching/acquisition (matching a newcomer against appropriate-tier fields, plus the scouting/claim loop), deferred until there's a measurable reason to spend on it.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

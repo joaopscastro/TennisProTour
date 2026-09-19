@@ -52,6 +52,12 @@ export class RegisterDoublesEntrantUseCase {
     if (player.managerId !== command.managerId) {
       throw new Error(`Player ${command.playerId} is not on manager ${command.managerId}'s roster`);
     }
+    // A retired player is never enterable — retirement is a roster fact
+    // (managerId is retained), not a deletion, so a stale UI could still
+    // offer one without this guard.
+    if (player.isRetired()) {
+      throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
+    }
 
     if (isJuniorTier(tournament.tier) && !isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
       throw new Error(
