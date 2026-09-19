@@ -55,6 +55,7 @@ import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
 import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
 import { DrizzleNotificationDeliveryRepository } from './DrizzleNotificationDeliveryRepository';
 import { DrizzleNotificationPreferenceRepository } from './DrizzleNotificationPreferenceRepository';
+import { DrizzleManagerDigestQuery } from './DrizzleManagerDigestQuery';
 
 const connectionString = testConnectionString();
 
@@ -1599,5 +1600,166 @@ describe('DrizzleNotificationDeliveryRepository + DrizzleNotificationPreferenceR
     expect(await preferences.isOptedOut(managerId)).toBe(true);
     await preferences.setOptOut(managerId, false);
     expect(await preferences.isOptedOut(managerId)).toBe(false);
+  });
+});
+
+describe('DrizzleManagerDigestQuery', () => {
+  const digestQuery = new DrizzleManagerDigestQuery(db);
+  const digestPlayerRepository = new DrizzlePlayerRepository(db);
+  const managerId = ManagerId('digest-m1');
+  const since = new Date('2026-01-10T00:00:00.000Z');
+  const until = new Date('2026-01-11T00:00:00.000Z');
+
+  async function saveFillOnly(id: string, name: string): Promise<void> {
+    const player = Player.generateFillOnly(PlayerId(id), name, 20 * 52, 'prime', attributes(45), 'LV');
+    player.pullDomainEvents();
+    await digestPlayerRepository.save(player);
+  }
+
+  beforeEach(async () => {
+    await db
+      .insert(schema.managers)
+      .values({
+        id: managerId,
+        authSubject: 'digest-subject',
+        displayName: 'Digest Manager',
+        publicHandle: 'digest-manager',
+      })
+      .onConflictDoNothing();
+
+    const alice = Player.hire(PlayerId('digest-alice'), 'Alice Digest', 20 * 52, attributes(60), managerId, 'LV');
+    alice.pullDomainEvents();
+    await digestPlayerRepository.save(alice);
+    await saveFillOnly('digest-opp-a', 'Opponent A');
+    await saveFillOnly('digest-opp-b', 'Opponent B');
+    await saveFillOnly('digest-opp-c', 'Opponent C');
+    await saveFillOnly('digest-opp-d', 'Opponent D');
+
+    await db.insert(schema.tournaments).values({
+      id: 'digest-t1',
+      name: 'Riga Digest Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 5,
+      drawSize: 16,
+    });
+
+    await db.insert(schema.tournamentMatches).values([
+      // In window, main draw, decided: scheduled_start_at 12:00 +
+      // reveal_seconds 600 -> airedAt 12:10.
+      {
+        tournamentId: 'digest-t1',
+        draw: 'main',
+        roundNumber: 3,
+        matchIndex: 0,
+        entrantA: PlayerId('digest-alice'),
+        entrantB: PlayerId('digest-opp-a'),
+        winnerId: PlayerId('digest-alice'),
+        loserId: PlayerId('digest-opp-a'),
+        setScores: [{ winnerGames: 6, loserGames: 4 }],
+        scheduledStartAt: new Date('2026-01-10T12:00:00.000Z'),
+        revealSeconds: 600,
+      },
+      // Decided but OUT of window.
+      {
+        tournamentId: 'digest-t1',
+        draw: 'main',
+        roundNumber: 2,
+        matchIndex: 0,
+        entrantA: PlayerId('digest-alice'),
+        entrantB: PlayerId('digest-opp-b'),
+        winnerId: PlayerId('digest-alice'),
+        loserId: PlayerId('digest-opp-b'),
+        setScores: [{ winnerGames: 6, loserGames: 1 }],
+        scheduledStartAt: new Date('2026-01-08T12:00:00.000Z'),
+        revealSeconds: 600,
+      },
+      // Decided, in window, but a QUALIFYING draw match — must not appear.
+      {
+        tournamentId: 'digest-t1',
+        draw: 'qualifying',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: PlayerId('digest-alice'),
+        entrantB: PlayerId('digest-opp-c'),
+        winnerId: PlayerId('digest-alice'),
+        loserId: PlayerId('digest-opp-c'),
+        setScores: [{ winnerGames: 6, loserGames: 2 }],
+        scheduledStartAt: new Date('2026-01-10T12:00:00.000Z'),
+        revealSeconds: 600,
+      },
+      // Undecided main-draw match — the "next" pending match.
+      {
+        tournamentId: 'digest-t1',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 1,
+        entrantA: PlayerId('digest-alice'),
+        entrantB: PlayerId('digest-opp-d'),
+        winnerId: null,
+        loserId: null,
+        setScores: null,
+        scheduledStartAt: null,
+        revealSeconds: null,
+      },
+    ]);
+
+    await db.insert(schema.titles).values({
+      tournamentId: 'digest-t1',
+      playerId: PlayerId('digest-alice'),
+      tier: 'tour',
+      ageBand: null,
+      seasonEarned: 1,
+      weekEarned: 5,
+      createdAt: new Date('2026-01-10T18:00:00.000Z'),
+    });
+  });
+
+  it('lists every manager with a roster', async () => {
+    expect(await digestQuery.listManagerIds()).toContain(managerId);
+  });
+
+  it('returns only in-window, main-draw, decided results keyed on scheduled_start_at + reveal', async () => {
+    const data = await digestQuery.load({ managerId, since, until });
+    const alice = data.find((p) => p.playerId === PlayerId('digest-alice'))!;
+
+    // Exactly one qualifying result — the out-of-window, qualifying-draw
+    // and undecided matches are all excluded.
+    expect(alice.results).toHaveLength(1);
+    const [only] = alice.results;
+    expect(only.matchId).toBe('digest-t1:main:3:0');
+    expect(only.airedAt.toISOString()).toBe('2026-01-10T12:10:00.000Z');
+    expect(only.opponentName).toBe('Opponent A');
+    expect(only.won).toBe(true);
+    expect(only.tournamentName).toBe('Riga Digest Open');
+
+    // The undecided match is the pending "next", not a result.
+    expect(alice.next).not.toBeNull();
+    expect(alice.next!.opponentName).toBe('Opponent D');
+    expect(alice.next!.scheduledStartAt).toBeNull();
+
+    // The title created inside the window is surfaced.
+    expect(alice.titles.map((t) => t.tournamentId)).toEqual(['digest-t1']);
+  });
+
+  it('places a boundary match correctly on the half-open window', async () => {
+    // Re-point the in-window match to air exactly at `since` (excluded)
+    // and confirm it drops out. This proves the boundary is `(since, until]`.
+    await db
+      .update(schema.tournamentMatches)
+      .set({ scheduledStartAt: since, revealSeconds: 0 })
+      .where(
+        and(
+          eq(schema.tournamentMatches.tournamentId, 'digest-t1'),
+          eq(schema.tournamentMatches.draw, 'main'),
+          eq(schema.tournamentMatches.roundNumber, 3),
+          eq(schema.tournamentMatches.matchIndex, 0),
+        ),
+      );
+
+    const data = await digestQuery.load({ managerId, since, until });
+    const alice = data.find((p) => p.playerId === PlayerId('digest-alice'))!;
+    expect(alice.results).toHaveLength(0);
   });
 });
