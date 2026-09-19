@@ -106,8 +106,13 @@ Mirror the existing `weeksBetween`/`addWeeks` helpers in `world/GameWorld.ts`:
 - One-week vs two-week tier classification lives in the schedule policy, not
   scattered in tournament-generation code.
 
-## Open decision (confirm before building the clock)
-Whether the above split is correct: **days pace tournaments + fatigue/form
-only; aging/rankings stay weekly.** This is the recommended model (keeps the
-large weekly system intact). The alternative — everything goes daily — is a
-much larger balance rewrite and is NOT recommended.
+## Resolved — the clock is built
+
+The split above was confirmed and is now **fully implemented**: the day
+tick is live (`advance-world-day`; matches are day-paced, weekly systems
+fire on the day-7→1 rollover). There is no separate due-match sweep — match
+simulation is folded into the day tick. **Treat `AGENTS.md` / `CLAUDE.md`
+as the ground truth for the shipped behavior**; this document is the design
+record that led to it and may lag the code. The alternative once
+considered — everything goes daily — was NOT taken: aging and the 52-week
+ranking window stay weekly on purpose.

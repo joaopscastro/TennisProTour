@@ -20,7 +20,7 @@ packages/
   application/   # use cases + ports, one folder per context (zero runtime deps)
 apps/
   api/           # Fastify HTTP adapters (inbound) + Drizzle/Stripe adapters (outbound)
-  worker/        # BullMQ job handlers: weekly ticks, aging, match simulation batch runs
+  worker/        # BullMQ job handlers: the day world tick (aging + match simulation folded in)
   web/           # Next.js frontend (manager dashboard + marketing page)
 ```
 
@@ -128,7 +128,7 @@ npm run db:migrate -w apps/api  # apply Drizzle migrations
 npm run db:generate -w apps/api # regenerate migrations after editing the schema
 npm run seed -w apps/api        # populate dev data (safe to repeat, see the script's own doc comment)
 npm run start -w apps/api       # Fastify API on :3000
-npm run start -w apps/worker    # BullMQ worker: weekly world tick + due-match sweep
+npm run start -w apps/worker    # BullMQ worker: the day world tick (aging + match simulation folded in)
 npm run dev -w apps/web         # Next.js on :3001
 npm run test:e2e -w apps/web    # Playwright browser acceptance tests
 ```
