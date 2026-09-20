@@ -1,4 +1,4 @@
-import { ManagerId } from '@tennis-manager/domain';
+import { ManagerId, Player } from '@tennis-manager/domain';
 import { BillingPort } from '../ports/ports';
 
 /** Free-tier roster cap (Rocking Rackets' base 2-player scarcity). */
@@ -15,3 +15,22 @@ export const PRO_ROSTER_CAP = 4;
 export async function maxRosterSizeFor(managerId: ManagerId, billing: BillingPort): Promise<number> {
   return (await billing.isProSubscriber(managerId)) ? PRO_ROSTER_CAP : FREE_ROSTER_CAP;
 }
+
+/**
+ * How many LIVE roster slots a manager's players actually occupy.
+ *
+ * Retirement deliberately RETAINS `manager_id` (history/lineage — see
+ * Player.isRetired), but a retired player can no longer be entered,
+ * trained or developed, so it must never consume a roster slot: without
+ * this exclusion a manager whose roster is all retired is permanently at
+ * cap and can never sign a replacement. Real, soak-run-confirmed bug: two
+ * managers sat at 2/2 (both retired members) and were refused a
+ * replacement claim 271 times.
+ *
+ * The roster dashboard deliberately still LISTS retired players (they
+ * should be visible) — only the capacity count excludes them.
+ */
+export function activeRosterCount(players: readonly Player[]): number {
+  return players.filter((player) => !player.isRetired()).length;
+}
+

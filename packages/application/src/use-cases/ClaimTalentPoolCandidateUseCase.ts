@@ -1,6 +1,6 @@
 import { ManagerId, Player, PlayerId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, PlayerRepository, TalentClaimPort } from '../ports/ports';
-import { maxRosterSizeFor } from './rosterCap';
+import { maxRosterSizeFor, activeRosterCount } from './rosterCap';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 export interface ClaimTalentPoolCandidateCommand {
@@ -53,10 +53,13 @@ export class ClaimTalentPoolCandidateUseCase {
 
   async execute(command: ClaimTalentPoolCandidateCommand): Promise<Player> {
     const currentRoster = await this.players.findByManager(command.managerId);
+    // Retired players keep manager_id (lineage) but don't occupy a live
+    // slot — see activeRosterCount.
+    const activeRosterSize = activeRosterCount(currentRoster);
     const maxRosterSize = await maxRosterSizeFor(command.managerId, this.billing);
-    if (currentRoster.length >= maxRosterSize) {
+    if (activeRosterSize >= maxRosterSize) {
       throw new Error(
-        `Manager ${command.managerId} roster is full (${currentRoster.length}/${maxRosterSize}). ` +
+        `Manager ${command.managerId} roster is full (${activeRosterSize}/${maxRosterSize}). ` +
           `Upgrade to Manager Pro for extra roster slots.`,
       );
     }

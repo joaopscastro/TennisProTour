@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
   BracketGenerator,
+  DrawPhase,
   GameWeek,
   GameWorld,
   ManagerId,
+  PairId,
   PeakRankingEntry,
   RankingBand,
   RankingLedgerEntry,
@@ -474,5 +476,82 @@ describe('SimulateDueMatchesUseCase', () => {
     );
 
     await expect(useCase.execute({ worldId: testWorldId })).resolves.not.toThrow();
+  });
+
+  it('sweeps the doubles MAIN draw when doubles qualifying is configured but was never seeded (real soak-run bug)', async () => {
+    // Real, soak-run-confirmed bug: `FormDoublesDrawUseCase` falls back to
+    // seeding the doubles MAIN draw directly when its qualifying field is
+    // too sparse, but its doubles qualifying bracket is then genuinely
+    // never seeded (`hasDoublesQualifyingDrawStarted` false). The old
+    // sweep chose 'qualifying' off the STATIC `hasDoublesQualifying` tier
+    // flag and then returned early (`!hasDoublesQualifyingDrawStarted`),
+    // so a formed main draw was never swept — 2262 doubles matches decided
+    // 0, world-wide, across 3 seasons. It must now fall through to 'main'.
+    const { tournaments, players, worlds } = await setup();
+    const bracketGenerator = new BracketGenerator();
+
+    const tournament = Tournament.open({
+      name: 'Doubles Main Seeded, Qualifying Never',
+      id: TournamentId('t-doubles-main-only'),
+      tier: 'tour',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      doublesDrawSize: 8,
+      doublesQualifyingDrawSize: 8,
+      doublesQualifierSlots: 4,
+    });
+    // Seed ONLY the doubles MAIN bracket (8 pairs -> 4 round-1 matches);
+    // leave doubles qualifying entirely unseeded.
+    const pairs = Array.from({ length: 8 }, (_, i) => ({
+      pairId: PairId(`main-${i}`),
+      playerA: PlayerId(`mp${i}a`),
+      playerB: PlayerId(`mp${i}b`),
+    }));
+    const rounds = bracketGenerator.generate(
+      pairs.map((p) => ({ playerId: p.pairId, seed: null })),
+      8,
+    );
+    tournament.startDoublesWithBracket(pairs, rounds);
+    await tournaments.save(tournament);
+
+    const simulateMatch = new SimulateMatchUseCase(
+      tournaments,
+      players,
+      new AlwaysAWinsSimulator(),
+      new CountingMatchLogStore(),
+      new NullEventPublisher(),
+      bracketGenerator,
+      new StandardRankingPointsTable(),
+      new InMemoryRankingLedgerRepository(),
+      new StandardManagerXpPolicy(),
+      new InMemoryManagerXpRepository(),
+      new StandardManagerLadderPolicy(),
+      new InMemoryManagerLadderRepository(),
+      new InMemoryPeakRankingRepository(),
+      new InMemoryTitleRepository(),
+      worlds,
+      testWorldId,
+      new StandardPlayerDevelopmentPolicy(),
+    );
+    const swept: Array<{ draw: DrawPhase; roundNumber: number }> = [];
+    const spySimulateDoublesMatch = {
+      execute: async (command: { draw: DrawPhase; roundNumber: number }) => {
+        swept.push({ draw: command.draw, roundNumber: command.roundNumber });
+      },
+    } as unknown as import('./SimulateDoublesMatchUseCase').SimulateDoublesMatchUseCase;
+    const useCase = new SimulateDueMatchesUseCase(
+      tournaments,
+      simulateMatch,
+      worlds,
+      new StandardTournamentSchedulePolicy(),
+      spySimulateDoublesMatch,
+    );
+
+    const result = await useCase.execute({ worldId: testWorldId });
+
+    expect(swept).toHaveLength(4); // 8 pairs -> 4 round-1 matches
+    expect(swept.every((m) => m.draw === 'main')).toBe(true);
+    expect(result.failed).toHaveLength(0);
   });
 });

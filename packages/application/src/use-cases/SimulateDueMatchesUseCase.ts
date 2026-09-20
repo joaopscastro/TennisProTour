@@ -72,25 +72,26 @@ export class SimulateDueMatchesUseCase {
       // its opening days, and its main draw does not exist at all until
       // PromoteQualifiersUseCase seeds it (deferred main-draw seeding —
       // docs/ranking-realism-proposal.md §5). So the draw to sweep is
-      // whichever one is currently live; a tournament between the two
-      // (qualifying done, main draw not yet seeded) has nothing due.
+      // whichever one is currently live.
+      //
+      // Qualifying counts as live ONLY once it has actually been SEEDED
+      // (`hasQualifyingDrawStarted`) and is not yet complete. `hasQualifying`
+      // (qualifyingDrawSize > 0) is a STATIC tier property — true from the
+      // moment a tournament opens, well before its qualifying bracket is
+      // seeded — so gating on it alone both crashed on an empty rounds
+      // array AND, worse, could route a tournament whose MAIN draw was the
+      // live one into the not-yet-seeded qualifying branch and skip it
+      // forever. With this guard the selection mirrors reality: an unseeded
+      // qualifying draw means the main draw is what's live (and its own
+      // `!hasMainDraw` check below handles "not seeded yet").
       const draw: DrawPhase =
-        tournament.hasQualifying && !tournament.isQualifyingComplete() ? 'qualifying' : 'main';
-      const qualifyingNotYetSeeded = draw === 'qualifying' && !tournament.hasQualifyingDrawStarted;
-      if ((draw === 'main' && !tournament.hasMainDraw) || qualifyingNotYetSeeded) {
+        tournament.hasQualifying && tournament.hasQualifyingDrawStarted && !tournament.isQualifyingComplete()
+          ? 'qualifying'
+          : 'main';
+      if (draw === 'main' && !tournament.hasMainDraw) {
         // No bracket seeded yet for the currently-live draw — fall
         // through to the doubles sweep below; a qualifying tournament's
-        // doubles draw is independent and already playable. A real bug
-        // this closes: `hasQualifying` (qualifyingDrawSize > 0) is a
-        // static tier property, true from the moment a tournament is
-        // opened, well before its qualifying bracket is actually SEEDED
-        // (hasQualifyingDrawStarted) — `isQualifyingComplete()` already
-        // correctly returns false in that gap, but that just routed
-        // execution into the `else` branch below with an empty
-        // `getQualifyingRounds()` array, crashing on
-        // `rounds[rounds.length - 1].roundNumber` (undefined). Found
-        // live: a fast-tick playtest run hit this on every single sweep
-        // once a qualifying-tier tournament was open-but-not-yet-seeded.
+        // doubles draw is independent and already playable.
       } else {
         const rounds = draw === 'qualifying' ? tournament.getQualifyingRounds() : tournament.getRounds();
         const currentRound = rounds[rounds.length - 1];
@@ -149,16 +150,23 @@ export class SimulateDueMatchesUseCase {
     // Doubles qualifying (P8) plays FIRST, on the opening days, and the
     // main doubles draw doesn't exist until PromoteDoublesQualifiersUseCase
     // seeds it (deferred main-draw seeding). So the draw to sweep is
-    // whichever is currently live.
+    // whichever is currently live — and, exactly as on the singles side
+    // above, doubles qualifying counts as live only once it has actually
+    // been SEEDED (`hasDoublesQualifyingDrawStarted`) and is not complete.
+    // `hasDoublesQualifying` is a static tier property; gating on it alone
+    // meant a tournament whose doubles MAIN draw was the live one (the
+    // FormDoublesDrawUseCase fallback seeds the main draw directly when the
+    // qualifying field is too sparse) was permanently routed into the
+    // unseeded-qualifying branch and never swept. That is the real,
+    // soak-run-confirmed bug: doubles main brackets formed but not one
+    // match was ever decided, world-wide.
     const draw: DrawPhase =
-      tournament.hasDoublesQualifying && !tournament.isDoublesQualifyingComplete() ? 'qualifying' : 'main';
+      tournament.hasDoublesQualifying &&
+      tournament.hasDoublesQualifyingDrawStarted &&
+      !tournament.isDoublesQualifyingComplete()
+        ? 'qualifying'
+        : 'main';
     if (draw === 'main' && !tournament.hasDoublesDrawStarted) return;
-    // Same gap as the singles branch above: `hasDoublesQualifying` is a
-    // static tier property, true before the doubles qualifying bracket is
-    // actually SEEDED (hasDoublesQualifyingDrawStarted) — without this
-    // guard, getDoublesRounds('qualifying') below would be empty and crash
-    // on `rounds[rounds.length - 1].roundNumber`.
-    if (draw === 'qualifying' && !tournament.hasDoublesQualifyingDrawStarted) return;
 
     const rounds = tournament.getDoublesRounds(draw);
     const currentRound = rounds[rounds.length - 1];

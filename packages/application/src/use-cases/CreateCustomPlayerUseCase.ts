@@ -1,6 +1,6 @@
 import { ManagerId, Player, PlayerGenerationPolicy, PlayerId, RandomSource } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, PlayerRepository } from '../ports/ports';
-import { PRO_ROSTER_CAP } from './rosterCap';
+import { activeRosterCount, PRO_ROSTER_CAP } from './rosterCap';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 export interface CreateCustomPlayerCommand {
@@ -46,8 +46,11 @@ export class CreateCustomPlayerUseCase {
     }
 
     const currentRoster = await this.players.findByManager(command.managerId);
-    if (currentRoster.length >= PRO_ROSTER_CAP) {
-      throw new Error(`Manager ${command.managerId} roster is full (${currentRoster.length}/${PRO_ROSTER_CAP})`);
+    // Retired players keep manager_id (lineage) but don't occupy a live
+    // slot — same rule the shared activeRosterCount applies to claiming.
+    const activeRosterSize = activeRosterCount(currentRoster);
+    if (activeRosterSize >= PRO_ROSTER_CAP) {
+      throw new Error(`Manager ${command.managerId} roster is full (${activeRosterSize}/${PRO_ROSTER_CAP})`);
     }
 
     const creditSpent = await this.billing.consumeCustomPlayerCredit(command.managerId);

@@ -130,6 +130,32 @@ function ownedPlayer(id: string, managerId: ManagerId): Player {
   return player;
 }
 
+/** A retired player that deliberately still carries manager_id — the
+ * documented retirement design (history/lineage). Built straight through
+ * reconstitute so the lifecycle stage is exact. */
+function retiredPlayer(id: string, managerId: ManagerId): Player {
+  return Player.reconstitute({
+    id: PlayerId(id),
+    name: `Retired ${id}`,
+    nationality: 'BR',
+    ageInWeeks: 38 * 52,
+    managerId,
+    attributes: attributes(),
+    stage: 'retired',
+    fatigue: 0,
+    form: 0,
+    potentialCeiling: 70,
+    physicalCeilings: { speed: 70, stamina: 70, strength: 70 },
+    talent: 50,
+    experience: 0,
+    dormantCarryoverBonus: null,
+    fillOnly: false,
+    careerPrizeMoney: 0,
+    seasonPrizeMoney: 0,
+    seasonAgeAnchorWeeks: 38 * 52,
+  });
+}
+
 function setup(isPro = false) {
   const players = new InMemoryPlayerRepository();
   const events = new RecordingEventPublisher();
@@ -180,5 +206,26 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
 
     await expect(useCase.execute({ playerId: PlayerId('p1'), managerId })).rejects.toThrow(/roster is full/);
     expect(talentClaim.calls).toHaveLength(0);
+  });
+
+  it('does not count a retired roster member against the cap — a replacement claim still succeeds', async () => {
+    // Real soak-run bug: retirement retains manager_id (lineage), but the
+    // cap check naively counted every row findByManager returned, so a
+    // manager whose roster was all retired sat permanently at cap 2/2 and
+    // was refused a replacement 271 times. A retired player occupies no
+    // live slot.
+    const { players, useCase } = setup(false);
+    const managerId = ManagerId('m1');
+    const retired = retiredPlayer('retired-1', managerId);
+    expect(retired.isRetired()).toBe(true);
+    expect(retired.managerId).toBe(managerId); // retention is deliberate
+    await players.save(retired);
+    await players.save(ownedPlayer('owned-1', managerId)); // 1 live slot of 2
+    await players.save(freeAgent('p1'));
+
+    const signed = await useCase.execute({ playerId: PlayerId('p1'), managerId });
+
+    expect(signed.managerId).toBe(managerId);
+    expect(signed.id).toBe('p1');
   });
 });
