@@ -12,3 +12,4 @@ playwright-report/
 .idea/
 balance-report-*.json
 playtest-report*.json
+soak-report*.json

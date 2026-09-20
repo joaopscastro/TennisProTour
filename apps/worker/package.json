@@ -8,7 +8,8 @@
     "typecheck": "tsc --noEmit",
     "pretest": "node ../../scripts/ensure-test-db.js",
     "test": "vitest run",
-    "start": "tsc --build && node dist/index.js"
+    "start": "tsc --build && node dist/index.js",
+    "soak:tick": "tsc --build && node dist/scripts/soakTick.js"
   },
   "dependencies": {
     "@tennis-manager/api": "^0.1.0",
