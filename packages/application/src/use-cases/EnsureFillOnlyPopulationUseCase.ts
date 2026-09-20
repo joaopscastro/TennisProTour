@@ -34,7 +34,29 @@ export interface FillerBandFloor {
  * matter when in the season it's generated (a filler's
  * `seasonAgeAnchorWeeks` starts equal to its generated `ageInWeeks` —
  * see Player.seasonAgeAnchorWeeks' doc comment — so this only needs to
- * hold at generation time, not forever). */
+ * hold at generation time, not forever).
+ *
+ * KNOWN GAP, DELIBERATELY LEFT OPEN (3-season soak finding). The
+ * weekly-commitment exclusion means a filler can pad only ONE tournament
+ * per week, so the floor must cover a whole week's slot DEMAND, not just
+ * "a couple of draws". Derived from the schedule policies
+ * (StandardSenior/StandardJuniorTournamentSchedulePolicy) and the
+ * qualifying/wild-card reserved-slot rules:
+ *   - Senior, non-major week: futures 2x32 + challenger 2x(27 main + 16
+ *     qualifying) + tour 1x(54 + 32) = 236; a major week adds 238 -> 474.
+ *   - Junior, per band: j30 3x16 + j60 2x16 + j100 32 + j200 32(every 2)
+ *     + j300 64(every 4) + j500 64(every 8) = 272 on the peak
+ *     every-8-week week (152 average). Across the three bands that is
+ *     816 peak.
+ *   - So TOTAL peak weekly demand = 236 + 816 = 1052 (1290 on the rare
+ *     week a major and the junior peak coincide).
+ * The floors sum to 290, roughly a quarter of peak demand — which is why
+ * later-processed draws in a full week start short (the soak saw started
+ * `tour` 64-draws with 4 entrants). Raising the floors to ~1050-1290
+ * would fix it but would balloon the player population (the day tick's
+ * `players.findAll()` cost scales with it), so per the brief this is
+ * LEFT UNCHANGED pending the owner's floors-vs-slate-size decision; the
+ * demanded number is 1052 peak (1290 with a major) versus 290 today. */
 export const FILL_ONLY_FLOORS: ReadonlyArray<FillerBandFloor> = [
   // minWeeks is 18*52 + 1, NOT 17*52 — the senior range must start
   // strictly ABOVE the U18 band's own ceiling (18*52). Before the U18

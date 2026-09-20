@@ -67,7 +67,14 @@ export class SimulateDueMatchesUseCase {
     const anchorMs = Date.now();
     const dayWindowSeconds = command.dayWindowSeconds ?? DEFAULT_DAY_WINDOW_SECONDS;
 
-    for (const tournament of await this.tournaments.findStarted()) {
+    // Bounded to tournaments that can still have work (not finished, or
+    // awaiting qualifier promotion) via findStartedLive — see
+    // TournamentRepository's doc comment. `findStarted()` itself stays
+    // unbounded for the obligatory-zero rule, which needs the whole
+    // 52-week window of decided events. The optional method keeps the
+    // pre-existing in-memory fakes (which lack it) on the old behaviour.
+    const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
+    for (const tournament of await liveTournaments) {
       // A tournament that holds qualifying plays THAT bracket first, on
       // its opening days, and its main draw does not exist at all until
       // PromoteQualifiersUseCase seeds it (deferred main-draw seeding —

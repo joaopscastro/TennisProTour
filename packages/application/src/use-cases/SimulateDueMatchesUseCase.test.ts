@@ -48,6 +48,9 @@ import { SimulateDueMatchesUseCase } from './SimulateDueMatchesUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
+  /** Ids returned by the most recent findStartedLive() call — lets the
+   * boundary test assert a finished tournament was never even loaded. */
+  loadedLiveIds: string[] = [];
 
   async findById(id: TournamentId): Promise<Tournament | null> {
     return this.store.get(id) ?? null;
@@ -59,6 +62,19 @@ class InMemoryTournamentRepository implements TournamentRepository {
 
   async findStarted(): Promise<Tournament[]> {
     return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
+  /** The bounded live set (see TournamentRepository.findStartedLive):
+   * mirrors the adapter's "not fully finished" prefilter in memory. */
+  async findStartedLive(): Promise<Tournament[]> {
+    const live = [...this.store.values()].filter((t) => {
+      if (!t.hasStarted) return false;
+      const singlesDone = t.isMainDrawFinished();
+      const doublesDone = !t.hasDoubles || t.isDoublesMainDrawFinished();
+      return !(singlesDone && doublesDone);
+    });
+    this.loadedLiveIds = live.map((t) => t.id);
+    return live;
   }
 
   async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
@@ -553,5 +569,48 @@ describe('SimulateDueMatchesUseCase', () => {
     expect(swept).toHaveLength(4); // 8 pairs -> 4 round-1 matches
     expect(swept.every((m) => m.draw === 'main')).toBe(true);
     expect(result.failed).toHaveLength(0);
+  });
+
+  it('does not load (let alone sweep) a finished tournament, while a live one is still swept', async () => {
+    const { tournaments, useCase } = await setup();
+
+    // A second, fully-played-out 16-draw alongside the live `t1`.
+    const generator = new BracketGenerator();
+    const done = Tournament.open({
+      name: 'Already Finished',
+      id: TournamentId('t-done'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    for (let i = 1; i <= 16; i++) done.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+    done.startWithBracket(generator.generate(done.entrants, 16));
+    for (let roundNumber = 1; roundNumber <= 4; roundNumber++) {
+      const round = done.getRounds()[roundNumber - 1];
+      for (let matchIndex = 0; matchIndex < round.matches.length; matchIndex++) {
+        const match = round.matches[matchIndex];
+        done.recordMatchOutcome(roundNumber, matchIndex, {
+          winner: match.entrantA,
+          loser: match.entrantB,
+          setScores: [{ winnerGames: 6, loserGames: 0 }],
+        });
+      }
+      if (roundNumber < 4) {
+        done.addRound(generator.generateNextRound(done.getRounds()[roundNumber - 1], done.entrants, 16));
+      }
+    }
+    done.pullDomainEvents();
+    await tournaments.save(done);
+    expect(done.isMainDrawFinished()).toBe(true);
+
+    const result = await useCase.execute({ worldId: testWorldId });
+
+    // The finished tournament was never handed to the sweep...
+    expect(tournaments.loadedLiveIds).toContain('t1');
+    expect(tournaments.loadedLiveIds).not.toContain('t-done');
+    // ...and only the live one's matches were simulated.
+    expect(result.simulated).toHaveLength(8);
+    expect(result.simulated.every((id) => String(id).startsWith('t1-'))).toBe(true);
   });
 });

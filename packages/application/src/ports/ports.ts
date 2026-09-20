@@ -90,8 +90,40 @@ export interface TournamentRepository {
   findOpenForRegistration(): Promise<Tournament[]>;
   /** Tournaments whose bracket exists (started). Includes finished
    * ones — callers that only want playable matches filter via the
-   * aggregate's own round/final checks. */
+   * aggregate's own round/final checks. Deliberately UNBOUNDED: the
+   * obligatory-tournament ranking rule needs every decided event inside
+   * the rolling 52-week window, finished ones included. The day-tick
+   * match sweep must NOT use this — see `findStartedLive` below. */
   findStarted(): Promise<Tournament[]>;
+
+  /** The day-tick's bounded counterpart to `findStarted()`: only
+   * started tournaments that can still have work to do — i.e. NOT
+   * fully finished. Precisely: a tournament with at least one
+   * undecided singles or doubles match, OR one whose qualifying draw is
+   * complete but whose main draw has not been seeded yet (the state
+   * PromoteQualifiersUseCase/PromoteDoublesQualifiersUseCase exist to
+   * resolve). Fully-played-out tournaments drop out of this set for
+   * good, so the sweep's cost stops growing with the number of
+   * tournaments ever played (the 3-season soak's per-tick cost grew
+   * 40s -> 230s precisely because the sweep reconstituted every started
+   * tournament forever). Kept SEPARATE from `findStarted()` rather than
+   * redefining it, so the obligatory-zero rule's whole-window read is
+   * unchanged. Optional for test compatibility (an in-memory fake
+   * without it falls back to `findStarted()`); the Drizzle adapter —
+   * the only production implementation — always provides it. */
+  findStartedLive?(): Promise<Tournament[]>;
+
+  /** Removes a never-started, genuinely EMPTY tournament (see
+   * StartDueTournamentsUseCase's expiry step) and returns true only if
+   * a row was actually deleted. A soft state was deliberately rejected:
+   * the schema has no tournament-status column, and these are hollow
+   * shells (no entrants, matches, titles or ranking rows — the child
+   * tables cascade), so keeping them would only keep accumulating
+   * useless rows. Implementations must only ever delete such a shell,
+   * never a tournament with entrants/matches. Optional for test
+   * compatibility; the Drizzle adapter — the only production
+   * implementation — always provides it. */
+  deleteAbandonedTournament?(id: TournamentId): Promise<boolean>;
   /** Every tournament (open or started — a filled draw still "used" a
    * registration slot for the week) this player is registered in for
    * exactly this GameWeek, regardless of tier. What RegisterEntrantUseCase's

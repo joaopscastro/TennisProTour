@@ -46,7 +46,10 @@ export class PromoteDoublesQualifiersUseCase {
   async execute(_command: PromoteDoublesQualifiersCommand): Promise<PromoteDoublesQualifiersResult> {
     const result: PromoteDoublesQualifiersResult = { mainDrawsSeeded: 0, promoted: 0 };
 
-    for (const tournament of await this.tournaments.findStarted()) {
+    // Bounded live set — see TournamentRepository.findStartedLive and
+    // PromoteQualifiersUseCase's identical note.
+    const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
+    for (const tournament of await liveTournaments) {
       if (!tournament.hasDoublesQualifying) continue;
       if (tournament.hasDoublesDrawStarted) continue;
       if (!tournament.isDoublesQualifyingComplete()) continue;

@@ -359,6 +359,71 @@ describe('DrizzleTournamentRepository', () => {
     ).toThrow();
   });
 
+  /** Plays a started 16-draw all the way to a decided final, adding each
+   * next round through BracketGenerator exactly as the simulator does. */
+  function playToCompletion(tournament: Tournament): void {
+    const generator = new BracketGenerator();
+    for (let roundNumber = 1; roundNumber <= 4; roundNumber++) {
+      const round = tournament.getRounds()[roundNumber - 1];
+      for (let matchIndex = 0; matchIndex < round.matches.length; matchIndex++) {
+        const match = round.matches[matchIndex];
+        tournament.recordMatchOutcome(roundNumber, matchIndex, {
+          winner: match.entrantA,
+          loser: match.entrantB,
+          setScores: [{ winnerGames: 6, loserGames: 0 }],
+        });
+      }
+      if (roundNumber < 4) {
+        tournament.addRound(
+          generator.generateNextRound(tournament.getRounds()[roundNumber - 1], tournament.entrants, 16),
+        );
+      }
+    }
+  }
+
+  it('findStartedLive excludes a fully-finished tournament but keeps a live one', async () => {
+    await savePlayers(32);
+
+    const finished = Tournament.open({ name: 'Finished', id: TournamentId('t-finished'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    for (let i = 1; i <= 16; i++) finished.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i });
+    finished.startWithBracket(new BracketGenerator().generate(finished.entrants, 16));
+    playToCompletion(finished);
+    finished.pullDomainEvents();
+    await tournamentRepository.save(finished);
+    expect(finished.isMainDrawFinished()).toBe(true);
+
+    const live = Tournament.open({ name: 'Live', id: TournamentId('t-live'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    for (let i = 17; i <= 32; i++) live.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i - 16 });
+    live.startWithBracket(new BracketGenerator().generate(live.entrants, 16));
+    live.pullDomainEvents();
+    await tournamentRepository.save(live);
+
+    const notStarted = Tournament.open({ name: 'Open', id: TournamentId('t-open'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    await tournamentRepository.save(notStarted);
+
+    const liveIds = (await tournamentRepository.findStartedLive()).map((t) => t.id).sort();
+
+    expect(liveIds).toEqual(['t-live']);
+    // The unbounded accessor still returns everything started — the
+    // obligatory-zero rule's whole-window read is unchanged.
+    expect((await tournamentRepository.findStarted()).map((t) => t.id).sort()).toEqual(['t-finished', 't-live']);
+  });
+
+  it('deleteAbandonedTournament removes an empty never-started shell but never one with entrants', async () => {
+    await savePlayers(1);
+
+    const shell = Tournament.open({ name: 'Shell', id: TournamentId('t-shell'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    await tournamentRepository.save(shell);
+    expect(await tournamentRepository.deleteAbandonedTournament(TournamentId('t-shell'))).toBe(true);
+    expect(await tournamentRepository.findById(TournamentId('t-shell'))).toBeNull();
+
+    const entered = Tournament.open({ name: 'Entered', id: TournamentId('t-entered'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    entered.registerEntrant({ playerId: PlayerId('p1'), seed: null });
+    await tournamentRepository.save(entered);
+    expect(await tournamentRepository.deleteAbandonedTournament(TournamentId('t-entered'))).toBe(false);
+    expect(await tournamentRepository.findById(TournamentId('t-entered'))).not.toBeNull();
+  });
+
   it('round-trips a tournament with a qualifying draw, and a promoted qualifier (the FULL model)', async () => {
     await savePlayers(22);
 

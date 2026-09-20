@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { GameWeek, PairId, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
@@ -17,7 +17,7 @@ import {
 import { Surface } from '@tennis-manager/domain';
 import { ConcurrentModificationError, TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
-import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments } from '../../db/schema';
+import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments, weeklyEntryClaims } from '../../db/schema';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 type EntryRow = typeof tournamentEntries.$inferSelect;
@@ -50,6 +50,83 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   async findStarted(): Promise<Tournament[]> {
     const rows = await this.db.select().from(tournaments).where(eq(tournaments.hasStarted, true));
     return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  /**
+   * The bounded, "can still have work" subset of findStarted() — see the
+   * port's doc comment. Expressed as a single SQL prefilter (rather than
+   * loading every started tournament and filtering in memory) so the
+   * expensive per-tournament `load()` (5 child queries each) only ever
+   * runs for tournaments that aren't finished. The three clauses mirror
+   * the aggregate's own predicates exactly:
+   *   - an undecided match in either bracket  <=> not finished;
+   *   - a complete qualifying draw with no main draw yet <=> awaiting
+   *     qualifier promotion (PromoteQualifiersUseCase);
+   *   - the doubles analogue of the same.
+   * A fully-decided tournament matches none of them and is dropped
+   * permanently, which is what stops the sweep's cost growing without
+   * bound across seasons.
+   */
+  async findStartedLive(): Promise<Tournament[]> {
+    const result = await this.db.execute(sql`
+      SELECT t.id FROM tournaments t
+      WHERE t.has_started = true
+        AND (
+          EXISTS (SELECT 1 FROM tournament_matches m
+                   WHERE m.tournament_id = t.id AND m.winner_id IS NULL)
+          OR EXISTS (SELECT 1 FROM tournament_doubles_matches m
+                   WHERE m.tournament_id = t.id AND m.winner_id IS NULL)
+          OR (t.qualifying_draw_size > 0
+              AND EXISTS (SELECT 1 FROM tournament_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'qualifying')
+              AND NOT EXISTS (SELECT 1 FROM tournament_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'qualifying' AND m.winner_id IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM tournament_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'main'))
+          OR (t.doubles_qualifying_draw_size > 0
+              AND EXISTS (SELECT 1 FROM tournament_doubles_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'qualifying')
+              AND NOT EXISTS (SELECT 1 FROM tournament_doubles_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'qualifying' AND m.winner_id IS NULL)
+              AND NOT EXISTS (SELECT 1 FROM tournament_doubles_matches m
+                           WHERE m.tournament_id = t.id AND m.draw = 'main'))
+        )
+    `);
+    const ids = result.rows.map((row) => (row as { id: string }).id);
+    if (ids.length === 0) return [];
+    const rows = await this.db.select().from(tournaments).where(inArray(tournaments.id, ids));
+    return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  /**
+   * Deletes a never-started, empty tournament shell. Guarded in one
+   * transaction: it re-checks `has_started = false` AND that the six
+   * child tables that could possibly reference it are empty, so it can
+   * never remove a tournament that has any real state (the FK-bearing
+   * weekly_entry_claims is removed first — a crash between an entry
+   * claim and its save is the one way an empty shell can still hold a
+   * claim row). Returns true only if the tournaments row was deleted.
+   */
+  async deleteAbandonedTournament(id: TournamentId): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const guarded = await tx.execute(sql`
+        SELECT t.id FROM tournaments t
+        WHERE t.id = ${id}
+          AND t.has_started = false
+          AND NOT EXISTS (SELECT 1 FROM tournament_entries e WHERE e.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM tournament_doubles_entrants e WHERE e.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM tournament_matches m WHERE m.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM tournament_doubles_matches m WHERE m.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM tournament_doubles_pairs p WHERE p.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM titles ti WHERE ti.tournament_id = t.id)
+          AND NOT EXISTS (SELECT 1 FROM ranking_ledger r WHERE r.tournament_id = t.id)
+      `);
+      if (guarded.rows.length === 0) return false;
+      // weekly_entry_claims has a non-cascading FK to tournaments.
+      await tx.delete(weeklyEntryClaims).where(eq(weeklyEntryClaims.tournamentId, id));
+      await tx.delete(tournaments).where(eq(tournaments.id, id));
+      return true;
+    });
   }
 
   async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {

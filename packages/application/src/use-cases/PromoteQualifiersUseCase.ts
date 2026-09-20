@@ -72,7 +72,13 @@ export class PromoteQualifiersUseCase {
   async execute(_command: PromoteQualifiersCommand): Promise<PromoteQualifiersResult> {
     const result: PromoteQualifiersResult = { mainDrawsSeeded: 0, promoted: 0 };
 
-    for (const tournament of await this.tournaments.findStarted()) {
+    // The bounded live set (see TournamentRepository.findStartedLive):
+    // a qualifying-complete / main-draw-unseeded tournament is included
+    // by its "awaiting promotion" clause, while every finished event
+    // drops out — so this daily use case stops reconstituting the whole
+    // tournament history.
+    const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
+    for (const tournament of await liveTournaments) {
       if (!tournament.hasQualifying) continue;
       if (tournament.hasMainDraw) continue;
       if (!tournament.isQualifyingComplete()) continue;

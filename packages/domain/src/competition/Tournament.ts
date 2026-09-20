@@ -456,6 +456,30 @@ export class Tournament {
     );
   }
 
+  /** The singles MAIN draw has been played to its final and every match
+   * there has an outcome — the aggregate's own "this event is over"
+   * predicate. Deliberately false for a tournament still in qualifying
+   * (no main draw yet) and for one whose final is undecided. Extracted
+   * from the `/tournaments?status=started` route helper of the same
+   * name so the route and the bounded live-tournament query
+   * (`TournamentRepository.findStartedLive`) share ONE definition
+   * rather than drifting near-copies. */
+  isMainDrawFinished(): boolean {
+    if (!this.hasMainDraw) return false;
+    const rounds = this.getRounds();
+    if (rounds.length === 0) return false;
+    return rounds[rounds.length - 1].matches.every((match) => match.outcome !== null);
+  }
+
+  /** The doubles MAIN draw analogue of `isMainDrawFinished` — false
+   * when the doubles draw was never seeded or its last round still has
+   * an undecided match. */
+  isDoublesMainDrawFinished(): boolean {
+    const rounds = this.getDoublesRounds('main');
+    if (rounds.length === 0) return false;
+    return rounds[rounds.length - 1].matches.every((match) => match.outcome !== null);
+  }
+
   registerEntrant(entrant: TournamentEntrant): void {
     if (this.hasStarted) {
       throw new Error(`Cannot register an entrant: tournament ${this.id} has already started`);

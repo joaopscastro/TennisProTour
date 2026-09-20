@@ -23,7 +23,22 @@ export interface StartDueTournamentsResult {
    * tournament — 0 whenever every started tournament was already full
    * of real registrants. */
   filled: number;
+  /** Never-started, genuinely EMPTY draws expired this run because they
+   * sat past their scheduled week without ever filling — the fix for a
+   * live world slowly accumulating permanently-stuck shells (a 3-season
+   * soak peaked at 34 and had to delete 305). 0 whenever none qualify. */
+  expired: number;
 }
+
+/** How many weeks past its scheduled week a never-started tournament
+ * with ZERO entrants is left open before it is expired. Deliberately
+ * small: a tournament that was never entered by any manager and whose
+ * week is long gone is an abandoned shell, not a pending event. Two
+ * weeks leaves room for the filler top-up (and the odd late rollover)
+ * without letting shells pile up. Named and doc-commented, same
+ * "explicit PLACEHOLDER threshold" discipline as every other pacing
+ * constant here. */
+export const ABANDONED_TOURNAMENT_EXPIRY_WEEKS = 2;
 
 /**
  * The missing "this tournament's registration window is over, time to
@@ -129,6 +144,31 @@ export class StartDueTournamentsUseCase {
     const currentWeek = world.currentWeek;
 
     const open = await this.tournaments.findOpenForRegistration();
+
+    // Expiry pass FIRST, before anything can fill/start a shell: a
+    // never-started tournament with ZERO singles AND doubles entrants
+    // whose scheduled week is more than ABANDONED_TOURNAMENT_EXPIRY_WEEKS
+    // in the past is abandoned (nobody ever chose it) and is deleted, so
+    // the open-tournament set can't accumulate stuck shells forever. Only
+    // genuinely empty shells qualify — a tournament with any entrant is
+    // left for the normal start/fill path, and a started one never
+    // appears in `open` at all. Idempotent: a deleted shell simply never
+    // appears again. `deleteAbandonedTournament` is optional on the port
+    // (in-memory fakes omit it); when absent the pass is inert.
+    const expiredIds = new Set<string>();
+    if (this.tournaments.deleteAbandonedTournament) {
+      for (const tournament of open) {
+        const abandoned =
+          tournament.entrants.length === 0 &&
+          tournament.doublesEntrants.length === 0 &&
+          weeksBetween(tournament.weekScheduled, currentWeek) > ABANDONED_TOURNAMENT_EXPIRY_WEEKS;
+        if (!abandoned) continue;
+        if (await this.tournaments.deleteAbandonedTournament(tournament.id)) {
+          expiredIds.add(tournament.id);
+        }
+      }
+    }
+
     // A tournament is due when its scheduled week has ARRIVED (inclusive
     // `>= 0`): generation now opens tournaments for NEXT week (see
     // GenerateJuniorTournamentsUseCase/GenerateSeniorTournamentsUseCase),
@@ -139,7 +179,9 @@ export class StartDueTournamentsUseCase {
     // that was only necessary back when generation opened the SAME week
     // (an inclusive check would then have force-started a tournament the
     // same tick it opened, before any registration). */
-    const due = open.filter((t) => weeksBetween(t.weekScheduled, currentWeek) >= 0);
+    const due = open.filter(
+      (t) => !expiredIds.has(t.id) && weeksBetween(t.weekScheduled, currentWeek) >= 0,
+    );
 
     let started = 0;
     let filled = 0;
@@ -225,7 +267,7 @@ export class StartDueTournamentsUseCase {
       await this.formDoublesDraw?.form(tournament);
     }
 
-    return { started, filled };
+    return { started, filled, expired: expiredIds.size };
   }
 
   /** Registers up to `needed` eligible unclaimed players as entrants on

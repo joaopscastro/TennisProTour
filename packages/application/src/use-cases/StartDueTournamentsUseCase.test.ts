@@ -48,6 +48,13 @@ class InMemoryTournamentRepository implements TournamentRepository {
   async save(tournament: Tournament): Promise<void> {
     this.store.set(tournament.id, tournament);
   }
+
+  async deleteAbandonedTournament(id: TournamentId): Promise<boolean> {
+    const tournament = this.store.get(id);
+    if (!tournament || tournament.hasStarted || tournament.entrants.length > 0) return false;
+    this.store.delete(id);
+    return true;
+  }
 }
 
 class InMemoryGameWorldRepository implements GameWorldRepository {
@@ -246,7 +253,10 @@ describe('StartDueTournamentsUseCase', () => {
   });
 
   it('leaves a tournament open when it stays at zero entrants', async () => {
-    const { tournaments, useCase } = await setup({ season: 1, week: 4 });
+    // Current week is 1 week after the draw's scheduled week — inside the
+    // abandoned-draw expiry threshold, so this exercises the fill path,
+    // not expiry (see the dedicated expiry describe block).
+    const { tournaments, useCase } = await setup({ season: 1, week: 2 });
 
     const tournament = openSeniorTournament('t-empty');
     await tournaments.save(tournament);
@@ -259,7 +269,7 @@ describe('StartDueTournamentsUseCase', () => {
   });
 
   it('leaves a tournament open when fill still leaves too sparse a field to produce a real round-1 match', async () => {
-    const { tournaments, players, useCase } = await setup({ season: 1, week: 4 });
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 2 });
 
     const tournament = openSeniorTournament('t-too-sparse');
     await tournaments.save(tournament);
@@ -376,5 +386,61 @@ describe('StartDueTournamentsUseCase — automatic wild cards', () => {
 
     const saved = await tournaments.findById(TournamentId('t-weekly-wc-fillers'));
     expect(saved!.entrants.some((e) => e.entryType === 'WC')).toBe(false);
+  });
+});
+
+describe('StartDueTournamentsUseCase — abandoned-draw expiry', () => {
+  it('expires a never-started, zero-entrant draw more than the threshold weeks past its week', async () => {
+    // currentWeek is 3 weeks after the shell's scheduled week 1.
+    const { tournaments, useCase } = await setup({ season: 1, week: 4 });
+
+    const shell = openSeniorTournament('t-abandoned');
+    await tournaments.save(shell);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.expired).toBe(1);
+    expect(result.started).toBe(0);
+    expect(await tournaments.findById(TournamentId('t-abandoned'))).toBeNull();
+  });
+
+  it('leaves a never-started draw alone while it still has entrants', async () => {
+    const { tournaments, useCase } = await setup({ season: 1, week: 4 });
+
+    const entered = openSeniorTournament('t-entered');
+    realEntrant(entered, 'real-1');
+    await tournaments.save(entered);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.expired).toBe(0);
+    expect(await tournaments.findById(TournamentId('t-entered'))).not.toBeNull();
+  });
+
+  it('leaves an empty draw alone until it is past the threshold', async () => {
+    // Scheduled week 1, current week 2: only 1 week past — not yet expired.
+    const { tournaments, useCase } = await setup({ season: 1, week: 2 });
+
+    const recent = openSeniorTournament('t-recent');
+    await tournaments.save(recent);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.expired).toBe(0);
+    expect(await tournaments.findById(TournamentId('t-recent'))).not.toBeNull();
+  });
+
+  it('never expires a draw that starts this run', async () => {
+    const { tournaments, useCase } = await setup({ season: 1, week: 4 });
+
+    const full = openSeniorTournament('t-full-start');
+    for (let i = 1; i <= 16; i++) realEntrant(full, `real-${i}`);
+    await tournaments.save(full);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.expired).toBe(0);
+    expect(result.started).toBe(1);
+    expect((await tournaments.findById(TournamentId('t-full-start')))!.hasStarted).toBe(true);
   });
 });

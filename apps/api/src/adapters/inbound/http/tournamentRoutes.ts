@@ -86,21 +86,6 @@ function prizeMoneyBreakdownFor(tier: TournamentTier, drawSize: number): PrizeMo
   return rows;
 }
 
-/** Whether the tournament's singles main draw is fully decided — its
- * final round exists and every match in it has an outcome. A bracket
- * that was started but never seeded (no main draw) or that never played
- * to a final is NOT finished: it is stuck, and "brackets underway" keeps
- * stuck brackets visible rather than silently hiding them (see the
- * status=started handler). */
-function isSinglesFinished(tournament: Tournament): boolean {
-  if (!tournament.hasMainDraw) return false;
-  const rounds = tournament.getRounds();
-  if (rounds.length === 0) return false;
-  const finalRound = rounds[rounds.length - 1];
-  return finalRound.matches.every((m) => m.outcome !== null);
-}
-
-
 /** Thin serialization only — no domain rules here, EXCEPT the
  * player-scoped fields, which are only ever attached by the
  * playerId-aware overload below (see GET /tournaments) — never
@@ -523,7 +508,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
             // weeks past its scheduled week (covers the qualifying-shifted
             // major final); an unfinished bracket older than that is
             // stuck, not underway — a small, honest set, kept visible.
-            return !isSinglesFinished(t) && weeksSinceScheduled <= 3;
+            return !t.isMainDrawFinished() && weeksSinceScheduled <= 3;
           })
         : list;
       return started.map((t) => toTournamentDto(t));
