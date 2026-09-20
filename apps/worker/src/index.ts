@@ -12,6 +12,7 @@ import { GameWorld, WorldId } from '@tennis-manager/domain';
 import { buildDependencies, createDb, resolveMatchLogDirectory } from '@tennis-manager/api';
 import { AdvanceWorldJobData, makeAdvanceWorldHandler } from './jobs/handlers';
 import { makeSendManagerDigestsHandler } from './jobs/notificationJobs';
+import { removeLegacySchedulers } from './jobs/reconcileSchedulers';
 
 const connectionString = process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
 const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -48,6 +49,13 @@ if (worldTickIntervalMsRaw !== undefined && (!Number.isFinite(worldTickIntervalM
 }
 
 const WORLD_QUEUE = 'world';
+/** Legacy queue + scheduler ids from before the day tick existed: the
+ * per-5-minute match sweep lived on its own `matches` queue, and the
+ * world tick was `advance-world-week`. Both are removed on boot so an
+ * upgrade cleans up after itself (see reconcileSchedulers.ts). */
+const LEGACY_MATCHES_QUEUE = 'matches';
+const LEGACY_WORLD_SCHEDULERS = ['advance-world-week'] as const;
+const LEGACY_MATCHES_SCHEDULERS = ['simulate-due-matches'] as const;
 const NOTIFICATIONS_QUEUE = 'notifications';
 // One digest run per day by default; overridable for fast local/test
 // cycles. Only matters when a real digest mode is configured — in the
@@ -83,6 +91,22 @@ async function main(): Promise<void> {
   const connection = new IORedis(redisUrl, { maxRetriesPerRequest: null });
 
   const worldQueue = new Queue(WORLD_QUEUE, { connection });
+
+  // Clean up schedulers left by older worker versions BEFORE registering
+  // the current ones (see reconcileSchedulers.ts): `upsertJobScheduler`
+  // never removes a renamed/retired schedule, so a stale
+  // `advance-world-week` would otherwise keep firing jobs with an old
+  // `worldId` at this very queue and logging `job failed`. Best-effort;
+  // a cleanup miss is logged, never fatal.
+  const legacyMatchesQueue = new Queue(LEGACY_MATCHES_QUEUE, { connection });
+  await removeLegacySchedulers(
+    [
+      { queueName: WORLD_QUEUE, queue: worldQueue, schedulerIds: LEGACY_WORLD_SCHEDULERS },
+      { queueName: LEGACY_MATCHES_QUEUE, queue: legacyMatchesQueue, schedulerIds: LEGACY_MATCHES_SCHEDULERS },
+    ],
+    (message, payload) => console.log(JSON.stringify({ msg: message, ...payload })),
+  );
+  await legacyMatchesQueue.close();
 
   // Repeatable schedule (upsert = safe across restarts/deploys).
   // worldTickIntervalMs set = dev/test override (every: ms); unset =
