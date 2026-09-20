@@ -1,5 +1,5 @@
-import { BracketGenerator, WorldId } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import { BracketGenerator, isAgeEligibleForTournamentBand, PairId, PlayerId, Tournament, WorldId } from '@tennis-manager/domain';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
 
 export interface PromoteDoublesQualifiersCommand {
   worldId: WorldId;
@@ -36,6 +36,11 @@ export class PromoteDoublesQualifiersUseCase {
   constructor(
     private readonly tournaments: TournamentRepository,
     private readonly bracketGenerator: BracketGenerator,
+    /** Optional and LAST for test compatibility: without it the sparse-
+     * doubles-main-draw rescue is inert and the pre-existing "record the
+     * promotions, leave the main draw unseeded" behaviour is unchanged.
+     * The composition root always passes it. */
+    private readonly players?: PlayerRepository,
   ) {}
 
   async execute(_command: PromoteDoublesQualifiersCommand): Promise<PromoteDoublesQualifiersResult> {
@@ -65,14 +70,24 @@ export class PromoteDoublesQualifiersUseCase {
       }
 
       // Seed the doubles main draw from direct acceptances + qualifiers.
-      const bracket = this.bracketGenerator.generate(
+      let bracket = this.bracketGenerator.generate(
         tournament.doublesPairs.map((p) => ({ playerId: p.pairId, seed: null })),
         tournament.doublesDrawSize,
       );
+      if (bracket[0].matches.length === 0 && this.players) {
+        // Same rescue as the singles side: the qualifying result is a
+        // real, earned result that must not be thrown away, so pad the
+        // sparse main draw with filler PAIRS and re-generate rather than
+        // dead-ending forever.
+        await this.padDoublesMainDraw(tournament);
+        bracket = this.bracketGenerator.generate(
+          tournament.doublesPairs.map((p) => ({ playerId: p.pairId, seed: null })),
+          tournament.doublesDrawSize,
+        );
+      }
       if (bracket[0].matches.length === 0) {
-        // Too sparse to seed a real match — save the promotions and leave
-        // the main draw unseeded (honest: qualifying completed, no main
-        // draw yet).
+        // Still too sparse even after padding — save the promotions and
+        // leave the main draw unseeded; a later tick retries.
         await this.tournaments.save(tournament);
         continue;
       }
@@ -83,5 +98,46 @@ export class PromoteDoublesQualifiersUseCase {
     }
 
     return result;
+  }
+
+  /** Tops a sparse main doubles draw up to a seedable size with filler
+   * pairs drawn from the eligible free-agent pool — two age-eligible free
+   * agents per pair, none of them already involved in this tournament's
+   * doubles field or already committed to another tournament that week.
+   * Idempotent across re-runs: pairs already present (including fillers
+   * added last time) are excluded by player membership, and pair ids are
+   * derived from the growing pair count so they can't collide. */
+  private async padDoublesMainDraw(tournament: Tournament): Promise<void> {
+    if (!this.players) return;
+    const needed = tournament.doublesDrawSize - tournament.doublesPairs.length;
+    if (needed <= 0) return;
+
+    const alreadyIn = new Set<PlayerId>();
+    for (const pair of [...tournament.doublesPairs, ...tournament.doublesQualifyingPairs]) {
+      alreadyIn.add(pair.playerA);
+      alreadyIn.add(pair.playerB);
+    }
+
+    const freeAgents = await this.players.findFreeAgents();
+    const available: PlayerId[] = [];
+    for (const player of freeAgents) {
+      if (alreadyIn.has(player.id)) continue;
+      if (!isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) continue;
+      const committedElsewhere = await this.tournaments.findByPlayerAndWeek(player.id, tournament.weekScheduled);
+      if (committedElsewhere.length > 0) continue;
+      available.push(player.id);
+    }
+
+    let added = 0;
+    for (let i = 0; i + 1 < available.length && added < needed; i += 2) {
+      tournament.addDoublesMainDrawFiller({
+        pairId: PairId(`${tournament.id}-df${tournament.doublesPairs.length}`),
+        playerA: available[i],
+        playerB: available[i + 1],
+        chemistry: 0,
+      });
+      added += 1;
+    }
+    await this.tournaments.save(tournament);
   }
 }

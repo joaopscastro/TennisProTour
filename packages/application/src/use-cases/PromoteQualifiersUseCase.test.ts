@@ -2,8 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   BracketGenerator,
   GameWeek,
+  ManagerId,
   MatchOutcome,
+  Player,
+  PlayerAttributes,
   PlayerId,
+  Skill,
+  SurfaceAffinities,
   Tournament,
   TournamentId,
   WorldId,
@@ -11,8 +16,49 @@ import {
   qualifierSlotsFor,
   qualifyingDrawSizeFor,
 } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { PromoteQualifiersUseCase } from './PromoteQualifiersUseCase';
+
+class InMemoryPlayerRepository implements PlayerRepository {
+  private readonly store = new Map<PlayerId, Player>();
+
+  async findById(id: PlayerId): Promise<Player | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async findByManager(managerId: ManagerId): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === managerId);
+  }
+
+  async findAll(): Promise<Player[]> {
+    return [...this.store.values()];
+  }
+
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
+  async save(player: Player): Promise<void> {
+    this.store.set(player.id, player);
+  }
+}
+
+function attributes(): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(40), forehand: Skill.of(40), backhand: Skill.of(40), volley: Skill.of(40) },
+    physical: { speed: Skill.of(40), stamina: Skill.of(40), strength: Skill.of(40) },
+    mental: { consistency: Skill.of(40), clutch: Skill.of(40) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
+function filler(id: string): Player {
+  return Player.generateFillOnly(PlayerId(id), `Filler ${id}`, 20 * 52, 'prime', attributes(), 'BR', 70, {
+    speed: 70,
+    stamina: 70,
+    strength: 70,
+  });
+}
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<string, Tournament>();
@@ -230,5 +276,30 @@ describe('PromoteQualifiersUseCase', () => {
 
     const saved = (await tournaments.findById(TournamentId('t-sparse-repeat')))!;
     expect(saved.mainEntrants).toHaveLength(2); // never double-promoted
+  });
+
+  it('pads a sparse promoted main draw from the filler pool and seeds it (real soak-run dead-end fix)', async () => {
+    // Real, soak-run-confirmed bug: with no direct acceptances, promotion
+    // left a 2-entrant main draw on a 16-draw — too sparse for
+    // BracketGenerator to produce a single round-1 match — and the
+    // tournament sat started-but-main-draw-less FOREVER (3 tournaments,
+    // confirmed live). With the filler pool injected, the main draw is now
+    // topped up and seeded instead.
+    const tournaments = new InMemoryTournamentRepository();
+    const tournament = openWithQualifying(TournamentId('t-sparse-padded'), 0);
+    playOutQualifying(tournament);
+    await tournaments.save(tournament);
+
+    const players = new InMemoryPlayerRepository();
+    for (let i = 1; i <= 16; i++) await players.save(filler(`fill-${i}`));
+
+    const useCase = new PromoteQualifiersUseCase(tournaments, new BracketGenerator(), players);
+    const result = await useCase.execute({ worldId: WORLD });
+
+    expect(result.promoted).toBe(2);
+    expect(result.mainDrawsSeeded).toBe(1);
+    const saved = (await tournaments.findById(TournamentId('t-sparse-padded')))!;
+    expect(saved.hasMainDraw).toBe(true);
+    expect(saved.mainEntrants).toHaveLength(16);
   });
 });

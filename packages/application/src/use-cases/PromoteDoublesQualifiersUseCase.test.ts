@@ -1,7 +1,62 @@
 import { describe, expect, it } from 'vitest';
-import { BracketGenerator, GameWeek, MatchOutcome, PairId, PlayerId, Tournament, TournamentId, WorldId } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import {
+  BracketGenerator,
+  GameWeek,
+  ManagerId,
+  MatchOutcome,
+  PairId,
+  Player,
+  PlayerAttributes,
+  PlayerId,
+  Skill,
+  SurfaceAffinities,
+  Tournament,
+  TournamentId,
+  WorldId,
+} from '@tennis-manager/domain';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { PromoteDoublesQualifiersUseCase } from './PromoteDoublesQualifiersUseCase';
+
+class InMemoryPlayerRepository implements PlayerRepository {
+  private readonly store = new Map<PlayerId, Player>();
+
+  async findById(id: PlayerId): Promise<Player | null> {
+    return this.store.get(id) ?? null;
+  }
+
+  async findByManager(managerId: ManagerId): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === managerId);
+  }
+
+  async findAll(): Promise<Player[]> {
+    return [...this.store.values()];
+  }
+
+  async findFreeAgents(): Promise<Player[]> {
+    return [...this.store.values()].filter((p) => p.managerId === null && !p.isRetired());
+  }
+
+  async save(player: Player): Promise<void> {
+    this.store.set(player.id, player);
+  }
+}
+
+function attributes(): PlayerAttributes {
+  return new PlayerAttributes({
+    technical: { serve: Skill.of(40), forehand: Skill.of(40), backhand: Skill.of(40), volley: Skill.of(40) },
+    physical: { speed: Skill.of(40), stamina: Skill.of(40), strength: Skill.of(40) },
+    mental: { consistency: Skill.of(40), clutch: Skill.of(40) },
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+}
+
+function filler(id: string): Player {
+  return Player.generateFillOnly(PlayerId(id), `Filler ${id}`, 20 * 52, 'prime', attributes(), 'BR', 70, {
+    speed: 70,
+    stamina: 70,
+    strength: 70,
+  });
+}
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<string, Tournament>();
@@ -126,5 +181,27 @@ describe('PromoteDoublesQualifiersUseCase', () => {
 
     const saved = (await tournaments.findById(TournamentId('t-doubles-sparse-repeat')))!;
     expect(saved.doublesPairs).toHaveLength(2); // never double-promoted
+  });
+
+  it('pads a sparse promoted doubles main draw from the free-agent pool and seeds it', async () => {
+    // The doubles analogue of the singles dead-end fix: 2 promoted pairs
+    // on a 16-pair draw is too sparse to seed, so the main draw is topped
+    // up with filler pairs rather than sitting unseeded forever.
+    const tournaments = new InMemoryTournamentRepository();
+    const tournament = openWithDoublesQualifying(TournamentId('t-doubles-sparse-padded'));
+    playOutDoublesQualifying(tournament);
+    await tournaments.save(tournament);
+
+    const players = new InMemoryPlayerRepository();
+    for (let i = 1; i <= 40; i++) await players.save(filler(`dfill-${i}`));
+
+    const useCase = new PromoteDoublesQualifiersUseCase(tournaments, new BracketGenerator(), players);
+    const result = await useCase.execute({ worldId: WORLD });
+
+    expect(result.promoted).toBe(2);
+    expect(result.mainDrawsSeeded).toBe(1);
+    const saved = (await tournaments.findById(TournamentId('t-doubles-sparse-padded')))!;
+    expect(saved.hasDoublesDrawStarted).toBe(true);
+    expect(saved.doublesPairs).toHaveLength(16);
   });
 });

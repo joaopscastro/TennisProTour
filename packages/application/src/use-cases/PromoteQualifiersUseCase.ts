@@ -1,5 +1,6 @@
 import { BracketGenerator, WorldId } from '@tennis-manager/domain';
-import { TournamentRepository } from '../ports/ports';
+import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { fillDrawSlots } from './fillDrawSlots';
 
 export interface PromoteQualifiersCommand {
   worldId: WorldId;
@@ -56,6 +57,12 @@ export class PromoteQualifiersUseCase {
   constructor(
     private readonly tournaments: TournamentRepository,
     private readonly bracketGenerator: BracketGenerator,
+    /** Optional and LAST for test compatibility: without it the sparse-
+     * main-draw rescue (below) is inert and the pre-existing "record the
+     * promotions, leave the main draw unseeded" behaviour is unchanged.
+     * The composition root always passes it, so live a qualifying event
+     * can never dead-end. */
+    private readonly players?: PlayerRepository,
   ) {}
 
   // worldId is accepted for symmetry with the other tick use cases (and
@@ -91,17 +98,29 @@ export class PromoteQualifiersUseCase {
         result.promoted += 1;
       }
 
-      const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
-      // Same sparse-field outcome every other start path handles: a main
-      // draw thin enough that every entrant would get a bye can't be
-      // started (see Tournament.startWithBracket). Unlike an open
-      // tournament, though, there's no "retry a later tick with more
-      // fillers" here — the promotions are already recorded, so we save
-      // them and leave the main draw unseeded rather than throwing away
-      // a real qualifying result. It stays visible as a completed
-      // qualifying event with no main draw, which is honest about what
-      // actually happened.
+      let bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+      // A main draw thin enough that every entrant would get a bye can't
+      // be started (see Tournament.startWithBracket). Unlike an open
+      // tournament — where StartDueTournamentsUseCase just leaves it open
+      // and retries a later tick with more fillers — the promotions are
+      // already recorded by this point and can't be thrown away, so the
+      // SAME filler padding is applied here instead: top the main draw up
+      // from the eligible fill-only pool, then re-generate. Without this a
+      // qualifying event can permanently dead-end in the "promoted, but
+      // never seedable" state — confirmed live in a 3-season soak run
+      // (3 tournaments stuck started-but-main-draw-less forever).
+      if (bracket[0].matches.length === 0 && this.players) {
+        const needed = tournament.drawSize - tournament.mainEntrants.length;
+        await fillDrawSlots({ players: this.players, tournaments: this.tournaments }, tournament, needed, 'main', (entrant) =>
+          tournament.addMainDrawFiller(entrant.playerId),
+        );
+        bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+      }
       if (bracket[0].matches.length === 0) {
+        // Still too sparse even after padding (the eligible pool ran
+        // out): save the promotions and leave the main draw unseeded —
+        // honest about what actually happened, and a later tick retries
+        // the padding as more fillers exist.
         await this.tournaments.save(tournament);
         continue;
       }

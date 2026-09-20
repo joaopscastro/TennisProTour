@@ -1,11 +1,8 @@
 import {
   BracketGenerator,
   DrawPhase,
-  isAgeEligibleForTournamentBand,
-  PlayerId,
   RankingBand,
   Tournament,
-  TournamentEntrant,
   weeksBetween,
   WorldId,
 } from '@tennis-manager/domain';
@@ -13,6 +10,7 @@ import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { applyWildCards } from './applyWildCards';
+import { fillDrawSlots } from './fillDrawSlots';
 
 export interface StartDueTournamentsCommand {
   worldId: WorldId;
@@ -25,15 +23,6 @@ export interface StartDueTournamentsResult {
    * tournament — 0 whenever every started tournament was already full
    * of real registrants. */
   filled: number;
-}
-
-/** A single unclaimed-player fill candidate — always a real fillOnly
- * free-agent Player now (candidate/player unification, see
- * docs/CLAUDE.md): there is no separate "fresh candidate" source to
- * convert anymore, every prospect is already a Player. */
-interface FillCandidate {
-  playerId: PlayerId;
-  ageInWeeks: number;
 }
 
 /**
@@ -241,64 +230,19 @@ export class StartDueTournamentsUseCase {
 
   /** Registers up to `needed` eligible unclaimed players as entrants on
    * `tournament` (mutating it in place, same as RegisterEntrantUseCase
-   * does), converting any selected 'fresh' candidate into a real
-   * fillOnly Player along the way. Returns how many were actually
-   * added — may be fewer than `needed` if the eligible pool runs out. */
+   * does). Thin delegation to the shared fillDrawSlots helper — the
+   * exact same selection this class used before, now reused by
+   * PromoteQualifiersUseCase too (see that file). Returns how many were
+   * actually added — may be fewer than `needed` if the eligible pool
+   * runs out. */
   private async fillSlots(tournament: Tournament, needed: number, draw: DrawPhase = 'main'): Promise<number> {
     const band: RankingBand = tournament.ageBand ?? 'senior';
-
-    const [fillOnlyPlayers, ranked] = await Promise.all([
-      // A retired player is never a live filler: nothing deletes a
-      // retired player, and without this exclusion they would still be
-      // selected into a real tournament draw they can never play.
-      this.players.findAll().then((all) => all.filter((p) => p.fillOnly && !p.isRetired())),
-      this.rankPositionByBand[band].sortedRankings(),
-    ]);
-    const rankOrder = new Map(ranked.map((r, index) => [r.playerId, index]));
-
-    const eligible: FillCandidate[] = fillOnlyPlayers
-      .filter((p) => isAgeEligibleForTournamentBand(p.seasonAgeAnchorWeeks, tournament.ageBand))
-      .map((p): FillCandidate => ({ playerId: p.id, ageInWeeks: p.ageInWeeks }));
-
-    const available: FillCandidate[] = [];
-    for (const candidate of eligible) {
-      const committedElsewhere = await this.tournaments.findByPlayerAndWeek(candidate.playerId, tournament.weekScheduled);
-      if (committedElsewhere.length === 0) available.push(candidate);
-    }
-
-    available.sort((a, b) => {
-      const aRank = rankOrder.get(a.playerId);
-      const bRank = rankOrder.get(b.playerId);
-      // Really-ranked candidates first (in their real rank order) —
-      // structurally near-impossible for an unclaimed player today
-      // (see this class's doc comment), but genuinely honored, not
-      // dead code.
-      if (aRank !== undefined || bRank !== undefined) {
-        if (aRank === undefined) return 1;
-        if (bRank === undefined) return -1;
-        return aRank - bRank;
-      }
-      // Fully deterministic tie-break — never a skill/rating proxy.
-      return a.playerId.localeCompare(b.playerId);
-    });
-
-    const selected = available.slice(0, needed);
-    for (const candidate of selected) {
-      // A filler in the qualifying field IS a qualifier — it has to win
-      // its way through exactly like a human registrant there, and the
-      // draw sheet says so. Left absent (i.e. 'main'/'DA') for the main
-      // draw, unchanged from before qualifying existed.
-      const entrant: TournamentEntrant =
-        draw === 'qualifying'
-          ? { playerId: candidate.playerId, seed: null, draw, entryType: 'Q' }
-          : { playerId: candidate.playerId, seed: null };
-      tournament.registerEntrant(entrant);
-    }
-    // Persist the fill immediately — later tournaments processed this
-    // same run rely on findByPlayerAndWeek seeing it (see this class's
-    // doc comment on weekly-commitment exclusion).
-    await this.tournaments.save(tournament);
-
-    return selected.length;
+    return fillDrawSlots(
+      { players: this.players, tournaments: this.tournaments, rankQuery: this.rankPositionByBand[band] },
+      tournament,
+      needed,
+      draw,
+      (entrant) => tournament.registerEntrant(entrant),
+    );
   }
 }

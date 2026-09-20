@@ -508,6 +508,39 @@ export class Tournament {
   }
 
   /**
+   * Adds a manager-less FILLER directly to the MAIN draw of a tournament
+   * that has already started (its qualifying draw is being played) but
+   * whose main bracket is not seeded yet. Deliberately legal after
+   * `hasStarted`, unlike registerEntrant(): the deferred-main-draw model
+   * means the main draw is only assembled once qualifying finishes, and a
+   * qualifying event can legitimately promote too few winners for
+   * BracketGenerator to produce a single round-1 match (every entrant
+   * would get a bye). Without this, such a tournament is stuck forever —
+   * it can never seed a main draw and never plays. Used only to rescue
+   * that state (see PromoteQualifiersUseCase), so a qualifying event can
+   * never dead-end.
+   *
+   * Capped at `drawSize` (not `mainDrawCapacity`): the reserved
+   * qualifier/wild-card places are exactly the ones that may still be
+   * empty at this point, and a filler fills one of THOSE, never a direct
+   * acceptance's slot. No `entryType` is stamped — a filler is not a
+   * direct acceptance, a qualifier or a wild card, and never appears as a
+   * real entry (the entry list is manager-filtered).
+   */
+  addMainDrawFiller(playerId: PlayerId): void {
+    if (this.hasMainDraw) {
+      throw new Error(`Cannot add a filler: tournament ${this.id}'s main draw is already seeded`);
+    }
+    if (this._entrants.some((e) => e.playerId === playerId)) {
+      throw new Error(`Player ${playerId} is already registered for tournament ${this.id}`);
+    }
+    if (this.mainEntrants.length >= this.drawSize) {
+      throw new Error(`Tournament ${this.id}'s main draw is full (${this.drawSize} entrants)`);
+    }
+    this._entrants.push({ playerId, seed: null });
+  }
+
+  /**
    * Grants an automatic WILD CARD (see WildCardPolicy/applyWildCards)
    * to a player currently registered in the QUALIFYING field, moving
    * them straight into the main draw instead — the mechanical opposite
@@ -1010,6 +1043,27 @@ export class Tournament {
       throw new Error(`Tournament ${this.id}'s doubles draw is full (${this.doublesDrawSize} pairs)`);
     }
     this._doublesPairs.push(this._doublesQualifyingPairs[index]);
+  }
+
+  /**
+   * The doubles analogue of addMainDrawFiller(): adds a manager-less
+   * filler PAIR directly to a doubles main draw that has started
+   * (doubles qualifying is being played) but whose main bracket is not
+   * seeded yet. Same "rescue a too-sparse promoted draw" purpose and
+   * same post-`hasStarted` legality — see addMainDrawFiller's doc
+   * comment.
+   */
+  addDoublesMainDrawFiller(pair: TournamentDoublesPair): void {
+    if (this.hasDoublesDrawStarted) {
+      throw new Error(`Cannot add a doubles filler: tournament ${this.id}'s doubles draw is already seeded`);
+    }
+    if (this._doublesPairs.some((p) => p.pairId === pair.pairId)) {
+      throw new Error(`Pair ${pair.pairId} is already in tournament ${this.id}'s doubles draw`);
+    }
+    if (this._doublesPairs.length >= this.doublesDrawSize) {
+      throw new Error(`Tournament ${this.id}'s doubles draw is full (${this.doublesDrawSize} pairs)`);
+    }
+    this._doublesPairs.push(pair);
   }
 
   addDoublesRound(round: BracketRound<PairId>, draw: DrawPhase = 'main'): void {

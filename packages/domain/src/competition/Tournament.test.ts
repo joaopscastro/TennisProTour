@@ -422,3 +422,59 @@ describe('Tournament doubles draw (P7b)', () => {
     expect(t.doublesPlayersFor(PairId('t1-qd0'))!.playerA).toBe(PlayerId('a'));
   });
 });
+
+describe('Tournament.addMainDrawFiller — rescuing a too-sparse promoted draw', () => {
+  function startedWithQualifying(): Tournament {
+    const t = Tournament.open(
+      baseProps({ tier: 'tour', drawSize: 16, qualifyingDrawSize: 8, qualifierSlots: 2 }),
+    );
+    t.registerEntrant({ playerId: PlayerId('da1'), seed: 1, entryType: 'DA' });
+    for (let i = 0; i < 8; i++) {
+      t.registerEntrant({ playerId: PlayerId(`q${i}`), seed: null, draw: 'qualifying', entryType: 'Q' });
+    }
+    t.startQualifyingWithBracket(new BracketGenerator().generate(t.qualifyingEntrants, 8));
+    return t;
+  }
+
+  it('adds a filler to the main draw after start, but before the main bracket is seeded', () => {
+    const t = startedWithQualifying();
+    expect(t.hasStarted).toBe(true); // qualifying is being played
+    expect(t.hasMainDraw).toBe(false);
+
+    t.addMainDrawFiller(PlayerId('f1'));
+
+    expect(t.mainEntrants.map((e) => e.playerId)).toContain(PlayerId('f1'));
+  });
+
+  it('refuses a duplicate filler (a real entry or another filler)', () => {
+    const t = startedWithQualifying();
+    t.addMainDrawFiller(PlayerId('f1'));
+
+    expect(() => t.addMainDrawFiller(PlayerId('f1'))).toThrow(/already registered/);
+    expect(() => t.addMainDrawFiller(PlayerId('da1'))).toThrow(/already registered/);
+  });
+});
+
+describe('Tournament.addDoublesMainDrawFiller', () => {
+  it('adds a filler pair to an unseeded doubles main draw and refuses a duplicate', () => {
+    const t = Tournament.open(
+      baseProps({ tier: 'tour', drawSize: 16, doublesDrawSize: 8, doublesQualifyingDrawSize: 8, doublesQualifierSlots: 4 }),
+    );
+    const qpairs = Array.from({ length: 8 }, (_, i) => ({
+      pairId: PairId(`t1-qd${i}`),
+      playerA: PlayerId(`a${i}`),
+      playerB: PlayerId(`b${i}`),
+    }));
+    const generator = new BracketGenerator();
+    t.startDoublesQualifyingWithBracket(
+      qpairs,
+      generator.generate(qpairs.map((p) => ({ playerId: p.pairId, seed: null })), 8),
+    );
+    expect(t.hasDoublesDrawStarted).toBe(false);
+
+    const filler = { pairId: PairId('t1-df0'), playerA: PlayerId('fa'), playerB: PlayerId('fb'), chemistry: 0 };
+    t.addDoublesMainDrawFiller(filler);
+    expect(t.doublesPairs).toHaveLength(1);
+    expect(() => t.addDoublesMainDrawFiller(filler)).toThrow(/already in/);
+  });
+});
