@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { AgeBand, PlayerId, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
 import { players, tournamentDoublesMatches, tournamentDoublesPairs, tournamentMatches, tournaments } from '../../db/schema';
 import { isMatchAired } from './matchAir';
+import { doublesMainDrawUnfinished, singlesMainDrawUnfinished } from './unfinishedCommitment';
 
 export interface PlayerMatchSummary {
   tournamentId: TournamentId;
@@ -232,5 +233,54 @@ export class DrizzlePlayerMatchesQuery {
     }
 
     return live;
+  }
+
+  /**
+   * Batch read of the SIGNING-BLOCKING commitment: for each of the given
+   * player ids, the unfinished tournament they hold an entry/pair in, or
+   * nothing when they are free to sign. This is the read twin of the
+   * atomic claim's `noUnfinishedCommitment` predicate (see
+   * unfinishedCommitment.ts — the exact same SQL fragments), so a
+   * candidate the Scouting pool marks unsignable is exactly one the
+   * atomic claim would refuse, even under a concurrent draw-seed.
+   *
+   * Deliberately distinct from `liveTournamentByPlayer`: that answers
+   * "do they have a match still to air?" (match-level, for the Competing
+   * badge), while this answers "are they committed to a tournament that
+   * has not concluded?" (tournament-level, the signing rule). A player
+   * entered in a draw that has not started is committed here but not
+   * "competing" there.
+   */
+  async unfinishedCommitmentByPlayer(
+    playerIds: PlayerId[],
+  ): Promise<Map<PlayerId, { id: string; name: string }>> {
+    const blocking = new Map<PlayerId, { id: string; name: string }>();
+    if (playerIds.length === 0) return blocking;
+    const result = await this.db.execute(sql`
+      SELECT e.player_id AS player_id, t.id AS tournament_id, t.name AS tournament_name
+      FROM tournament_entries e
+      JOIN tournaments t ON t.id = e.tournament_id
+      WHERE e.player_id IN ${playerIds} AND ${singlesMainDrawUnfinished}
+      UNION ALL
+      SELECT de.player_id, t.id, t.name
+      FROM tournament_doubles_entrants de
+      JOIN tournaments t ON t.id = de.tournament_id
+      WHERE de.player_id IN ${playerIds} AND ${doublesMainDrawUnfinished}
+      UNION ALL
+      SELECT dp.player_a, t.id, t.name
+      FROM tournament_doubles_pairs dp
+      JOIN tournaments t ON t.id = dp.tournament_id
+      WHERE dp.player_a IN ${playerIds} AND ${doublesMainDrawUnfinished}
+      UNION ALL
+      SELECT dp.player_b, t.id, t.name
+      FROM tournament_doubles_pairs dp
+      JOIN tournaments t ON t.id = dp.tournament_id
+      WHERE dp.player_b IN ${playerIds} AND ${doublesMainDrawUnfinished}
+    `);
+    for (const row of result.rows as Array<{ player_id: string; tournament_id: string; tournament_name: string }>) {
+      const pid = PlayerId(row.player_id);
+      if (!blocking.has(pid)) blocking.set(pid, { id: row.tournament_id, name: row.tournament_name });
+    }
+    return blocking;
   }
 }

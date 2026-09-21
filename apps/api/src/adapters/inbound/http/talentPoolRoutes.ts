@@ -21,6 +21,7 @@ function toFreeAgentDto(
   talentClaimPricingPolicy: TalentClaimPricingPolicy,
   currentTournament: { id: string; name: string } | null,
   titleCount: number,
+  blockingCommitment: { id: string; name: string } | null,
 ) {
   const { technical, physical, mental, surfaceAffinities } = player.attributes;
   return {
@@ -42,10 +43,18 @@ function toFreeAgentDto(
     careerPrizeMoney: player.careerPrizeMoney,
     titleCount,
     // The tournament this free agent still has a match to play in, if
-    // any — signing them adopts them into that event mid-draw. null when
-    // they aren't currently competing. See DrizzlePlayerMatchesQuery's
+    // any — an informational "Competing" badge. null when they aren't
+    // currently competing. See DrizzlePlayerMatchesQuery's
     // liveTournamentByPlayer.
     currentTournament,
+    // The deliberate signing rule: a free agent committed to a tournament
+    // that has not concluded can't be signed. `blockingCommitment` names
+    // that tournament (null when signable) and `signingBlocked` is the
+    // boolean the client acts on. Both come from the SAME predicate the
+    // atomic claim enforces (see unfinishedCommitment.ts), so the
+    // disabled-Sign state can never disagree with the server's refusal.
+    signingBlocked: blockingCommitment !== null,
+    blockingCommitment,
     attributes: {
       technical: {
         serve: technical.serve.value,
@@ -84,10 +93,12 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
   app.get('/talent-pool', async () => {
     const freeAgents = await deps.players.findFreeAgents();
     const playerIds = freeAgents.map((player) => player.id);
-    // Two batch reads for the whole pool (not one per free agent): who is
-    // currently competing, and how many titles each has already won.
-    const [liveTournaments, titleCounts] = await Promise.all([
+    // Three batch reads for the whole pool (not one per free agent): who
+    // is currently competing, who is blocked from signing by an
+    // unfinished tournament commitment, and how many titles each has won.
+    const [liveTournaments, commitments, titleCounts] = await Promise.all([
       deps.playerMatches.liveTournamentByPlayer(playerIds),
+      deps.playerMatches.unfinishedCommitmentByPlayer(playerIds),
       deps.titles.countByPlayers(playerIds),
     ]);
     return freeAgents.map((player) =>
@@ -96,6 +107,7 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
         deps.talentClaimPricingPolicy,
         liveTournaments.get(player.id) ?? null,
         titleCounts.get(player.id) ?? 0,
+        commitments.get(player.id) ?? null,
       ),
     );
   });

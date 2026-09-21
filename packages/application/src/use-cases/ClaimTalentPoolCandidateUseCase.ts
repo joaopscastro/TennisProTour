@@ -79,6 +79,16 @@ export class ClaimTalentPoolCandidateUseCase {
     if (outcome.kind === 'player-unavailable') {
       throw new Error(`Free agent ${command.playerId} is no longer available to sign`);
     }
+    if (outcome.kind === 'player-committed') {
+      // The deliberate design rule: a signing must always be clean, so a
+      // free agent committed to a tournament that has not concluded can't
+      // be signed until it does. Say so plainly rather than as a generic
+      // failure (the pool already disables the action with this reason).
+      throw new Error(
+        `Free agent ${command.playerId} still has an unfinished tournament — ` +
+          `they can't be signed until it concludes`,
+      );
+    }
     if (outcome.kind === 'insufficient-xp') {
       throw new Error(
         `Manager ${command.managerId} has insufficient XP to sign this free agent ` +

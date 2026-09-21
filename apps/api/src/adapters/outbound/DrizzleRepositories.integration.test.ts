@@ -1189,6 +1189,87 @@ describe('DrizzlePlayerMatchesQuery.liveTournamentByPlayer', () => {
   });
 });
 
+describe('DrizzlePlayerMatchesQuery.unfinishedCommitmentByPlayer', () => {
+  const query = new DrizzlePlayerMatchesQuery(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const agingPolicy = new StandardAgingPolicy();
+
+  function saveFree(id: string, name: string) {
+    return playerRepository.save(
+      Player.generateFillOnly(PlayerId(id), name, 20 * 52, agingPolicy.stageForAge(20 * 52), attributes(40), 'ES', 70, {
+        speed: 70,
+        stamina: 70,
+        strength: 70,
+      }),
+    );
+  }
+
+  it('flags a player entered in a tournament that has not even started (the case a match-based read misses)', async () => {
+    // The signing rule is tournament-level: an entry in an unstarted draw
+    // is an unfinished commitment even though no match row exists yet —
+    // exactly why this read (not liveTournamentByPlayer) drives the
+    // disabled Sign button.
+    await saveFree('fa-entered', 'Entered Free Agent');
+    await db.insert(schema.tournaments).values({
+      id: 'commit-notstarted',
+      name: 'Not Started Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 3,
+      drawSize: 16,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'commit-notstarted',
+      playerId: PlayerId('fa-entered'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+
+    const blocked = await query.unfinishedCommitmentByPlayer([PlayerId('fa-entered'), PlayerId('fa-unknown')]);
+    expect(blocked.get(PlayerId('fa-entered'))).toEqual({ id: 'commit-notstarted', name: 'Not Started Open' });
+    expect(blocked.has(PlayerId('fa-unknown'))).toBe(false);
+    expect(await query.unfinishedCommitmentByPlayer([])).toEqual(new Map());
+  });
+
+  it('clears the flag once every main-draw match is decided', async () => {
+    await saveFree('fa-finished', 'Finished Free Agent');
+    await saveFree('fa-finished-opp', 'Finished Opponent');
+    await db.insert(schema.tournaments).values({
+      id: 'commit-finished',
+      name: 'Finished Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'commit-finished',
+      playerId: PlayerId('fa-finished'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'commit-finished',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('fa-finished'),
+      entrantB: PlayerId('fa-finished-opp'),
+      winnerId: PlayerId('fa-finished'),
+      loserId: PlayerId('fa-finished-opp'),
+      setScores: [{ winnerGames: 6, loserGames: 2 }],
+    });
+
+    const blocked = await query.unfinishedCommitmentByPlayer([PlayerId('fa-finished')]);
+    expect(blocked.has(PlayerId('fa-finished'))).toBe(false);
+  });
+});
+
 describe('DrizzlePlayerTournamentHistoryQuery (reveal-gated results)', () => {
   const history = new DrizzlePlayerTournamentHistoryQuery(db);
   const playerRepository = new DrizzlePlayerRepository(db);
@@ -1331,6 +1412,82 @@ describe('DrizzleTalentClaimAdapter', () => {
     await playerRepository.save(player);
   }
 
+  /** Seeds a singles entry for `playerId` in a tournament whose main draw
+   * is either still undecided (unfinished) or fully decided (finished). */
+  async function seedSinglesCommitment(
+    playerId: string,
+    opponentId: string,
+    finished: boolean,
+    tournamentId: string,
+  ): Promise<void> {
+    await db.insert(schema.tournaments).values({
+      id: tournamentId,
+      name: 'Commitment Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId,
+      playerId: PlayerId(playerId),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId,
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId(playerId),
+      entrantB: PlayerId(opponentId),
+      winnerId: finished ? PlayerId(opponentId) : null,
+      loserId: finished ? PlayerId(playerId) : null,
+      setScores: finished ? [{ winnerGames: 6, loserGames: 2 }] : null,
+    });
+  }
+
+  /** Seeds a formed doubles pair for `playerId` whose doubles main draw is
+   * either still undecided (unfinished) or fully decided (finished). */
+  async function seedDoublesCommitment(
+    playerId: string,
+    partnerId: string,
+    finished: boolean,
+    tournamentId: string,
+  ): Promise<void> {
+    await db.insert(schema.tournaments).values({
+      id: tournamentId,
+      name: 'Doubles Commitment Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      doublesDrawSize: 8,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentDoublesPairs).values({
+      tournamentId,
+      pairId: 'commit-pair',
+      playerA: PlayerId(playerId),
+      playerB: PlayerId(partnerId),
+    });
+    await db.insert(schema.tournamentDoublesMatches).values({
+      tournamentId,
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: 'commit-pair',
+      entrantB: 'other-pair',
+      winnerId: finished ? 'other-pair' : null,
+      loserId: finished ? 'commit-pair' : null,
+      setScores: finished ? [{ winnerGames: 6, loserGames: 3 }] : null,
+    });
+  }
+
   it('signs the free-agent player and debits XP together when the manager can afford it', async () => {
     await saveFreeAgent('tp1');
     await xpRepository.credit(ManagerId('m1'), 100);
@@ -1375,6 +1532,54 @@ describe('DrizzleTalentClaimAdapter', () => {
     // along with everything else — this is the whole point of using a
     // real transaction instead of two independent conditional UPDATEs.
     expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100);
+  });
+
+  it('refuses a free agent committed to an UNFINISHED singles tournament, spending nothing', async () => {
+    // The deliberate design rule: a signing must always be clean, so a
+    // free agent still committed to a tournament whose main draw hasn't
+    // been played out cannot be signed. The predicate is part of the
+    // atomic UPDATE itself (not a pre-check), so this holds under a
+    // concurrent draw-seed too.
+    await saveFreeAgent('tp1');
+    await saveFreeAgent('tp-opp');
+    await seedSinglesCommitment('tp1', 'tp-opp', false, 'commit-unfinished');
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(PlayerId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome).toEqual({ kind: 'player-committed' });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100); // rolled back
+    const reloaded = await playerRepository.findById(PlayerId('tp1'));
+    expect(reloaded!.managerId).toBeNull();
+    expect(reloaded!.fillOnly).toBe(true);
+  });
+
+  it('refuses a free agent committed to an UNFINISHED doubles draw (both entry paths)', async () => {
+    await saveFreeAgent('tp1');
+    await saveFreeAgent('tp-partner');
+    await seedDoublesCommitment('tp1', 'tp-partner', false, 'commit-doubles-unfinished');
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(PlayerId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome).toEqual({ kind: 'player-committed' });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100);
+  });
+
+  it('signs a free agent again once their only tournament main draw has FINISHED', async () => {
+    // The counterpart: a decided main draw is a concluded commitment, so
+    // the player is signable again — the pool must not shrink forever.
+    await saveFreeAgent('tp1');
+    await saveFreeAgent('tp-opp');
+    await seedSinglesCommitment('tp1', 'tp-opp', true, 'commit-finished');
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(PlayerId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome.kind).toBe('claimed');
+    if (outcome.kind !== 'claimed') throw new Error('unreachable');
+    expect(outcome.player.managerId).toBe(ManagerId('m1'));
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(60);
   });
 
   it(

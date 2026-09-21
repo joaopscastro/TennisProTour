@@ -510,6 +510,13 @@ export interface ManagerLadderRepository {
 export type TalentClaimOutcome =
   | { kind: 'claimed'; player: Player; xpSpent: number }
   | { kind: 'player-unavailable' }
+  /** The player is still a free agent, but is committed to a tournament
+   * that has not concluded — the deliberate rule that a signing must
+   * always be clean (never inherit an in-progress draw). A distinct
+   * outcome so the use case can say so plainly instead of reporting a
+   * generic "no longer available". See unfinishedCommitment.ts in the
+   * api package for the predicate. */
+  | { kind: 'player-committed' }
   | { kind: 'insufficient-xp'; required: number; balance: number };
 
 /**

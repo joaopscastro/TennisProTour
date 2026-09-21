@@ -4,6 +4,7 @@ import { TalentClaimOutcome, TalentClaimPort } from '@tennis-manager/application
 import { Db } from '../../db/client';
 import { managerProgression, players } from '../../db/schema';
 import { toDomain } from './DrizzlePlayerRepository';
+import { noUnfinishedCommitment } from './unfinishedCommitment';
 
 /** Thrown only to trigger Postgres transaction rollback from inside the
  * db.transaction() callback below — never escapes claimAndCharge()
@@ -31,11 +32,14 @@ class ClaimRollback extends Error {
  * no talent_pool_candidates table involved anymore: the free agent is
  * already a real Player row, and signing it is a conditional
  * `UPDATE players SET manager_id = :mid, fill_only = false
- * WHERE id = :id AND manager_id IS NULL` — the `manager_id IS NULL`
- * predicate is what makes two managers racing for the same free agent
- * safe (exactly one UPDATE affects a row). fill_only is flipped off so
- * a signed player trains from its manager's schedule rather than the
- * auto weakest-attribute path.
+ * WHERE id = :id AND manager_id IS NULL AND <no unfinished commitment>`
+ * — the `manager_id IS NULL` predicate is what makes two managers racing
+ * for the same free agent safe (exactly one UPDATE affects a row), and
+ * the commitment predicate (see unfinishedCommitment.ts) is what makes
+ * "a free agent with an unfinished tournament cannot be signed" race-safe
+ * rather than a pre-check. fill_only is flipped off so a signed player
+ * trains from its manager's schedule rather than the auto
+ * weakest-attribute path.
  *
  * Order of operations matters: XP is debited FIRST (cheapest failure to
  * detect, and avoids ever touching the players row for a manager who
@@ -67,14 +71,29 @@ export class DrizzleTalentClaimAdapter implements TalentClaimPort {
           throw new ClaimRollback({ kind: 'insufficient-xp', required: xpCost, balance });
         }
 
+        // The `noUnfinishedCommitment` predicate is part of the SAME
+        // conditional UPDATE that flips ownership — not a separate
+        // pre-check — so a player who is mid-draw (or whose draw is
+        // seeded concurrently) can never slip through a race window.
         const signRows = await tx
           .update(players)
           .set({ managerId, fillOnly: false, updatedAt: new Date() })
-          .where(and(eq(players.id, playerId), isNull(players.managerId)))
+          .where(and(eq(players.id, playerId), isNull(players.managerId), noUnfinishedCommitment(playerId)))
           .returning();
 
         if (signRows.length === 0) {
-          throw new ClaimRollback({ kind: 'player-unavailable' });
+          // Distinguish the two honest refusals so the caller can say
+          // which happened. Ownership first: a non-free player is
+          // unavailable regardless of any tournament commitment.
+          const ownerRows = await tx
+            .select({ managerId: players.managerId })
+            .from(players)
+            .where(eq(players.id, playerId))
+            .limit(1);
+          if (ownerRows.length === 0 || ownerRows[0].managerId !== null) {
+            throw new ClaimRollback({ kind: 'player-unavailable' });
+          }
+          throw new ClaimRollback({ kind: 'player-committed' });
         }
 
         return { kind: 'claimed', player: toDomain(signRows[0]), xpSpent: xpCost };

@@ -591,8 +591,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const generateSeniorTournaments = new GenerateSeniorTournamentsUseCase(worlds, tournaments, openRegistration, idGenerator);
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
-  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings);
   const playerMatches = new DrizzlePlayerMatchesQuery(options.db);
+  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings, playerMatches);
   const releasePlayer = new ReleasePlayerUseCase(players, doublesPairs);
 
   return {

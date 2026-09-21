@@ -61,10 +61,6 @@ export default function ScoutingPage() {
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimedOutId, setClaimedOutId] = useState<string | null>(null);
-  // In-page confirm step for signing a mid-event free agent. `window.confirm`
-  // (the previous approach) is a native dialog the browser — and any
-  // automated visitor — auto-dismisses, so "Sign" silently did nothing.
-  const [confirmClaimId, setConfirmClaimId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
@@ -121,15 +117,10 @@ export default function ScoutingPage() {
 
   async function handleClaim(candidateId: string, name: string) {
     const claimed = candidates?.find((c) => c.id === candidateId) ?? null;
-    // Disclose at the point of signing: this free agent has a match still
-    // to play, so signing adopts them into that event mid-draw. Stated
-    // plainly BEFORE committing, via an explicit in-page confirm step (see
-    // confirmClaimId) — not a native window.confirm, which auto-dismisses.
-    if (claimed?.currentTournament && confirmClaimId !== candidateId) {
-      setConfirmClaimId(candidateId);
-      return;
-    }
-    setConfirmClaimId(null);
+    // No mid-tournament confirm step any more: the rule now forbids
+    // signing a committed free agent outright (see blockingCommitment), so
+    // there is no "inherit the draw" to disclose — blocked candidates never
+    // reach this function (their Sign button is disabled).
     setClaimingId(candidateId);
     setError(null);
     try {
@@ -139,11 +130,7 @@ export default function ScoutingPage() {
       setClaimedOutId(candidateId);
       const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
-      showNotice(
-        claimed?.currentTournament
-          ? `Signed ${name} — they'll join you mid-tournament at ${claimed.currentTournament.name}.`
-          : `Signed ${name} — welcome to the academy.`,
-      );
+      showNotice(`Signed ${name} — welcome to the academy.`);
       await load();
       await fetchEntitlement(managerId).then(setEntitlement).catch(() => {});
       // A signing is a real event, not a silent list row — fire a claim
@@ -169,8 +156,14 @@ export default function ScoutingPage() {
       // message rather than swallowing it.
       const status = (e as { status?: number }).status;
       const serverMessage = e instanceof Error ? e.message : String(e);
+      // A 409 is either a lost claim race OR the commitment rule refusing
+      // the signing (e.g. the draw seeded between page load and click).
+      // Both are conflicts, but only one means "someone beat you" — report
+      // the server's own plain-language reason for the commitment case.
       const message =
-        status === 409
+        status === 409 && /unfinished tournament/i.test(serverMessage)
+          ? serverMessage
+          : status === 409
           ? `Another manager signed ${name} first — they're no longer available. The pool has been refreshed.`
           : `Couldn't sign ${name}: ${serverMessage}`;
       setError(message);
@@ -213,7 +206,7 @@ export default function ScoutingPage() {
               <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.05 320)', opacity: 0.9 }}>The Talent Pool</div>
               <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Scouting</div>
               <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 320)', opacity: 0.85, marginTop: 5, maxWidth: 620, lineHeight: 1.5 }}>
-                One shared pool of <strong style={{ color: 'white' }}>free agents</strong> — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are mid-tournament right now. Every manager sees the same faces and races to sign them first.
+                One shared pool of <strong style={{ color: 'white' }}>free agents</strong> — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are committed to a tournament right now and can&apos;t be signed until it concludes. Every manager sees the same faces and races to sign them first.
                 {worldClock && (
                   <> Fresh young talent arrives in <span style={{ fontWeight: 700, color: 'white', fontVariantNumeric: 'tabular-nums' }}>{formatCountdown(refreshRemainingMs)}</span>.</>
                 )}
@@ -248,7 +241,7 @@ export default function ScoutingPage() {
         )}
 
         <div style={{ marginTop: 16, fontSize: 12.5, lineHeight: 1.5, color: 'var(--gc-ink-mute)', borderRadius: 10, padding: '11px 15px', background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)' }}>
-          A scout can tell you what a free agent can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked <strong style={{ color: 'var(--gc-ink-dim)' }}>Competing</strong> is mid-tournament and will join you there. Open a player&apos;s profile to study the full breakdown.
+          A scout can tell you what a free agent can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked <strong style={{ color: 'var(--gc-ink-dim)' }}>In a draw</strong> is committed to a tournament that hasn&apos;t concluded and can&apos;t be signed until it does — a signing is always clean, never inheriting an in-progress draw. Open a player&apos;s profile to study the full breakdown.
         </div>
 
         {error && (
@@ -315,12 +308,21 @@ export default function ScoutingPage() {
                     style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
                     stats={<AttributeSnapshot attributes={c.attributes} />}
                     badges={
-                      c.currentTournament || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
+                      c.blockingCommitment || c.currentTournament || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {c.currentTournament && (
+                          {c.blockingCommitment && (
                             <span
                               className="gc-badge"
-                              title={`Currently competing in ${c.currentTournament.name} — signing adopts them into that event mid-tournament.`}
+                              title={`Committed to ${c.blockingCommitment.name} — a free agent with an unfinished tournament can't be signed until it concludes.`}
+                              style={{ background: 'oklch(42% 0.16 25 / 0.34)', color: 'oklch(86% 0.12 35)' }}
+                            >
+                              🔒 In a draw · {c.blockingCommitment.name}
+                            </span>
+                          )}
+                          {!c.blockingCommitment && c.currentTournament && (
+                            <span
+                              className="gc-badge"
+                              title={`Currently competing in ${c.currentTournament.name}.`}
                               style={{ background: 'oklch(48% 0.16 45 / 0.32)', color: 'oklch(85% 0.14 55)' }}
                             >
                               ● Competing · {c.currentTournament.name}
@@ -354,25 +356,21 @@ export default function ScoutingPage() {
                             <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {affordability.remaining.toLocaleString()} more</div>
                           )}
                         </div>
-                        {confirmClaimId === c.id ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                            <div style={{ fontSize: 10.5, lineHeight: 1.35, color: 'var(--gc-ink-mute)', textAlign: 'right', maxWidth: 170 }}>
-                              Adopts them into {c.currentTournament?.name ?? 'their event'} mid-tournament.
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                          {c.signingBlocked && (
+                            <div style={{ fontSize: 10.5, lineHeight: 1.35, color: 'oklch(78% 0.12 35)', textAlign: 'right', maxWidth: 180 }}>
+                              Committed to {c.blockingCommitment?.name ?? 'a tournament'} — can&apos;t sign until it concludes.
                             </div>
-                            <div style={{ display: 'flex', gap: 6 }}>
-                              <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '8px 12px' }}>
-                                {busy ? 'Signing…' : 'Sign anyway'}
-                              </Button>
-                              <Button variant="ghost" onClick={() => setConfirmClaimId(null)} style={{ padding: '8px 12px' }}>
-                                Cancel
-                              </Button>
-                            </div>
-                          </div>
-                        ) : (
-                          <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '9px 18px' }}>
-                            {busy ? 'Signing…' : 'Sign'}
+                          )}
+                          <Button
+                            variant="primary"
+                            onClick={() => handleClaim(c.id, c.name)}
+                            disabled={claimingId !== null || !affordable || c.signingBlocked}
+                            style={{ padding: '9px 18px' }}
+                          >
+                            {busy ? 'Signing…' : c.signingBlocked ? 'Unavailable' : 'Sign'}
                           </Button>
-                        )}
+                        </div>
                       </div>
                     }
                   />

@@ -7,6 +7,7 @@ import { DrizzlePlayerTournamentHistoryQuery, PlayerTournamentHistoryEntry } fro
 import { DrizzleDoublesPairRepository } from './DrizzleDoublesPairRepository';
 import { DrizzleDoublesTitleRepository } from './DrizzleDoublesTitleRepository';
 import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRankingRepository';
+import { DrizzlePlayerMatchesQuery } from './DrizzlePlayerMatchesQuery';
 
 export interface PlayerProfileDto {
   playerId: PlayerId;
@@ -89,6 +90,14 @@ export interface PlayerProfileDto {
     partnerNationality: string;
     weekEarned: GameWeek;
   }>;
+  /** The unfinished tournament commitment that blocks signing this free
+   * agent, if any — the profile-page twin of the Scouting pool's
+   * `blockingCommitment`, computed from the SAME predicate the atomic
+   * claim enforces (see unfinishedCommitment.ts). null means signable
+   * (or already owned, where it's irrelevant). The profile page uses
+   * this to disable "Sign this free agent" with the real reason instead
+   * of offering an action the server will refuse. */
+  blockingCommitment: { id: string; name: string } | null;
 }
 
 /**
@@ -111,6 +120,7 @@ export class DrizzlePlayerProfileQuery {
     private readonly pairs: DrizzleDoublesPairRepository,
     private readonly doublesTitles: DrizzleDoublesTitleRepository,
     private readonly doublesPeakRankings: DrizzleDoublesPeakRankingRepository,
+    private readonly playerMatches: DrizzlePlayerMatchesQuery,
   ) {}
 
   async forPlayer(playerId: PlayerId): Promise<PlayerProfileDto | null> {
@@ -131,6 +141,7 @@ export class DrizzlePlayerProfileQuery {
       doublesPeakU14,
       doublesPeakU16,
       doublesPeakU18,
+      commitmentByPlayer,
     ] = await Promise.all([
       this.rankPositionByBand.senior.rankFor(playerId),
       this.rankPositionByBand.u14.rankFor(playerId),
@@ -145,6 +156,7 @@ export class DrizzlePlayerProfileQuery {
       this.doublesPeakRankings.findOne(playerId, 'u14'),
       this.doublesPeakRankings.findOne(playerId, 'u16'),
       this.doublesPeakRankings.findOne(playerId, 'u18'),
+      this.playerMatches.unfinishedCommitmentByPlayer([playerId]),
     ]);
 
     // The player's non-dissolved pair (at most one by the use-case
@@ -228,6 +240,7 @@ export class DrizzlePlayerProfileQuery {
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
       doublesTitles: doublesTitleList,
+      blockingCommitment: commitmentByPlayer.get(playerId) ?? null,
     };
   }
 }

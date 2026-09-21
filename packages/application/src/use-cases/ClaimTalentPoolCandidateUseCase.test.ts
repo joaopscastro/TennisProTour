@@ -189,6 +189,19 @@ describe('ClaimTalentPoolCandidateUseCase', () => {
     await expect(useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') })).rejects.toThrow(/no longer available/);
   });
 
+  it('throws an honest unfinished-tournament error when the atomic claim reports the player is committed', async () => {
+    // The deliberate rule: a free agent with an unfinished tournament
+    // commitment can't be signed. The atomic claim distinguishes this from
+    // "someone else signed them" so the message can say so plainly.
+    const { players, talentClaim, useCase } = setup();
+    await players.save(freeAgent('p1'));
+    talentClaim.nextOutcome = { kind: 'player-committed' };
+
+    await expect(useCase.execute({ playerId: PlayerId('p1'), managerId: ManagerId('m1') })).rejects.toThrow(
+      /unfinished tournament/,
+    );
+  });
+
   it('throws an insufficient-XP error when the atomic claim reports the manager cannot afford the player', async () => {
     const { players, talentClaim, useCase } = setup();
     await players.save(freeAgent('p1'));

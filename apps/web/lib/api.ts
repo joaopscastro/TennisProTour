@@ -132,10 +132,18 @@ export interface TalentPoolCandidateDto {
   careerPrizeMoney: number;
   titleCount: number;
   /** The tournament this free agent still has a match to play in, if any
-   * — signing them adopts them into that event mid-draw. null when they
-   * aren't currently competing (see DrizzlePlayerMatchesQuery's
+   * — an informational "Competing" badge. null when they aren't
+   * currently competing (see DrizzlePlayerMatchesQuery's
    * liveTournamentByPlayer). Singles/qualifying only. */
   currentTournament: { id: string; name: string } | null;
+  /** The deliberate signing rule: a free agent committed to a tournament
+   * that has not concluded CANNOT be signed — a signing is always clean,
+   * never inheriting an in-progress draw. `signingBlocked` is the boolean
+   * the UI acts on and `blockingCommitment` names the tournament. Both
+   * come from the same predicate the atomic claim enforces, so the
+   * disabled Sign button can never disagree with the server. */
+  signingBlocked: boolean;
+  blockingCommitment: { id: string; name: string } | null;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };
@@ -807,6 +815,10 @@ export interface PlayerProfileDto {
     partnerNationality: string;
     weekEarned: { season: number; week: number };
   }>;
+  /** The unfinished tournament commitment blocking a free agent from
+   * being signed, if any — null when signable (or owned). Same predicate
+   * the server enforces; the profile's Sign button reads this. */
+  blockingCommitment: { id: string; name: string } | null;
 }
 
 export interface DoublesPartnerDto {

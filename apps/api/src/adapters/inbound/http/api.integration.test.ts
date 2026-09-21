@@ -998,11 +998,15 @@ describe('API', () => {
     expect(secondClaim.statusCode).toBe(409);
   });
 
-  it('surfaces a free agent who is currently competing, so signing mid-event is disclosed before it happens', async () => {
+  it('shows a committed free agent but refuses to sign them, and the DTO flag matches the enforcement', async () => {
+    // The deliberate design rule: a free agent with an unfinished tournament
+    // commitment appears in the pool (never hidden) but cannot be signed —
+    // a signing is always clean, never inheriting an in-progress draw. The
+    // DTO flag and the atomic claim share one predicate, so they agree.
     const agingPolicy = new StandardAgingPolicy();
     const stage = agingPolicy.stageForAge(20 * 52);
     const ceilings = { speed: 70, stamina: 70, strength: 70 };
-    await deps.players.save(Player.generateFillOnly(PlayerId('tp-live'), 'Competing Free Agent', 20 * 52, stage, fixedAttributes(50), 'ES', 70, ceilings));
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-live'), 'Committed Free Agent', 20 * 52, stage, fixedAttributes(50), 'ES', 70, ceilings));
     await deps.players.save(Player.generateFillOnly(PlayerId('tp-live-opp'), 'Live Opponent', 20 * 52, stage, fixedAttributes(50), 'FR', 70, ceilings));
     await db.insert(schema.tournaments).values({
       id: 'tp-live-t1',
@@ -1012,8 +1016,16 @@ describe('API', () => {
       seasonScheduled: 1,
       weekScheduled: 1,
       drawSize: 16,
+      hasStarted: true,
     });
-    // An undecided match row: this free agent is still alive in the draw.
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'tp-live-t1',
+      playerId: PlayerId('tp-live'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    // An undecided match row: the tournament's main draw is not finished.
     await db.insert(schema.tournamentMatches).values({
       tournamentId: 'tp-live-t1',
       draw: 'main',
@@ -1030,8 +1042,74 @@ describe('API', () => {
     expect(listed.statusCode).toBe(200);
     const dto = listed.json().find((c: { id: string }) => c.id === 'tp-live');
     expect(dto.currentTournament).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
+    expect(dto.signingBlocked).toBe(true);
+    expect(dto.blockingCommitment).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
     expect(dto.careerPrizeMoney).toBe(0);
     expect(dto.titleCount).toBe(0);
+
+    // The server refuses the signing with the plain-language reason.
+    await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/talent-pool/tp-live/claim',
+      headers: { 'x-dev-manager-id': 'm1' },
+      payload: { managerId: 'm1' },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect((refused.json() as { error: string }).error).toMatch(/unfinished tournament/);
+    expect((await deps.players.findById(PlayerId('tp-live')))!.managerId).toBeNull();
+  });
+
+  it('signs a free agent whose only tournament has FINISHED — the pool is not shrunk forever', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    const stage = agingPolicy.stageForAge(20 * 52);
+    const ceilings = { speed: 70, stamina: 70, strength: 70 };
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-done'), 'Finished Free Agent', 20 * 52, stage, fixedAttributes(50), 'ES', 70, ceilings));
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-done-opp'), 'Done Opponent', 20 * 52, stage, fixedAttributes(50), 'FR', 70, ceilings));
+    await db.insert(schema.tournaments).values({
+      id: 'tp-done-t1',
+      name: 'Concluded Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'tp-done-t1',
+      playerId: PlayerId('tp-done'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    // The main draw's final is decided -> the tournament is FINISHED.
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'tp-done-t1',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('tp-done'),
+      entrantB: PlayerId('tp-done-opp'),
+      winnerId: PlayerId('tp-done-opp'),
+      loserId: PlayerId('tp-done'),
+      setScores: [{ winnerGames: 6, loserGames: 4 }],
+    });
+
+    const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
+    const dto = listed.json().find((c: { id: string }) => c.id === 'tp-done');
+    expect(dto.signingBlocked).toBe(false);
+    expect(dto.blockingCommitment).toBeNull();
+
+    await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
+    const claimed = await app.inject({
+      method: 'POST',
+      url: '/talent-pool/tp-done/claim',
+      headers: { 'x-dev-manager-id': 'm1' },
+      payload: { managerId: 'm1' },
+    });
+    expect(claimed.statusCode).toBe(201);
+    expect((claimed.json() as { managerId: string }).managerId).toBe('m1');
   });
 
   it('rejects creating a custom player for a non-Pro manager', async () => {
