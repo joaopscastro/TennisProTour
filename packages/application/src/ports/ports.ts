@@ -268,14 +268,26 @@ export interface NotificationPreferenceRepository {
 /**
  * Stores the "fake live" replay blob produced alongside every
  * simulated match. Deliberately NOT a repository for an aggregate —
- * a MatchLog is an immutable artifact, not a domain entity with
- * behavior, so a simple write-once/read-many port is enough. The
- * real adapter for this in production would write straight to object
- * storage (S3/R2) behind a CDN, since the blob never changes after
- * creation and viewer count should never translate into backend load.
+ * a MatchLog is a lightweight artifact, not a domain entity with
+ * behavior. The real adapter for this in production would write
+ * straight to object storage (S3/R2) behind a CDN, since viewer count
+ * should never translate into backend load.
+ *
+ * `save` is ATOMIC-AND-OVERWRITING rather than write-once: a
+ * re-simulated match's replay must reflect the currently committed
+ * outcome, and the read-guard a viewer needs is "never see a partial
+ * file", which the adapter's temp-file-then-rename provides (see
+ * FilesystemMatchLogStore's own doc comment). `read` exists so the
+ * dev HTTP route resolves blobs through the SAME path derivation the
+ * writer used — the port is the one place that knows where a blob
+ * lives, and the route must not re-derive it.
  */
 export interface MatchLogStorePort {
   save(matchId: MatchId, log: MatchLog): Promise<{ url: string }>;
+  /** Reads a previously saved blob's raw JSON text. Throws an
+   * ENOENT-shaped error when the blob does not exist, so the dev
+   * route can map that to a 404 (see app.ts). */
+  read(matchId: MatchId): Promise<string>;
 }
 
 /**

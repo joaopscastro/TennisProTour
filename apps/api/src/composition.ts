@@ -133,6 +133,13 @@ export interface Dependencies {
   notificationDigest: SendManagerDigestsUseCase;
   players: DrizzlePlayerRepository;
   tournaments: DrizzleTournamentRepository;
+  /** The "fake live" replay blob store (Dev adapter). Exposed so the
+   * dev HTTP route (GET /match-logs/:file) resolves a blob through the
+   * exact same per-world path derivation the writer used, rather than
+   * re-joining a directory string at the route (which is how the
+   * reader/writer layouts previously drifted — see the adapter's doc
+   * comment). */
+  matchLogs: FilesystemMatchLogStore;
   worlds: DrizzleGameWorldRepository;
   rankingLedger: DrizzleRankingLedgerRepository;
   /** Permanent high-water-mark store (docs/data-archival-principles.md)
@@ -354,8 +361,13 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     : new LoggingNotificationAdapter(options.logEvent);
   const players = new DrizzlePlayerRepository(options.db);
   const tournaments = new DrizzleTournamentRepository(options.db);
+  // Per-world blob directory (`<MATCH_LOG_DIR>/<WORLD_ID>`) — see
+  // FilesystemMatchLogStore's doc comment. Both the worker (writer) and
+  // the api (reader, via the exposed `matchLogs` below) resolve through
+  // this single instance, so the layout can never drift between them.
   const matchLogs = new FilesystemMatchLogStore({
     directory: options.matchLogDirectory,
+    worldId: WORLD_ID,
     publicBaseUrl: options.matchLogPublicBaseUrl,
   });
   const events = new LoggingEventPublisher(options.logEvent);
@@ -594,6 +606,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     notificationDigest,
     players,
     tournaments,
+    matchLogs,
     worlds,
     rankingLedger,
     peakRankings,

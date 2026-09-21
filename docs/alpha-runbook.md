@@ -53,6 +53,16 @@ Run these five: **api, worker, web, Postgres, Redis**.
      silently split and **every auto-simulated replay 404s** (a real bug
      this project has already hit once). Mount one shared volume into
      both.
+   - **The replay dir is PER-WORLD and overwrite-safe.** Blobs now live
+     at `<MATCH_LOG_DIR>/<WORLD_ID>/…`, and a re-simulated/re-bootstrapped
+     match's blob is atomically overwritten, so re-bootstrapping a fresh
+     world no longer leaves stale demo replays behind (a previous
+     write-once `EEXIST` bug that made the day tick report failed matches
+     and the API serve a stale replay is fixed). The public replay URL is
+     unchanged (`/match-logs/<file>`); the api resolves the world
+     subdirectory internally. Because the layout is per-world, api and
+     worker must still see the **same `WORLD_ID`** as well as the same
+     `MATCH_LOG_DIR`.
 3. **Migrations are a one-shot release step, before api/worker start.**
    Run the `migrate` target first, then start api and worker. **Never**
    migrate from the API entrypoint — the API has no business holding

@@ -1,9 +1,8 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import Fastify, { FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
+import { MatchId } from '@tennis-manager/domain';
 import { Dependencies } from './composition';
 import { registerPlayerRoutes } from './adapters/inbound/http/playerRoutes';
 import { registerTournamentRoutes } from './adapters/inbound/http/tournamentRoutes';
@@ -20,9 +19,6 @@ import { registerNotificationRoutes } from './adapters/inbound/http/notification
 
 export interface AppOptions {
   deps: Dependencies;
-  /** Where FilesystemMatchLogStore writes blobs; served read-only at
-   * GET /match-logs/:file in dev (a CDN does this job in production). */
-  matchLogDirectory: string;
   logger?: boolean;
 }
 
@@ -88,13 +84,17 @@ export function buildApp(options: AppOptions): FastifyInstance {
 
   // Dev-mode stand-in for the CDN in front of object storage: serve
   // the immutable replay blobs FilesystemMatchLogStore wrote. Reads
-  // only — nothing here can create or mutate a blob.
+  // only — nothing here can create or mutate a blob. The blob is
+  // resolved THROUGH the store (deps.matchLogs.read) rather than by
+  // re-joining a directory here, so the reader and the writer can never
+  // derive different paths (see FilesystemMatchLogStore's doc comment).
   app.get<{ Params: { file: string } }>(
     '/match-logs/:file',
     { schema: { params: { type: 'object', properties: { file: { type: 'string', pattern: '^[A-Za-z0-9_-]+\\.json$' } } } } },
     async (request, reply) => {
       try {
-        const blob = await readFile(join(options.matchLogDirectory, request.params.file), 'utf8');
+        const matchId = MatchId(request.params.file.replace(/\.json$/, ''));
+        const blob = await options.deps.matchLogs.read(matchId);
         // Replay opens are deliberately UNATTRIBUTED (managerId null): this
         // route needs no auth and records no viewer identity. Fire-and-forget
         // (analytics never throws) — see AnalyticsPort.

@@ -86,6 +86,10 @@ class FakeMatchLogStore implements MatchLogStorePort {
   async save(matchId: MatchId, _log: MatchLog): Promise<{ url: string }> {
     return { url: `https://replays.test/${matchId}` };
   }
+
+  async read(_matchId: MatchId): Promise<string> {
+    throw new Error('FakeMatchLogStore.read is not used by this suite');
+  }
 }
 
 class RecordingEventPublisher implements EventPublisherPort {

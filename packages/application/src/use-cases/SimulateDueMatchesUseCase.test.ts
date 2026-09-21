@@ -126,6 +126,10 @@ class CountingMatchLogStore implements MatchLogStorePort {
     this.saveCount += 1;
     return { url: `https://replays.test/${matchId}` };
   }
+
+  async read(_matchId: MatchId): Promise<string> {
+    throw new Error('CountingMatchLogStore.read is not used by this suite');
+  }
 }
 
 class NullEventPublisher implements EventPublisherPort {

@@ -1424,6 +1424,26 @@ chosen yet. The Dockerfile builds named targets any orchestrator can run.
   and the same `MATCH_LOG_PUBLIC_BASE_URL`, or the worker writes blobs the
   API can't serve. `.env.example` is now the full inventory, grouped by
   app, with these deploy notes stated at the top.
+- **Replay blobs are WRITE-ATOMIC (not write-once) and PER-WORLD.** A live
+  e2e run found the old FilesystemMatchLogStore opened the target with the
+  `wx` flag, so a re-simulated match (match ids are deterministic —
+  `tournamentId-round-index`), a re-bootstrapped fixed-id demo draw, or a
+  second world sharing one `MATCH_LOG_DIR` threw `EEXIST`: the day tick
+  counted the match as *failed* even though its outcome was already
+  committed, and the API kept serving the STALE blob (replay disagreeing
+  with the recorded score). Fixed in three parts: (1) `save` now writes a
+  temp file in the same directory then atomically `rename`s it over the
+  target — a re-simulated replay reflects the committed outcome while a
+  reader can still never see a partial file (the property write-once was
+  actually protecting); (2) blobs live at `<MATCH_LOG_DIR>/<WORLD_ID>/…`,
+  so two worlds can't collide on a shared id, with the public URL
+  deliberately unchanged (`/match-logs/<file>` — the API resolves the
+  world subdirectory internally); (3) the `GET /match-logs/:file` route
+  now reads through the store (`deps.matchLogs.read`) instead of
+  re-joining `matchLogDirectory` itself, so reader and writer path
+  derivation can't drift. Stale pre-fix blobs in the old flat layout were
+  moved aside to `data/match-logs.legacy` rather than deleted (reversible;
+  gitignored dev data).
 
 ## Phase 1 — enterability (sign-in gate, dev defaults, minimal analytics)
 

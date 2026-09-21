@@ -66,7 +66,7 @@ beforeAll(async () => {
     matchLogDirectory,
     logEvent: () => {},
   });
-  app = buildApp({ deps, matchLogDirectory, logger: false });
+  app = buildApp({ deps, logger: false });
   await app.ready();
 });
 

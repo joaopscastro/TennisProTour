@@ -184,9 +184,11 @@ describe('end-to-end smoke: hire -> open -> register -> simulate -> replay (real
 
       // 5. Fetch and validate the replay log the simulation produced —
       // read straight off disk, exactly what the /match-logs/:file
-      // route and MatchReplayPlayer component consume in the app.
+      // route and MatchReplayPlayer component consume in the app. Blobs
+      // are now scoped per world (`<dir>/<WORLD_ID>/…`); see
+      // FilesystemMatchLogStore's doc comment.
       const matchId = result.simulated[0];
-      const raw = await readFile(join(matchLogDirectory, `${matchId}.json`), 'utf8');
+      const raw = await readFile(join(matchLogDirectory, WORLD_ID, `${matchId}.json`), 'utf8');
       const log = JSON.parse(raw);
 
       expect(Array.isArray(log.entries)).toBe(true);

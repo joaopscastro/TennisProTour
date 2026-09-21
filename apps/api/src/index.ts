@@ -62,7 +62,7 @@ async function main(): Promise<void> {
     matchLogPublicBaseUrl: process.env.MATCH_LOG_PUBLIC_BASE_URL ?? `http://localhost:${port}/match-logs`,
     logEvent: (message, payload) => app.log.info(payload, message),
   });
-  app = buildApp({ deps, matchLogDirectory });
+  app = buildApp({ deps });
 
   // Boot log of the ABSOLUTE resolved path, so a cross-process mismatch
   // (the old cwd-relative bug) is visible at a glance instead of only as
