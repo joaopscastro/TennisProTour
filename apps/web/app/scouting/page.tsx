@@ -308,8 +308,19 @@ export default function ScoutingPage() {
                     style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
                     stats={<AttributeSnapshot attributes={c.attributes} />}
                     badges={
-                      c.blockingCommitment || c.currentTournament || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
+                      c.blockingCommitment || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {/* The ONE "is this agent tied to a live event?"
+                              badge. It reads the tournament-level UNFINISHED
+                              commitment — the same predicate the atomic claim
+                              enforces and the same one the profile banner and
+                              roster use — so the Scouting card can never name
+                              a different event than the roster's "Next:" line.
+                              The old separate match-level "● Competing" badge
+                              could name an arbitrary live match (a second
+                              entry, a doubles draw) and was superseded by the
+                              signing rule: any committed agent is now blocked
+                              here. */}
                           {c.blockingCommitment && (
                             <span
                               className="gc-badge"
@@ -317,15 +328,6 @@ export default function ScoutingPage() {
                               style={{ background: 'oklch(42% 0.16 25 / 0.34)', color: 'oklch(86% 0.12 35)' }}
                             >
                               🔒 In a draw · {c.blockingCommitment.name}
-                            </span>
-                          )}
-                          {!c.blockingCommitment && c.currentTournament && (
-                            <span
-                              className="gc-badge"
-                              title={`Currently competing in ${c.currentTournament.name}.`}
-                              style={{ background: 'oklch(48% 0.16 45 / 0.32)', color: 'oklch(85% 0.14 55)' }}
-                            >
-                              ● Competing · {c.currentTournament.name}
                             </span>
                           )}
                           {c.titleCount > 0 && (

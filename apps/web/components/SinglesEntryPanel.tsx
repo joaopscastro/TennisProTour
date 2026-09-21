@@ -9,7 +9,7 @@ import {
   fetchRosterDashboard,
   registerEntrant,
 } from '../lib/api';
-import { tournamentRefusalReason } from '../lib/tournamentPick';
+import { entryPlacement, tournamentRefusalReason } from '../lib/tournamentPick';
 import { Panel, SectionLabel } from './ui/primitives';
 
 interface Props {
@@ -87,8 +87,17 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
     setNotice(null);
     try {
       const tournament = await registerEntrant(tournamentId, pick, managerId);
+      // Say where the player ACTUALLY landed, not a fixed string: a
+      // below-cutoff registrant at a qualifying tier sits in the qualifying
+      // field (the entry list shows them as [Q]) and only reaches the main
+      // draw by winning through. The returned DTO carries their real draw.
+      const placedInQualifying = entryPlacement(tournament.entrants, pick) === 'qualifying';
       setPick('');
-      setNotice('Player entered in the main draw.');
+      setNotice(
+        placedInQualifying
+          ? 'Player entered in qualifying — they must win through to the main draw.'
+          : 'Player entered in the main draw.',
+      );
       onEntered(tournament);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

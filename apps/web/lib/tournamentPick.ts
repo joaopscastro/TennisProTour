@@ -195,6 +195,20 @@ export function tournamentRefusalReason(tournament: PickableTournament): string 
   return null;
 }
 
+/** Where a just-registered player actually landed, from the returned
+ * tournament DTO's entrants. 'qualifying' when they sit in the qualifying
+ * field — a below-cutoff `[Q]` entrant who must win through — else 'main'.
+ * Used by the entry confirmation so the message names the real draw
+ * instead of always claiming "the main draw" (a fourth-round-walkthrough
+ * finding: the toast said main draw while the page's own qualifying entry
+ * list showed the player as `[Q]`). */
+export function entryPlacement(
+  entrants: ReadonlyArray<{ playerId: string; draw: 'main' | 'qualifying' }>,
+  playerId: string,
+): 'main' | 'qualifying' {
+  return entrants.some((e) => e.playerId === playerId && e.draw === 'qualifying') ? 'qualifying' : 'main';
+}
+
 export type BrowseCategory = 'all' | 'senior' | 'junior';
 
 /** Keeps a tier-chip selection consistent with a freshly chosen category.

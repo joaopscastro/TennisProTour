@@ -45,6 +45,19 @@ export function hasAired(m: AirableMatch, now: number = Date.now()): boolean {
 }
 
 /**
+ * Whether the replay scoreboard should show the FULL final score rather than
+ * a row of "–". True once playback has finished, and also — once the match
+ * has AIRED — before playback starts: by then the result is already public on
+ * the bracket, so a dashes-only scoreboard contradicts the "Aired … Result
+ * already decided" overlay (the exact fourth-round-walkthrough complaint).
+ * A pre-premiere match still reveals nothing. Shared by the replay's main,
+ * doubles and qualifying panels, which all render the same player.
+ */
+export function replayScoreVisible(finished: boolean, airState: AirState, started: boolean): boolean {
+  return finished || (airState === 'aired' && !started);
+}
+
+/**
  * Every bracket draw's match row — main draw, qualifying draw, doubles main
  * and doubles qualifying — carries the same shape: an optional outcome plus
  * its reveal schedule. This is the ONE adapter from a DTO row to

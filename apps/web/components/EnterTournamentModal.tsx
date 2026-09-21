@@ -19,8 +19,14 @@ const SURFACE_CHIPS: Array<{ value: string; label: string }> = [
   { value: 'indoor', label: 'Indoor' },
 ];
 
+// "Eligible" means "every event this player is PERMITTED to enter", which is
+// deliberately broader than "events in their own age band": a junior may play
+// up into an older junior band (never down), and anyone — junior or senior —
+// may enter the senior tour. The old label alone didn't say that, so a U14
+// player's list containing U16/U18/senior events read as a bug. The title and
+// the body copy below now spell it out; the rules themselves are unchanged.
 const CIRCUIT_CHIPS: Array<{ value: CircuitFilter; label: string; title: string }> = [
-  { value: 'eligible', label: 'Eligible', title: "Only events this player's age qualifies for" },
+  { value: 'eligible', label: 'Eligible to enter', title: "Every event this player is permitted to enter — their own junior band, any older junior band (a junior may play up, never down), and any senior event" },
   { value: 'all', label: 'All circuits', title: 'Every open tournament, eligible or not' },
   { value: 'senior', label: 'Senior', title: 'Senior-tour events only' },
   { value: 'junior', label: 'Junior', title: 'Junior-band events only' },
@@ -214,7 +220,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
         </div>
         <div className="text-[12.5px] mt-1 mb-3" style={{ color: 'var(--gc-ink-mute)' }}>
           {circuit === 'eligible'
-            ? `Showing events ${playerName} is eligible for — switch to All/Senior/Junior to see the rest.`
+            ? `Showing every event ${playerName} is permitted to enter — a junior may play up an age band (never down), and anyone may enter the senior tour. Switch to All/Senior/Junior to narrow the list.`
             : 'Choose a tournament still open for registration.'}
         </div>
 

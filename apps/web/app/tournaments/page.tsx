@@ -18,7 +18,7 @@ import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
-import { pruneTiersForCategory, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
+import { pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -687,10 +687,77 @@ export default function TournamentsIndexPage() {
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, []);
 
-  const filteredOpen = useMemo(() => open?.filter((t) => matchesFilters(t, category, tiers, surfaces)) ?? null, [open, category, tiers, surfaces]);
+  // Sort both lists nearest-week-first with the SAME comparator the entry
+  // picker uses (lib/tournamentPick). The API's list order was effectively
+  // arbitrary — it jumped W3 → W16 → W11 — which read as broken sorting.
+  const filteredOpen = useMemo(
+    () => (open ? sortTournamentsForPicker(open.filter((t) => matchesFilters(t, category, tiers, surfaces))) : null),
+    [open, category, tiers, surfaces],
+  );
   const filteredStarted = useMemo(
-    () => started?.filter((t) => matchesFilters(t, category, tiers, surfaces)) ?? null,
+    () => (started ? sortTournamentsForPicker(started.filter((t) => matchesFilters(t, category, tiers, surfaces))) : null),
     [started, category, tiers, surfaces],
+  );
+
+  // Browse leads with the RESULTS (brackets in progress / recently decided)
+  // whenever any exist. The open-entries list can be ~90 identical future
+  // draws, so burying the played brackets — the payoff, and the only route
+  // to a replay — at the bottom meant a user looking for a result had to
+  // scroll past everything. Both sections always render; only their ORDER
+  // changes, and a one-click "jump to" link keeps the trailing list
+  // reachable. The open list is never removed.
+  const hasStartedBrackets = (filteredStarted?.length ?? 0) > 0;
+  const openSection = (
+    <div className="mb-8" id="open-entries">
+      <SectionLabel
+        right={
+          hasStartedBrackets ? (
+            <a href="#brackets-underway" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+              Brackets underway ↑
+            </a>
+          ) : undefined
+        }
+      >
+        Open for entries{filteredOpen ? ` · ${filteredOpen.length}` : ''}
+      </SectionLabel>
+      <div className="flex flex-col gap-2">
+        {open === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
+        {open && filteredOpen?.length === 0 && (
+          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
+            {open.length === 0 ? 'Nothing open right now.' : 'No open tournaments match your filters.'}
+          </div>
+        )}
+        {filteredOpen?.map((t) => (
+          <TournamentRow key={t.id} t={t} cta="View draw" />
+        ))}
+      </div>
+    </div>
+  );
+  const startedSection = (
+    <div className="mb-8" id="brackets-underway">
+      <SectionLabel
+        right={
+          !hasStartedBrackets && (filteredOpen?.length ?? 0) > 0 ? (
+            <a href="#open-entries" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+              Open for entries ↓
+            </a>
+          ) : undefined
+        }
+      >
+        Brackets underway{filteredStarted ? ` · ${filteredStarted.length}` : ''}
+      </SectionLabel>
+      <div className="flex flex-col gap-2">
+        {started === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
+        {started && filteredStarted?.length === 0 && (
+          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
+            {started.length === 0 ? 'No brackets underway.' : 'No brackets underway match your filters.'}
+          </div>
+        )}
+        {filteredStarted?.map((t) => (
+          <TournamentRow key={t.id} t={t} cta="Open bracket" />
+        ))}
+      </div>
+    </div>
   );
 
   return (
@@ -756,35 +823,17 @@ export default function TournamentsIndexPage() {
               }}
             />
 
-            <div className="mb-8">
-              <SectionLabel>Open for entries</SectionLabel>
-              <div className="flex flex-col gap-2">
-                {open === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
-                {open && filteredOpen?.length === 0 && (
-                  <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                    {open.length === 0 ? 'Nothing open right now.' : 'No open tournaments match your filters.'}
-                  </div>
-                )}
-                {filteredOpen?.map((t) => (
-                  <TournamentRow key={t.id} t={t} cta="View draw" />
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <SectionLabel>Brackets underway</SectionLabel>
-              <div className="flex flex-col gap-2">
-                {started === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
-                {started && filteredStarted?.length === 0 && (
-                  <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                    {started.length === 0 ? 'No brackets underway.' : 'No brackets underway match your filters.'}
-                  </div>
-                )}
-                {filteredStarted?.map((t) => (
-                  <TournamentRow key={t.id} t={t} cta="Open bracket" />
-                ))}
-              </div>
-            </div>
+            {hasStartedBrackets ? (
+              <>
+                {startedSection}
+                {openSection}
+              </>
+            ) : (
+              <>
+                {openSection}
+                {startedSection}
+              </>
+            )}
           </>
         ) : view === 'planner' ? (
           <PlannerView />

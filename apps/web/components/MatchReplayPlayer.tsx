@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScorePop } from './ui/motion';
 import { MatchLogDto } from '../lib/api';
+import { replayScoreVisible } from '../lib/matchAir';
 
 /**
  * The "fake live" replay player — CLAUDE.md principle #4 made
@@ -203,6 +204,13 @@ export function MatchReplayPlayer({
 
   const finished = elapsed >= log.totalDurationSeconds;
   const caughtUp = started && !finished && elapsed >= liveEdgeSeconds;
+  // When a match has already AIRED its result is public everywhere (the
+  // bracket shows it), so the scoreboard renders the final score
+  // immediately instead of a row of "–" that contradicts the "Aired …
+  // Result already decided" overlay. Before it airs (upcoming/live) nothing
+  // is revealed — that honesty is unchanged. Pure predicate lives in
+  // lib/matchAir so the rule is unit-pinned.
+  const showFinalScore = replayScoreVisible(finished, airState, started);
 
   useEffect(() => {
     if (!playing || finished) return;
@@ -221,9 +229,10 @@ export function MatchReplayPlayer({
   const visibleEntries = useMemo(() => log.entries.filter((e) => e.offsetSeconds <= elapsed), [log.entries, elapsed]);
 
   const setCells = setNumbers.map((setNumber) => {
-    const laterSetVisible = visibleEntries.some((e) => e.setNumber > setNumber);
-    const completed = laterSetVisible || (finished && setNumber === setNumbers[setNumbers.length - 1]);
-    const entriesForSet = (completed ? log.entries : visibleEntries).filter((e) => e.setNumber === setNumber);
+    const scoreEntries = showFinalScore ? log.entries : visibleEntries;
+    const laterSetVisible = scoreEntries.some((e) => e.setNumber > setNumber);
+    const completed = laterSetVisible || (showFinalScore && setNumber === setNumbers[setNumbers.length - 1]);
+    const entriesForSet = (completed ? log.entries : scoreEntries).filter((e) => e.setNumber === setNumber);
     const last = entriesForSet[entriesForSet.length - 1];
     const active = !completed && !!last;
     const tb = completed ? tiebreakFinal(log, setNumber) : null;
@@ -242,9 +251,9 @@ export function MatchReplayPlayer({
 
   const overallWinnerSide = log.entries.length > 0 ? log.entries[log.entries.length - 1].wonBy : null;
   const aLeading =
-    finished && overallWinnerSide === 'A'
+    showFinalScore && overallWinnerSide === 'A'
       ? true
-      : finished
+      : showFinalScore
         ? false
         : setCells.filter((c) => c.completed && (c.gamesForA ?? 0) > (c.gamesForB ?? 0)).length >=
           setCells.filter((c) => c.completed && (c.gamesForB ?? 0) > (c.gamesForA ?? 0)).length;
@@ -426,6 +435,14 @@ export function MatchReplayPlayer({
             <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
               {premiereLabel} · Result already decided
             </div>
+            {/* Aired matches already show this result on the bracket, so
+                state the final score here too rather than faking suspense
+                the viewer can see through. Nothing is revealed pre-premiere. */}
+            {airState === 'aired' && overallWinnerSide && (
+              <div className="text-[15px] font-extrabold text-white">
+                {overallWinnerSide === 'A' ? playerAName : playerBName} won {formatMatchScoreline(log, overallWinnerSide)}
+              </div>
+            )}
             <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'var(--gc-ink-dim)' }}>
               This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled
               slot — you can skip ahead to catch up any time.

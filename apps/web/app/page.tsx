@@ -903,6 +903,11 @@ export default function RosterDashboardPage() {
           onEntered={(tournament) => {
             setEnterModalPlayer(null);
             showNotice(`Entered ${tournament.name} (${tournament.tier}, ${tournament.surface}).`);
+            // Re-read the roster, each player's pending entry and each
+            // player's next match so the row updates in place. Without this
+            // the row kept showing the pre-entry state (a stale "next
+            // match"/entry line) until a manual reload.
+            void load(managerId);
           }}
         />
       )}

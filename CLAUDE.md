@@ -1894,6 +1894,62 @@ draw.
   case a match-based read misses), which is exactly why the DTO read is
   the tournament-level predicate, not `liveTournamentByPlayer`.
 
+## Fourth naive-walkthrough pass (seven UX fixes)
+
+A fourth round of first-time-user walkthroughs (4 agents, UI only) found
+seven issues. All fixes are frontend-only — no game systems, no balance
+constants, and the `advance-world-day` handler untouched.
+
+- **Roster row didn't update after entering a tournament.** The roster
+  page's `EnterTournamentModal` `onEntered` showed the toast but never
+  re-read the roster/entry data (unlike `onCreated`/`onConverted`, which
+  both call `load`), so the row kept its pre-entry state until a manual
+  reload. It now calls `void load(managerId)`, which re-reads the roster,
+  every player's pending entry (`GET /players/:id/entry-planner`) and
+  every player's next match.
+- **"Brackets underway" was buried under the open list.** Browse now
+  renders the results/in-progress section FIRST whenever any exist (the
+  open list — never removed — follows, with a one-click "jump to" link
+  each way). A user looking for a played match/replay finds it without
+  scrolling past ~90 identical future draws.
+- **Browse "Open for entries" wasn't in week order** (W3 → W16 → W11…).
+  Both Browse lists now use the SAME `sortTournamentsForPicker` comparator
+  the entry picker already used (nearest absolute week first), so the two
+  can't drift.
+- **An aired replay showed "–" for the score.** The scoreboard derived its
+  cells from `elapsed`/`finished` only, so before pressing play an aired
+  match rendered "SET 1 – SET 2 –" under an "Aired … Result already
+  decided" overlay. New pure `replayScoreVisible(finished, airState,
+  started)` (`lib/matchAir.ts`) makes the final score show immediately once
+  the match has aired, and the overlay now states the winner + scoreline.
+  Pre-premiere matches still reveal nothing; doubles/qualifying replays
+  share the component, so they're covered.
+- **The entry toast always said "main draw".** `SinglesEntryPanel` now
+  derives the real destination from the returned DTO's entrants via a pure
+  `entryPlacement()` (`lib/tournamentPick.ts`): a below-cutoff `[Q]`
+  registrant is reported as entering qualifying, not the main draw.
+- **"Competing · X" vs the roster's "Next: … Y".** The Scouting card's
+  match-level "● Competing" badge (`liveTournamentByPlayer`, which picked
+  an arbitrary live match and covered doubles) could name a different event
+  than the roster's next-match line. After the signing rule landed
+  (9191b5b) any committed free agent is blocked and shows the
+  tournament-level "🔒 In a draw" badge, so the match-level badge was both
+  redundant and the only remaining source of disagreement. It is removed;
+  the ONE commitment badge now reads the same tournament-level predicate
+  the atomic claim enforces and the profile banner uses. **#6 was
+  effectively moot after the rule change for the singles-facing roster**
+  (a signable agent can't have an unfinished tournament); removing the
+  badge removes the residual doubles/arbitrary-match edge structurally.
+- **"Eligible" filter was unexplained.** Renamed to "Eligible to enter"
+  with copy stating it means every event the player is PERMITTED to enter
+  — a junior may play up an age band (never down) and anyone may enter the
+  senior tour. Rules unchanged.
+
+Tests: domain 379, application 262, api 140, worker 11 — all unchanged and
+green; root `tsc --build --force` and `apps/web` typecheck clean. New pure
+web cases pin `replayScoreVisible` (display-logic.spec.ts) and
+`entryPlacement` (tournament-pick.spec.ts).
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

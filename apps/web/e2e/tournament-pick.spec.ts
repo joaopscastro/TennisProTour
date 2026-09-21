@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   buildTournamentPickGroups,
+  entryPlacement,
   groupTournamentsForPicker,
   matchesTournamentPickFilters,
   pruneTiersForCategory,
@@ -128,6 +129,21 @@ test.describe('Browse Junior filter — the real bug', () => {
     expect(tierChipAppliesToCategory('u16', 'junior')).toBe(true);
     expect(tierChipAppliesToCategory('u16', 'senior')).toBe(false);
     expect(tierChipAppliesToCategory('tour', 'all')).toBe(true);
+  });
+});
+
+test.describe('entry confirmation names the real draw', () => {
+  test('a below-cutoff registrant is reported as qualifying, not main draw', () => {
+    const entrants = [
+      { playerId: 'da-1', draw: 'main' as const },
+      { playerId: 'q-1', draw: 'qualifying' as const },
+    ];
+    expect(entryPlacement(entrants, 'q-1')).toBe('qualifying');
+    expect(entryPlacement(entrants, 'da-1')).toBe('main');
+    // A wild card / direct acceptance promoted into the main draw reads main.
+    expect(entryPlacement([{ playerId: 'wc-1', draw: 'main' as const }], 'wc-1')).toBe('main');
+    // A player not present at all (defensive) reads main, never throws.
+    expect(entryPlacement([], 'missing')).toBe('main');
   });
 });
 

@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../lib/bracketStatus';
-import { hasAired, matchAirState, matchAirStateForDto } from '../lib/matchAir';
+import { hasAired, matchAirState, matchAirStateForDto, replayScoreVisible } from '../lib/matchAir';
 import { nextPendingEntry } from '../lib/pendingEntry';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
@@ -112,6 +112,29 @@ test.describe('match air state (one predicate for bracket + replay)', () => {
     // An undecided row has nothing to hide, and an absent schedule is aired.
     expect(matchAirStateForDto({ outcome: null, scheduledStartAt: null }, now)).toBe('aired');
     expect(matchAirStateForDto(decidedDto(null), now)).toBe('aired');
+  });
+});
+
+test.describe('replay scoreboard — aired results show immediately', () => {
+  test('an aired match shows its final score before playback starts', () => {
+    // The reported contradiction: the overlay said "Aired … Result already
+    // decided" while the scoreboard rendered "SET 1 – SET 2 –".
+    expect(replayScoreVisible(false, 'aired', false)).toBe(true);
+  });
+
+  test('a pre-premiere match reveals nothing until it airs or finishes', () => {
+    expect(replayScoreVisible(false, 'upcoming', false)).toBe(false);
+    expect(replayScoreVisible(false, 'live', false)).toBe(false);
+  });
+
+  test('playback finishing always reveals the score, whatever the air state', () => {
+    expect(replayScoreVisible(true, 'upcoming', true)).toBe(true);
+    expect(replayScoreVisible(true, 'live', true)).toBe(true);
+    expect(replayScoreVisible(true, 'aired', true)).toBe(true);
+  });
+
+  test('once playback starts, the scoreboard follows playback (not the air state)', () => {
+    expect(replayScoreVisible(false, 'aired', true)).toBe(false);
   });
 });
 
