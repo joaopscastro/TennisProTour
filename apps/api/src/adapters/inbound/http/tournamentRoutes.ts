@@ -139,6 +139,15 @@ export function toTournamentDto(
     prizeMoneyBreakdown: prizeMoneyBreakdownFor(tournament.tier, tournament.drawSize),
     weekScheduled: tournament.weekScheduled,
     drawSize: tournament.drawSize,
+    /** How many entrants are in the MAIN draw RIGHT NOW. `entrants` above
+     * covers BOTH draws (a qualifying-tier event's below-cutoff field sits
+     * in `'qualifying'`), so `entrants.length` can legitimately exceed
+     * `drawSize` — e.g. a 64-draw with a 24-player qualifying field reads
+     * 88 total. Anything that calls itself "entrants out of drawSize"
+     * (the list row's `X/Y`, the bracket hero's "N players") must read
+     * THIS, never `entrants.length`, or it contradicts the draw it
+     * claims to describe. Always ≤ `drawSize` by construction. */
+    mainDrawEntrants: tournament.entrants.filter((entrant) => drawOf(entrant) === 'main').length,
     hasStarted: tournament.hasStarted,
     /** The main draw has been seeded. Distinct from `hasStarted`, which
      * is also true while a tournament is playing its QUALIFYING draw

@@ -648,6 +648,40 @@ describe('API', () => {
     expect(dto.wildCardSlotsTaken).toBe(1);
   });
 
+  it('exposes mainDrawEntrants separately from entrants so a qualifying field can never make the count exceed the draw size', async () => {
+    // The real bug this pins: the tournaments list and the bracket hero
+    // showed `entrants.length` against `drawSize`, so a qualifying-tier
+    // event (whose `entrants` covers BOTH draws) read e.g. "88/64". The
+    // DTO now carries the main-draw count explicitly.
+    const tournamentId = TournamentId('t-main-count');
+    const tournament = Tournament.open({
+      name: 'Test Main Entrant Count',
+      id: tournamentId,
+      tier: 'tour', // holds qualifying (32-ish), so the split is real
+      surface: 'hard',
+      hostCountry: null,
+      weekScheduled: { season: 1, week: 51 },
+      drawSize: 16,
+      qualifyingDrawSize: 8,
+      qualifierSlots: 2,
+      wildCardSlots: 2,
+    });
+    tournament.registerEntrant({ playerId: PlayerId('mc-main'), seed: 1, draw: 'main', entryType: 'DA' });
+    tournament.registerEntrant({ playerId: PlayerId('mc-q1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('mc-q2'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    // tournament_entries has a real FK to players — the entrants must exist.
+    for (const [pid, name] of [['mc-main', 'MC Main'], ['mc-q1', 'MC Q1'], ['mc-q2', 'MC Q2']] as const) {
+      await deps.players.save(Player.hire(PlayerId(pid), name, 25 * 52, fixedAttributes(40), ManagerId('m-mc'), 'Spain'));
+    }
+    await deps.tournaments.save(tournament);
+
+    const dto = (await app.inject({ method: 'GET', url: `/tournaments/${tournamentId}` })).json();
+    // `entrants` covers both draws; `mainDrawEntrants` counts only the main one.
+    expect(dto.entrants).toHaveLength(3);
+    expect(dto.mainDrawEntrants).toBe(1);
+    expect(dto.mainDrawEntrants).toBeLessThanOrEqual(dto.drawSize);
+  });
+
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {
     expect((await app.inject({ method: 'GET', url: '/managers/m9/players', headers: { 'x-dev-manager-id': 'm9' } })).json()).toEqual([]);
 

@@ -17,6 +17,7 @@ import { AnimatedNumber, Delta } from '../../components/ui/motion';
 import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 import { useDevManagerId } from '../../lib/managerContext';
+import { xpAffordability } from '../../lib/xp';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -150,7 +151,10 @@ export default function ScoutingPage() {
     }
   }
 
-  const xpBalance = entitlement?.xpBalance ?? 0;
+  // `null` (not 0!) until the entitlement has loaded — see lib/xp.ts.
+  // `?? 0` here was the false-"0 XP" race: it showed an empty balance and
+  // disabled every Sign button until a reload won the fetch.
+  const xpBalance = entitlement?.xpBalance ?? null;
 
   // "Youngest" stays the default (and the backend already returns the
   // pool youngest-first), so this only re-orders when the scout picks
@@ -188,8 +192,14 @@ export default function ScoutingPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, background: 'oklch(100% 0 0 / 0.1)', border: '1px solid oklch(100% 0 0 / 0.16)' }}>
                 <span style={{ fontSize: 11, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'oklch(90% 0.02 320)', opacity: 0.8 }}>Your XP</span>
                 <span style={{ position: 'relative', display: 'inline-flex' }}>
-                  <AnimatedNumber value={xpBalance} mountFrom={xpBalance} style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ball)' }} />
-                  <Delta value={xpBalance} suffix="XP" side="left" />
+                  {xpBalance === null ? (
+                    <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ink-mute)' }}>—</span>
+                  ) : (
+                    <>
+                      <AnimatedNumber value={xpBalance} mountFrom={xpBalance} style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ball)' }} />
+                      <Delta value={xpBalance} suffix="XP" side="left" />
+                    </>
+                  )}
                 </span>
               </div>
             </div>
@@ -255,7 +265,10 @@ export default function ScoutingPage() {
               {sortedCandidates.slice(0, shown).map((c, idx) => {
                 const busy = claimingId === c.id;
                 const claimedOut = claimedOutId === c.id;
-                const affordable = xpBalance >= c.claimCost;
+                // One source for the XP shown and the gating: unknown (not
+                // yet fetched) is its own state, never an assumed 0.
+                const affordability = xpAffordability(xpBalance, c.claimCost);
+                const affordable = affordability.state === 'affordable';
                 return (
                   <PlayerCard
                     key={c.id}
@@ -277,8 +290,8 @@ export default function ScoutingPage() {
                           <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: affordable ? 'var(--gc-ball)' : 'var(--gc-ink-mute)' }}>
                             {c.claimCost.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>XP</span>
                           </div>
-                          {!affordable && (
-                            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {(c.claimCost - xpBalance).toLocaleString()} more</div>
+                          {affordability.state === 'short' && (
+                            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {affordability.remaining.toLocaleString()} more</div>
                           )}
                         </div>
                         <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '9px 18px' }}>

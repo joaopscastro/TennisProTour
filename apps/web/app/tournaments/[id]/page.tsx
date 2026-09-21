@@ -23,6 +23,7 @@ import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/prim
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
+import { roundCollapsed, roundStatus } from '../../../lib/bracketStatus';
 import { useDevManagerId } from '../../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -791,7 +792,7 @@ export default function TournamentBracketPage() {
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 8, textShadow: '0 2px 10px oklch(0% 0 0 / 0.45)' }}>{tournament.name}</div>
                 <div style={{ fontSize: 13.5, color: 'white', opacity: 0.85, marginTop: 4 }}>
-                  Single elimination · {tournament.entrants.length} players · {championCopy}
+                  Single elimination · {tournament.mainDrawEntrants} players · {championCopy}
                 </div>
                 {worldClock && (
                   <div style={{ fontSize: 12, color: 'white', opacity: 0.6, marginTop: 3 }}>
@@ -1031,26 +1032,21 @@ export default function TournamentBracketPage() {
         <div className="overflow-x-auto pb-4">
           <div className="flex items-start" style={{ width: 'max-content' }}>
             {rounds.map((round, ri) => {
-              const decidedCount = round.matches.filter((m) => m.decided).length;
-              const allDecided = round.generated && decidedCount === round.matches.length;
-              const allAired = round.generated && round.matches.every((m) => matchAirState(m, now) === 'aired');
+              const airs = round.matches.map((m) => ({ decided: m.decided, airState: matchAirState(m, now) }));
+              const decidedCount = airs.filter((a) => a.decided).length;
               const noneDecided = decidedCount === 0;
-              const statusLabel = !round.generated
-                ? 'Upcoming'
-                : allAired
-                  ? 'Decided'
-                  : noneDecided
-                    ? 'Upcoming'
-                    : allDecided
-                      ? 'Airing'
-                      : 'In progress';
-              const statusBg = allAired ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
-              const statusFg = allAired ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
+              // Round status + collapse live in a pure, tested helper
+              // (lib/bracketStatus.ts) — see its doc comment for the real
+              // bug: an un-played generated round used to read as "Decided"
+              // (and collapse into fake results linking to unwritten replays)
+              // because an undecided match counts as "aired".
+              const statusLabel = roundStatus(round.generated, airs);
+              const collapsed = roundCollapsed(round.generated, airs);
+              const statusBg = statusLabel === 'Decided' ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
+              const statusFg = statusLabel === 'Decided' ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
               const subtitle = !round.generated
                 ? `${round.matches.length} match${round.matches.length === 1 ? '' : 'es'} scheduled`
                 : `${decidedCount} of ${round.matches.length} played`;
-
-              const collapsed = allAired;
 
               return (
                 <div key={round.roundNumber} className="flex items-start">
@@ -1094,7 +1090,7 @@ export default function TournamentBracketPage() {
                               </span>
                             </div>
                           );
-                          return slot ? (
+                          return slot && m.decided ? (
                             <Link key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
                               {row}
                             </Link>

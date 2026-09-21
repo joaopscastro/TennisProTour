@@ -174,6 +174,12 @@ export interface TournamentDto {
   prizeMoneyBreakdown: Array<{ matchesWon: number; stageLabel: string; prizeMoney: number }>;
   weekScheduled: { season: number; week: number };
   drawSize: number;
+  /** Entrants in the MAIN draw only. `entrants` below covers BOTH draws
+   * (a qualifying-tier event's below-cutoff field is in 'qualifying'),
+   * so `entrants.length` can exceed `drawSize` — e.g. a 64-draw with a
+   * 24-player qualifying field has 88 entries. Anything shown as
+   * "entrants out of drawSize" must read THIS. Always ≤ `drawSize`. */
+  mainDrawEntrants: number;
   hasStarted: boolean;
   entrants: Array<{
     playerId: string;

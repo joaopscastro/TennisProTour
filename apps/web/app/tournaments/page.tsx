@@ -156,7 +156,9 @@ function chipStyle(active: boolean) {
 
 function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
   const th = surfaceTheme(t.surface);
-  const fillPct = Math.round((t.entrants.length / t.drawSize) * 100);
+  // Main draw only — `t.entrants.length` also counts the qualifying field,
+  // so it could read "88/64". See TournamentDto.mainDrawEntrants.
+  const fillPct = Math.round((t.mainDrawEntrants / t.drawSize) * 100);
   return (
     <Link
       href={`/tournaments/${t.id}`}
@@ -176,7 +178,7 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 750 }}>{t.name}</div>
           <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 1 }}>
-            {t.tier} · {t.drawSize}-draw · <span style={{ color: fillPct >= 100 ? 'var(--gc-ball)' : 'var(--gc-ink-dim)' }}>{t.entrants.length}/{t.drawSize}</span> · S{t.weekScheduled.season} W{t.weekScheduled.week}{t.hostCountry ? ` · 🏠 ${t.hostCountry}` : ''}
+            {t.tier} · {t.drawSize}-draw · <span style={{ color: fillPct >= 100 ? 'var(--gc-ball)' : 'var(--gc-ink-dim)' }}>{t.mainDrawEntrants}/{t.drawSize}</span> · S{t.weekScheduled.season} W{t.weekScheduled.week}{t.hostCountry ? ` · 🏠 ${t.hostCountry}` : ''}
           </div>
         </div>
       </div>
@@ -589,7 +591,7 @@ function PlannerView() {
                         </div>
                         <div className="text-[12px] font-semibold mt-[3px] truncate">{t.name}</div>
                         <div className="text-[10.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                          {t.hasStarted ? 'Started' : `${t.entrants.length}/${t.drawSize} entrants`}
+                          {t.hasStarted ? 'Started' : `${t.mainDrawEntrants}/${t.drawSize} entrants`}
                         </div>
                       </Link>
                     ))}
