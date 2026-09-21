@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start -p 3001",
     "test:e2e": "playwright test",
+    "test:e2e:live": "playwright test -c playwright.live.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -2,6 +2,9 @@ import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
+  // The LIVE suite needs a running API + bootstrapped world and its own
+  // config; it must never be swept into this mocked default run.
+  testIgnore: '**/*.live.spec.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
