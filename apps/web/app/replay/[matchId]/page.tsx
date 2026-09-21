@@ -139,11 +139,15 @@ interface MatchContext {
   entrantB: string;
   playerA: PlayerDto | null;
   playerB: PlayerDto | null;
-  /** Whether this match's premiere has started/ended, from the ONE shared
-   * predicate (lib/matchAir.ts) the bracket also uses, so the replay and
-   * the bracket can never disagree about "has this aired". */
-  airState: AirState;
+  /** The match's scheduled reveal start, when known — used with
+   * `revealSeconds` to re-evaluate the air state each tick via the ONE shared
+   * predicate (lib/matchAir) the bracket also uses, so the replay and the
+   * bracket can never disagree about "has this aired". */
   scheduledStartAt: string | null;
+  /** Real-time seconds this match's reveal occupies (0 = not scheduled) —
+   * kept so the page can re-evaluate the air state on a tick instead of
+   * freezing the value it saw at first fetch. */
+  revealSeconds: number;
   rankA: PlayerCardRank | null;
   rankB: PlayerCardRank | null;
   formA: PlayerTournamentHistoryEntryDto[];
@@ -160,6 +164,16 @@ export default function ReplayPage() {
   const [log, setLog] = useState<MatchLogDto | null>(null);
   const [context, setContext] = useState<MatchContext | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Ticking clock so the premiere label re-evaluates against the SAME shared
+  // predicate the bracket uses, rather than freezing the state seen at fetch
+  // time (a replay page left open would otherwise still say "Premieres at"
+  // after the bracket had begun showing the score).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     // One plain GET for an immutable blob — the entirety of this
@@ -178,11 +192,6 @@ export default function ReplayPage() {
         const rounds = draw === 'qualifying' ? tournament.qualifyingRounds : tournament.rounds;
         const match = rounds.find((r) => r.roundNumber === roundNumber)?.matches[matchIndex];
         if (!match) return;
-        const airState = matchAirState({
-          decided: match.outcome !== null,
-          scheduledStartAt: match.scheduledStartAt,
-          revealSeconds: match.revealSeconds ?? 0,
-        });
         const players = await fetchPlayersByIds([match.entrantA, match.entrantB]);
 
         // Best-effort identity enrichment (rank + recent form) for the
@@ -232,8 +241,8 @@ export default function ReplayPage() {
           entrantB: match.entrantB,
           playerA: players.get(match.entrantA) ?? null,
           playerB: players.get(match.entrantB) ?? null,
-          airState,
           scheduledStartAt: match.scheduledStartAt,
+          revealSeconds: match.revealSeconds ?? 0,
           rankA: bestRank(profA),
           rankB: bestRank(profB),
           formA: profA?.tournamentHistory ?? [],
@@ -254,6 +263,12 @@ export default function ReplayPage() {
   const playerAName = context?.playerA?.name ?? 'Player A';
   const playerBName = context?.playerB?.name ?? 'Player B';
   const accent = context ? (SURFACE_COLOR[context.tournament.surface] ?? undefined) : undefined;
+  // Re-evaluated each tick from the same shared predicate (lib/matchAir) the
+  // bracket uses. A match log only exists once the match is decided, so
+  // `decided` is true here; the reveal schedule decides aired vs upcoming/live.
+  const liveAirState: AirState = context
+    ? matchAirState({ decided: true, scheduledStartAt: context.scheduledStartAt, revealSeconds: context.revealSeconds }, now)
+    : 'upcoming';
 
   return (
     <AppFrame>
@@ -347,7 +362,7 @@ export default function ReplayPage() {
             nextReplayHref={context?.nextReplayHref ?? undefined}
             nextRoundHref={context?.nextRoundHref ?? undefined}
             nextRoundLabel={context?.nextRoundLabel ?? undefined}
-            airState={context?.airState ?? 'upcoming'}
+            airState={liveAirState}
             scheduledStartAt={context?.scheduledStartAt ?? null}
           />
         )}

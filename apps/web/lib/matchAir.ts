@@ -43,3 +43,37 @@ export function matchAirState(m: AirableMatch, now: number = Date.now()): AirSta
 export function hasAired(m: AirableMatch, now: number = Date.now()): boolean {
   return matchAirState(m, now) === 'aired';
 }
+
+/**
+ * Every bracket draw's match row — main draw, qualifying draw, doubles main
+ * and doubles qualifying — carries the same shape: an optional outcome plus
+ * its reveal schedule. This is the ONE adapter from a DTO row to
+ * `matchAirState`, so a panel cannot accidentally invent its own "is this
+ * aired" test and leak a score the replay still calls "Premieres at".
+ *
+ * WHY this exists: the single predicate already covered the main bracket and
+ * the replay, but the QUALIFYING panel (and both doubles panels) rendered
+ * `match.outcome` straight out of the DTO — so a decided-but-not-yet-aired
+ * qualifying match showed "X def. Y 6-2, 6-1" in the bracket while its own
+ * replay page said "Premieres at …". Routed through here, all four draws read
+ * the one function the replay uses.
+ */
+export interface DtoAirableMatch {
+  /** The DTO's outcome object, or null before the match is decided. */
+  outcome: unknown | null;
+  /** The staggered reveal start, if the match has been simulated. */
+  scheduledStartAt?: string | null;
+  /** Real-time seconds the reveal occupies (absent = 0). */
+  revealSeconds?: number | null;
+}
+
+export function matchAirStateForDto(m: DtoAirableMatch, now: number = Date.now()): AirState {
+  return matchAirState(
+    {
+      decided: m.outcome != null,
+      scheduledStartAt: m.scheduledStartAt ?? null,
+      revealSeconds: m.revealSeconds ?? 0,
+    },
+    now,
+  );
+}

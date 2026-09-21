@@ -16,7 +16,6 @@ import {
   fetchWorldClock,
   matchIdForSlot,
   registerDoublesEntrant,
-  simulateMatch,
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
 import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
@@ -25,7 +24,7 @@ import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Ce
 import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../../../lib/bracketStatus';
-import { matchAirState } from '../../../lib/matchAir';
+import { matchAirState, matchAirStateForDto } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -293,10 +292,16 @@ function QualifyingPanel({
   tournament,
   players,
   tournamentId,
+  now,
 }: {
   tournament: TournamentDto;
   players: Map<string, PlayerDto>;
   tournamentId: string;
+  /** The page's ticking wall clock, so a decided-but-not-yet-aired
+   * qualifying match never shows its score before its premiere (the exact
+   * leak this panel had — it read `match.outcome` directly while the
+   * replay page correctly said "Premieres at …"). */
+  now: number;
 }) {
   const nameOf = (playerId: string) => players.get(playerId)?.name ?? playerId;
   const qualifiers = new Set(
@@ -338,19 +343,32 @@ function QualifyingPanel({
               </div>
               <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
                 {round.matches.map((match, i) => {
-                  const winner = match.outcome?.winner ?? null;
-                  const loser = match.outcome?.loser ?? null;
-                  const text = match.outcome
+                  // One shared air predicate for every draw (lib/matchAir) —
+                  // the score is only shown once the match has actually aired;
+                  // until then the row reads "v" (or a countdown) exactly like
+                  // the main bracket, so the bracket and the replay page can
+                  // never disagree about whether this match has premiered.
+                  const airState = matchAirStateForDto(match, now);
+                  const aired = airState === 'aired' && match.outcome != null;
+                  const winner = aired ? match.outcome!.winner : null;
+                  const loser = aired ? match.outcome!.loser : null;
+                  const text = aired
                     ? `${nameOf(winner!)} def. ${nameOf(loser!)}`
                     : `${nameOf(match.entrantA)} v ${nameOf(match.entrantB)}`;
-                  const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
-                  const cameThrough = winner !== null && qualifiers.has(winner);
+                  const score = aired
+                    ? formatScoreline(match.outcome!.setScores, true)
+                    : !match.outcome
+                      ? 'Pending'
+                      : airState === 'live'
+                        ? 'Live now'
+                        : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
+                  const cameThrough = aired && winner !== null && qualifiers.has(winner);
                   const row = (
                     <div
                       className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2 whitespace-nowrap overflow-hidden"
                       style={{
                         borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined,
-                        color: match.outcome ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)',
+                        color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)',
                       }}
                     >
                       <span className="overflow-hidden text-ellipsis">
@@ -369,7 +387,7 @@ function QualifyingPanel({
                       </span>
                     </div>
                   );
-                  return match.outcome ? (
+                  return aired ? (
                     <Link
                       key={i}
                       href={`/replay/${matchIdForSlot(tournamentId, round.roundNumber, i, 'qualifying')}`}
@@ -558,7 +576,6 @@ export default function TournamentBracketPage() {
   const [tournament, setTournament] = useState<TournamentDto | null>(null);
   const [players, setPlayers] = useState<Map<string, PlayerDto>>(new Map());
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const firedTitleRef = useRef(false);
@@ -641,21 +658,6 @@ export default function TournamentBracketPage() {
   const totalHeight = counts.length > 0 ? (counts[0] - 1) * steps[0] + CARD_H : 0;
   const positions = rounds.map((round, ri) => round.matches.map((_, i) => top0s[ri] + i * steps[ri]));
 
-  async function onSimulate(roundNumber: number, matchIndex: number) {
-    const slot = matchIdForSlot(tournamentId, roundNumber, matchIndex);
-    setBusy(slot);
-    setError(null);
-    try {
-      await simulateMatch(tournamentId, roundNumber, matchIndex);
-      await load();
-      void detectTitle();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(null);
-    }
-  }
-
   // Title-win celebration (GC-16): fires from the existing "a champion is
   // decided" signal — the final match transitioning to decided. Re-fetches
   // the tournament fresh (state from load() isn't visible synchronously here),
@@ -693,6 +695,14 @@ export default function TournamentBracketPage() {
       /* celebration is best-effort chrome; never block the bracket on it */
     }
   }, [tournamentId]);
+
+  // The title celebration used to be triggered by the manual "Simulate"
+  // button. That control is an operator/dev override and was removed from the
+  // player-facing bracket (its route is now admin-gated), so the celebration
+  // now reacts to the loaded tournament instead.
+  useEffect(() => {
+    void detectTitle();
+  }, [tournament, detectTitle]);
 
   function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string; fillOnly: boolean } {
     if (!entrant) return { name: '', flag: '', seedLabel: '', fillOnly: false };
@@ -851,7 +861,7 @@ export default function TournamentBracketPage() {
             above the main bracket (or in place of it, while qualifying
             is still being played and the main draw doesn't exist yet). */}
         {tournament.qualifierSlots > 0 && tournament.hasStarted && (
-          <QualifyingPanel tournament={tournament} players={players} tournamentId={tournamentId} />
+          <QualifyingPanel tournament={tournament} players={players} tournamentId={tournamentId} now={now} />
         )}
 
         {/* The doubles draw (P7b) — players sign up solo, are paired at
@@ -950,13 +960,24 @@ export default function TournamentBracketPage() {
                         {round.roundNumber === tournament.doublesRounds.length ? 'Doubles final' : `Doubles round ${round.roundNumber}`}
                       </div>
                       {round.matches.map((match, i) => {
-                        const winner = match.outcome?.winner ?? null;
-                        const text = match.outcome
+                        // Same shared air predicate as every other draw — a
+                        // doubles result is hidden until its premiere (and the
+                        // qualifying-pair names are not needed to render "v").
+                        const airState = matchAirStateForDto(match, now);
+                        const aired = airState === 'aired' && match.outcome != null;
+                        const winner = aired ? match.outcome!.winner : null;
+                        const text = aired
                           ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
                           : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
-                        const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
+                        const score = aired
+                          ? formatScoreline(match.outcome!.setScores, true)
+                          : !match.outcome
+                            ? 'Pending'
+                            : airState === 'live'
+                              ? 'Live now'
+                              : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
                         return (
-                          <div key={i} className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}>
+                          <div key={i} className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
                             <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
                             <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
                           </div>
@@ -994,13 +1015,21 @@ export default function TournamentBracketPage() {
                             Q{round.roundNumber}
                           </div>
                           {round.matches.map((match, i) => {
-                            const winner = match.outcome?.winner ?? null;
-                            const text = match.outcome
+                            const airState = matchAirStateForDto(match, now);
+                            const aired = airState === 'aired' && match.outcome != null;
+                            const winner = aired ? match.outcome!.winner : null;
+                            const text = aired
                               ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
                               : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
-                            const score = match.outcome ? formatScoreline(match.outcome.setScores, true) : 'Pending';
+                            const score = aired
+                              ? formatScoreline(match.outcome!.setScores, true)
+                              : !match.outcome
+                                ? 'Pending'
+                                : airState === 'live'
+                                  ? 'Live now'
+                                  : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
                             return (
-                              <div key={i} className="px-[8px] py-[5px] text-[11px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}>
+                              <div key={i} className="px-[8px] py-[5px] text-[11px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
                                 <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
                                 <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
                               </div>
@@ -1143,8 +1172,6 @@ export default function TournamentBracketPage() {
                           const aLabel = playerLabel(m.a.entrant);
                           const bLabel = playerLabel(m.b.entrant);
                           const slot = m.matchIndex !== null ? matchIdForSlot(tournamentId, round.roundNumber, m.matchIndex) : null;
-                          const canSimulate = !m.isBye && m.a.entrant && m.b.entrant && !m.decided && m.matchIndex !== null;
-                          const isBusy = slot !== null && busy === slot;
                           // Staggered-schedule state: a decided match is still
                           // "upcoming" (countdown) or "live" (airing) until its
                           // reveal window has passed; only then is the result shown.
@@ -1247,21 +1274,6 @@ export default function TournamentBracketPage() {
                                   ) : (
                                     <>Starts in {formatCountdown(new Date(m.scheduledStartAt!).getTime() - now)}</>
                                   )}
-                                </div>
-                              )}
-                              {canSimulate && (
-                                <div className="px-[10px] pb-[8px]">
-                                  <button
-                                    onClick={(e) => {
-                                      e.preventDefault();
-                                      void onSimulate(round.roundNumber, m.matchIndex!);
-                                    }}
-                                    disabled={isBusy}
-                                    className="w-full border-none py-[5px] rounded-[5px] text-[10.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-60"
-                                    style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
-                                  >
-                                    {isBusy ? 'Simulating…' : 'Simulate'}
-                                  </button>
                                 </div>
                               )}
                             </>

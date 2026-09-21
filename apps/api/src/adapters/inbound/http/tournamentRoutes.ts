@@ -627,8 +627,12 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       },
     },
     async (request, reply) => {
-      const manager = await requireManager(request, reply, deps);
-      if (!manager) return;
+      // A manual match simulation is an operator/dev override, not a player
+      // action — it bypasses the day-gated sweep. Admin-gated exactly like the
+      // tournament open/open-registration routes above, NOT merely
+      // manager-authenticated. The player-facing bracket no longer renders a
+      // "Simulate" control at all.
+      if (!(await requireInternalAdmin(request, reply))) return;
       const roundNumber = Number(request.params.round);
       const matchIndex = Number(request.params.index);
       const draw: DrawPhase = request.query.draw === 'qualifying' ? 'qualifying' : 'main';

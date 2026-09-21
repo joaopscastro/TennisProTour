@@ -409,7 +409,7 @@ describe('API', () => {
     expect(openedDto.rounds).toHaveLength(1);
     expect(openedDto.rounds[0].matches).toHaveLength(8);
 
-    const simulated = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
+    const simulated = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' } });
     expect(simulated.statusCode).toBe(200);
     const { matchId, replayUrl } = simulated.json();
     expect(matchId).toBe('t1-r1-m0');
@@ -435,7 +435,7 @@ describe('API', () => {
     expect(loserProfile.json().careerPrizeMoney).toBe(dto.prizeMoneyBreakdown[dto.prizeMoneyBreakdown.length - 1].prizeMoney);
 
     // Re-simulating the same slot must fail (already-decided match), not overwrite.
-    const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
+    const again = await app.inject({ method: 'POST', url: '/tournaments/t1/matches/1/0/simulate', headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' } });
     expect(again.statusCode).toBe(409);
 
     // The replay blob is served by the dev match-log route, immutable-cached.
@@ -697,8 +697,20 @@ describe('API', () => {
   });
 
   it('404s when simulating a match in a missing tournament', async () => {
-    const response = await app.inject({ method: 'POST', url: '/tournaments/ghost/matches/1/0/simulate', headers: { 'x-dev-manager-id': 'm1' } });
+    const response = await app.inject({ method: 'POST', url: '/tournaments/ghost/matches/1/0/simulate', headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' } });
     expect(response.statusCode).toBe(404);
+  });
+
+  it('refuses the manual simulate override to a plain manager (it is an operator/dev action, not a player action)', async () => {
+    // The player-facing bracket no longer renders a "Simulate" control, and the
+    // route itself is admin-gated: a normal manager token must be refused even
+    // though the same manager is perfectly entitled to GET the bracket.
+    const response = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t1/matches/1/0/simulate',
+      headers: { 'x-dev-manager-id': 'm1' },
+    });
+    expect(response.statusCode).toBe(403);
   });
 
   it('awards ranking points per PLAYER through a full tournament, matching StandardRankingPointsTable', async () => {
@@ -734,7 +746,7 @@ describe('API', () => {
         const response = await app.inject({
           method: 'POST',
           url: `/tournaments/rt1/matches/${roundNumber}/${matchIndex}/simulate`,
-          headers: { 'x-dev-manager-id': 'rm1' },
+          headers: { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' },
         });
         expect(response.statusCode).toBe(200);
       }
