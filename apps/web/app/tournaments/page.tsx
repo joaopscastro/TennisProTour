@@ -18,6 +18,7 @@ import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
+import { pruneTiersForCategory, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -90,9 +91,14 @@ function loadPersistedFilters(): PersistedTournamentFilters | null {
     const raw = window.localStorage.getItem(FILTERS_STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersistedTournamentFilters>;
+    const category = parsed.category && VALID_CATEGORIES.includes(parsed.category) ? parsed.category : DEFAULT_CATEGORY;
+    const tiers = Array.isArray(parsed.tiers) ? parsed.tiers.filter((t) => VALID_TIERS.includes(t)) : [...DEFAULT_TIERS];
+    // Sanitize against the category too — a pre-fix stored combination
+    // (e.g. category 'junior' with the senior-only 'tour' chip) would
+    // otherwise load into an impossible filter that renders the list empty.
     return {
-      category: parsed.category && VALID_CATEGORIES.includes(parsed.category) ? parsed.category : DEFAULT_CATEGORY,
-      tiers: Array.isArray(parsed.tiers) ? parsed.tiers.filter((t) => VALID_TIERS.includes(t)) : [...DEFAULT_TIERS],
+      category,
+      tiers: [...pruneTiersForCategory(category, new Set(tiers))],
       surfaces: Array.isArray(parsed.surfaces) ? parsed.surfaces.filter((s) => VALID_SURFACES.includes(s)) : [],
     };
   } catch {
@@ -134,18 +140,6 @@ function toggleInSet<T>(set: ReadonlySet<T>, value: T): Set<T> {
   if (next.has(value)) next.delete(value);
   else next.add(value);
   return next;
-}
-
-/** Whether a tournament still has room for the queried player. A
- * qualifying-tier entrant below the cutoff is measured against the
- * QUALIFYING field (which `entrants.length < drawSize` can't see —
- * `entrants` includes qualifying entrants), while a direct-acceptance
- * or non-qualifying entrant is measured against the main draw. */
-function hasRoomFor(t: TournamentDto): boolean {
-  if (t.entryViaQualifying) return !t.qualifyingFieldFull;
-  const mainEntrants = t.entrants.filter((e) => e.draw !== 'qualifying').length;
-  const mainCapacity = t.drawSize - (t.qualifierSlots ?? 0);
-  return mainEntrants < mainCapacity;
 }
 
 function chipStyle(active: boolean) {
@@ -239,7 +233,7 @@ function FilterBar({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-[6px]">
-        {TIER_CHIPS.map((chip) => (
+        {TIER_CHIPS.filter((chip) => tierChipAppliesToCategory(chip.value, category)).map((chip) => (
           <button
             key={chip.value}
             onClick={() => onToggleTier(chip.value)}
@@ -332,10 +326,13 @@ function WeekRegisterPicker({
             key={t.id}
             onClick={() => !blocked && setSelectedId(t.id)}
             disabled={blocked}
+            aria-pressed={selected}
+            data-selected={selected}
             className="text-left rounded-[6px] px-[10px] py-[7px] cursor-pointer disabled:cursor-not-allowed"
             style={{
-              border: selected ? '1.5px solid var(--gc-ball)' : '1px solid var(--gc-line)',
+              border: selected ? '2px solid var(--gc-ball)' : '1px solid var(--gc-line)',
               background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
+              boxShadow: selected ? '0 0 0 2px oklch(78% 0.16 145 / 0.28)' : undefined,
               opacity: blocked ? 0.55 : 1,
             }}
           >
@@ -360,6 +357,11 @@ function WeekRegisterPicker({
                 </div>
               )}
               <div className="text-[12px] font-semibold truncate">{t.name}</div>
+              {selected && (
+                <span className="flex-none text-[10px] font-extrabold" style={{ color: 'oklch(80% 0.16 145)' }} aria-hidden>
+                  ✓
+                </span>
+              )}
             </div>
             {t.entryViaQualifying && !qualifyingFull && (
               <div className="text-[10px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
@@ -550,7 +552,7 @@ function PlannerView() {
                 (t) =>
                   t.weekScheduled.season === week.week.season &&
                   t.weekScheduled.week === week.week.week &&
-                  hasRoomFor(t) &&
+                  tournamentHasRoom(t) &&
                   !t.entrants.some((e) => e.playerId === selectedPlayerId) &&
                   !week.entries.some((entered) => entered.id === t.id),
               );
@@ -635,6 +637,14 @@ function PlannerView() {
 
 export default function TournamentsIndexPage() {
   const [view, setView] = useState<'browse' | 'planner' | 'events'>('browse');
+  // Deep link for the tournament page's "Open the Planner" pointer
+  // (/tournaments#planner). A hash — not a query param — so this stays a
+  // plain client-only read with no Suspense boundary needed.
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash === '#planner') setView('planner');
+    else if (hash === '#events') setView('events');
+  }, []);
   const [open, setOpen] = useState<TournamentDto[] | null>(null);
   const [started, setStarted] = useState<TournamentDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -727,7 +737,14 @@ export default function TournamentsIndexPage() {
           <>
             <FilterBar
               category={category}
-              onCategory={setCategory}
+              onCategory={(c) => {
+                setCategory(c);
+                // Keep the tier chips consistent with the new category —
+                // the default 'tour' chip is senior-only, so picking Junior
+                // without this left an impossible Senior+Tier=Tour selection
+                // and the list rendered empty (the "Junior shows nothing" bug).
+                setTiers((current) => pruneTiersForCategory(c, current));
+              }}
               tiers={tiers}
               onToggleTier={(v) => setTiers((current) => toggleInSet(current, v))}
               surfaces={surfaces}

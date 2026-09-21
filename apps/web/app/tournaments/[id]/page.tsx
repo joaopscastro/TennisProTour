@@ -19,6 +19,7 @@ import {
   simulateMatch,
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
+import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
 import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
@@ -826,6 +827,16 @@ export default function TournamentBracketPage() {
           <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
           <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
         </div>
+
+        {/* Singles entry — the tournament page's own entry control, the
+            counterpart to the doubles one below. Previously an open
+            tournament's page offered ONLY doubles, so entering a player in
+            singles meant leaving for the Planner tab. */}
+        {!tournament.hasStarted && (
+          <div className="mb-6">
+            <SinglesEntryPanel tournamentId={tournamentId} managerId={devManagerId} onEntered={() => void load()} />
+          </div>
+        )}
 
         {/* Tournament profile — details + entry list(s). Always available,
             both before the draw is made and while the tournament plays. */}

@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
+import { CircuitFilter, buildTournamentPickGroups, tournamentRefusalReason } from '../lib/tournamentPick';
 import { TournamentRewardsLadder, TournamentRewardSummary } from './TournamentRewards';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -10,6 +11,20 @@ const SURFACE_COLOR: Record<string, string> = {
   hard: 'var(--sf-hard)',
   indoor: 'var(--sf-indoor)',
 };
+
+const SURFACE_CHIPS: Array<{ value: string; label: string }> = [
+  { value: 'clay', label: 'Clay' },
+  { value: 'grass', label: 'Grass' },
+  { value: 'hard', label: 'Hard' },
+  { value: 'indoor', label: 'Indoor' },
+];
+
+const CIRCUIT_CHIPS: Array<{ value: CircuitFilter; label: string; title: string }> = [
+  { value: 'eligible', label: 'Eligible', title: "Only events this player's age qualifies for" },
+  { value: 'all', label: 'All circuits', title: 'Every open tournament, eligible or not' },
+  { value: 'senior', label: 'Senior', title: 'Senior-tour events only' },
+  { value: 'junior', label: 'Junior', title: 'Junior-band events only' },
+];
 
 interface Props {
   playerId: string;
@@ -31,6 +46,102 @@ interface Props {
   onEntered: (tournament: TournamentDto) => void;
 }
 
+/** A single selectable tournament row. The selected state is deliberately
+ * unmistakable (ring + check pill + aria-pressed), because a naive-user
+ * walkthrough found the previous subtle border change wasn't noticed at
+ * all — "the visible text and element states did not change". */
+function TournamentPickRow({
+  tournament,
+  selected,
+  blocked,
+  reason,
+  onSelect,
+}: {
+  tournament: TournamentDto;
+  selected: boolean;
+  blocked: boolean;
+  reason: string | null;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      onClick={() => !blocked && onSelect()}
+      disabled={blocked}
+      aria-pressed={selected}
+      data-selected={selected}
+      className="relative text-left rounded-[8px] pl-[16px] pr-[14px] py-[10px] cursor-pointer disabled:cursor-not-allowed"
+      style={{
+        border: selected ? '2px solid var(--gc-ball)' : '1px solid var(--gc-line)',
+        background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
+        boxShadow: selected ? '0 0 0 3px oklch(78% 0.16 145 / 0.28)' : undefined,
+        opacity: blocked ? 0.55 : 1,
+      }}
+    >
+      {selected && (
+        <span
+          aria-hidden
+          style={{ position: 'absolute', left: 0, top: 6, bottom: 6, width: 3, borderRadius: 3, background: 'var(--gc-ball)' }}
+        />
+      )}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div
+            className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] text-white flex-none"
+            style={{ background: SURFACE_COLOR[tournament.surface] ?? 'var(--gc-ink-mute)' }}
+          >
+            {tournament.surface}
+          </div>
+          {tournament.ageBand && (
+            <div
+              className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
+              style={{ background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)' }}
+            >
+              {tournament.ageBand}
+            </div>
+          )}
+          {tournament.entryViaQualifying && (
+            <div
+              className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
+              style={{ background: 'oklch(45% 0.12 45 / 0.35)', color: 'oklch(85% 0.1 45)' }}
+            >
+              [Q]
+            </div>
+          )}
+          <div className="text-[13.5px] font-semibold truncate">{tournament.name}</div>
+        </div>
+        <div className="flex items-center gap-2 flex-none">
+          {selected && (
+            <span
+              className="text-[10px] font-extrabold tracking-[0.3px] uppercase px-[7px] py-[2px] rounded-[4px]"
+              style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
+            >
+              ✓ Selected
+            </span>
+          )}
+          <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+            {tournament.mainDrawEntrants}/{tournament.drawSize}
+          </div>
+        </div>
+      </div>
+      <div className="text-[11.5px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
+        {tournament.tier} · season {tournament.weekScheduled.season}, week {tournament.weekScheduled.week}
+        {tournament.hostCountry ? ` · 🏠 ${tournament.hostCountry}` : ''}
+      </div>
+      {tournament.entryViaQualifying && !tournament.qualifyingFieldFull && (
+        <div className="text-[11px] mt-[4px]" style={{ color: 'var(--gc-ink-dim)' }}>
+          You&apos;ll enter through qualifying — {tournament.qualifyingFieldTaken}/{tournament.qualifyingFieldSize} qualifying spots taken
+        </div>
+      )}
+      {reason && (
+        <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
+          {reason}
+        </div>
+      )}
+      <TournamentRewardSummary tournament={tournament} />
+    </button>
+  );
+}
+
 /**
  * Real tournament picker for the roster row's "Enter" action —
  * replaces the earlier "register into whichever open tournament has
@@ -39,12 +150,21 @@ interface Props {
  * choose, since silently picking one on the player's behalf is a
  * meaningful decision (surface, tier, field size) a manager should
  * make deliberately.
+ *
+ * The list is sorted nearest-week-first and sectioned by circuit+week,
+ * and defaults to only what the player is age-eligible for (with explicit
+ * "All circuits"/"Senior"/"Junior" ways to widen it) — see
+ * lib/tournamentPick.ts. Without that, a first-time user faced a flat
+ * ~250-row list in arbitrary week order with no way to narrow it.
  */
 export function EnterTournamentModal({ playerId, playerName, managerId, week, onClose, onEntered }: Props) {
   const [tournaments, setTournaments] = useState<TournamentDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [circuit, setCircuit] = useState<CircuitFilter>('eligible');
+  const [surfaces, setSurfaces] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     fetchOpenTournaments(playerId)
@@ -52,7 +172,6 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
         setTournaments(
           all.filter(
             (t) =>
-              hasRoomFor(t) &&
               !t.entrants.some((e) => e.playerId === playerId) &&
               (!week || (t.weekScheduled.season === week.season && t.weekScheduled.week === week.week)),
           ),
@@ -74,46 +193,9 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
     }
   }
 
-  /** True once this player has already entered weeklyEntryCapThisWeek
-   * same-band tournaments in a given tournament's specific week — the
-   * real cap RegisterEntrantUseCase enforces (junior 3/week, senior
-   * 1/week; see juniorEntryCap.ts), surfaced here so the row is
-   * disabled up front rather than only failing after a click. */
-  function overCapFor(t: TournamentDto): boolean {
-    return (
-      t.weeklyEntryCountThisWeek !== undefined &&
-      t.weeklyEntryCapThisWeek !== undefined &&
-      t.weeklyEntryCountThisWeek >= t.weeklyEntryCapThisWeek
-    );
-  }
-
-  /** True when this player's current age is too old for this junior
-   * band — playing UP into an older junior band is fine (ageEligible
-   * stays true then), only playing down or a senior entering a junior
-   * draw sets this. Senior tournaments never carry `ageEligible` at
-   * all (undefined), so they're never blocked by this. */
-  function ageIneligibleFor(t: TournamentDto): boolean {
-    return t.ageEligible === false;
-  }
-
-  /** True when this player would be refused outright because they're a
-   * below-cutoff registrant and the qualifying field is already full —
-   * the exact "qualifying-full" refusal RegisterEntrantUseCase raises. */
-  function qualifyingFullFor(t: TournamentDto): boolean {
-    return t.qualifyingFieldFull === true;
-  }
-
-  /** Whether this tournament still has room for THIS player. A
-   * qualifying-tier entrant below the cutoff is measured against the
-   * QUALIFYING field (which `entrants.length < drawSize` can't see —
-   * `entrants` includes qualifying entrants), while a direct-acceptance
-   * or non-qualifying entrant is measured against the main draw. */
-  function hasRoomFor(t: TournamentDto): boolean {
-    if (t.entryViaQualifying) return !t.qualifyingFieldFull;
-    const mainEntrants = t.entrants.filter((e) => e.draw !== 'qualifying').length;
-    const mainCapacity = t.drawSize - (t.qualifierSlots ?? 0);
-    return mainEntrants < mainCapacity;
-  }
+  const filters = useMemo(() => ({ circuit, surfaces, search }), [circuit, surfaces, search]);
+  const groups = useMemo(() => (tournaments ? buildTournamentPickGroups(tournaments, filters) : []), [tournaments, filters]);
+  const filteredCount = useMemo(() => groups.reduce((n, g) => n + g.items.length, 0), [groups]);
 
   const selectedTournament = tournaments?.find((t) => t.id === selectedId) ?? null;
 
@@ -124,14 +206,16 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
       onClick={onClose}
     >
       <div
-        className="w-full max-w-[480px] gc-card rounded-[14px] p-6 max-h-[80vh] flex flex-col"
+        className="w-full max-w-[520px] gc-card rounded-[14px] p-6 max-h-[85vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="text-[16px] font-bold" style={{ color: 'var(--gc-ink)' }}>
           Enter {playerName} into a tournament
         </div>
-        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'var(--gc-ink-mute)' }}>
-          Choose a tournament still open for registration.
+        <div className="text-[12.5px] mt-1 mb-3" style={{ color: 'var(--gc-ink-mute)' }}>
+          {circuit === 'eligible'
+            ? `Showing events ${playerName} is eligible for — switch to All/Senior/Junior to see the rest.`
+            : 'Choose a tournament still open for registration.'}
         </div>
 
         {error && (
@@ -140,7 +224,59 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
           </div>
         )}
 
-        <div className="flex flex-col gap-2 overflow-y-auto flex-1 min-h-0" style={{ minHeight: 60 }}>
+        {tournaments !== null && tournaments.length > 0 && (
+          <div className="flex flex-col gap-[7px] mb-3">
+            <input
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search name, tier, surface or country…"
+              className="gc-input text-[12.5px] w-full"
+              aria-label="Search open tournaments"
+            />
+            <div className="flex flex-wrap items-center gap-[6px]">
+              {CIRCUIT_CHIPS.map((chip) => (
+                <button
+                  key={chip.value}
+                  type="button"
+                  title={chip.title}
+                  aria-pressed={circuit === chip.value}
+                  onClick={() => setCircuit(chip.value)}
+                  className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
+                  style={
+                    circuit === chip.value
+                      ? { background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)', border: '1px solid var(--gc-ball)', fontWeight: 750 }
+                      : { background: 'var(--gc-s2)', color: 'var(--gc-ink-dim)', border: '1px solid var(--gc-line)' }
+                  }
+                >
+                  {chip.label}
+                </button>
+              ))}
+              <div className="w-px h-4 mx-1" style={{ background: 'var(--gc-line)' }} />
+              {SURFACE_CHIPS.map((chip) => {
+                const active = surfaces.has(chip.value);
+                return (
+                  <button
+                    key={chip.value}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSurfaces((current) => { const next = new Set(current); if (next.has(chip.value)) next.delete(chip.value); else next.add(chip.value); return next; })}
+                    className="px-[9px] py-[5px] rounded-[5px] text-[11px] font-semibold cursor-pointer"
+                    style={
+                      active
+                        ? { background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)', border: '1px solid var(--gc-ball)', fontWeight: 750 }
+                        : { background: 'var(--gc-s2)', color: 'var(--gc-ink-dim)', border: '1px solid var(--gc-line)' }
+                    }
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="flex flex-col gap-3 overflow-y-auto flex-1 min-h-0" style={{ minHeight: 60 }}>
           {tournaments === null && !error && (
             <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
               Loading open tournaments…
@@ -151,84 +287,38 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
               {week ? 'No tournaments are open for this week.' : 'No tournaments are open for entries right now.'}
             </div>
           )}
-          {tournaments?.map((t) => {
-            const selected = selectedId === t.id;
-            const overCap = overCapFor(t);
-            const ageIneligible = ageIneligibleFor(t);
-            const qualifyingFull = qualifyingFullFor(t);
-            const blocked = overCap || ageIneligible || qualifyingFull;
-            return (
-              <button
-                key={t.id}
-                onClick={() => !blocked && setSelectedId(t.id)}
-                disabled={blocked}
-                className="text-left rounded-[8px] px-[14px] py-[10px] cursor-pointer disabled:cursor-not-allowed"
-                style={{
-                  border: selected ? '1.5px solid var(--gc-ball)' : '1px solid var(--gc-line)',
-                  background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
-                  opacity: blocked ? 0.55 : 1,
-                }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] text-white flex-none"
-                      style={{ background: SURFACE_COLOR[t.surface] ?? 'var(--gc-ink-mute)' }}
-                    >
-                      {t.surface}
-                    </div>
-                    {t.ageBand && (
-                      <div
-                        className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
-                        style={{ background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)' }}
-                      >
-                        {t.ageBand}
-                      </div>
-                    )}
-                    {t.entryViaQualifying && (
-                      <div
-                        className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[2px] rounded-[4px] flex-none"
-                        style={{ background: 'oklch(45% 0.12 45 / 0.35)', color: 'oklch(85% 0.1 45)' }}
-                      >
-                        [Q]
-                      </div>
-                    )}
-                    <div className="text-[13.5px] font-semibold truncate">{t.name}</div>
-                  </div>
-                  <div className="text-[11.5px] flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
-                    {t.entrants.length}/{t.drawSize}
-                  </div>
-                </div>
-                <div className="text-[11.5px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                  {t.tier} · season {t.weekScheduled.season}, week {t.weekScheduled.week}
-                </div>
-                {t.entryViaQualifying && !qualifyingFull && (
-                  <div className="text-[11px] mt-[4px]" style={{ color: 'var(--gc-ink-dim)' }}>
-                    You&apos;ll enter through qualifying — {t.qualifyingFieldTaken}/{t.qualifyingFieldSize} qualifying spots taken
-                  </div>
-                )}
-                {ageIneligible && (
-                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
-                    Too old for this {t.ageBand} draw — a player may play up into an older junior band, not down
-                  </div>
-                )}
-                {!ageIneligible && overCap && (
-                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
-                    {t.weeklyEntryCapThisWeek === 1
-                      ? 'Already entered a tournament this week — a player can only play one tournament per week'
-                      : `Already entered ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
-                  </div>
-                )}
-                {!ageIneligible && !overCap && qualifyingFull && (
-                  <div className="text-[11px] font-semibold mt-[4px]" style={{ color: 'oklch(78% 0.15 35)' }}>
-                    Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize}) — no [Q] places left
-                  </div>
-                )}
-                <TournamentRewardSummary tournament={t} />
-              </button>
-            );
-          })}
+          {tournaments && tournaments.length > 0 && filteredCount === 0 && (
+            <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
+              No tournaments match these filters — widen the circuit filter or clear the search.
+            </div>
+          )}
+          {groups.map((group) => (
+            <div key={group.key} className="flex flex-col gap-2">
+              <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase pt-1" style={{ color: 'var(--gc-ink-faint)' }}>
+                {group.label}
+              </div>
+              {group.items.map((t) => {
+                const reason = tournamentRefusalReason(t);
+                return (
+                  <TournamentPickRow
+                    key={t.id}
+                    tournament={t}
+                    selected={selectedId === t.id}
+                    blocked={reason !== null}
+                    reason={reason}
+                    onSelect={() => setSelectedId(t.id)}
+                  />
+                );
+              })}
+            </div>
+          ))}
         </div>
+
+        {tournaments && tournaments.length > 0 && (
+          <div className="text-[11px] mt-2" style={{ color: 'var(--gc-ink-faint)' }}>
+            Showing {filteredCount} of {tournaments.length} open tournaments.
+          </div>
+        )}
 
         {selectedTournament && (
           <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--gc-line)' }}>
