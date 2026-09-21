@@ -56,6 +56,7 @@ import { DrizzleDoublesPeakRankingRepository } from './DrizzleDoublesPeakRanking
 import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
 import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
 import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
+import { DrizzlePlayerMatchesQuery } from './DrizzlePlayerMatchesQuery';
 import { DrizzleNotificationDeliveryRepository } from './DrizzleNotificationDeliveryRepository';
 import { DrizzleNotificationPreferenceRepository } from './DrizzleNotificationPreferenceRepository';
 import { DrizzleManagerDigestQuery } from './DrizzleManagerDigestQuery';
@@ -996,6 +997,83 @@ describe('DrizzleTitleRepository', () => {
     await playerRepository.save(Player.hire(PlayerId('p-title-4'), 'No Titles Yet', 20 * 52, attributes(30), ManagerId('m1')));
     const titles = await titleRepository.findByPlayer(PlayerId('p-title-4'));
     expect(titles).toEqual([]);
+  });
+
+  it('countByPlayers returns per-player counts and omits players with no titles', async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-count-1'), 'Two Titles', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('p-count-2'), 'One Title', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('p-count-3'), 'None Yet', 20 * 52, attributes(30), ManagerId('m1')));
+    for (const id of ['t-count-1', 't-count-2', 't-count-3']) {
+      await tournamentRepository.save(
+        Tournament.open({ name: 'Count Cup', id: TournamentId(id), tier: 'tour', surface: 'hard', weekScheduled: { season: 1, week: 1 }, drawSize: 16 }),
+      );
+    }
+    await titleRepository.append({ tournamentId: TournamentId('t-count-1'), playerId: PlayerId('p-count-1'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
+    await titleRepository.append({ tournamentId: TournamentId('t-count-2'), playerId: PlayerId('p-count-1'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
+    await titleRepository.append({ tournamentId: TournamentId('t-count-3'), playerId: PlayerId('p-count-2'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
+
+    const counts = await titleRepository.countByPlayers([
+      PlayerId('p-count-1'),
+      PlayerId('p-count-2'),
+      PlayerId('p-count-3'),
+    ]);
+    expect(counts.get(PlayerId('p-count-1'))).toBe(2);
+    expect(counts.get(PlayerId('p-count-2'))).toBe(1);
+    expect(counts.has(PlayerId('p-count-3'))).toBe(false);
+  });
+});
+
+describe('DrizzlePlayerMatchesQuery.liveTournamentByPlayer', () => {
+  const query = new DrizzlePlayerMatchesQuery(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const agingPolicy = new StandardAgingPolicy();
+
+  function saveFree(id: string, name: string) {
+    return playerRepository.save(
+      Player.generateFillOnly(PlayerId(id), name, 20 * 52, agingPolicy.stageForAge(20 * 52), attributes(40), 'ES', 70, {
+        speed: 70,
+        stamina: 70,
+        strength: 70,
+      }),
+    );
+  }
+
+  it('returns the live tournament for a free agent still alive in a draw, and omits eliminated/history-only players', async () => {
+    await saveFree('fa-alive', 'Alive Free Agent');
+    await saveFree('fa-opp', 'Live Opponent');
+    await saveFree('fa-out', 'Eliminated Free Agent');
+    await saveFree('fa-other', 'Other Player');
+
+    await db.insert(schema.tournaments).values([
+      { id: 'live-t1', name: 'Live Open', tier: 'tour', surface: 'hard', seasonScheduled: 1, weekScheduled: 2, drawSize: 16 },
+      { id: 'live-t2', name: 'Finished Open', tier: 'tour', surface: 'hard', seasonScheduled: 1, weekScheduled: 1, drawSize: 16 },
+    ]);
+    await db.insert(schema.tournamentMatches).values([
+      // Still to play -> alive in live-t1.
+      { tournamentId: 'live-t1', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('fa-alive'), entrantB: PlayerId('fa-opp'), winnerId: null, loserId: null, setScores: null },
+      // Decided loss -> eliminated, no live tournament.
+      {
+        tournamentId: 'live-t2',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: PlayerId('fa-out'),
+        entrantB: PlayerId('fa-other'),
+        winnerId: PlayerId('fa-other'),
+        loserId: PlayerId('fa-out'),
+        setScores: [{ winnerGames: 6, loserGames: 2 }],
+      },
+    ]);
+
+    const live = await query.liveTournamentByPlayer([
+      PlayerId('fa-alive'),
+      PlayerId('fa-out'),
+      PlayerId('fa-never-entered'),
+    ]);
+    expect(live.get(PlayerId('fa-alive'))).toEqual({ id: 'live-t1', name: 'Live Open' });
+    expect(live.has(PlayerId('fa-out'))).toBe(false);
+    expect(live.has(PlayerId('fa-never-entered'))).toBe(false);
+    expect(await query.liveTournamentByPlayer([])).toEqual(new Map());
   });
 });
 

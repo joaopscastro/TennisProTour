@@ -934,6 +934,10 @@ describe('API', () => {
     const candidates = listed.json();
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', ageInWeeks: 750 });
+    // Career signal + competing context are present and default honestly
+    // for an unsigned player with no history — never a guess, never
+    // omitted (the Scouting card reads these directly).
+    expect(candidates[0]).toMatchObject({ careerPrizeMoney: 0, titleCount: 0, currentTournament: null });
     expect(candidates[0]).not.toHaveProperty('tier');
     expect(candidates[0]).not.toHaveProperty('potentialTier');
     expect(candidates[0].attributes.technical.serve).toBe(50); // current attributes stay precise, unfuzzed
@@ -964,6 +968,42 @@ describe('API', () => {
     await deps.managerXp.credit(ManagerId('m2'), AMPLE_XP_FOR_TESTS);
     const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', headers: { 'x-dev-manager-id': 'm2' }, payload: { managerId: 'm2' } });
     expect(secondClaim.statusCode).toBe(409);
+  });
+
+  it('surfaces a free agent who is currently competing, so signing mid-event is disclosed before it happens', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    const stage = agingPolicy.stageForAge(20 * 52);
+    const ceilings = { speed: 70, stamina: 70, strength: 70 };
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-live'), 'Competing Free Agent', 20 * 52, stage, fixedAttributes(50), 'ES', 70, ceilings));
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-live-opp'), 'Live Opponent', 20 * 52, stage, fixedAttributes(50), 'FR', 70, ceilings));
+    await db.insert(schema.tournaments).values({
+      id: 'tp-live-t1',
+      name: 'Mid-Event Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+    });
+    // An undecided match row: this free agent is still alive in the draw.
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'tp-live-t1',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('tp-live'),
+      entrantB: PlayerId('tp-live-opp'),
+      winnerId: null,
+      loserId: null,
+      setScores: null,
+    });
+
+    const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
+    expect(listed.statusCode).toBe(200);
+    const dto = listed.json().find((c: { id: string }) => c.id === 'tp-live');
+    expect(dto.currentTournament).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
+    expect(dto.careerPrizeMoney).toBe(0);
+    expect(dto.titleCount).toBe(0);
   });
 
   it('rejects creating a custom player for a non-Pro manager', async () => {

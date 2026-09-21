@@ -124,6 +124,18 @@ export interface TalentPoolCandidateDto {
    * list (see docs/ui-direction.md's "never hide unaffordable" rule),
    * just with Sign disabled. */
   claimCost: number;
+  /** Observable career signals (public on PlayerDto/profile already), so
+   * an established free agent is visibly experienced before signing —
+   * the pool spans raw teenagers to match-hardened veterans, and a
+   * manager should see which they're looking at. Never hidden potential
+   * data. */
+  careerPrizeMoney: number;
+  titleCount: number;
+  /** The tournament this free agent still has a match to play in, if any
+   * — signing them adopts them into that event mid-draw. null when they
+   * aren't currently competing (see DrizzlePlayerMatchesQuery's
+   * liveTournamentByPlayer). Singles/qualifying only. */
+  currentTournament: { id: string; name: string } | null;
   attributes: {
     technical: { serve: number; forehand: number; backhand: number; volley: number };
     physical: { speed: number; stamina: number; strength: number };

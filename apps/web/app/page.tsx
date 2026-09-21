@@ -28,7 +28,7 @@ import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { RANKING_EARNED_NOTE, WEEKS_PER_SEASON, flagFor, stageLabel } from '../lib/format';
+import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, flagFor, rankingBandScopeNote, stageLabel, type RankBand } from '../lib/format';
 import { useDevManagerId } from '../lib/managerContext';
 import { Avatar } from '../components/ui/Avatar';
 import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
@@ -131,7 +131,7 @@ const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, pri
 const FIRST_RUN_STEPS: Array<{ n: number; title: string; body: string; href: string; cta: string }> = [
   {
     n: 1,
-    title: 'Sign a prospect',
+    title: 'Sign a free agent',
     body: 'Claim a free agent from the shared talent pool. It costs XP — you start with enough for your first player.',
     href: '/scouting',
     cta: 'Browse talent pool',
@@ -159,15 +159,21 @@ type SortBy = 'fatigue' | 'stage' | 'overall' | 'name';
 // hook order stays stable regardless of how the roster is sorted/reordered.
 // ---------------------------------------------------------------------------
 
-/** Rank plate: points count up from last seen, a ▲/▼ shift chip shows how many
- *  positions the player moved, and a floating +/− points delta rises off it. */
-function AnimatedRankPlate({ playerId, rank, points }: { playerId: string; rank: number | null; points: number }) {
+/** Rank plate: the band label always leads, so the same number can never
+ * read as a contradiction with another screen's rank (an unranked U16
+ * player can still be Senior #3 — both are true, on different ladders).
+ * Points count up from last seen, a ▲/▼ shift chip shows how many
+ * positions the player moved, and a floating +/− points delta rises off it. */
+function AnimatedRankPlate({ playerId, rank, points, band }: { playerId: string; rank: number | null; points: number; band: RankBand }) {
   const prevRank = usePersistedPrevious(`roster:rank:${playerId}`, rank ?? -1);
   const prevPoints = usePersistedPrevious(`roster:pts:${playerId}`, points);
   const nr = rank == null;
   const fromRank = prevRank != null && prevRank > 0 ? prevRank : null;
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+    <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)', flexBasis: '100%' }}>
+        {RANK_BAND_LABEL[band]} ranking
+      </span>
       <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>#</span>
       <span style={{ fontSize: 26, fontWeight: 850, lineHeight: 1, letterSpacing: '-0.5px', color: nr ? 'var(--gc-ink-faint)' : 'var(--gc-gold)', fontVariantNumeric: 'tabular-nums' }}>
         {nr ? 'NR' : rank}
@@ -592,15 +598,14 @@ export default function RosterDashboardPage() {
                         <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--gc-ink-faint)' }}>OVR</span>
                       </div>
 
-                      {/* Rank */}
+                      {/* Rank — always labelled with its ladder (see
+                          AnimatedRankPlate), so a roster "#NR" can never
+                          read as contradicting a profile's "Senior #3". */}
                       <div>
-                        <AnimatedRankPlate playerId={p.id} rank={p.rank} points={p.points} />
-                        {p.rankBand !== 'senior' && (
-                          <span className="gc-badge" style={{ marginTop: 4, background: 'oklch(45% 0.1 240 / 0.3)', color: 'oklch(84% 0.09 240)' }}>{p.rankBand}</span>
-                        )}
+                        <AnimatedRankPlate playerId={p.id} rank={p.rank} points={p.points} band={p.rankBand} />
                         {p.rank == null && (
-                          <div style={{ marginTop: 5, fontSize: 10, lineHeight: 1.4, color: 'var(--gc-ink-faint)', maxWidth: 160 }}>
-                            {RANKING_EARNED_NOTE}
+                          <div style={{ marginTop: 5, fontSize: 10, lineHeight: 1.4, color: 'var(--gc-ink-faint)', maxWidth: 190 }}>
+                            {RANKING_EARNED_NOTE} {rankingBandScopeNote(p.rankBand)}
                           </div>
                         )}
                       </div>

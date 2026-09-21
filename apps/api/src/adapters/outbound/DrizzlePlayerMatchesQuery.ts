@@ -1,4 +1,4 @@
-import { eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { AgeBand, PlayerId, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
 import { players, tournamentMatches, tournaments } from '../../db/schema';
@@ -148,5 +148,47 @@ export class DrizzlePlayerMatchesQuery {
     const next = notAired.length > 0 ? toSummary(notAired[0], 'pending') : null;
 
     return { recent, next };
+  }
+
+  /**
+   * Batch sibling of `forPlayer`, built for the Scouting pool's "is this
+   * free agent already competing?" signal: for each of the given player
+   * ids, the tournament they still have a match to play in (an undecided
+   * match row), or nothing if they aren't currently alive in a draw.
+   *
+   * Why this exists: a free agent is a real Player who keeps competing
+   * while unsigned, so a manager can sign someone mid-tournament and
+   * silently adopt them into an event they never entered. One query over
+   * tournament_matches/tournaments for the whole pool, not one `forPlayer`
+   * call per free agent. Singles/qualifying only — doubles match rows are
+   * keyed by pair id, not player id, so a player only in a doubles draw
+   * won't appear here (a known, disclosed limit of this batch read).
+   */
+  async liveTournamentByPlayer(
+    playerIds: PlayerId[],
+  ): Promise<Map<PlayerId, { id: string; name: string }>> {
+    const live = new Map<PlayerId, { id: string; name: string }>();
+    if (playerIds.length === 0) return live;
+
+    const rows = await this.db
+      .select({ match: tournamentMatches, tournament: tournaments })
+      .from(tournamentMatches)
+      .innerJoin(tournaments, eq(tournaments.id, tournamentMatches.tournamentId))
+      .where(
+        and(
+          or(inArray(tournamentMatches.entrantA, playerIds), inArray(tournamentMatches.entrantB, playerIds)),
+          isNull(tournamentMatches.winnerId),
+        ),
+      );
+
+    for (const { match, tournament } of rows) {
+      for (const entrant of [match.entrantA, match.entrantB]) {
+        const pid = PlayerId(entrant);
+        if (playerIds.includes(pid) && !live.has(pid)) {
+          live.set(pid, { id: tournament.id, name: tournament.name });
+        }
+      }
+    }
+    return live;
   }
 }

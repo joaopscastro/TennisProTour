@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { roundCollapsed, roundStatus } from '../lib/bracketStatus';
 import { xpAffordability } from '../lib/xp';
+import { RANK_BAND_LABEL, rankingBandScopeNote } from '../lib/format';
 
 /**
  * Pure-logic regression tests for two first-time-visitor bugs. These need
@@ -62,5 +63,20 @@ test.describe('XP affordability — unknown is not zero', () => {
   test('an exact or surplus balance is affordable', () => {
     expect(xpAffordability(50, 50)).toEqual({ state: 'affordable' });
     expect(xpAffordability(1500, 50)).toEqual({ state: 'affordable' });
+  });
+});
+
+test.describe('rank bands are always labelled', () => {
+  test('every band has a distinct label, including Senior', () => {
+    expect(RANK_BAND_LABEL).toEqual({ senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' });
+  });
+
+  test('a junior-band scope note names the band and says other bands do not count', () => {
+    expect(rankingBandScopeNote('u16')).toContain('U16');
+    expect(rankingBandScopeNote('u16')).toContain("don't");
+  });
+
+  test('the senior scope note is about senior results specifically', () => {
+    expect(rankingBandScopeNote('senior')).toContain('senior-tour');
   });
 });

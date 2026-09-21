@@ -74,6 +74,33 @@ export const WEEKS_PER_SEASON = 52;
  * winning" copy). */
 export const RANKING_EARNED_NOTE = 'A ranking is earned by winning — a first-round loss pays no points.';
 
+/** Which independent ladder a rank belongs to. A player can hold several
+ * ranks at once (e.g. an unranked U16 player who is also Senior #3), so
+ * every rank display must carry its band or two true numbers read as a
+ * contradiction (see the first-time-user walkthrough finding this
+ * fixes). Kept local to format.ts rather than importing RankingBand
+ * from lib/api so this presentation helper has no client dependency. */
+export type RankBand = 'senior' | 'u14' | 'u16' | 'u18';
+
+export const RANK_BAND_LABEL: Record<RankBand, string> = {
+  senior: 'Senior',
+  u14: 'U14',
+  u16: 'U16',
+  u18: 'U18',
+};
+
+/** Why a rank is what it is, per ladder: each band's ranking counts ONLY
+ * results from that band's own events. Winning a senior event puts
+ * points on the Senior ladder, never a junior one, so a U14 player can
+ * legitimately be unranked in U14 while holding a Senior rank. Shown
+ * wherever a band table is empty or a player is unranked, so an
+ * "empty-looking" ladder reads as by-design rather than broken. */
+export function rankingBandScopeNote(band: RankBand): string {
+  return band === 'senior'
+    ? 'Only senior-tour results count toward the Senior ranking.'
+    : `Only ${RANK_BAND_LABEL[band]} events count toward the ${RANK_BAND_LABEL[band]} ranking — senior and other-band results don't.`;
+}
+
 export interface SetScore {
   winnerGames: number;
   loserGames: number;

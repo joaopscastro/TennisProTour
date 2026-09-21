@@ -16,7 +16,12 @@ import { requireManager } from './auth';
  * add any rarity/potential/ceiling field — that would defeat the entire
  * scouting mechanic (see PlayerGenerationPolicy's doc comments).
  */
-function toFreeAgentDto(player: Player, talentClaimPricingPolicy: TalentClaimPricingPolicy) {
+function toFreeAgentDto(
+  player: Player,
+  talentClaimPricingPolicy: TalentClaimPricingPolicy,
+  currentTournament: { id: string; name: string } | null,
+  titleCount: number,
+) {
   const { technical, physical, mental, surfaceAffinities } = player.attributes;
   return {
     id: player.id,
@@ -29,6 +34,18 @@ function toFreeAgentDto(player: Player, talentClaimPricingPolicy: TalentClaimPri
     // ageInWeeks inputs, and the same TALENT_POOL_AGE_RANGE the use
     // case itself reads, not a second guess.
     claimCost: talentClaimPricingPolicy.priceFor(player.attributes.overallRating(), player.ageInWeeks, TALENT_POOL_AGE_RANGE),
+    // Observable career signals, so an established free agent reads as
+    // established BEFORE signing rather than as a surprise afterwards
+    // (the pool deliberately spans raw teenagers to match-hardened
+    // veterans). Both are public on PlayerDto/profile already, so
+    // exposing them here leaks no hidden potential/ceiling data.
+    careerPrizeMoney: player.careerPrizeMoney,
+    titleCount,
+    // The tournament this free agent still has a match to play in, if
+    // any — signing them adopts them into that event mid-draw. null when
+    // they aren't currently competing. See DrizzlePlayerMatchesQuery's
+    // liveTournamentByPlayer.
+    currentTournament,
     attributes: {
       technical: {
         serve: technical.serve.value,
@@ -66,7 +83,21 @@ function toFreeAgentDto(player: Player, talentClaimPricingPolicy: TalentClaimPri
 export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencies): void {
   app.get('/talent-pool', async () => {
     const freeAgents = await deps.players.findFreeAgents();
-    return freeAgents.map((player) => toFreeAgentDto(player, deps.talentClaimPricingPolicy));
+    const playerIds = freeAgents.map((player) => player.id);
+    // Two batch reads for the whole pool (not one per free agent): who is
+    // currently competing, and how many titles each has already won.
+    const [liveTournaments, titleCounts] = await Promise.all([
+      deps.playerMatches.liveTournamentByPlayer(playerIds),
+      deps.titles.countByPlayers(playerIds),
+    ]);
+    return freeAgents.map((player) =>
+      toFreeAgentDto(
+        player,
+        deps.talentClaimPricingPolicy,
+        liveTournaments.get(player.id) ?? null,
+        titleCounts.get(player.id) ?? 0,
+      ),
+    );
   });
 
   app.post<{ Params: { id: string }; Body: { managerId: string } }>(

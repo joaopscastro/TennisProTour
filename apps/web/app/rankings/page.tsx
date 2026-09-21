@@ -12,6 +12,7 @@ import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, PageShell, Hero, Panel } from '../../components/ui/primitives';
 import { AnimatedNumber } from '../../components/ui/motion';
 import { useDevManagerId } from '../../lib/managerContext';
+import { RANK_BAND_LABEL, rankingBandScopeNote } from '../../lib/format';
 
 const MEDAL = ['oklch(80% 0.15 90)', 'oklch(78% 0.02 250)', 'oklch(62% 0.11 55)'];
 
@@ -50,8 +51,8 @@ export default function RankingsPage() {
         <Hero minHeight={150}>
           <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.06 90)', opacity: 0.9 }}>The Full Table</div>
           <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Player Rankings</div>
-          <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 90)', opacity: 0.85, marginTop: 5, maxWidth: 580, lineHeight: 1.5 }}>
-            Senior, U16, and U14 are separate ladders — a player is only ranked in the bands their age and results qualify them for.
+          <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 90)', opacity: 0.85, marginTop: 5, maxWidth: 620, lineHeight: 1.5 }}>
+            Senior, U18, U16, and U14 are four separate ladders — each only counts results from its own events, and a player is ranked on whichever ladders their age and results qualify them for. Winning a senior event earns Senior points, not junior ones.
           </div>
         </Hero>
 
@@ -85,7 +86,10 @@ export default function RankingsPage() {
 
         {board && board.standings.length === 0 && !error && (
           <Panel style={{ marginTop: 18, padding: '28px 20px', textAlign: 'center', color: 'var(--gc-ink-mute)', fontSize: 14 }}>
-            No player has a qualifying result in this band yet.
+            <div>No player has earned points on the {RANK_BAND_LABEL[band]} ladder yet.</div>
+            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--gc-ink-faint)', maxWidth: 560, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
+              {rankingBandScopeNote(band)} A player only appears here once they&apos;ve won a match in one of this band&apos;s own events — an empty junior table while U14-badged players have won senior matches is expected, not a bug.
+            </div>
           </Panel>
         )}
 
@@ -94,7 +98,7 @@ export default function RankingsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
                 <tr style={{ textAlign: 'left', color: 'var(--gc-ink-faint)', fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '11px 16px', width: 70 }}>Rank</th>
+                  <th style={{ padding: '11px 16px', width: 90 }}>Rank · {RANK_BAND_LABEL[board.band]}</th>
                   <th style={{ padding: '11px 16px' }}>Player</th>
                   <th style={{ padding: '11px 16px' }}>Nationality</th>
                   <th style={{ padding: '11px 16px', textAlign: 'right' }}>Points</th>

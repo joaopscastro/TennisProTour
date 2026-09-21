@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { AgeBand, PlayerId, TitleRecord, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { TitleRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
@@ -30,6 +30,23 @@ export class DrizzleTitleRepository implements TitleRepository {
   async findByPlayer(playerId: PlayerId): Promise<TitleRecord[]> {
     const rows = await this.db.select().from(titles).where(eq(titles.playerId, playerId));
     return rows.map(toTitleRecord);
+  }
+
+  /**
+   * Batch title counts for the Scouting pool's career signal — a free
+   * agent who has already won titles is visibly experienced rather than a
+   * surprise after signing. One grouped query for the whole pool, not one
+   * `findByPlayer` per free agent. Ids with no titles are simply absent
+   * from the map (callers read a missing key as 0).
+   */
+  async countByPlayers(playerIds: PlayerId[]): Promise<Map<PlayerId, number>> {
+    if (playerIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ playerId: titles.playerId, count: sql<number>`count(*)::int` })
+      .from(titles)
+      .where(inArray(titles.playerId, playerIds))
+      .groupBy(titles.playerId);
+    return new Map(rows.map((row) => [PlayerId(row.playerId), row.count]));
   }
 }
 

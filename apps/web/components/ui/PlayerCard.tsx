@@ -338,7 +338,7 @@ export function VersusPlayer({
             flexWrap: 'wrap',
           }}
         >
-          {rank && <RankPill rank={rank.rank} points={rank.points} />}
+          {rank && <RankPill rank={rank.rank} points={rank.points} bandLabel={rank.bandLabel} />}
           <FormDots history={form} max={5} />
         </div>
         {archetype ? (

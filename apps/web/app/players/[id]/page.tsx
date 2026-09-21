@@ -40,6 +40,7 @@ import {
   formatMoney,
   formatScoreline,
   matchRoundLabel,
+  rankingBandScopeNote,
   stageLabel,
   stageMeta,
   tournamentHistoryResultLabel,
@@ -411,6 +412,15 @@ export default function PlayerProfilePage() {
   }, [isFreeAgent, devManagerId]);
 
   async function handleSign() {
+    // Disclose at the point of signing: a free agent keeps competing while
+    // unsigned, so signing one mid-event adopts them into a draw they never
+    // entered (matches.next is the not-yet-aired match that proves it).
+    if (matches?.next) {
+      const ok = window.confirm(
+        `${profile?.name ?? 'This player'} is currently competing in ${matches.next.tournamentName}. Signing adopts them into that event mid-tournament — they'll join you there. Sign anyway?`,
+      );
+      if (!ok) return;
+    }
     setSigning(true);
     setSignError(null);
     try {
@@ -609,6 +619,11 @@ export default function PlayerProfilePage() {
               <div className="text-[14px] font-semibold text-white mt-[3px]">
                 Unsigned — no manager. Read the attributes, weigh the risk, and sign before a rival does.
               </div>
+              {matches?.next && (
+                <div className="text-[12.5px] mt-[4px] font-semibold" style={{ color: 'oklch(86% 0.13 55)' }}>
+                  ● Currently competing in {matches.next.tournamentName} — signing joins them there mid-tournament.
+                </div>
+              )}
               {entitlement && (
                 <div className="text-[12px] mt-[4px] text-white/70">
                   Your XP: <span className="font-bold" style={{ color: 'var(--gc-ball)' }}>{entitlement.xpBalance.toLocaleString()}</span>
@@ -837,7 +852,7 @@ export default function PlayerProfilePage() {
                 </div>
                 {entry.rank === null && (
                   <div className="text-[10px] mt-[4px] leading-[1.4]" style={{ color: 'var(--gc-ink-faint)' }}>
-                    {RANKING_EARNED_NOTE}
+                    {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
                   </div>
                 )}
               </div>

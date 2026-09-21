@@ -18,6 +18,7 @@ import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celeb
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 import { useDevManagerId } from '../../lib/managerContext';
 import { xpAffordability } from '../../lib/xp';
+import { formatMoney } from '../../lib/format';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -116,6 +117,15 @@ export default function ScoutingPage() {
 
   async function handleClaim(candidateId: string, name: string) {
     const claimed = candidates?.find((c) => c.id === candidateId) ?? null;
+    // Disclose at the point of signing: this free agent has a match still
+    // to play, so signing adopts them into that event mid-draw. Stated
+    // plainly BEFORE committing, and repeated in the success notice.
+    if (claimed?.currentTournament) {
+      const ok = window.confirm(
+        `${name} is currently competing in ${claimed.currentTournament.name}. Signing them adopts them into that event mid-tournament — they'll join you there. Sign anyway?`,
+      );
+      if (!ok) return;
+    }
     setClaimingId(candidateId);
     setError(null);
     try {
@@ -125,7 +135,11 @@ export default function ScoutingPage() {
       setClaimedOutId(candidateId);
       const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
-      showNotice(`Signed ${name} — welcome to the academy.`);
+      showNotice(
+        claimed?.currentTournament
+          ? `Signed ${name} — they'll join you mid-tournament at ${claimed.currentTournament.name}.`
+          : `Signed ${name} — welcome to the academy.`,
+      );
       await load();
       await fetchEntitlement(managerId).then(setEntitlement).catch(() => {});
       // A signing is a real event, not a silent list row — fire a claim
@@ -181,8 +195,8 @@ export default function ScoutingPage() {
             <div>
               <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.05 320)', opacity: 0.9 }}>The Talent Pool</div>
               <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Scouting</div>
-              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 320)', opacity: 0.85, marginTop: 5, maxWidth: 560, lineHeight: 1.5 }}>
-                One shared pool. Every manager sees the same faces and races to sign them first — and free agents never vanish, they keep training and ageing in the world until someone signs them.
+              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 320)', opacity: 0.85, marginTop: 5, maxWidth: 620, lineHeight: 1.5 }}>
+                One shared pool of <strong style={{ color: 'white' }}>free agents</strong> — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are mid-tournament right now. Every manager sees the same faces and races to sign them first.
                 {worldClock && (
                   <> Fresh young talent arrives in <span style={{ fontWeight: 700, color: 'white', fontVariantNumeric: 'tabular-nums' }}>{formatCountdown(refreshRemainingMs)}</span>.</>
                 )}
@@ -217,7 +231,7 @@ export default function ScoutingPage() {
         )}
 
         <div style={{ marginTop: 16, fontSize: 12.5, lineHeight: 1.5, color: 'var(--gc-ink-mute)', borderRadius: 10, padding: '11px 15px', background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)' }}>
-          A scout can tell you what a prospect can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Open a player&apos;s profile to study the full breakdown.
+          A scout can tell you what a free agent can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked <strong style={{ color: 'var(--gc-ink-dim)' }}>Competing</strong> is mid-tournament and will join you there. Open a player&apos;s profile to study the full breakdown.
         </div>
 
         {error && (
@@ -283,6 +297,35 @@ export default function ScoutingPage() {
                     className={`gc-rise${claimedOut ? ' gc-claimed-out' : ''}`}
                     style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
                     stats={<AttributeSnapshot attributes={c.attributes} />}
+                    badges={
+                      c.currentTournament || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {c.currentTournament && (
+                            <span
+                              className="gc-badge"
+                              title={`Currently competing in ${c.currentTournament.name} — signing adopts them into that event mid-tournament.`}
+                              style={{ background: 'oklch(48% 0.16 45 / 0.32)', color: 'oklch(85% 0.14 55)' }}
+                            >
+                              ● Competing · {c.currentTournament.name}
+                            </span>
+                          )}
+                          {c.titleCount > 0 && (
+                            <span className="gc-badge" style={{ background: 'oklch(48% 0.13 85 / 0.28)', color: 'oklch(88% 0.12 85)' }}>
+                              🏆 {c.titleCount} {c.titleCount === 1 ? 'title' : 'titles'}
+                            </span>
+                          )}
+                          {c.careerPrizeMoney > 0 && (
+                            <span
+                              className="gc-badge"
+                              title="Career prize money earned on tour"
+                              style={{ background: 'oklch(45% 0.05 250 / 0.3)', color: 'oklch(85% 0.05 250)' }}
+                            >
+                              {formatMoney(c.careerPrizeMoney)} career
+                            </span>
+                          )}
+                        </div>
+                      ) : undefined
+                    }
                     footer={
                       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
                         <div>

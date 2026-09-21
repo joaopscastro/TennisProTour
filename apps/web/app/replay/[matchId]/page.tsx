@@ -19,7 +19,7 @@ import { Sidebar } from '../../../components/Sidebar';
 import { MatchReplayPlayer } from '../../../components/MatchReplayPlayer';
 import { AppFrame } from '../../../components/ui/primitives';
 import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
-import { flagFor, matchRoundLabel } from '../../../lib/format';
+import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -187,7 +187,10 @@ export default function ReplayPage() {
             .filter((r) => r.rank !== null)
             .sort((a, b) => (a.rank as number) - (b.rank as number))[0];
           if (!ranked) return null;
-          return { rank: ranked.rank, points: ranked.totalPoints };
+          // Carry the band label with the rank — the "best" rank may come
+          // from a different ladder than the other participant's, so an
+          // unlabelled "#3" here would contradict a roster/profile rank.
+          return { rank: ranked.rank, points: ranked.totalPoints, bandLabel: RANK_BAND_LABEL[ranked.band] };
         };
 
         let nextReplayHref: string | null = null;
