@@ -11,6 +11,7 @@ import {
   TournamentEntrant,
   TournamentTier,
   drawOf,
+  entryTypeOf,
   isJuniorTier,
 } from './CompetitionTypes';
 import { GameDay, addDays } from '../world/GameWorld';
@@ -354,6 +355,22 @@ export class Tournament {
    * nor wild cards, so nothing changes for those tournaments. */
   get mainDrawCapacity(): number {
     return this.drawSize - this.qualifierSlots - this.wildCardSlots;
+  }
+
+  /** How many main-draw places the automatic wild card algorithm has
+   * ACTUALLY awarded so far — entrants who have been moved into the main
+   * draw with `entryType: 'WC'` (see grantWildCard). The canonical count:
+   * the tournament DTO's `wildCardSlotsTaken` and the draw-fill capacity
+   * math both read this, so the two can never drift into near-copies.
+   *
+   * This is deliberately distinct from `wildCardSlots` (the number
+   * RESERVED): a tournament whose host country matches none of its
+   * qualifying registrants awards zero, leaving every reserved place
+   * empty. Those un-awarded places are fillable from the pool (see
+   * StartDueTournamentsUseCase) — only the awarded ones are actually
+   * occupied. */
+  get wildCardSlotsTaken(): number {
+    return this._entrants.filter((entrant) => entryTypeOf(entrant) === 'WC').length;
   }
 
   /** Total rounds the qualifying bracket plays before exactly

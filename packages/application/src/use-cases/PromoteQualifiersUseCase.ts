@@ -105,17 +105,29 @@ export class PromoteQualifiersUseCase {
       }
 
       let bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
-      // A main draw thin enough that every entrant would get a bye can't
-      // be started (see Tournament.startWithBracket). Unlike an open
-      // tournament — where StartDueTournamentsUseCase just leaves it open
-      // and retries a later tick with more fillers — the promotions are
-      // already recorded by this point and can't be thrown away, so the
-      // SAME filler padding is applied here instead: top the main draw up
-      // from the eligible fill-only pool, then re-generate. Without this a
-      // qualifying event can permanently dead-end in the "promoted, but
-      // never seedable" state — confirmed live in a 3-season soak run
-      // (3 tournaments stuck started-but-main-draw-less forever).
-      if (bracket[0].matches.length === 0 && this.players) {
+      // Top the main draw up from the eligible fill-only pool, then
+      // re-generate, whenever it is short of a full draw. Two reasons it
+      // can be short, and both are fixed here rather than left to drift:
+      //
+      //  (1) A draw thin enough that every entrant would get a bye can't
+      //      be started at all (see Tournament.startWithBracket). Unlike
+      //      an open tournament — where StartDueTournamentsUseCase just
+      //      leaves it open and retries a later tick with more fillers —
+      //      the promotions are already recorded by this point and can't
+      //      be thrown away. Without padding, a qualifying event can
+      //      permanently dead-end in the "promoted, but never seedable"
+      //      state (confirmed live in a 3-season soak: 3 tournaments stuck
+      //      started-but-main-draw-less forever).
+      //
+      //  (2) A tournament that auto-started on full registration (see
+      //      RegisterEntrantUseCase.isFullyRegistered) never passes
+      //      through StartDueTournamentsUseCase's own fill, so any
+      //      wild-card places the algorithm did NOT award would otherwise
+      //      stay empty and the draw would start `wildCardSlots` short —
+      //      the same structural shortfall the un-awarded-wildcard fill
+      //      closes there. At this point the qualifiers are promoted, so
+      //      the only correct target is a FULL draw (`drawSize`).
+      if (tournament.mainEntrants.length < tournament.drawSize && this.players) {
         const needed = tournament.drawSize - tournament.mainEntrants.length;
         await fillDrawSlots({ players: this.players, tournaments: this.tournaments }, tournament, needed, 'main', (entrant) =>
           tournament.addMainDrawFiller(entrant.playerId),

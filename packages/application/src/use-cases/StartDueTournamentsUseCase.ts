@@ -3,6 +3,7 @@ import {
   DrawPhase,
   RankingBand,
   Tournament,
+  TournamentEntrant,
   weeksBetween,
   WorldId,
 } from '@tennis-manager/domain';
@@ -209,7 +210,22 @@ export class StartDueTournamentsUseCase {
           filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying');
         }
       }
-      const needed = tournament.mainDrawCapacity - tournament.mainEntrants.length;
+      // The main draw's fill target. Wild cards actually AWARDED (by
+      // applyWildCards above) already occupy their reserved places and
+      // are counted in `mainEntrants`; the places the algorithm did NOT
+      // award (its reserved slot count minus what it handed out) are
+      // fillable from the pool exactly like a direct-acceptance place.
+      // So the direct+filler capacity is
+      //   drawSize − qualifierSlots − wildCardsTaken,
+      // NOT the static mainDrawCapacity (which subtracts ALL reserved
+      // wild-card slots). Without this, an event whose host country
+      // matched no qualifying registrant started `wildCardSlots` short
+      // even when the filler pool was abundant — a structural shortfall,
+      // unlike the accepted supply-driven one (see AGENTS.md).
+      const wildCardsTaken = tournament.wildCardSlotsTaken;
+      const mainDrawFillTarget = tournament.drawSize - tournament.qualifierSlots - wildCardsTaken;
+      const directlyFilled = tournament.mainEntrants.length - wildCardsTaken;
+      const needed = mainDrawFillTarget - directlyFilled;
       if (needed > 0) {
         filled += await this.fillSlots(tournament, needed);
       }
@@ -284,7 +300,28 @@ export class StartDueTournamentsUseCase {
       tournament,
       needed,
       draw,
-      (entrant) => tournament.registerEntrant(entrant),
+      draw === 'qualifying'
+        ? (entrant) => tournament.registerEntrant(entrant)
+        : (entrant) => this.addMainDrawEntrant(tournament, entrant),
     );
+  }
+
+  /**
+   * Adds a filler to the MAIN draw. A DIRECT-acceptance place goes in
+   * through `registerEntrant` — the aggregate enforces that capacity, and
+   * a filler must never take a place reserved for a qualifier. Once the
+   * direct places are gone, the remainder of the fill target can only be
+   * un-awarded WILD-CARD places, which `addMainDrawFiller` fills (legal
+   * before the main bracket is seeded, which is exactly where this runs).
+   * Keeping the two paths explicit is what preserves the aggregate's
+   * capacity invariant while still letting an un-awarded reserved place
+   * be filled.
+   */
+  private addMainDrawEntrant(tournament: Tournament, entrant: TournamentEntrant): void {
+    if (tournament.mainEntrants.length < tournament.mainDrawCapacity) {
+      tournament.registerEntrant(entrant);
+      return;
+    }
+    tournament.addMainDrawFiller(entrant.playerId);
   }
 }

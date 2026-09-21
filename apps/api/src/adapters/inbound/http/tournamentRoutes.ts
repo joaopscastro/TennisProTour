@@ -171,7 +171,7 @@ export function toTournamentDto(
      * taken — 0/0 at every junior tier, which is what lets the UI stay
      * silent about wild cards there, same pattern as qualifierSlots. */
     wildCardSlots: tournament.wildCardSlots,
-    wildCardSlotsTaken: tournament.entrants.filter((e) => entryTypeOf(e) === 'WC').length,
+    wildCardSlotsTaken: tournament.wildCardSlotsTaken,
     /** True when a top-ranked player is OBLIGATED to count this event
      * even if they skip it (ObligatoryTournamentPolicy) — surfaced so
      * the rule is legible to managers rather than a hidden penalty. */

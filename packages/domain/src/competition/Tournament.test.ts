@@ -274,6 +274,18 @@ describe('Tournament — wild cards (WildCardPolicy)', () => {
     expect(() => tournament.grantWildCard(PlayerId('ghost'))).toThrow(/not a registered entrant/);
   });
 
+  it('counts the wild cards actually awarded via the canonical wildCardSlotsTaken accessor', () => {
+    const tournament = withWildCards();
+    expect(tournament.wildCardSlotsTaken).toBe(0);
+    tournament.registerEntrant({ playerId: PlayerId('q1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('q2'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.grantWildCard(PlayerId('q1'));
+    expect(tournament.wildCardSlotsTaken).toBe(1);
+    // The other reserved slot (2 reserved) was never awarded, so it is
+    // still empty and fillable — distinct from `wildCardSlots`.
+    expect(tournament.wildCardSlots).toBe(2);
+  });
+
   it('refuses a wild card for a player already in the main draw (nothing to promote them from)', () => {
     const tournament = withWildCards();
     tournament.registerEntrant({ playerId: PlayerId('da1'), seed: 1 });

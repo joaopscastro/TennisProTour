@@ -387,6 +387,60 @@ describe('StartDueTournamentsUseCase — automatic wild cards', () => {
     const saved = await tournaments.findById(TournamentId('t-weekly-wc-fillers'));
     expect(saved!.entrants.some((e) => e.entryType === 'WC')).toBe(false);
   });
+
+  it('fills un-awarded wild-card places: no local qualifier still reaches a full main draw from the pool', async () => {
+    // A `tour` event reserves 2 wild-card places, but its host country
+    // ("Brazil") matches no real qualifying registrant, so the algorithm
+    // awards 0. Those 2 reserved-but-un-awarded places must still be
+    // fillable — otherwise the main draw starts wildCardSlots short even
+    // with a plentiful pool (the structural shortfall this closes).
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 1 });
+    const tournament = openTourTournamentWithWildCards('t-weekly-wc-none', 'Brazil');
+    await tournaments.save(tournament);
+    for (let i = 1; i <= 30; i++) {
+      await players.save(fillOnlyPlayer(`filler-none-${i}`, 25 * 52));
+    }
+
+    await useCase.execute({ worldId });
+
+    const saved = (await tournaments.findById(TournamentId('t-weekly-wc-none')))!;
+    expect(saved.wildCardSlotsTaken).toBe(0);
+    // 12 direct places + the 2 reserved-but-un-awarded wild-card places =
+    // 14 main-draw entrants, proving the fill went PAST the static
+    // mainDrawCapacity of 12. (The 8 qualifying places are filled
+    // separately, and the 2 qualifier places stay reserved.)
+    expect(saved.mainEntrants).toHaveLength(14);
+    expect(saved.mainEntrants.length).toBeGreaterThan(saved.mainDrawCapacity);
+    expect(saved.mainEntrants.length).toBeLessThanOrEqual(saved.drawSize - saved.qualifierSlots);
+  });
+
+  it('does not overfill when wild cards ARE awarded — the main draw never exceeds drawSize', async () => {
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 1 });
+    const tournament = openTourTournamentWithWildCards('t-weekly-wc-full', 'Brazil');
+    // Direct acceptances fill mainDrawCapacity (12) exactly.
+    for (let i = 1; i <= 12; i++) {
+      tournament.registerEntrant({ playerId: PlayerId(`da${i}`), seed: i });
+    }
+    // Two local qualifying registrants, both promoted as wild cards.
+    tournament.registerEntrant({ playerId: PlayerId('br1'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    tournament.registerEntrant({ playerId: PlayerId('br2'), seed: null, draw: 'qualifying', entryType: 'Q' });
+    await tournaments.save(tournament);
+    for (let i = 1; i <= 30; i++) {
+      await players.save(fillOnlyPlayer(`filler-full-${i}`, 25 * 52));
+    }
+    await players.save(Player.hire(PlayerId('br1'), 'BR One', 25 * 52, attributes(50), ManagerId('m1'), 'Brazil'));
+    await players.save(Player.hire(PlayerId('br2'), 'BR Two', 25 * 52, attributes(50), ManagerId('m1'), 'Brazil'));
+
+    await useCase.execute({ worldId });
+
+    const saved = (await tournaments.findById(TournamentId('t-weekly-wc-full')))!;
+    expect(saved.wildCardSlotsTaken).toBe(2);
+    // 12 direct + 2 awarded wild cards = 14 main-draw entrants; the 2
+    // qualifier places stay reserved, so the main draw is
+    // drawSize (16) − 2 = 14 — never 16 and never over.
+    expect(saved.mainEntrants).toHaveLength(14);
+    expect(saved.mainEntrants.length).toBeLessThanOrEqual(saved.drawSize);
+  });
 });
 
 describe('StartDueTournamentsUseCase — abandoned-draw expiry', () => {

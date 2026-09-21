@@ -106,7 +106,7 @@ function decide(winner: PlayerId, loser: PlayerId): MatchOutcome {
  * 2 rounds), played out through the aggregate's own API — never by
  * reaching into its state.
  */
-function openWithQualifying(id: TournamentId, directAcceptances: number): Tournament {
+function openWithQualifying(id: TournamentId, directAcceptances: number, wildCardSlots = 0): Tournament {
   const tournament = Tournament.open({
     id,
     name: 'Qualifying Bridge Open',
@@ -116,6 +116,7 @@ function openWithQualifying(id: TournamentId, directAcceptances: number): Tourna
     drawSize: 16,
     qualifyingDrawSize: qualifyingDrawSizeFor('tour', 16),
     qualifierSlots: qualifierSlotsFor('tour', 16),
+    wildCardSlots,
   });
   for (let i = 1; i <= directAcceptances; i++) {
     tournament.registerEntrant({ playerId: PlayerId(`da${i}`), seed: i, entryType: 'DA' });
@@ -300,6 +301,32 @@ describe('PromoteQualifiersUseCase', () => {
     expect(result.mainDrawsSeeded).toBe(1);
     const saved = (await tournaments.findById(TournamentId('t-sparse-padded')))!;
     expect(saved.hasMainDraw).toBe(true);
+    expect(saved.mainEntrants).toHaveLength(16);
+  });
+
+  it('pads the un-awarded wild-card places of an auto-started event up to a full draw', async () => {
+    // A tournament that auto-started on full registration never passes
+    // through StartDueTournamentsUseCase's fill, so the 2 wild-card
+    // places its host country never awarded would otherwise be empty and
+    // the main draw would seed at 14 on a 16-draw. The main draw must be
+    // topped up to a full 16 from the pool instead.
+    const tournaments = new InMemoryTournamentRepository();
+    const tournament = openWithQualifying(TournamentId('t-wildcard-short'), 12, 2);
+    playOutQualifying(tournament);
+    await tournaments.save(tournament);
+
+    const players = new InMemoryPlayerRepository();
+    for (let i = 1; i <= 20; i++) await players.save(filler(`wc-fill-${i}`));
+
+    const useCase = new PromoteQualifiersUseCase(tournaments, new BracketGenerator(), players);
+    const result = await useCase.execute({ worldId: WORLD });
+
+    expect(result.promoted).toBe(2);
+    expect(result.mainDrawsSeeded).toBe(1);
+    const saved = (await tournaments.findById(TournamentId('t-wildcard-short')))!;
+    expect(saved.hasMainDraw).toBe(true);
+    // 12 direct + 2 qualifiers = 14, plus the 2 un-awarded wild-card
+    // places filled from the pool = a full 16-draw.
     expect(saved.mainEntrants).toHaveLength(16);
   });
 });
