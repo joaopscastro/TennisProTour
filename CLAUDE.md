@@ -1653,6 +1653,50 @@ Two frontend-first fixes from four independent LLM agents walking the UI cold. N
 
 Test counts after this pass: domain 379, application 260, api 126 (was 123 — new batch-query and competing-free-agent cases), worker 11; full `tsc --build --force` and `apps/web` typecheck clean.
 
+## Entry-flow pass (naive-user walkthrough — four findings)
+
+A frontend-only pass fixing the entry flow. No new backend concepts: every
+change reuses the existing `GET /tournaments?status=open&playerId=`,
+`POST /tournaments/:id/entrants` and roster reads. The pure sort/filter/
+group/refusal rules live in `apps/web/lib/tournamentPick.ts`, pinned by
+`apps/web/e2e/tournament-pick.spec.ts` (same pattern as `bracketStatus.ts`).
+
+- **Finding A — the entry picker was an unusable flat list.** Agents saw
+  "~230-250 tournament buttons", no search, a 13-year-old offered senior
+  majors, and scrambled week order (season-1 week 9 before week 3).
+  `EnterTournamentModal.tsx` now (1) sorts by absolute week
+  (`season*52+week`, nearest first), then senior-before-junior, then tier;
+  (2) defaults to an **Eligible** circuit filter (the player's age band)
+  with explicit All/Senior/Junior chips plus surface chips and a search
+  box; (3) sections the list by circuit+week; and (4) no longer HIDES
+  blocked rows — full qualifying fields and full main draws stay visible
+  and disabled with the real reason (`tournamentRefusalReason`), instead
+  of the previous silent filter-out.
+- **Finding B — no visible selection.** The selected row now has a 2px
+  ball border + focus ring + accent bar + a "✓ Selected" pill and
+  `aria-pressed`, in both `EnterTournamentModal` and the planner's
+  `WeekRegisterPicker`; the old subtle 1.5px border change was not noticed.
+- **Finding C — no singles entry on a tournament's own page.** The page
+  offered only "Enter a player in doubles". New
+  `components/SinglesEntryPanel.tsx` mirrors that control (roster dropdown
+  → `registerEntrant`) for singles, previews eligibility from the same
+  player-scoped open list so age/cap/qualifying refusals show before the
+  click, surfaces the server's refusal verbatim, and points to the Planner
+  (`/tournaments#planner`, a client-only hash deep link).
+- **Finding D — `Junior` on Browse showed nothing.** REAL CAUSE: the
+  browse filters combine category AND tier, and the persisted default tier
+  selection is `['tour']` (senior-only). Selecting Junior left an
+  impossible Junior + Tier=Tour combination selected, so every row failed
+  `matchesFilters` and both sections read "No open tournaments match your
+  filters" — even though the same `open` array held the junior events the
+  picker listed. Fix: `pruneTiersForCategory` drops now-inapplicable tier
+  chips whenever the category changes (and sanitizes persisted filters on
+  load), and `FilterBar` only renders tier chips that can match the chosen
+  category. The filter now shows what its label claims.
+
+Test counts after this pass: domain 379, application 260, api 126, worker
+11 (all unchanged); `apps/web` typecheck and `next build` clean.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
