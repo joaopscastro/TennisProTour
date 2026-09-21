@@ -161,7 +161,20 @@ export default function ScoutingPage() {
         ]);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      // A lost claim race is a real, expected outcome (another manager signed
+      // them first — atomic claimAndCharge refuses the loser with a 409), not a
+      // silent no-op. Say so plainly AND refresh the pool so the stale card
+      // disappears with an explanation, instead of leaving the agent to guess
+      // why nothing happened. Every other failure surfaces the server's own
+      // message rather than swallowing it.
+      const status = (e as { status?: number }).status;
+      const serverMessage = e instanceof Error ? e.message : String(e);
+      const message =
+        status === 409
+          ? `Another manager signed ${name} first — they're no longer available. The pool has been refreshed.`
+          : `Couldn't sign ${name}: ${serverMessage}`;
+      setError(message);
+      showNotice(message);
       await load();
     } finally {
       setClaimingId(null);

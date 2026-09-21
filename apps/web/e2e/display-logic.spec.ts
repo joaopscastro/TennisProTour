@@ -1,6 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../lib/bracketStatus';
-import { hasAired, matchAirState } from '../lib/matchAir';
+import { hasAired, matchAirState, matchAirStateForDto } from '../lib/matchAir';
+import { nextPendingEntry } from '../lib/pendingEntry';
+import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
 import { RANK_BAND_LABEL, rankingBandScopeNote } from '../lib/format';
 
@@ -92,6 +94,25 @@ test.describe('match air state (one predicate for bracket + replay)', () => {
     expect(matchAirState(decided(null), now)).toBe('aired');
     expect(matchAirState({ decided: false, scheduledStartAt: '2026-01-01T13:00:00Z', revealSeconds: 900 }, now)).toBe('aired');
   });
+
+  test('the DTO adapter applies the SAME predicate to every bracket draw', () => {
+    // This is the adapter the qualifying panel, both doubles panels and the
+    // replay now read — a decided-but-not-yet-aired DTO row must report
+    // 'upcoming', not 'aired', or the bracket leaks a score the replay calls
+    // "Premieres at …". The exact bug: a qualifying match rendered its
+    // `outcome` directly while its replay correctly withheld it.
+    const decidedDto = (scheduledStartAt: string | null, revealSeconds = 900) => ({
+      outcome: { winner: 'a', loser: 'b', setScores: [] },
+      scheduledStartAt,
+      revealSeconds,
+    });
+    expect(matchAirStateForDto(decidedDto('2026-01-01T13:00:00Z'), now)).toBe('upcoming');
+    expect(matchAirStateForDto(decidedDto('2026-01-01T11:55:00Z'), now)).toBe('live');
+    expect(matchAirStateForDto(decidedDto('2026-01-01T11:00:00Z'), now)).toBe('aired');
+    // An undecided row has nothing to hide, and an absent schedule is aired.
+    expect(matchAirStateForDto({ outcome: null, scheduledStartAt: null }, now)).toBe('aired');
+    expect(matchAirStateForDto(decidedDto(null), now)).toBe('aired');
+  });
 });
 
 test.describe('XP affordability — unknown is not zero', () => {
@@ -107,6 +128,38 @@ test.describe('XP affordability — unknown is not zero', () => {
   test('an exact or surplus balance is affordable', () => {
     expect(xpAffordability(50, 50)).toEqual({ state: 'affordable' });
     expect(xpAffordability(1500, 50)).toEqual({ state: 'affordable' });
+  });
+});
+
+test.describe('pending tournament entry (roster "what next")', () => {
+  const week = (
+    season: number,
+    w: number,
+    entries: Array<{ id: string; name: string; tier: string; hasStarted: boolean }>,
+  ) => ({ week: { season, week: w }, entries }) as unknown as PlannerWeekDto;
+
+  test('no planner or no entries means no pending entry', () => {
+    expect(nextPendingEntry(null)).toBeNull();
+    expect(nextPendingEntry(undefined)).toBeNull();
+    expect(nextPendingEntry([week(1, 1, [])])).toBeNull();
+  });
+
+  test('picks the earliest not-yet-drawn entry and skips already-started ones', () => {
+    const planner = [
+      week(1, 1, [{ id: 'played', name: 'Already Started', tier: 'j30', hasStarted: true }]),
+      week(1, 3, [{ id: 'open', name: 'Ireland Classic', tier: 'j30', hasStarted: false }]),
+      week(1, 5, [{ id: 'later', name: 'Later Open', tier: 'j60', hasStarted: false }]),
+    ];
+    expect(nextPendingEntry(planner)).toEqual({
+      tournamentId: 'open',
+      name: 'Ireland Classic',
+      tier: 'j30',
+      week: { season: 1, week: 3 },
+    });
+  });
+
+  test('a planner with only started events yields nothing (the match read takes over)', () => {
+    expect(nextPendingEntry([week(1, 2, [{ id: 's', name: 'Started', tier: 'tour', hasStarted: true }])])).toBeNull();
   });
 });
 

@@ -7,6 +7,7 @@ import {
   EntitlementDto,
   PlayerLifecycleStage,
   PlayerMatchesDto,
+  PlannerWeekDto,
   RosterDashboardEntryDto,
   Surface,
   TrainingFocus,
@@ -16,6 +17,7 @@ import {
   dissolveDoublesPair,
   fetchDoublesPairs,
   fetchEntitlement,
+  fetchEntryPlanner,
   fetchPlayerMatches,
   fetchRosterDashboard,
   fetchWorldClock,
@@ -24,6 +26,7 @@ import {
   setTrainingFocus,
 } from '../lib/api';
 import { useCountdown, formatCountdown, formatCountdownClock } from '../lib/useCountdown';
+import { nextPendingEntry, type PendingEntry } from '../lib/pendingEntry';
 import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
@@ -211,14 +214,26 @@ function AnimatedAffinityBar({ playerId, surfaceKey, value, letter }: { playerId
  * match that already has a scheduled reveal start. A truly pending
  * match (no schedule yet — its round isn't due) honestly reads
  * "awaiting simulation" rather than counting down to a time that
- * doesn't exist yet. */
-function RosterNextMatch({ matches }: { matches: PlayerMatchesDto | null | undefined }) {
+ * doesn't exist yet. When there is no match at all, a pending TOURNAMENT
+ * ENTRY is shown instead ("draw not yet made") so a just-made entry is
+ * visible immediately — never a faked match, never a bare "nothing". */
+function RosterNextMatch({ matches, pendingEntry }: { matches: PlayerMatchesDto | null | undefined; pendingEntry?: PendingEntry | null }) {
   const next = matches?.next ?? null;
   const remainingMs = useCountdown(next?.scheduledStartAt ?? null);
   // Still loading (no entry yet) — render nothing rather than flashing
   // "No match scheduled" before the per-player read comes back.
   if (matches === undefined) return null;
   if (!next) {
+    if (pendingEntry) {
+      return (
+        <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-mute)' }}>
+          <span style={{ color: 'var(--gc-ink-dim)', fontWeight: 600 }}>Entered:</span> {pendingEntry.name}
+          <span style={{ color: 'var(--gc-ink-faint)' }}>
+            {' '}· S{pendingEntry.week.season} W{pendingEntry.week.week} — draw not yet made
+          </span>
+        </div>
+      );
+    }
     return (
       <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-faint)' }}>No match scheduled</div>
     );
@@ -252,6 +267,11 @@ export default function RosterDashboardPage() {
   // when something is actually going to happen without faking a countdown
   // for a match that hasn't been scheduled yet.
   const [matchesByPlayer, setMatchesByPlayer] = useState<Record<string, PlayerMatchesDto | null>>({});
+  // Same per-player read pattern for pending entries: GET
+  // /players/:id/entry-planner (already exists — no new backend concept)
+  // lets a roster row show "Entered: X — draw not yet made" for a tournament
+  // whose draw hasn't been seeded, which has no match to show otherwise.
+  const [plannerByPlayer, setPlannerByPlayer] = useState<Record<string, PlannerWeekDto[] | null>>({});
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<SortBy>('fatigue');
@@ -272,14 +292,21 @@ export default function RosterDashboardPage() {
       setEntitlement(ent);
       setDoublesPairs(pairs);
       setWorldClock(clock);
-      // One "next match" read per roster player — the roster cap is tiny
-      // (2/4), so N parallel GETs to the existing per-player route is
-      // cheaper than a new read model. Failures degrade to "no match"
+      // One "next match" + one "pending entry" read per roster player — the
+      // roster cap is tiny (2/4), so N parallel GETs to the existing per-player
+      // routes is cheaper than a new read model. Failures degrade to "no match"
       // rather than blanking the board.
-      const matchEntries = await Promise.all(
-        roster.map(async (p) => [p.id, await fetchPlayerMatches(p.id).catch(() => null)] as const),
+      const perPlayer = await Promise.all(
+        roster.map(async (p) => {
+          const [matches, planner] = await Promise.all([
+            fetchPlayerMatches(p.id).catch(() => null),
+            fetchEntryPlanner(p.id).catch(() => null),
+          ]);
+          return [p.id, { matches, planner }] as const;
+        }),
       );
-      setMatchesByPlayer(Object.fromEntries(matchEntries));
+      setMatchesByPlayer(Object.fromEntries(perPlayer.map(([id, v]) => [id, v.matches])));
+      setPlannerByPlayer(Object.fromEntries(perPlayer.map(([id, v]) => [id, v.planner])));
     } catch (e) {
       setPlayers(null);
       setEntitlement(null);
@@ -290,6 +317,22 @@ export default function RosterDashboardPage() {
 
   useEffect(() => {
     void load(managerId);
+  }, [managerId, load]);
+
+  // Keep the displayed balance (and roster) on the ONE entitlement source when
+  // the tab regains focus or is restored from the back/forward cache. Without
+  // this the roster could keep showing a stale XP figure while another surface
+  // (e.g. Scouting) showed the current one — the exact contradiction reported.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === 'visible') void load(managerId);
+    };
+    window.addEventListener('pageshow', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    return () => {
+      window.removeEventListener('pageshow', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+    };
   }, [managerId, load]);
 
   const tier = entitlement?.tier ?? 'free';
@@ -588,7 +631,7 @@ export default function RosterDashboardPage() {
                           <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 2 }}>
                             Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)} · <span style={{ color: 'var(--gc-ink-faint)' }}>{p.lastResult ?? 'No matches yet'}</span>
                           </div>
-                          <RosterNextMatch matches={matchesByPlayer[p.id]} />
+                          <RosterNextMatch matches={matchesByPlayer[p.id]} pendingEntry={nextPendingEntry(plannerByPlayer[p.id])} />
                         </div>
                       </div>
 

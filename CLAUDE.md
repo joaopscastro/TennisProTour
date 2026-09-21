@@ -1765,6 +1765,69 @@ Test counts after this pass: domain 379, application 260, api 130 (was
 `apps/web` typecheck clean; new pure web cases in `display-logic.spec.ts`
 (17 total) and a new live click case.
 
+## Third naive-walkthrough pass (qualifying score leak, exposed Simulate, XP source, silent lost claim, pending entry)
+
+A third round of first-time-user walkthroughs found five issues, two of them
+variants of bugs already reported fixed. No game systems or balance constants
+changed; the `advance-world-day` handler was deliberately not touched.
+
+- **Qualifying (and doubles) results leaked before their premiere — the shared
+  air predicate only covered the MAIN draw.** A decided-but-not-yet-aired
+  qualifying match rendered "Tomás Costa def. João Larsson 6-2, 6-1" in the
+  bracket while its own replay page correctly said "Premieres at …". The
+  `QualifyingPanel` and both doubles panels read `match.outcome` directly
+  (`apps/web/app/tournaments/[id]/page.tsx`); the main bracket and the replay
+  already shared `lib/matchAir`. Fix: a new `matchAirStateForDto` adapter
+  (`apps/web/lib/matchAir.ts`) is now the ONE "has this aired" test for EVERY
+  draw (main, qualifying, doubles main, doubles qualifying) — a not-yet-aired
+  row reads "X v Y" (or a "Starts in …"/"Live now" line) and is not a replay
+  link, and becomes a normal result once aired. The replay page also
+  re-evaluates its air state on a 1s tick (it used to freeze the value seen at
+  fetch time), so the two views can never drift. Verified in a real browser via
+  a mocked Playwright spec (`apps/web/e2e/air-gate.spec.ts`) plus a pure
+  `matchAirStateForDto` case in `display-logic.spec.ts`.
+- **The manual `Simulate` button was visible on the player-facing bracket.**
+  It is the admin/dev `POST /tournaments/:id/matches/:round/:index/simulate`
+  override. **The route was NOT already admin-gated — it used `requireManager`
+  only**, so any authenticated manager could force-simulate any match. Both
+  fixed: the control is removed from the bracket, and the route now uses
+  `requireInternalAdmin` (the same server-to-server gate as tournament
+  open/open-registration). The GC-16 title celebration, which used to hang off
+  that button, now reacts to the loaded tournament instead. Covered by a
+  browser assertion that no `Simulate` control exists (`air-gate.spec.ts`) and
+  an API test that a plain manager token gets 403.
+- **The XP figure contradicted itself across screens (homepage 1500, Scouting
+  500).** Every surface already read the SAME source (`GET
+  /managers/:id/entitlement` — homepage, sidebar and Scouting all call
+  `fetchEntitlement`; there is no hardcoded literal and no second fetch). The
+  observed difference is the known starter-XP grant race (a first page load
+  fires several parallel manager-scoped requests, each of which can create the
+  account and credit `STARTER_XP_BALANCE`, so the first screen can transiently
+  read 2-3× the real balance) — explicitly out of scope and NOT changed here.
+  In-scope: the roster now refetches its entitlement (and roster) on
+  `visibilitychange`/`pageshow`, so it can never keep showing a stale balance
+  while another surface shows the current one. The grant race is unchanged.
+- **A lost claim race was silent.** The atomic `claimAndCharge` correctly
+  returned 409 when another manager signed the agent first, but Scouting only
+  set a top-of-page error banner and refreshed the pool — so the card vanished
+  with no explanation. Fix: the catch now shows a specific toast ("Another
+  manager signed <name> first — they're no longer available. The pool has been
+  refreshed.") and refreshes the pool, and every other failure surfaces the
+  server's message instead of swallowing it. Covered by a mocked-browser
+  Playwright spec (`apps/web/e2e/scouting-claim.spec.ts`).
+- **The roster did not show a pending tournament entry.** After "Entered
+  Ireland Classic (j30, clay)" the row still read "No match scheduled" — honest
+  (no match exists until the draw is made) but unhelpful. Fix: the roster now
+  also reads the EXISTING `GET /players/:id/entry-planner` per player (no new
+  backend concept) and, when there is no next match, shows "Entered: <name>,
+  S<season> W<week> — draw not yet made". Pure `nextPendingEntry` helper
+  (`apps/web/lib/pendingEntry.ts`) pinned in `display-logic.spec.ts`.
+
+Test counts after this pass: domain 379, application 260, api 131 (was 130 —
+one new admin-gate case), worker 11 — all green, none below baseline; root
+`tsc --build --force` and `apps/web` typecheck clean; the mocked Playwright
+suites (`air-gate`, `scouting-claim`, `display-logic`) pass in a real browser.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
