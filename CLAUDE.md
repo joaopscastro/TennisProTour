@@ -1697,6 +1697,74 @@ group/refusal rules live in `apps/web/lib/tournamentPick.ts`, pinned by
 Test counts after this pass: domain 379, application 260, api 126, worker
 11 (all unchanged); `apps/web` typecheck and `next build` clean.
 
+## Second naive-walkthrough pass (six fixes + two harness verdicts)
+
+A frontend/API pass closing six issues found by a second round of
+first-time-user walkthroughs. No game systems or balance constants changed.
+The `advance-world-day` handler was deliberately not touched.
+
+- **Decided bracket cards: the earlier round-status fix was INCOMPLETE, and
+  the real cause was NOT a round mislabelled "Decided".** The prior pass
+  correctly stopped *undecided* rows from being replay links, but a genuinely
+  decided card was already a real `next/link` anchor. Reproduced in the
+  ux-probe browser against a decided card earlier reported dead ("Kenji
+  Müller def. Marta Andersson 6-4, 6-3"): the driver's journal recorded the
+  URL unchanged, yet the server log showed the click DID fire a
+  `GET /replay/…` — Next's App Router does not update the URL until the
+  destination's RSC payload resolves, and a cold (dev) replay route took
+  ~2s to compile, so the click read as dead; the same click warm navigated
+  instantly. Fix: decided replay cards are now plain `<a href>` (real,
+  focusable, keyboard-navigable) so the URL changes natively and
+  immediately. Test: `first-session.live.spec.ts` `(iv-b)`.
+- **Contradictory round status: the badge came from the reveal state but
+  the subtitle counted decided matches.** A round all-simulated-but-still-
+  revealing read "Airing — 8 of 8 played" while its own cards said "Starts in
+  0:14", and "★ CHAMPION" appeared before the final had aired. Fixed by
+  deriving the subtitle from the SAME per-match air states the cards use
+  (`roundSubtitle` in `lib/bracketStatus.ts`) and gating the champion banner
+  and `Tournament complete` on the final having aired. Verified live by
+  pushing the demo final's reveal into the future: the header read "Final —
+  Scheduled — All played - results air shortly" and the hero read "Results
+  airing" (no champion). Test: `display-logic.spec.ts`.
+- **The score leak, the Scouting false negative, and the profile
+  self-contradiction are ONE root cause: "has this match aired" was computed
+  differently (or not at all) in each view.** A single shared predicate now
+  drives all of them — `apps/web/lib/matchAir.ts` (bracket + replay) and
+  `apps/api/src/adapters/outbound/matchAir.ts` (profile matches strip,
+  Scouting pool, tournament history). Consequences fixed: (1) the bracket
+  showed a score while the replay said "PREMIERES AT" — the replay now reads
+  "AIRED AT" once the reveal has elapsed, "Premiering now" during it,
+  "Premieres at" before; verified live. (2) `liveTournamentByPlayer` tested
+  only `winner_id IS NULL`, so a free agent whose match was already decided
+  but still revealing showed as "next up" on their profile with NO
+  "Competing" badge — it now uses the same "not yet aired" test, and also
+  covers doubles (pair-keyed) instead of disclosing it as a gap. (3) the
+  tournament history counted a decided-but-not-aired loss as "Lost - Round
+  of 16" while the Matches strip still showed that same match as "Next up" —
+  the history now counts only AIRED results. Verified against real Postgres:
+  a player whose final was decided-but-not-yet-aired reports
+  `won:false/eliminated:false` plus a pending `next`. Tests: new
+  real-Postgres cases for the Scouting flag (decided-not-aired, aired,
+  doubles) and the reveal-gated history.
+- **The free-agent profile's "Sign this free agent" button did nothing**
+  because it called `window.confirm`, which browsers (and any automated
+  visitor) auto-dismiss — the handler then silently returned. Replaced with
+  an explicit in-page confirm step on both the profile and the Scouting grid
+  (where the same latent trap existed). Verified live: the button reveals
+  "Sign anyway / Cancel" and the second click actually claims the player.
+- **Harness verdicts (no product change).** The garbled `Jo�o`/`Müller`/
+  `????` output is neither the app/DB nor the driver: the driver's JSON is
+  correct UTF-8 (names plus real regional-indicator flag codepoints) with a
+  declared `charset=utf-8`; the garble is client/terminal decoding. The
+  "missing entry confirmation" is the Scouting toast's deliberate 4s
+  auto-dismiss outrunning the driver's settle window — transient by design,
+  not a bug.
+
+Test counts after this pass: domain 379, application 260, api 130 (was
+126 — +4 real-Postgres cases), worker 11; root `tsc --build --force` and
+`apps/web` typecheck clean; new pure web cases in `display-logic.spec.ts`
+(17 total) and a new live click case.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

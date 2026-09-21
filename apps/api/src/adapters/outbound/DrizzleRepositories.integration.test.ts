@@ -57,6 +57,7 @@ import { DrizzleMastersCupRepository } from './DrizzleMastersCupRepository';
 import { DrizzleWorldTeamCupRepository } from './DrizzleWorldTeamCupRepository';
 import { DrizzleGameWorldRepository } from './DrizzleGameWorldRepository';
 import { DrizzlePlayerMatchesQuery } from './DrizzlePlayerMatchesQuery';
+import { DrizzlePlayerTournamentHistoryQuery } from './DrizzlePlayerTournamentHistoryQuery';
 import { DrizzleNotificationDeliveryRepository } from './DrizzleNotificationDeliveryRepository';
 import { DrizzleNotificationPreferenceRepository } from './DrizzleNotificationPreferenceRepository';
 import { DrizzleManagerDigestQuery } from './DrizzleManagerDigestQuery';
@@ -1074,6 +1075,189 @@ describe('DrizzlePlayerMatchesQuery.liveTournamentByPlayer', () => {
     expect(live.has(PlayerId('fa-out'))).toBe(false);
     expect(live.has(PlayerId('fa-never-entered'))).toBe(false);
     expect(await query.liveTournamentByPlayer([])).toEqual(new Map());
+  });
+
+  it('flags a player whose match is decided but still inside its reveal window', async () => {
+    // The real false negative: `winner_id IS NULL` missed a simulated match
+    // that had not aired yet, so a free agent shown as "next up" on their
+    // profile had no "Competing" badge in the Scouting pool.
+    await saveFree('fa-revealing', 'Revealing Free Agent');
+    await saveFree('fa-beaten', 'Already Beaten');
+    await db.insert(schema.tournaments).values({
+      id: 'live-reveal',
+      name: 'Reveal Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'live-reveal',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('fa-revealing'),
+      entrantB: PlayerId('fa-beaten'),
+      winnerId: PlayerId('fa-revealing'),
+      loserId: PlayerId('fa-beaten'),
+      setScores: [{ winnerGames: 6, loserGames: 4 }],
+      scheduledStartAt: new Date(Date.now() + 60_000),
+      revealSeconds: 900,
+    });
+
+    const live = await query.liveTournamentByPlayer([PlayerId('fa-revealing'), PlayerId('fa-beaten')]);
+    // Both players are still mid-event until the match airs.
+    expect(live.get(PlayerId('fa-revealing'))).toEqual({ id: 'live-reveal', name: 'Reveal Open' });
+    expect(live.get(PlayerId('fa-beaten'))).toEqual({ id: 'live-reveal', name: 'Reveal Open' });
+  });
+
+  it('does not flag a player whose decided match has already aired', async () => {
+    await saveFree('fa-airdone', 'Aired Winner');
+    await saveFree('fa-airlost', 'Aired Loser');
+    await db.insert(schema.tournaments).values({
+      id: 'live-aired',
+      name: 'Aired Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'live-aired',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('fa-airdone'),
+      entrantB: PlayerId('fa-airlost'),
+      winnerId: PlayerId('fa-airdone'),
+      loserId: PlayerId('fa-airlost'),
+      setScores: [{ winnerGames: 6, loserGames: 0 }],
+      scheduledStartAt: new Date(Date.now() - 60 * 60_000),
+      revealSeconds: 900,
+    });
+
+    const live = await query.liveTournamentByPlayer([PlayerId('fa-airdone'), PlayerId('fa-airlost')]);
+    expect(live.has(PlayerId('fa-airdone'))).toBe(false);
+    expect(live.has(PlayerId('fa-airlost'))).toBe(false);
+  });
+
+  it('flags a player only in a doubles draw with a pending match (the pair-keyed gap)', async () => {
+    await saveFree('fa-doubles-a', 'Doubles A');
+    await saveFree('fa-doubles-b', 'Doubles B');
+    await saveFree('fa-doubles-out-a', 'Out A');
+    await saveFree('fa-doubles-out-b', 'Out B');
+    await db.insert(schema.tournaments).values([
+      { id: 'live-doubles', name: 'Doubles Live Open', tier: 'tour', surface: 'hard', seasonScheduled: 1, weekScheduled: 2, drawSize: 16, doublesDrawSize: 8 },
+      { id: 'live-doubles-out', name: 'Doubles Done Open', tier: 'tour', surface: 'hard', seasonScheduled: 1, weekScheduled: 1, drawSize: 16, doublesDrawSize: 8 },
+    ]);
+    await db.insert(schema.tournamentDoublesPairs).values([
+      { tournamentId: 'live-doubles', pairId: 'live-pair', playerA: PlayerId('fa-doubles-a'), playerB: PlayerId('fa-doubles-b') },
+      { tournamentId: 'live-doubles-out', pairId: 'out-pair', playerA: PlayerId('fa-doubles-out-a'), playerB: PlayerId('fa-doubles-out-b') },
+    ]);
+    await db.insert(schema.tournamentDoublesMatches).values([
+      // Pending -> alive.
+      { tournamentId: 'live-doubles', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: 'live-pair', entrantB: 'other-pair', winnerId: null, loserId: null, setScores: null },
+      // Decided and long aired -> not competing.
+      {
+        tournamentId: 'live-doubles-out',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: 'out-pair',
+        entrantB: 'opponent-pair',
+        winnerId: 'opponent-pair',
+        loserId: 'out-pair',
+        setScores: [{ winnerGames: 6, loserGames: 3 }],
+        scheduledStartAt: new Date(Date.now() - 60 * 60_000),
+        revealSeconds: 900,
+      },
+    ]);
+
+    const live = await query.liveTournamentByPlayer([
+      PlayerId('fa-doubles-a'),
+      PlayerId('fa-doubles-b'),
+      PlayerId('fa-doubles-out-a'),
+      PlayerId('fa-doubles-out-b'),
+    ]);
+    expect(live.get(PlayerId('fa-doubles-a'))).toEqual({ id: 'live-doubles', name: 'Doubles Live Open' });
+    expect(live.get(PlayerId('fa-doubles-b'))).toEqual({ id: 'live-doubles', name: 'Doubles Live Open' });
+    expect(live.has(PlayerId('fa-doubles-out-a'))).toBe(false);
+    expect(live.has(PlayerId('fa-doubles-out-b'))).toBe(false);
+  });
+});
+
+describe('DrizzlePlayerTournamentHistoryQuery (reveal-gated results)', () => {
+  const history = new DrizzlePlayerTournamentHistoryQuery(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const agingPolicy = new StandardAgingPolicy();
+
+  function saveNamed(id: string, name: string) {
+    return playerRepository.save(
+      Player.generateFillOnly(PlayerId(id), name, 20 * 52, agingPolicy.stageForAge(20 * 52), attributes(40), 'ES', 70, {
+        speed: 70,
+        stamina: 70,
+        strength: 70,
+      }),
+    );
+  }
+
+  it('does not call a decided-but-not-yet-aired loss an elimination; it does once the reveal ends', async () => {
+    await saveNamed('h-player', 'History Player');
+    await saveNamed('h-opponent', 'History Opponent');
+    await db.insert(schema.tournaments).values({
+      id: 'h-t',
+      name: 'History Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'h-t',
+      playerId: PlayerId('h-player'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'h-t',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('h-player'),
+      entrantB: PlayerId('h-opponent'),
+      winnerId: PlayerId('h-opponent'),
+      loserId: PlayerId('h-player'),
+      setScores: [{ winnerGames: 6, loserGames: 4 }],
+      scheduledStartAt: new Date(Date.now() + 60_000),
+      revealSeconds: 900,
+    });
+
+    // Still inside the reveal window: the profile's Matches strip shows this
+    // as "next up", so the history must NOT already report a loss.
+    const before = await history.forPlayer(PlayerId('h-player'));
+    const beforeEntry = before.find((e) => e.tournamentId === 'h-t')!;
+    expect(beforeEntry.eliminated).toBe(false);
+    expect(beforeEntry.roundsWon).toBe(0);
+
+    // Same match, now long aired: the loss becomes visible everywhere.
+    await db
+      .update(schema.tournamentMatches)
+      .set({ scheduledStartAt: new Date(Date.now() - 60 * 60_000) })
+      .where(
+        and(
+          eq(schema.tournamentMatches.tournamentId, 'h-t'),
+          eq(schema.tournamentMatches.draw, 'main'),
+          eq(schema.tournamentMatches.matchIndex, 0),
+        ),
+      );
+    const after = await history.forPlayer(PlayerId('h-player'));
+    const afterEntry = after.find((e) => e.tournamentId === 'h-t')!;
+    expect(afterEntry.eliminated).toBe(true);
   });
 });
 

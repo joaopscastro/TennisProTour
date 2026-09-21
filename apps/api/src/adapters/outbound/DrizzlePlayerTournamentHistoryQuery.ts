@@ -2,6 +2,7 @@ import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import { AgeBand, PlayerId, StandardPrizeMoneyTable, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
 import { tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
+import { isMatchAired } from './matchAir';
 
 /** Same "shared, stateless lookup" reasoning as tournamentRoutes.ts's
  * own PRIZE_MONEY_TABLE instance. */
@@ -16,17 +17,20 @@ export interface PlayerTournamentHistoryEntry {
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
-  /** How many of this player's OWN matches in this tournament are
-   * recorded as a win — 0 for a first-round exit or a not-yet-played
-   * entry, never null (a real, always-computable count). */
+  /** How many of this player's OWN AIRED matches in this tournament are
+   * recorded as a win — 0 for a first-round exit, a not-yet-played entry,
+   * or a match still inside its reveal window, never null (a real,
+   * always-computable count). A result only counts once it has aired, so
+   * the history can't spoil a "Premiere" the Matches strip still shows as
+   * upcoming (see matchAir.ts). */
   roundsWon: number;
-  /** True exactly when this player won the tournament's actual final
+  /** True exactly when this player won the tournament's actual AIRED final
    * match — mutually exclusive with `eliminated`. */
   won: boolean;
-  /** True when this player has a recorded LOSS in this tournament
+  /** True when this player has an AIRED recorded LOSS in this tournament
    * (eliminated at whatever round that was) — mutually exclusive with
-   * `won`. Both false means "still alive" (hasStarted but no decided
-   * match against this player yet) or "not started yet". */
+   * `won`. Both false means "still alive" or "not started yet". A decided
+   * but not-yet-aired loss stays false until its reveal window elapses. */
   eliminated: boolean;
   /** On-site prize money earned in THIS tournament — derived from
    * `roundsWon`/`tier` via the same StandardPrizeMoneyTable
@@ -87,12 +91,20 @@ export class DrizzlePlayerTournamentHistoryQuery {
       matchesByTournament.set(row.tournamentId, bucket);
     }
 
+    const now = Date.now();
     return entryRows.map(({ tournament }) => {
       const ownMatches = matchesByTournament.get(tournament.id) ?? [];
+      // Only AIRED matches count toward the displayed result. A match that
+      // has been simulated but is still inside its staggered reveal window
+      // is presented as "pending" by the profile's Matches strip (which uses
+      // the same predicate) — so the history must not call it a loss yet.
+      // Before this, one page could show "NEXT UP … Playing in 58:05" and
+      // "Lost - Round of 16" for the SAME match.
+      const airedMatches = ownMatches.filter((m) => isMatchAired(m, now));
       const finalRoundNumber = Math.log2(tournament.drawSize);
-      const roundsWon = ownMatches.filter((m) => m.winnerId === playerId).length;
-      const won = ownMatches.some((m) => m.winnerId === playerId && m.roundNumber === finalRoundNumber);
-      const eliminated = ownMatches.some((m) => m.loserId === playerId);
+      const roundsWon = airedMatches.filter((m) => m.winnerId === playerId).length;
+      const won = airedMatches.some((m) => m.winnerId === playerId && m.roundNumber === finalRoundNumber);
+      const eliminated = airedMatches.some((m) => m.loserId === playerId);
 
       // Prize money is only ever actually credited (by
       // SimulateMatchUseCase) the moment a player is eliminated OR

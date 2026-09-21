@@ -61,6 +61,10 @@ export default function ScoutingPage() {
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimedOutId, setClaimedOutId] = useState<string | null>(null);
+  // In-page confirm step for signing a mid-event free agent. `window.confirm`
+  // (the previous approach) is a native dialog the browser — and any
+  // automated visitor — auto-dismisses, so "Sign" silently did nothing.
+  const [confirmClaimId, setConfirmClaimId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
@@ -119,13 +123,13 @@ export default function ScoutingPage() {
     const claimed = candidates?.find((c) => c.id === candidateId) ?? null;
     // Disclose at the point of signing: this free agent has a match still
     // to play, so signing adopts them into that event mid-draw. Stated
-    // plainly BEFORE committing, and repeated in the success notice.
-    if (claimed?.currentTournament) {
-      const ok = window.confirm(
-        `${name} is currently competing in ${claimed.currentTournament.name}. Signing them adopts them into that event mid-tournament — they'll join you there. Sign anyway?`,
-      );
-      if (!ok) return;
+    // plainly BEFORE committing, via an explicit in-page confirm step (see
+    // confirmClaimId) — not a native window.confirm, which auto-dismisses.
+    if (claimed?.currentTournament && confirmClaimId !== candidateId) {
+      setConfirmClaimId(candidateId);
+      return;
     }
+    setConfirmClaimId(null);
     setClaimingId(candidateId);
     setError(null);
     try {
@@ -337,9 +341,25 @@ export default function ScoutingPage() {
                             <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {affordability.remaining.toLocaleString()} more</div>
                           )}
                         </div>
-                        <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '9px 18px' }}>
-                          {busy ? 'Signing…' : 'Sign'}
-                        </Button>
+                        {confirmClaimId === c.id ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                            <div style={{ fontSize: 10.5, lineHeight: 1.35, color: 'var(--gc-ink-mute)', textAlign: 'right', maxWidth: 170 }}>
+                              Adopts them into {c.currentTournament?.name ?? 'their event'} mid-tournament.
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '8px 12px' }}>
+                                {busy ? 'Signing…' : 'Sign anyway'}
+                              </Button>
+                              <Button variant="ghost" onClick={() => setConfirmClaimId(null)} style={{ padding: '8px 12px' }}>
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button variant="primary" onClick={() => handleClaim(c.id, c.name)} disabled={claimingId !== null || !affordable} style={{ padding: '9px 18px' }}>
+                            {busy ? 'Signing…' : 'Sign'}
+                          </Button>
+                        )}
                       </div>
                     }
                   />

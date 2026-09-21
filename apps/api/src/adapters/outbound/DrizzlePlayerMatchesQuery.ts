@@ -1,7 +1,8 @@
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, or } from 'drizzle-orm';
 import { AgeBand, PlayerId, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
-import { players, tournamentMatches, tournaments } from '../../db/schema';
+import { players, tournamentDoublesMatches, tournamentDoublesPairs, tournamentMatches, tournaments } from '../../db/schema';
+import { isMatchAired } from './matchAir';
 
 export interface PlayerMatchSummary {
   tournamentId: TournamentId;
@@ -111,10 +112,7 @@ export class DrizzlePlayerMatchesQuery {
     };
 
     const now = Date.now();
-    const aired = (r: (typeof rows)[number]): boolean =>
-      r.match.winnerId !== null &&
-      (r.match.scheduledStartAt === null ||
-        now >= r.match.scheduledStartAt.getTime() + (r.match.revealSeconds ?? 0) * 1000);
+    const aired = (r: (typeof rows)[number]): boolean => isMatchAired(r.match, now);
 
     const decided = rows
       .filter(aired)
@@ -153,23 +151,34 @@ export class DrizzlePlayerMatchesQuery {
   /**
    * Batch sibling of `forPlayer`, built for the Scouting pool's "is this
    * free agent already competing?" signal: for each of the given player
-   * ids, the tournament they still have a match to play in (an undecided
-   * match row), or nothing if they aren't currently alive in a draw.
+   * ids, the tournament they still have a match to play in, or nothing if
+   * they aren't currently alive in a draw.
    *
-   * Why this exists: a free agent is a real Player who keeps competing
-   * while unsigned, so a manager can sign someone mid-tournament and
-   * silently adopt them into an event they never entered. One query over
-   * tournament_matches/tournaments for the whole pool, not one `forPlayer`
-   * call per free agent. Singles/qualifying only — doubles match rows are
-   * keyed by pair id, not player id, so a player only in a doubles draw
-   * won't appear here (a known, disclosed limit of this batch read).
+   * "Competing" is the SAME predicate the profile strip uses
+   * (`isMatchPending`): a player is competing when they have a match whose
+   * result is not yet viewable — an UNPLAYED match, OR one that has been
+   * simulated but is still inside its staggered reveal window. The first
+   * version tested only `winner_id IS NULL`, which produced a real false
+   * negative: a free agent whose match was already decided (but not yet
+   * aired) showed as a pending match on their profile while the pool
+   * showed no badge, so a manager could sign a mid-event player with no
+   * warning. Both singles/qualifying AND doubles are covered — doubles
+   * match rows are keyed by pair id, so they need the extra pair join.
    */
   async liveTournamentByPlayer(
     playerIds: PlayerId[],
   ): Promise<Map<PlayerId, { id: string; name: string }>> {
     const live = new Map<PlayerId, { id: string; name: string }>();
     if (playerIds.length === 0) return live;
+    const wanted = new Set<string>(playerIds);
+    const now = Date.now();
 
+    // Singles + qualifying. The SQL prefilter fetches a SUPERSET (un-played
+    // matches, or played matches that carry a reveal schedule) and the exact
+    // "has aired" test is `isMatchAired` — the same predicate the profile
+    // strip uses, so a decided-but-not-yet-aired match counts as competing
+    // (previously `winner_id IS NULL` missed it: a genuine false negative
+    // that let a manager sign a player mid-event with no badge).
     const rows = await this.db
       .select({ match: tournamentMatches, tournament: tournaments })
       .from(tournamentMatches)
@@ -177,18 +186,51 @@ export class DrizzlePlayerMatchesQuery {
       .where(
         and(
           or(inArray(tournamentMatches.entrantA, playerIds), inArray(tournamentMatches.entrantB, playerIds)),
-          isNull(tournamentMatches.winnerId),
+          or(isNull(tournamentMatches.winnerId), isNotNull(tournamentMatches.scheduledStartAt)),
         ),
       );
 
     for (const { match, tournament } of rows) {
+      if (isMatchAired(match, now)) continue;
       for (const entrant of [match.entrantA, match.entrantB]) {
         const pid = PlayerId(entrant);
-        if (playerIds.includes(pid) && !live.has(pid)) {
+        if (wanted.has(pid) && !live.has(pid)) {
           live.set(pid, { id: tournament.id, name: tournament.name });
         }
       }
     }
+
+    // Doubles. Match rows are keyed by PAIR id, not player id, so this needs
+    // its own join: a player only in a doubles draw with a match still to
+    // play is competing too (previously unflagged — the disclosed gap).
+    const doublesRows = await this.db
+      .select({ match: tournamentDoublesMatches, tournament: tournaments, pair: tournamentDoublesPairs })
+      .from(tournamentDoublesPairs)
+      .innerJoin(tournaments, eq(tournaments.id, tournamentDoublesPairs.tournamentId))
+      .innerJoin(
+        tournamentDoublesMatches,
+        and(
+          eq(tournamentDoublesMatches.tournamentId, tournamentDoublesPairs.tournamentId),
+          or(
+            eq(tournamentDoublesMatches.entrantA, tournamentDoublesPairs.pairId),
+            eq(tournamentDoublesMatches.entrantB, tournamentDoublesPairs.pairId),
+          ),
+        ),
+      )
+      .where(
+        or(inArray(tournamentDoublesPairs.playerA, playerIds), inArray(tournamentDoublesPairs.playerB, playerIds)),
+      );
+
+    for (const { match, tournament, pair } of doublesRows) {
+      if (isMatchAired(match, now)) continue;
+      for (const raw of [pair.playerA, pair.playerB]) {
+        const pid = PlayerId(raw);
+        if (wanted.has(pid) && !live.has(pid)) {
+          live.set(pid, { id: tournament.id, name: tournament.name });
+        }
+      }
+    }
+
     return live;
   }
 }

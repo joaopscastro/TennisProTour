@@ -307,6 +307,12 @@ export default function PlayerProfilePage() {
   const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
   const [signing, setSigning] = useState(false);
   const [signError, setSignError] = useState<string | null>(null);
+  // In-page confirmation step for signing a mid-event free agent. This used
+  // to be `window.confirm`, a native dialog the browser (and any automated
+  // visitor) auto-dismisses — which made the button silently do NOTHING:
+  // no modal, no toast, no error, roster unchanged. An explicit in-page
+  // step works everywhere and is honest about what is about to happen.
+  const [confirmSign, setConfirmSign] = useState(false);
   const devManagerId = useDevManagerId() ?? '';
 
   // Doubles partner invitation (P7a): from a managed player owned by a
@@ -415,12 +421,12 @@ export default function PlayerProfilePage() {
     // Disclose at the point of signing: a free agent keeps competing while
     // unsigned, so signing one mid-event adopts them into a draw they never
     // entered (matches.next is the not-yet-aired match that proves it).
-    if (matches?.next) {
-      const ok = window.confirm(
-        `${profile?.name ?? 'This player'} is currently competing in ${matches.next.tournamentName}. Signing adopts them into that event mid-tournament — they'll join you there. Sign anyway?`,
-      );
-      if (!ok) return;
+    // First click reveals an explicit in-page confirm; the second commits.
+    if (matches?.next && !confirmSign) {
+      setConfirmSign(true);
+      return;
     }
+    setConfirmSign(false);
     setSigning(true);
     setSignError(null);
     try {
@@ -631,14 +637,40 @@ export default function PlayerProfilePage() {
               )}
               {signError && <div className="text-[12px] mt-[4px]" style={{ color: 'oklch(80% 0.13 25)' }}>{signError}</div>}
             </div>
-            <button
-              onClick={handleSign}
-              disabled={signing}
-              className="flex-none rounded-[8px] px-[22px] py-[11px] text-[13.5px] font-extrabold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 265)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-            >
-              {signing ? 'Signing…' : 'Sign this free agent'}
-            </button>
+            {confirmSign ? (
+              <div className="flex-none flex flex-col items-end gap-[8px]">
+                <div className="text-[12px] text-white/85 text-right max-w-[280px] leading-[1.4]">
+                  Adopt {profile.name} into {matches?.next?.tournamentName ?? 'their event'} mid-tournament?
+                </div>
+                <div className="flex items-center gap-[8px]">
+                  <button
+                    onClick={handleSign}
+                    disabled={signing}
+                    className="rounded-[8px] px-[18px] py-[10px] text-[13px] font-extrabold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                    style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 265)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
+                  >
+                    {signing ? 'Signing…' : 'Sign anyway'}
+                  </button>
+                  <button
+                    onClick={() => setConfirmSign(false)}
+                    disabled={signing}
+                    className="rounded-[8px] px-[14px] py-[10px] text-[13px] font-bold cursor-pointer disabled:opacity-60"
+                    style={{ background: 'transparent', color: 'white', border: '1px solid oklch(100% 0 0 / 0.28)' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                onClick={handleSign}
+                disabled={signing}
+                className="flex-none rounded-[8px] px-[22px] py-[11px] text-[13.5px] font-extrabold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
+                style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 265)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
+              >
+                {signing ? 'Signing…' : 'Sign this free agent'}
+              </button>
+            )}
           </div>
         )}
 
