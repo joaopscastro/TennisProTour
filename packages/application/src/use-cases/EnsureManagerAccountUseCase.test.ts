@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { ManagerId } from '@tennis-manager/domain';
-import { IdGeneratorPort, ManagerAccount, ManagerAccountRepository, ManagerXpRepository } from '../ports/ports';
+import {
+  IdGeneratorPort,
+  ManagerAccount,
+  ManagerAccountCreationPort,
+  ManagerAccountRepository,
+  ManagerXpRepository,
+} from '../ports/ports';
 import { EnsureManagerAccountUseCase, STARTER_XP_BALANCE } from './EnsureManagerAccountUseCase';
 
 class InMemoryManagerAccountRepository implements ManagerAccountRepository {
@@ -25,12 +31,14 @@ class InMemoryManagerAccountRepository implements ManagerAccountRepository {
 
 class InMemoryManagerXpRepository implements ManagerXpRepository {
   private readonly balances = new Map<ManagerId, number>();
+  creditCalls = 0;
 
   async balanceFor(managerId: ManagerId): Promise<number> {
     return this.balances.get(managerId) ?? 0;
   }
 
   async credit(managerId: ManagerId, amount: number): Promise<void> {
+    this.creditCalls += 1;
     this.balances.set(managerId, (this.balances.get(managerId) ?? 0) + amount);
   }
 
@@ -39,6 +47,29 @@ class InMemoryManagerXpRepository implements ManagerXpRepository {
     if (balance < amount) return false;
     this.balances.set(managerId, balance - amount);
     return true;
+  }
+}
+
+/** In-memory stand-in for the atomic create-and-grant adapter: the check
+ * and both writes run with NO await between them, so — like a real DB
+ * transaction — it can never interleave. The genuine concurrent guarantee
+ * lives in DrizzleManagerAccountCreationAdapter's single transaction and
+ * is covered against real Postgres in the api integration suite. */
+class InMemoryManagerAccountCreationPort implements ManagerAccountCreationPort {
+  constructor(
+    private readonly managers: InMemoryManagerAccountRepository,
+    private readonly managerXp: InMemoryManagerXpRepository,
+  ) {}
+
+  async createWithStarterXp(
+    account: ManagerAccount,
+    starterXp: number,
+  ): Promise<{ account: ManagerAccount; created: boolean }> {
+    const existing = await this.managers.findByAuthSubject(account.authSubject);
+    if (existing) return { account: existing, created: false };
+    await this.managers.save(account);
+    await this.managerXp.credit(account.id, starterXp);
+    return { account, created: true };
   }
 }
 
@@ -53,7 +84,8 @@ class SequentialIdGenerator implements IdGeneratorPort {
 function setup() {
   const managers = new InMemoryManagerAccountRepository();
   const managerXp = new InMemoryManagerXpRepository();
-  const useCase = new EnsureManagerAccountUseCase(managers, new SequentialIdGenerator(), managerXp);
+  const accountCreation = new InMemoryManagerAccountCreationPort(managers, managerXp);
+  const useCase = new EnsureManagerAccountUseCase(managers, new SequentialIdGenerator(), accountCreation);
   return { managers, managerXp, useCase };
 }
 
@@ -64,6 +96,7 @@ describe('EnsureManagerAccountUseCase onboarding', () => {
     const account = await useCase.execute({ authSubject: 'new-subject' });
 
     expect(await managerXp.balanceFor(account.id)).toBe(STARTER_XP_BALANCE);
+    expect(managerXp.creditCalls).toBe(1);
     expect(STARTER_XP_BALANCE).toBeGreaterThanOrEqual(50); // at least one claim's worth
   });
 
@@ -78,6 +111,7 @@ describe('EnsureManagerAccountUseCase onboarding', () => {
     await useCase.execute({ authSubject: 'returning' });
 
     expect(await managerXp.balanceFor(first.id)).toBe(afterSpend);
+    expect(managerXp.creditCalls).toBe(1); // exactly one grant, ever
   });
 
   it('does not credit a suspended account (and still throws)', async () => {
@@ -92,6 +126,24 @@ describe('EnsureManagerAccountUseCase onboarding', () => {
 
     await expect(useCase.execute({ authSubject: 'suspended-subject' })).rejects.toThrow(/suspended/);
     expect(await managerXp.balanceFor(ManagerId('m-suspended'))).toBe(0);
+    expect(managerXp.creditCalls).toBe(0);
+  });
+
+  it('does not credit a deleted account, and the dev-id guard still throws before any grant', async () => {
+    const { managers, managerXp, useCase } = setup();
+    await managers.save({
+      id: ManagerId('gone'),
+      authSubject: 'deleted:gone', // anonymized subject, so findByAuthSubject misses it
+      displayName: 'Deleted manager',
+      publicHandle: 'deleted-gone',
+      status: 'deleted',
+    });
+
+    await expect(
+      useCase.execute({ authSubject: 'dev:gone', developmentManagerId: ManagerId('gone') }),
+    ).rejects.toThrow(/deleted/);
+    expect(await managerXp.balanceFor(ManagerId('gone'))).toBe(0);
+    expect(managerXp.creditCalls).toBe(0);
   });
 
   it('grants starter XP to a dev-mode manager identified by x-dev-manager-id', async () => {

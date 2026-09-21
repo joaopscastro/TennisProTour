@@ -40,7 +40,7 @@ export class DrizzleManagerAccountRepository implements ManagerAccountRepository
   }
 }
 
-function toAccount(row: typeof managers.$inferSelect): ManagerAccount {
+export function toAccount(row: typeof managers.$inferSelect): ManagerAccount {
   return {
     id: ManagerId(row.id),
     authSubject: row.authSubject,

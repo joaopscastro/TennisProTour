@@ -1,5 +1,5 @@
 import { ManagerId } from '@tennis-manager/domain';
-import { ManagerAccount, ManagerAccountRepository, IdGeneratorPort, ManagerXpRepository } from '../ports/ports';
+import { ManagerAccount, ManagerAccountRepository, IdGeneratorPort, ManagerAccountCreationPort } from '../ports/ports';
 
 export interface EnsureManagerAccountCommand {
   authSubject: string;
@@ -30,7 +30,7 @@ export class EnsureManagerAccountUseCase {
   constructor(
     private readonly managers: ManagerAccountRepository,
     private readonly ids: IdGeneratorPort,
-    private readonly managerXp: ManagerXpRepository,
+    private readonly accountCreation: ManagerAccountCreationPort,
   ) {}
 
   async execute(command: EnsureManagerAccountCommand): Promise<ManagerAccount> {
@@ -50,10 +50,10 @@ export class EnsureManagerAccountUseCase {
     // development adapter pins a FIXED id from the x-dev-manager-id
     // header (ClerkAuthAdapter/production always mints a fresh random id
     // here instead), so a repeated dev-mode request with the same header
-    // after deletion would otherwise fall through to
-    // managers.save()'s upsert-by-id below and silently resurrect the
-    // anonymized row under its old id. Guard by id too, but only when a
-    // dev id was actually supplied — production never hits this branch.
+    // after deletion would otherwise fall through to the create path
+    // below and silently resurrect the anonymized row under its old id.
+    // Guard by id too, but only when a dev id was actually supplied —
+    // production never hits this branch.
     if (command.developmentManagerId) {
       const byId = await this.managers.findById(command.developmentManagerId);
       if (byId) {
@@ -71,13 +71,20 @@ export class EnsureManagerAccountUseCase {
       publicHandle: `manager-${String(id).toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 40)}`,
       status: 'active',
     };
-    await this.managers.save(account);
-    // Onboarding grant — only on genuine creation (every existing-account
-    // path above returns early), so a returning manager never re-gets it.
-    // A concurrent first-request race could double it; a few hundred XP
-    // is a negligible, self-correcting edge, not worth a transactional
-    // insert for.
-    await this.managerXp.credit(account.id, STARTER_XP_BALANCE);
-    return account;
+    // Atomic create-and-grant: exactly one concurrent first-request can
+    // create the row, and only that one is credited STARTER_XP_BALANCE —
+    // the create and the credit happen in a single transaction (see
+    // ManagerAccountCreationPort), so a concurrent read can never observe
+    // the account before its opening balance exists. When we lose the
+    // race the adapter hands back the winner's row, which is what this
+    // manager's later requests must see.
+    const { account: persisted } = await this.accountCreation.createWithStarterXp(account, STARTER_XP_BALANCE);
+
+    // Defensive: the create path only ever writes an active row, and the
+    // pre-checks above catch an existing suspended/deleted account, but a
+    // race against one must never slip through as a successful login.
+    if (persisted.status === 'deleted') throw new Error('Manager account has been deleted');
+    if (persisted.status !== 'active') throw new Error('Manager account is suspended');
+    return persisted;
   }
 }

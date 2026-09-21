@@ -924,6 +924,22 @@ describe('API', () => {
     expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 500 });
   });
 
+  it('grants starter XP exactly once across concurrent first-requests (no inflated balance, no transient 0)', async () => {
+    // Reproduces the real symptom: a brand-new manager's first page load
+    // fires several parallel manager-scoped requests, each of which used
+    // to miss the check-then-act account lookup and grant again. The
+    // atomic create-and-grant must make every one of these responses
+    // report exactly STARTER_XP_BALANCE (500) — never 0, never a multiple.
+    const authSubject = `race-newcomer-${Date.now()}`;
+    const headers = { 'x-dev-manager-id': authSubject };
+    const responses = await Promise.all(
+      Array.from({ length: 8 }, () => app.inject({ method: 'GET', url: '/me/entitlement', headers })),
+    );
+
+    expect(responses.every((r) => r.statusCode === 200)).toBe(true);
+    expect(responses.map((r) => r.json().xpBalance)).toEqual(Array(8).fill(500));
+  });
+
   it('lists available free-agent players and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {
     const agingPolicy = new StandardAgingPolicy();
     await deps.players.save(

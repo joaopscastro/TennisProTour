@@ -24,6 +24,37 @@ export interface ManagerAccountRepository {
   save(account: ManagerAccount): Promise<void>;
 }
 
+/**
+ * Atomic "create this manager account, and only if it is genuinely new,
+ * grant its opening XP balance" operation. Deliberately a separate port
+ * (the same reason TalentClaimPort/CoachConversionPort exist) rather than
+ * the caller doing `ManagerAccountRepository.save()` then
+ * `ManagerXpRepository.credit()` in sequence: those are two independent
+ * statements, so N concurrent first-requests for one brand-new identity
+ * ALL miss the `findByAuthSubject` lookup, ALL save, and ALL credit — a
+ * new manager could start with several times the intended starter balance
+ * (and, in the gap between the two writes, a concurrent read could even
+ * observe 0). The real adapter performs both writes in ONE DB transaction,
+ * gated on a conditional `INSERT ... ON CONFLICT DO NOTHING RETURNING`, so
+ * exactly one caller is the creator and therefore the only one that
+ * grants.
+ */
+export interface ManagerAccountCreationPort {
+  /**
+   * Creates `account` together with its opening `starterXp` balance,
+   * atomically. Returns the persisted account — which, when another
+   * concurrent call won the creation race, is that WINNER's row, not
+   * `account` itself — and whether THIS call is the one that created it.
+   * `created` is true for at most one caller and is the only condition
+   * under which the grant is applied, so a returning/existing manager is
+   * never re-granted.
+   */
+  createWithStarterXp(
+    account: ManagerAccount,
+    starterXp: number,
+  ): Promise<{ account: ManagerAccount; created: boolean }>;
+}
+
 /** Provider-neutral verification boundary. The API adapter extracts the
  * bearer token; this port only receives a token and returns verified claims. */
 export interface AuthPort {

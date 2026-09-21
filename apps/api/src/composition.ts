@@ -72,6 +72,7 @@ import { MathRandomSource } from './adapters/outbound/MathRandomSource';
 import { CryptoIdGenerator } from './adapters/outbound/CryptoIdGenerator';
 import { ClerkAuthAdapter, DevelopmentAuthAdapter } from './adapters/outbound/ClerkAuthAdapter';
 import { DrizzleManagerAccountRepository } from './adapters/outbound/DrizzleManagerAccountRepository';
+import { DrizzleManagerAccountCreationAdapter } from './adapters/outbound/DrizzleManagerAccountCreationAdapter';
 import { DrizzleAnalyticsAdapter } from './adapters/outbound/DrizzleAnalyticsAdapter';
 import { DrizzleNotificationDeliveryRepository } from './adapters/outbound/DrizzleNotificationDeliveryRepository';
 import { DrizzleNotificationPreferenceRepository } from './adapters/outbound/DrizzleNotificationPreferenceRepository';
@@ -427,7 +428,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const worldTeamCups = new DrizzleWorldTeamCupRepository(options.db);
   const coachConversionPolicy = new StandardCoachConversionPolicy();
   const idGenerator = new CryptoIdGenerator();
-  const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator, managerXp);
+  const managerAccountCreation = new DrizzleManagerAccountCreationAdapter(options.db);
+  const ensureManagerAccount = new EnsureManagerAccountUseCase(managers, idGenerator, managerAccountCreation);
   // A separate RandomSource instance from the match simulator's — both
   // just wrap Math.random() statelessly, so sharing wouldn't be wrong,
   // but keeping them distinct avoids implying any ordering coupling

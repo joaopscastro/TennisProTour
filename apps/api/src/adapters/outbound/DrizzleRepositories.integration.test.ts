@@ -44,6 +44,7 @@ import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepo
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
+import { DrizzleManagerAccountCreationAdapter } from './DrizzleManagerAccountCreationAdapter';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
 import { DrizzleCoachConversionAdapter } from './DrizzleCoachConversionAdapter';
 import { DrizzleWeeklyEntryGuardAdapter } from './DrizzleWeeklyEntryGuardAdapter';
@@ -2269,3 +2270,52 @@ describe('SendManagerDigestsUseCase (real Postgres, logging adapter)', () => {
     expect(logEntries).toHaveLength(1);
   });
 });
+
+describe('DrizzleManagerAccountCreationAdapter', () => {
+  const creation = new DrizzleManagerAccountCreationAdapter(db);
+  const xp = new DrizzleManagerXpRepository(db);
+
+  it('creates the account and grants the starter balance for exactly one of N concurrent first-requests', async () => {
+    // N distinct candidate accounts for the SAME auth subject — the real
+    // production shape, where every parallel first-request mints its own
+    // random manager id and none has seen the other's write yet.
+    const authSubject = `macct-race-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    const starter = 500;
+    const candidates = Array.from({ length: 8 }, (_, i) => ({
+      id: ManagerId(`macct-${authSubject}-${i}`),
+      authSubject,
+      displayName: 'Race Manager',
+      publicHandle: `macct-handle-${authSubject}-${i}`,
+      status: 'active' as const,
+    }));
+
+    const results = await Promise.all(candidates.map((c) => creation.createWithStarterXp(c, starter)));
+
+    // Exactly one call created (and therefore granted); all the rest saw
+    // the same persisted winner row.
+    expect(results.filter((r) => r.created)).toHaveLength(1);
+    const winner = results.find((r) => r.created)!;
+    expect(new Set(results.map((r) => r.account.id))).toEqual(new Set([winner.account.id]));
+    expect(await xp.balanceFor(winner.account.id)).toBe(starter);
+  });
+
+  it('never re-grants for an already-existing account', async () => {
+    const authSubject = `macct-again-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+    const account = {
+      id: ManagerId(`${authSubject}-id`),
+      authSubject,
+      displayName: 'Returning Manager',
+      publicHandle: `macct-again-handle-${authSubject}`,
+      status: 'active' as const,
+    };
+
+    const first = await creation.createWithStarterXp(account, 500);
+    expect(first.created).toBe(true);
+    await xp.spendXpIfSufficient(account.id, 300);
+
+    const second = await creation.createWithStarterXp(account, 500);
+    expect(second.created).toBe(false);
+    expect(await xp.balanceFor(account.id)).toBe(200); // 500 granted once, minus 300
+  });
+});
+
