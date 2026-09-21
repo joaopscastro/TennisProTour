@@ -19,6 +19,7 @@ import { Coach, CoachId } from '@tennis-manager/domain';
 import {
   GameWorld,
   juniorEligibilityForAge,
+  RANKING_WINDOW_WEEKS,
   RandomSource,
   RankingBand,
   StandardAgingPolicy,
@@ -404,9 +405,75 @@ describe('DrizzleTournamentRepository', () => {
     const liveIds = (await tournamentRepository.findStartedLive()).map((t) => t.id).sort();
 
     expect(liveIds).toEqual(['t-live']);
-    // The unbounded accessor still returns everything started — the
-    // obligatory-zero rule's whole-window read is unchanged.
+    // The unbounded accessor still returns everything started, for the
+    // per-request / diagnostic callers that use it.
     expect((await tournamentRepository.findStarted()).map((t) => t.id).sort()).toEqual(['t-finished', 't-live']);
+  });
+
+  it('findStartedWithinWindow returns only started events inside the rolling window, reconstituted', async () => {
+    await savePlayers(64);
+
+    const makeConcluded = (
+      id: string,
+      weekScheduled: { season: number; week: number },
+      firstPlayer: number,
+    ): Tournament => {
+      const t = Tournament.open({
+        name: id,
+        id: TournamentId(id),
+        tier: 'major',
+        surface: 'hard',
+        weekScheduled,
+        drawSize: 16,
+      });
+      for (let i = firstPlayer; i < firstPlayer + 16; i++) {
+        t.registerEntrant({ playerId: PlayerId(`p${i}`), seed: i - firstPlayer + 1 });
+      }
+      t.startWithBracket(new BracketGenerator().generate(t.entrants, 16));
+      playToCompletion(t);
+      t.pullDomainEvents();
+      return t;
+    };
+
+    // currentWeek absolute = 2*52 + 20 = 124. The window is [124-52, 124] = [72, 124].
+    const currentWeek = { season: 2, week: 20 };
+    const inside = makeConcluded('t-inside', { season: 2, week: 10 }, 1); // absolute 114, age 10
+    const edge = makeConcluded('t-edge', { season: 1, week: 20 }, 17); // absolute 72, age 52 exactly (inclusive)
+    const tooOld = makeConcluded('t-too-old', { season: 1, week: 19 }, 33); // absolute 71, age 53
+    const notStarted = Tournament.open({
+      name: 'Not started',
+      id: TournamentId('t-not-started'),
+      tier: 'major',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 10 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(inside);
+    await tournamentRepository.save(edge);
+    await tournamentRepository.save(tooOld);
+    await tournamentRepository.save(notStarted);
+
+    const found = await tournamentRepository.findStartedWithinWindow(currentWeek, RANKING_WINDOW_WEEKS);
+
+    // Inclusive both ends, started only, out-of-window dropped — the SQL
+    // prefilter never loaded `t-too-old` or `t-not-started`.
+    expect(found.map((t) => t.id).sort()).toEqual(['t-edge', 't-inside']);
+
+    // The rows that DID pass the prefilter still reconstitute fully: a
+    // decided final survives, and rehydration emits no lifecycle events.
+    const reconstituted = found.find((t) => t.id === 't-inside')!;
+    expect(reconstituted.hasStarted).toBe(true);
+    expect(reconstituted.isMainDrawFinished()).toBe(true);
+    expect(reconstituted.getRounds()).toEqual(inside.getRounds());
+    expect(reconstituted.pullDomainEvents()).toHaveLength(0);
+
+    // findStarted() itself is unchanged (still the unbounded read, and
+    // still started-only — the never-started shell is not returned).
+    expect((await tournamentRepository.findStarted()).map((t) => t.id).sort()).toEqual([
+      't-edge',
+      't-inside',
+      't-too-old',
+    ]);
   });
 
   it('deleteAbandonedTournament removes an empty never-started shell but never one with entrants', async () => {

@@ -90,11 +90,36 @@ export interface TournamentRepository {
   findOpenForRegistration(): Promise<Tournament[]>;
   /** Tournaments whose bracket exists (started). Includes finished
    * ones — callers that only want playable matches filter via the
-   * aggregate's own round/final checks. Deliberately UNBOUNDED: the
-   * obligatory-tournament ranking rule needs every decided event inside
-   * the rolling 52-week window, finished ones included. The day-tick
-   * match sweep must NOT use this — see `findStartedLive` below. */
+   * aggregate's own round/final checks. Deliberately UNBOUNDED and kept
+   * for the callers that genuinely want it: the `?status=started`
+   * bracket list (which needs enough history to keep an unfinished
+   * draw visible, but is a per-REQUEST read, not a per-tick one), the
+   * bootstrap script's diagnostic count, and the test-compat fallback
+   * in the day-tick use cases whose optional `findStartedLive` a fake
+   * may omit. NO production per-tick caller uses this any more — the
+   * obligatory-tournament rule now reads `findStartedWithinWindow`
+   * below. The day-tick match sweep must NOT use this — see
+   * `findStartedLive`. */
   findStarted(): Promise<Tournament[]>;
+
+  /** The obligatory-tournament rule's bounded counterpart to
+   * `findStarted()`: only started tournaments whose `weekScheduled`
+   * falls inside the rolling `weeks`-week window ENDING at `currentWeek`
+   * — i.e. `currentWeek - weeks <= weekScheduled <= currentWeek`
+   * (inclusive both ends, the same absolute-week arithmetic and window
+   * `RANKING_WINDOW_WEEKS` the ranking calculator itself uses). A
+   * mandatory-skip zero is dated to the event's `weekScheduled`, so an
+   * event outside this window can never produce one and its reconstituted
+   * aggregate is pure waste; bounding the read here is what stops this
+   * weekly use case's cost growing with the number of tournaments ever
+   * played (the 3-season soak: 3,706 tournaments / 4.4s unbounded vs.
+   * only the in-window handful). Optional for test compatibility (an
+   * in-memory fake without it falls back to `findStarted()`, whose own
+   * JS-side window filter the use case still applies, so behaviour is
+   * identical); the Drizzle adapter — the only production implementation
+   * — always provides it and prefilters in SQL so the per-tournament
+   * `load()` never runs for an out-of-window event. */
+  findStartedWithinWindow?(currentWeek: GameWeek, weeks: number): Promise<Tournament[]>;
 
   /** The day-tick's bounded counterpart to `findStarted()`: only
    * started tournaments that can still have work to do — i.e. NOT
@@ -107,8 +132,8 @@ export interface TournamentRepository {
    * tournaments ever played (the 3-season soak's per-tick cost grew
    * 40s -> 230s precisely because the sweep reconstituted every started
    * tournament forever). Kept SEPARATE from `findStarted()` rather than
-   * redefining it, so the obligatory-zero rule's whole-window read is
-   * unchanged. Optional for test compatibility (an in-memory fake
+   * redefining it, so the obligatory-zero rule's own (window-bounded)
+   * read stays independent. Optional for test compatibility (an in-memory fake
    * without it falls back to `findStarted()`); the Drizzle adapter —
    * the only production implementation — always provides it. */
   findStartedLive?(): Promise<Tournament[]>;

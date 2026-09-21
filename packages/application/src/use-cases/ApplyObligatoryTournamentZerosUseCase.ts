@@ -68,7 +68,12 @@ export interface ApplyObligatoryTournamentZerosResult {
  * **Which events count as held**: an obligatory-tier tournament whose
  * final has actually been decided, dated to its `weekScheduled` and
  * still inside the rolling `RANKING_WINDOW_WEEKS` window (the constant
- * the calculator itself uses, imported rather than re-declared).
+ * the calculator itself uses, imported rather than re-declared). The
+ * READ is bounded to that same window up front
+ * (`findStartedWithinWindow`, see the repository port) so this weekly
+ * run's cost no longer grows with every tournament ever played — the
+ * in-JS window filter below is kept so an in-memory fake that still
+ * returns the unbounded set behaves identically.
  * `weekScheduled` is the documented choice of "week held" over "the
  * week the final decided" — it's already stored, and a tournament's
  * rounds never span a season boundary in a way that would make the two
@@ -102,7 +107,16 @@ export class ApplyObligatoryTournamentZerosUseCase {
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
     const currentWeek = world.currentWeek;
 
-    const started = await this.tournaments.findStarted();
+    // Bounded to the rolling window (the same `RANKING_WINDOW_WEEKS` the
+    // calculator uses): an event whose `weekScheduled` has aged out can
+    // never produce a zero, so reading it would only reconstitute an
+    // aggregate for nothing. Falls back to the unbounded accessor only
+    // for in-memory fakes that don't implement the windowed method — the
+    // JS window filter below keeps their behaviour identical.
+    const started = await (
+      this.tournaments.findStartedWithinWindow?.(currentWeek, RANKING_WINDOW_WEEKS) ??
+      this.tournaments.findStarted()
+    );
     const heldObligatory: HeldObligatoryTournament[] = started
       .filter((tournament) => isObligatoryTier(tournament.tier))
       .filter((tournament) => hasDecidedFinal(tournament))

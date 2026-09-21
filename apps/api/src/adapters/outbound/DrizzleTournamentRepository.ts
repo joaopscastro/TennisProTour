@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
-import { GameWeek, PairId, PlayerId, TournamentId } from '@tennis-manager/domain';
+import { GameWeek, PairId, PlayerId, TournamentId, WEEKS_PER_SEASON } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
   AgeBand,
@@ -49,6 +49,32 @@ export class DrizzleTournamentRepository implements TournamentRepository {
 
   async findStarted(): Promise<Tournament[]> {
     const rows = await this.db.select().from(tournaments).where(eq(tournaments.hasStarted, true));
+    return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  /**
+   * The bounded counterpart to `findStarted()` for the obligatory-
+   * tournament rule — see the port's doc comment. One SQL prefilter over
+   * the same absolute-week arithmetic `weeksBetween` uses
+   * (`season * WEEKS_PER_SEASON + week`), inclusive of both window ends,
+   * so the expensive per-tournament `load()` (5 child queries each) never
+   * runs for an event that has aged out of the rolling ranking window.
+   * The use case still applies its own JS window filter on top, so
+   * behaviour for anything INSIDE the window is byte-identical to the old
+   * unbounded read.
+   */
+  async findStartedWithinWindow(currentWeek: GameWeek, weeks: number): Promise<Tournament[]> {
+    const currentAbsolute = currentWeek.season * WEEKS_PER_SEASON + currentWeek.week;
+    const earliestAbsolute = currentAbsolute - weeks;
+    const rows = await this.db
+      .select()
+      .from(tournaments)
+      .where(
+        and(
+          eq(tournaments.hasStarted, true),
+          sql`(${tournaments.seasonScheduled} * ${WEEKS_PER_SEASON} + ${tournaments.weekScheduled}) BETWEEN ${earliestAbsolute} AND ${currentAbsolute}`,
+        ),
+      );
     return Promise.all(rows.map((row) => this.load(row)));
   }
 
