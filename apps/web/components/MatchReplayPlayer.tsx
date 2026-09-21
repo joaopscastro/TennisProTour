@@ -170,6 +170,13 @@ interface Props {
   nextReplayHref?: string;
   nextRoundHref?: string;
   nextRoundLabel?: string;
+  /** Whether the match's staggered "Premiere" has started/ended — the SAME
+   * predicate the bracket uses (lib/matchAir.ts), so the replay and the
+   * bracket never disagree about "has this aired". Optional so a bare
+   * player (no tournament context) still renders; defaults to 'upcoming'. */
+  airState?: 'upcoming' | 'live' | 'aired';
+  /** The match's scheduled premiere start (ISO), when known. */
+  scheduledStartAt?: string | null;
 }
 
 export function MatchReplayPlayer({
@@ -183,6 +190,8 @@ export function MatchReplayPlayer({
   nextReplayHref,
   nextRoundHref,
   nextRoundLabel,
+  airState = 'upcoming',
+  scheduledStartAt = null,
 }: Props) {
   const [started, setStarted] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -278,7 +287,16 @@ export function MatchReplayPlayer({
     statusPulse = playing;
   }
 
-  const premiereTime = new Date(log.simulatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const premiereTime = new Date(scheduledStartAt ?? log.simulatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  // One predicate, three honest wordings — never say a match "premieres at"
+  // a time that has already passed (the bracket will already be showing its
+  // score by then; see lib/matchAir.ts).
+  const premiereLabel =
+    airState === 'aired'
+      ? `Aired at ${premiereTime}`
+      : airState === 'live'
+        ? 'Premiering now'
+        : `Premieres at ${premiereTime}`;
 
   return (
     <div>
@@ -406,7 +424,7 @@ export function MatchReplayPlayer({
             style={{ background: 'linear-gradient(180deg, oklch(24% 0.012 150 / 0.94), oklch(15% 0.01 150 / 0.97))', backdropFilter: 'blur(2px)' }}
           >
             <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
-              Premieres at {premiereTime} · Result already decided
+              {premiereLabel} · Result already decided
             </div>
             <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'var(--gc-ink-dim)' }}>
               This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled

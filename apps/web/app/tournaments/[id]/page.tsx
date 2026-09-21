@@ -24,7 +24,8 @@ import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/prim
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
-import { roundCollapsed, roundStatus } from '../../../lib/bracketStatus';
+import { roundCollapsed, roundStatus, roundSubtitle } from '../../../lib/bracketStatus';
+import { matchAirState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -525,21 +526,9 @@ function buildDisplayRounds(t: TournamentDto): DisplayRound[] {
   return rounds;
 }
 
-/** A match's reveal state (staggered-schedule feature), driven by its
- * scheduled start + the tournament's fixed reveal window and the current
- * wall-clock time. 'aired' also covers every match without a schedule
- * (not yet simulated, or a pre-feature row) — those are revealed the
- * instant they're decided, exactly as before. */
-type AirState = 'upcoming' | 'live' | 'aired';
-
-function matchAirState(m: DisplayMatch, now: number): AirState {
-  if (!m.decided || !m.scheduledStartAt) return 'aired';
-  const startMs = new Date(m.scheduledStartAt).getTime();
-  if (Number.isNaN(startMs)) return 'aired';
-  if (now < startMs) return 'upcoming';
-  if (now < startMs + m.revealSeconds * 1000) return 'live';
-  return 'aired';
-}
+// The air-state predicate lives in lib/matchAir.ts now, shared with the
+// replay page so the two views can never disagree about "has this match
+// aired" (see that file's doc comment).
 
 /** "3:27"-style countdown to a future instant; never negative. */
 function formatCountdown(ms: number): string {
@@ -723,11 +712,15 @@ export default function TournamentBracketPage() {
     if (activeRound) return `${activeRound.label} in progress`;
     const lastGenerated = [...rounds].reverse().find((r) => r.generated);
     if (!lastGenerated) return 'Awaiting entrants';
+    // "Complete" waits for the reveal too — a decided-but-not-yet-aired
+    // final must not read as a finished tournament.
+    const allAired = lastGenerated.matches.every((m) => !m.decided || matchAirState(m, now) === 'aired');
+    if (!allAired) return 'Results airing';
     if (lastGenerated.roundNumber === rounds.length && lastGenerated.matches.every((m) => m.decided)) {
       return 'Tournament complete';
     }
     return `${lastGenerated.label} complete`;
-  }, [tournament, rounds]);
+  }, [tournament, rounds, now]);
 
   if (error && !tournament) {
     return (
@@ -753,8 +746,13 @@ export default function TournamentBracketPage() {
   }
 
   const finalRound = rounds[rounds.length - 1];
-  const champDecided = finalRound?.matches[0]?.decided ?? false;
-  const champWinner = champDecided ? finalRound.matches[0].outcome?.winner ?? null : null;
+  const finalMatch = finalRound?.matches[0] ?? null;
+  // The champion is only revealed once the final has AIRED. Showing the
+  // trophy while earlier rounds' results were still revealing was the same
+  // header/card contradiction this pass fixes — and it spoiled the final's
+  // own premiere before it aired.
+  const champDecided = !!finalMatch && finalMatch.decided && matchAirState(finalMatch, now) === 'aired';
+  const champWinner = champDecided ? finalMatch.outcome?.winner ?? null : null;
   const champLabel = champWinner ? playerLabel({ playerId: champWinner, seed: null }) : null;
   const finalTop = positions[rounds.length - 1]?.[0] ?? 0;
   const finalMid = finalTop + CARD_H / 2;
@@ -1055,9 +1053,10 @@ export default function TournamentBracketPage() {
               const collapsed = roundCollapsed(round.generated, airs);
               const statusBg = statusLabel === 'Decided' ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
               const statusFg = statusLabel === 'Decided' ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
-              const subtitle = !round.generated
-                ? `${round.matches.length} match${round.matches.length === 1 ? '' : 'es'} scheduled`
-                : `${decidedCount} of ${round.matches.length} played`;
+              // Derived from the SAME per-match air states the cards below
+              // use — never from a separately-counted "decided" total, which
+              // used to read "8 of 8 played" while cards still said "starts in".
+              const subtitle = roundSubtitle(round.generated, airs);
 
               return (
                 <div key={round.roundNumber} className="flex items-start">
@@ -1101,10 +1100,18 @@ export default function TournamentBracketPage() {
                               </span>
                             </div>
                           );
+                          // A plain `<a>`, deliberately NOT next/link:
+                          // next's App Router intercepts the click and does
+                          // not update the URL until the destination's RSC
+                          // payload resolves, so a cold route left a decided
+                          // card looking like a dead click. A native anchor
+                          // changes the URL the instant it is activated, so a
+                          // decided card always behaves like the link it is
+                          // (real, focusable, keyboard-navigable).
                           return slot && m.decided ? (
-                            <Link key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
+                            <a key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
                               {row}
-                            </Link>
+                            </a>
                           ) : (
                             <div key={i}>{row}</div>
                           );
@@ -1275,15 +1282,17 @@ export default function TournamentBracketPage() {
                             justifyContent: 'center',
                           };
 
+                          // Plain `<a>` for the same reason as the collapsed
+                          // rows above — the click must navigate immediately.
                           return slot && m.decided ? (
-                            <Link
+                            <a
                               key={i}
                               href={`/replay/${slot}`}
                               className="block no-underline hover:opacity-95"
                               style={{ ...cardStyle, color: 'inherit', cursor: 'pointer' }}
                             >
                               {cardInner}
-                            </Link>
+                            </a>
                           ) : (
                             <div key={i} className="relative" style={cardStyle}>
                               {cardInner}

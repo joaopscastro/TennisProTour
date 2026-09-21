@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { roundCollapsed, roundStatus } from '../lib/bracketStatus';
+import { roundCollapsed, roundStatus, roundSubtitle } from '../lib/bracketStatus';
+import { hasAired, matchAirState } from '../lib/matchAir';
 import { xpAffordability } from '../lib/xp';
 import { RANK_BAND_LABEL, rankingBandScopeNote } from '../lib/format';
 
@@ -47,6 +48,49 @@ test.describe('bracket round status + collapse', () => {
   test('a not-yet-generated round is Upcoming', () => {
     expect(roundStatus(false, [])).toBe('Upcoming');
     expect(roundCollapsed(false, [])).toBe(false);
+  });
+
+  test('the subtitle agrees with the cards: decided-but-not-yet-aired never claims all played', () => {
+    // The exact contradiction reported: header "8 of 8 played" while cards
+    // still read "Starts in 0:14".
+    expect(roundSubtitle(true, [decidedUpcoming, decidedUpcoming])).toBe('All played — results air shortly');
+    expect(roundSubtitle(true, [decidedUpcoming, decidedUpcoming])).not.toMatch(/\d+ of \d+ played/);
+    // Mixed: one aired, one still to start -> "1 of 2 results revealed", so
+    // the header can never say every card is done while a card says otherwise.
+    expect(roundSubtitle(true, [decidedAired, decidedUpcoming])).toBe('1 of 2 results revealed');
+    expect(roundSubtitle(true, [decidedAired, decidedLive])).toBe('2 of 2 results revealed');
+    // Once everything has aired the count is the plain "played" total again.
+    expect(roundSubtitle(true, [decidedAired, decidedAired])).toBe('2 of 2 played');
+    expect(roundSubtitle(true, [undecided, undecided])).toBe('2 matches scheduled');
+  });
+});
+
+test.describe('match air state (one predicate for bracket + replay)', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const decided = (scheduledStartAt: string | null, revealSeconds = 900) => ({
+    decided: true,
+    scheduledStartAt,
+    revealSeconds,
+  });
+
+  test('an aired match is past its reveal window', () => {
+    expect(matchAirState(decided('2026-01-01T11:00:00Z'), now)).toBe('aired');
+    expect(hasAired(decided('2026-01-01T11:00:00Z'), now)).toBe(true);
+  });
+
+  test('a decided match before its premiere is upcoming, not aired', () => {
+    expect(matchAirState(decided('2026-01-01T13:00:00Z'), now)).toBe('upcoming');
+    expect(hasAired(decided('2026-01-01T13:00:00Z'), now)).toBe(false);
+  });
+
+  test('a decided match inside its reveal window is live', () => {
+    expect(matchAirState(decided('2026-01-01T11:55:00Z'), now)).toBe('live');
+    expect(hasAired(decided('2026-01-01T11:55:00Z'), now)).toBe(false);
+  });
+
+  test('a match with no schedule or no outcome is treated as aired (nothing to hide)', () => {
+    expect(matchAirState(decided(null), now)).toBe('aired');
+    expect(matchAirState({ decided: false, scheduledStartAt: '2026-01-01T13:00:00Z', revealSeconds: 900 }, now)).toBe('aired');
   });
 });
 

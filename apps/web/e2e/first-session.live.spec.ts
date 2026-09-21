@@ -179,8 +179,12 @@ test('(iv) decided tournament + replay: real scoreline, playback, completion', a
   await page.goto(`/replay/${matchId}`);
 
   // The Premiere overlay is always the entry state; pressing play is what
-  // starts the fake-live playback.
-  await expect(page.getByText(/Premieres at/)).toBeVisible();
+  // starts the fake-live playback. Because the browser clock was moved past
+  // this match's reveal window (or it had already aired), the overlay says
+  // "Aired at" — the same predicate (lib/matchAir) the bracket uses, so the
+  // two views can't disagree. When a match is NOT yet aired it says
+  // "Premieres at".
+  await expect(page.getByText(/Aired at/)).toBeVisible();
   await page.getByRole('button', { name: 'Watch replay' }).click();
   await page.getByRole('button', { name: 'Very fast (~5s)' }).click();
 
@@ -194,6 +198,43 @@ test('(iv) decided tournament + replay: real scoreline, playback, completion', a
   // Scoped to the banner: the page's breadcrumb also reads "← Back to
   // bracket", so an unscoped role query is ambiguous.
   await expect(completionBanner.getByRole('link', { name: 'Back to bracket' })).toBeVisible();
+});
+
+test('(iv-b) a decided bracket card is a real, navigating link', async ({ page, api }) => {
+  const response = await api.get(`/tournaments/${DEMO_TOURNAMENT_ID}`);
+  const tournament = (await response.json()) as {
+    rounds: Array<{
+      roundNumber: number;
+      matches: Array<{ outcome: unknown | null; scheduledStartAt: string | null; revealSeconds: number }>;
+    }>;
+  };
+
+  // The earliest decided match — its reveal window elapses first.
+  let pick: { roundNumber: number; matchIndex: number; airedAt: number } | null = null;
+  for (const round of tournament.rounds) {
+    for (let i = 0; i < round.matches.length; i++) {
+      const match = round.matches[i];
+      if (!match.outcome) continue;
+      const airedAt = match.scheduledStartAt
+        ? new Date(match.scheduledStartAt).getTime() + (match.revealSeconds ?? 0) * 1000
+        : 0;
+      if (!pick || airedAt < pick.airedAt) pick = { roundNumber: round.roundNumber, matchIndex: i, airedAt };
+    }
+  }
+  expect(pick).not.toBeNull();
+  const matchId = `${DEMO_TOURNAMENT_ID}-r${pick!.roundNumber}-m${pick!.matchIndex}`;
+
+  const neededMs = pick!.airedAt - Date.now();
+  if (neededMs > 0) await page.clock.install();
+  await page.goto(`/tournaments/${DEMO_TOURNAMENT_ID}`);
+  if (neededMs > 0) await page.clock.fastForward(neededMs + 60_000);
+
+  // The card is a real anchor and must navigate on click — the reported bug
+  // was that a decided card looked dead.
+  const card = page.locator(`a[href="/replay/${matchId}"]`).first();
+  await expect(card).toBeVisible();
+  await card.click();
+  await expect(page).toHaveURL(new RegExp(`/replay/${matchId}$`));
 });
 
 test('(v) world clock chrome renders season/week, day and the next-day countdown', async ({ page }) => {

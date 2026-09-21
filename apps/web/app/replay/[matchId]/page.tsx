@@ -20,6 +20,7 @@ import { MatchReplayPlayer } from '../../../components/MatchReplayPlayer';
 import { AppFrame } from '../../../components/ui/primitives';
 import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
 import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
+import { AirState, matchAirState } from '../../../lib/matchAir';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -138,6 +139,11 @@ interface MatchContext {
   entrantB: string;
   playerA: PlayerDto | null;
   playerB: PlayerDto | null;
+  /** Whether this match's premiere has started/ended, from the ONE shared
+   * predicate (lib/matchAir.ts) the bracket also uses, so the replay and
+   * the bracket can never disagree about "has this aired". */
+  airState: AirState;
+  scheduledStartAt: string | null;
   rankA: PlayerCardRank | null;
   rankB: PlayerCardRank | null;
   formA: PlayerTournamentHistoryEntryDto[];
@@ -172,6 +178,11 @@ export default function ReplayPage() {
         const rounds = draw === 'qualifying' ? tournament.qualifyingRounds : tournament.rounds;
         const match = rounds.find((r) => r.roundNumber === roundNumber)?.matches[matchIndex];
         if (!match) return;
+        const airState = matchAirState({
+          decided: match.outcome !== null,
+          scheduledStartAt: match.scheduledStartAt,
+          revealSeconds: match.revealSeconds ?? 0,
+        });
         const players = await fetchPlayersByIds([match.entrantA, match.entrantB]);
 
         // Best-effort identity enrichment (rank + recent form) for the
@@ -221,6 +232,8 @@ export default function ReplayPage() {
           entrantB: match.entrantB,
           playerA: players.get(match.entrantA) ?? null,
           playerB: players.get(match.entrantB) ?? null,
+          airState,
+          scheduledStartAt: match.scheduledStartAt,
           rankA: bestRank(profA),
           rankB: bestRank(profB),
           formA: profA?.tournamentHistory ?? [],
@@ -334,6 +347,8 @@ export default function ReplayPage() {
             nextReplayHref={context?.nextReplayHref ?? undefined}
             nextRoundHref={context?.nextRoundHref ?? undefined}
             nextRoundLabel={context?.nextRoundLabel ?? undefined}
+            airState={context?.airState ?? 'upcoming'}
+            scheduledStartAt={context?.scheduledStartAt ?? null}
           />
         )}
       </div>
