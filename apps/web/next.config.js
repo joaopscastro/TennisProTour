@@ -25,4 +25,11 @@ const path = require('path');
 module.exports = {
   output: 'standalone',
   outputFileTracingRoot: path.join(__dirname, '../../'),
+  // `NEXT_DIST_DIR` lets several `next dev` servers run against this one
+  // source tree at the same time without fighting over `.next` — Next holds
+  // a lockfile at `<distDir>/lock` and *refuses* a second dev/build on the
+  // same distDir (config-shared.d.ts's `lockDistDir`). The UX-probe bring-up
+  // script starts one dev server per agent for a stable per-server identity,
+  // so each must own its own distDir. Unset = the normal `.next`.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
 };

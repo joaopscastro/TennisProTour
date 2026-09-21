@@ -13,3 +13,10 @@ playwright-report/
 balance-report-*.json
 playtest-report*.json
 soak-report*.json
+
+# ux-probe: session screenshots/journals/logs and any report an agent writes.
+# Never commit live session artifacts — only the driver/scripts/README.
+tools/ux-probe/.sessions/
+tools/ux-probe/reports/
+# Per-session Next dev output dirs (see apps/web/next.config.js NEXT_DIST_DIR).
+apps/web/.next-ux-*/
