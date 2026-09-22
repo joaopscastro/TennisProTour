@@ -2,11 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  EntitlementDto,
   TalentPoolCandidateDto,
   WorldClockDto,
   claimTalentPoolCandidate,
-  fetchEntitlement,
   fetchTalentPool,
   fetchWorldClock,
 } from '../../lib/api';
@@ -17,6 +15,7 @@ import { AnimatedNumber, Delta } from '../../components/ui/motion';
 import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 import { useDevManagerId } from '../../lib/managerContext';
+import { useEntitlement } from '../../lib/entitlement';
 import { xpAffordability } from '../../lib/xp';
 import { formatMoney } from '../../lib/format';
 
@@ -56,7 +55,7 @@ export default function ScoutingPage() {
   const devManagerId = useDevManagerId();
   const [managerId, setManagerId] = useState(devManagerId ?? '');
   const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
-  const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
+  const { entitlement, refresh: refreshEntitlement } = useEntitlement(managerId);
   const [candidates, setCandidates] = useState<TalentPoolCandidateDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
@@ -111,12 +110,6 @@ export default function ScoutingPage() {
   // nextWeekTickAt (the next day-7 -> day-1 rollover), not nextTickAt.
   const refreshRemainingMs = useCountdown(worldClock?.nextWeekTickAt ?? null, refreshClockAndPool);
 
-  useEffect(() => {
-    fetchEntitlement(managerId)
-      .then(setEntitlement)
-      .catch(() => setEntitlement(null));
-  }, [managerId]);
-
   function showNotice(text: string) {
     setNotice(text);
     setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
@@ -139,7 +132,7 @@ export default function ScoutingPage() {
       await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
       showNotice(`Signed ${name} — welcome to the academy.`);
       await load();
-      await fetchEntitlement(managerId).then(setEntitlement).catch(() => {});
+      await refreshEntitlement();
       // A signing is a real event, not a silent list row — fire a claim
       // celebration (GC-16), scaled off the OBSERVABLE current OVR only
       // (potential is hidden in this RPG and must never leak, even here).

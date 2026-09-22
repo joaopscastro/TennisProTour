@@ -11,6 +11,7 @@ import {
   replayScoreVisible,
 } from '../lib/matchAir';
 import { nextPendingEntry } from '../lib/pendingEntry';
+import { resolveDecidedSide } from '../lib/decidedIt';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
 import { RANK_BAND_LABEL, rankingBandScopeNote } from '../lib/format';
@@ -212,6 +213,32 @@ test.describe('replay scoreboard — aired results show immediately', () => {
 
   test('once playback starts, the scoreboard follows playback (not the air state)', () => {
     expect(replayScoreVisible(false, 'aired', true)).toBe(false);
+  });
+});
+
+test.describe('replay "what decided it" prefers recorded match-time inputs', () => {
+  const player = (fatigue: number, form: number, nationality: string, clay: number) => ({
+    fatigue,
+    form,
+    nationality,
+    attributes: { surfaceAffinities: { clay, grass: 10, hard: 20, indoor: 30 } },
+  });
+
+  test('recorded inputs win over the player current values', () => {
+    const recorded = { fatigue: 42, form: 18, surfaceAffinity: 33, homeAdvantage: true };
+    // The player's values NOW are wildly different; the recorded ones must win.
+    const side = resolveDecidedSide(recorded, player(3, 2, 'France', 5), 'clay', 'France');
+    expect(side).toEqual({ fatigue: 42, form: 18, surfaceAffinity: 33, homeAdvantage: true, atMatchTime: true });
+  });
+
+  test('an older log with no recorded inputs falls back to current values, labelled not-match-time', () => {
+    const side = resolveDecidedSide(undefined, player(3, 2, 'France', 5), 'clay', 'France');
+    expect(side).toEqual({ fatigue: 3, form: 2, surfaceAffinity: 5, homeAdvantage: true, atMatchTime: false });
+  });
+
+  test('no player and no recorded inputs degrades to nulls, never a fabricated value', () => {
+    const side = resolveDecidedSide(null, null, 'clay', 'Spain');
+    expect(side).toEqual({ fatigue: null, form: null, surfaceAffinity: null, homeAdvantage: false, atMatchTime: false });
   });
 });
 

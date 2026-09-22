@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import {
   DoublesPairDto,
-  EntitlementDto,
   PlayerLifecycleStage,
   PlayerMatchesDto,
   PlannerWeekDto,
@@ -16,7 +15,6 @@ import {
   createDoublesPair,
   dissolveDoublesPair,
   fetchDoublesPairs,
-  fetchEntitlement,
   fetchEntryPlanner,
   fetchPlayerMatches,
   fetchRosterDashboard,
@@ -33,6 +31,7 @@ import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
 import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, flagFor, rankingBandScopeNote, stageLabel, type RankBand } from '../lib/format';
 import { useDevManagerId } from '../lib/managerContext';
+import { refreshEntitlement, useEntitlement } from '../lib/entitlement';
 import { Avatar } from '../components/ui/Avatar';
 import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
 import { AnimatedNumber, AnimatedOvrRing, Delta, RankShift, FlashOnGain, usePersistedPrevious } from '../components/ui/motion';
@@ -261,7 +260,7 @@ export default function RosterDashboardPage() {
   const [managerId, setManagerId] = useState(devManagerId ?? '');
   const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const [players, setPlayers] = useState<RosterDashboardEntryDto[] | null>(null);
-  const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
+  const { entitlement } = useEntitlement(managerId);
   // "What's next" cue: each player's next match (the same read the player
   // profile uses) plus the world clock's next tick, so the roster can say
   // when something is actually going to happen without faking a countdown
@@ -282,14 +281,13 @@ export default function RosterDashboardPage() {
   const load = useCallback(async (id: string) => {
     setError(null);
     try {
-      const [roster, ent, pairs, clock] = await Promise.all([
+      const [roster, , pairs, clock] = await Promise.all([
         fetchRosterDashboard(id),
-        fetchEntitlement(id),
+        refreshEntitlement(id),
         fetchDoublesPairs(id),
         fetchWorldClock().catch(() => null),
       ]);
       setPlayers(roster);
-      setEntitlement(ent);
       setDoublesPairs(pairs);
       setWorldClock(clock);
       // One "next match" + one "pending entry" read per roster player — the
@@ -309,7 +307,6 @@ export default function RosterDashboardPage() {
       setPlannerByPlayer(Object.fromEntries(perPlayer.map(([id, v]) => [id, v.planner])));
     } catch (e) {
       setPlayers(null);
-      setEntitlement(null);
       setDoublesPairs([]);
       setError(e instanceof Error ? e.message : String(e));
     }

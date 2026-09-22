@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
-  EntitlementDto,
   PlannerWeekDto,
   PlayerDto,
   PlayerMatchesDto,
@@ -16,7 +15,6 @@ import {
   TrainingScheduleWeekDto,
   claimTalentPoolCandidate,
   createDoublesPair,
-  fetchEntitlement,
   fetchEntryPlanner,
   fetchPlayer,
   fetchPlayerMatches,
@@ -27,6 +25,7 @@ import {
 } from '../../../lib/api';
 import { Sidebar } from '../../../components/Sidebar';
 import { useDevManagerId } from '../../../lib/managerContext';
+import { useEntitlement } from '../../../lib/entitlement';
 import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
 import { useCountdown, formatCountdownClock } from '../../../lib/useCountdown';
 import { Avatar } from '../../../components/ui/Avatar';
@@ -304,10 +303,10 @@ export default function PlayerProfilePage() {
   // browsable free agent straight from their profile, same flow the
   // Scouting page uses. The dev manager id comes from useDevManagerId()
   // and is empty under Clerk, where identity is the signed-in session.
-  const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
+  const devManagerId = useDevManagerId() ?? '';
+  const { entitlement, refresh: refreshEntitlement } = useEntitlement(devManagerId);
   const [signing, setSigning] = useState(false);
   const [signError, setSignError] = useState<string | null>(null);
-  const devManagerId = useDevManagerId() ?? '';
 
   // Doubles partner invitation (P7a): from a managed player owned by a
   // DIFFERENT manager, invite them to be one of my players' doubles
@@ -403,14 +402,6 @@ export default function PlayerProfilePage() {
 
   const isFreeAgent = profile?.managerId === null && profile?.stage !== 'retired';
 
-  useEffect(() => {
-    if (isFreeAgent) {
-      fetchEntitlement(devManagerId)
-        .then(setEntitlement)
-        .catch(() => setEntitlement(null));
-    }
-  }, [isFreeAgent, devManagerId]);
-
   async function handleSign() {
     // No mid-tournament confirm step any more: the rule forbids signing a
     // free agent with an unfinished tournament commitment outright, so
@@ -422,11 +413,14 @@ export default function PlayerProfilePage() {
     try {
       await claimTalentPoolCandidate(playerId, devManagerId);
       // Reload the profile: it now has an owner, flipping the page from
-      // "Sign this free agent" to a normal managed profile.
+      // "Sign this free agent" to a normal managed profile. The shared
+      // entitlement is refreshed too, so the XP shown here (and on every
+      // other surface) reflects the spent cost without a reload.
       const [p, m] = await Promise.all([fetchPlayerProfile(playerId), fetchPlayer(playerId)]);
       setProfile(p);
       setPlayer(m);
       loadSchedule();
+      void refreshEntitlement();
     } catch (e) {
       setSignError(e instanceof Error ? e.message : String(e));
     } finally {

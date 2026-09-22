@@ -338,6 +338,14 @@ export interface MatchLogDto {
    * the anchor for the wall-clock-synced "Premiere" live-edge cap
    * (see docs/ui-direction.md and MatchReplayPlayer). */
   simulatedAt: string;
+  /** The per-side inputs the simulator actually used, when recorded.
+   * Absent on logs written before this field existed — the replay's
+   * "what decided it" panel falls back to current values in that case. */
+  inputs?: {
+    surface: string;
+    a: { fatigue: number; form: number; surfaceAffinity: number; homeAdvantage: boolean };
+    b: { fatigue: number; form: number; surfaceAffinity: number; homeAdvantage: boolean };
+  };
 }
 
 async function requestHeaders(managerId?: string): Promise<Record<string, string>> {

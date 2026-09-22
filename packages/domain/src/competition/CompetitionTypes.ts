@@ -421,6 +421,41 @@ export interface MatchPointEntry {
   wonBy: 'A' | 'B';
 }
 
+/**
+ * One side's match-time inputs — the exact per-player values
+ * `StatisticalMatchSimulator.effectiveRating` actually read when THIS
+ * match was decided. Recorded into the replay log so the replay's
+ * "what decided it" panel can show the real numbers rather than each
+ * player's values at some later viewing time (they change as matches
+ * are played). Deliberately a plain, framework-free echo of the
+ * simulator's own inputs — the simulator stays a pure function of what
+ * it was given; this is just those inputs written down.
+ */
+export interface MatchLogSideInputs {
+  /** 0-100 fatigue at simulation time. */
+  fatigue: number;
+  /** 0-100 form (match rhythm) at simulation time. */
+  form: number;
+  /** Resolved surface-affinity value for `MatchLogInputs.surface` at
+   * simulation time (for a doubles side, the pair's blended value). */
+  surfaceAffinity: number;
+  /** Whether the home-advantage bonus applied to this side in this
+   * match (nationality matched the tournament's host country). */
+  homeAdvantage: boolean;
+}
+
+/**
+ * The match-time inputs for both sides of a decided match. Optional on
+ * `MatchLog` so every replay blob written BEFORE this field existed
+ * still parses — a consumer must treat its absence as "not recorded"
+ * and fall back to whatever it can derive, never fabricate it.
+ */
+export interface MatchLogInputs {
+  surface: Surface;
+  a: MatchLogSideInputs;
+  b: MatchLogSideInputs;
+}
+
 export interface MatchLog {
   /** Game-completion rollup — unchanged shape, still what the
    * bracket/scrub-bar tick marks and the game-by-game commentary
@@ -448,6 +483,13 @@ export interface MatchLog {
    * already used for domain events' `occurredAt`.
    */
   simulatedAt: string;
+  /**
+   * The per-side inputs the simulator actually used for this match.
+   * Optional/additive: a blob written before this field existed has no
+   * `inputs`, and every consumer must fall back to derived/current
+   * values in that case (see `WhatDecidedIt` on the replay screen).
+   */
+  inputs?: MatchLogInputs;
 }
 
 export interface BracketRound<S extends string = PlayerId> {

@@ -1,5 +1,5 @@
 import { Surface } from '../player/PlayerAttributes';
-import { MatchOutcome, MatchLog, MatchLogEntry, MatchPointEntry, PointScoreLabel } from '../competition/CompetitionTypes';
+import { MatchOutcome, MatchLog, MatchLogEntry, MatchLogSideInputs, MatchPointEntry, PointScoreLabel } from '../competition/CompetitionTypes';
 import { MatchParticipant, MatchSimulator, RandomSource, SimulatedMatch } from './MatchSimulator';
 import { weightedTechnicalAverage, weightedPhysicalAverage, weightedMentalAverage } from './SurfaceAttributeWeightingPolicy';
 
@@ -176,7 +176,24 @@ export class StatisticalMatchSimulator implements MatchSimulator {
       })),
     };
 
-    return { outcome, log };
+    // Record the exact per-side inputs this match was decided from —
+    // an echo of what was passed in, so the replay's "what decided it"
+    // panel can show match-time values instead of the players' current
+    // ones. Purely additive to the log; nothing else consumes it.
+    const sideInputs = (participant: MatchParticipant<S>): MatchLogSideInputs => ({
+      fatigue: participant.fatigue,
+      form: participant.form,
+      surfaceAffinity: participant.attributes.surfaceAffinities.get(surface),
+      homeAdvantage: participant.homeAdvantage ?? false,
+    });
+
+    return {
+      outcome,
+      log: {
+        ...log,
+        inputs: { surface, a: sideInputs(playerA), b: sideInputs(playerB) },
+      },
+    };
   }
 
   private effectiveRating<S extends string>(participant: MatchParticipant<S>, surface: Surface): number {

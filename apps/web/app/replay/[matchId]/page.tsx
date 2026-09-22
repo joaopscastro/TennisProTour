@@ -21,6 +21,7 @@ import { AppFrame } from '../../../components/ui/primitives';
 import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
 import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
 import { AirState, matchAirState } from '../../../lib/matchAir';
+import { DecidedSide, resolveDecidedSide } from '../../../lib/decidedIt';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -49,6 +50,9 @@ interface DecidedItProps {
   playerB: PlayerDto | null;
   nameA: string;
   nameB: string;
+  /** The match's recorded per-side inputs, when the log carries them.
+   * Preferred over the players' current values (see resolveDecidedSide). */
+  inputs?: MatchLogDto['inputs'] | null;
   accent?: string;
 }
 
@@ -56,29 +60,21 @@ interface DecidedItProps {
  * "What decided it" — the hidden rating inputs a reader of a scoreline
  * cannot see, made legible.
  *
- * **Honest data-availability note (a real gap, not glossed over here):**
- * the simulator's `effectiveRating` reads each player's fatigue and form
- * AT SIMULATION TIME, but neither is persisted with the match — the
- * `MatchLog` blob carries only points/games/duration, and the
- * `tournament_matches` row carries only the entrants, outcome and
- * reveal schedule. There is no per-match fatigue/form history anywhere.
- * So this panel deliberately does NOT present the values that actually
- * fed THIS match as if it did. What it renders is:
- *   - surface (the tournament's, stable),
- *   - home/away (derived from nationality vs. the tournament's host
- *     country — both stable, so this IS the match's real home bonus),
- *   - each player's CURRENT fatigue and form, and their CURRENT surface
- *     affinity, every one explicitly labelled "now".
- * Closing the gap for real needs a schema change (stamp the inputs onto
- * the match row or the log) and is deliberately left as its own scoped
- * piece of work rather than fabricated here.
+ * Since the simulator now records each side's actual inputs into the
+ * replay log (`MatchLog.inputs`), this panel shows the REAL match-time
+ * fatigue/form/surface-affinity/home flag whenever they are present, and
+ * says so ("at match time"). For a replay blob written before that field
+ * existed it falls back to each player's current values, labelled "now" —
+ * never presenting a current value as if it had decided the match.
  */
-function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, accent }: DecidedItProps) {
+function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, inputs, accent }: DecidedItProps) {
   const surface = (KNOWN_SURFACES as readonly string[]).includes(tournament.surface)
     ? (tournament.surface as KnownSurface)
     : null;
-  const affinityOf = (p: PlayerDto | null): number | null => (p && surface ? p.attributes.surfaceAffinities[surface] : null);
-  const isHome = (p: PlayerDto | null): boolean => tournament.hostCountry != null && p?.nationality === tournament.hostCountry;
+  const sideA = resolveDecidedSide(inputs?.a, playerA, surface, tournament.hostCountry);
+  const sideB = resolveDecidedSide(inputs?.b, playerB, surface, tournament.hostCountry);
+  const atMatchTime = sideA.atMatchTime && sideB.atMatchTime;
+  const fatigueHint = atMatchTime ? 'at match time' : 'current, not at match time';
 
   const row = (label: string, a: React.ReactNode, b: React.ReactNode, hint?: string) => (
     <div key={label} className="grid items-center gap-x-[8px] px-[10px] py-[6px]" style={{ gridTemplateColumns: '1.3fr 1fr 1fr', borderTop: '1px solid var(--gc-line)' }}>
@@ -91,8 +87,8 @@ function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, accent }: D
     </div>
   );
 
-  const formCell = (p: PlayerDto | null) =>
-    p ? <>{p.form}<span className="font-normal" style={{ color: 'var(--gc-ink-faint)' }}> · {formBandLabel(p.form)}</span></> : '—';
+  const formCell = (side: DecidedSide) =>
+    side.form === null ? '—' : <>{side.form}<span className="font-normal" style={{ color: 'var(--gc-ink-faint)' }}> · {formBandLabel(side.form)}</span></>;
 
   return (
     <div className="mb-[14px] gc-card rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
@@ -110,17 +106,21 @@ function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, accent }: D
         <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameA}</span>
         <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameB}</span>
       </div>
-      {row('Home / away', isHome(playerA) ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', isHome(playerB) ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', 'stable for this match')}
-      {row('Fatigue', playerA ? `${playerA.fatigue}/100` : '—', playerB ? `${playerB.fatigue}/100` : '—', 'current, not at match time')}
-      {row('Form', formCell(playerA), formCell(playerB), 'current, not at match time')}
+      {row('Home / away', sideA.homeAdvantage ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', sideB.homeAdvantage ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', 'stable for this match')}
+      {row('Fatigue', sideA.fatigue === null ? '—' : `${sideA.fatigue}/100`, sideB.fatigue === null ? '—' : `${sideB.fatigue}/100`, fatigueHint)}
+      {row('Form', formCell(sideA), formCell(sideB), fatigueHint)}
       {row(
         surface ? `Surface affinity (${surface})` : 'Surface affinity',
-        affinityOf(playerA) ?? '—',
-        affinityOf(playerB) ?? '—',
-        'current',
+        sideA.surfaceAffinity ?? '—',
+        sideB.surfaceAffinity ?? '—',
+        atMatchTime ? 'at match time' : 'current',
       )}
       <div className="px-[10px] py-[8px] text-[10.5px] leading-[1.5]" style={{ color: 'var(--gc-ink-mute)', borderTop: '1px solid var(--gc-line)' }}>
-        The sim blends each player&apos;s technical, physical and mental ability, adds their surface affinity, then applies a fatigue penalty, a form modifier and a home bonus on the day. Fatigue and form shown here are their values <em>now</em> — they change as matches are played and are not recorded per match, so they are context, not the exact numbers that decided this one.
+        {atMatchTime ? (
+          <>These are the exact numbers that decided this match — each player&apos;s fatigue, form and surface affinity at the moment it was simulated, plus whether the home bonus applied.</>
+        ) : (
+          <>The sim blends each player&apos;s technical, physical and mental ability, adds their surface affinity, then applies a fatigue penalty, a form modifier and a home bonus on the day. Fatigue and form shown here are their values <em>now</em> — this replay predates per-match recording, so they are context, not the exact numbers that decided this one.</>
+        )}
       </div>
     </div>
   );
@@ -346,6 +346,7 @@ export default function ReplayPage() {
             playerB={context.playerB}
             nameA={playerAName}
             nameB={playerBName}
+            inputs={log?.inputs ?? null}
             accent={accent}
           />
         )}

@@ -311,3 +311,34 @@ function participantWith(
 function simulateOutcome(random: RandomSource, a: MatchParticipant, b: MatchParticipant) {
   return new StatisticalMatchSimulator(random).simulate(a, b, 'hard').outcome;
 }
+
+describe('StatisticalMatchSimulator records match-time inputs in the log', () => {
+  it('echoes each side\'s actual fatigue/form/surface-affinity/home flag for the played surface', () => {
+    const random = new ScriptedRandomSource([A_WINS, A_WINS, A_WINS, A_WINS]);
+    const simulator = new StatisticalMatchSimulator(random);
+
+    const playerA: MatchParticipant = {
+      ...equalParticipant('pA'),
+      fatigue: 42,
+      form: 18,
+      homeAdvantage: true,
+      attributes: new PlayerAttributes({
+        technical: { serve: Skill.of(50), forehand: Skill.of(50), backhand: Skill.of(50), volley: Skill.of(50) },
+        physical: { speed: Skill.of(50), stamina: Skill.of(50), strength: Skill.of(50) },
+        mental: { consistency: Skill.of(50), clutch: Skill.of(50) },
+        surfaceAffinities: SurfaceAffinities.of({ clay: 33, grass: 11, hard: 20, indoor: 20 }),
+      }),
+    };
+    const playerB: MatchParticipant = { ...equalParticipant('pB'), fatigue: 7, form: 26 };
+
+    const { log } = simulator.simulate(playerA, playerB, 'clay');
+
+    // The recorded values are exactly what the simulator was handed —
+    // the whole point of the field, so the replay never has to guess.
+    expect(log.inputs).toEqual({
+      surface: 'clay',
+      a: { fatigue: 42, form: 18, surfaceAffinity: 33, homeAdvantage: true },
+      b: { fatigue: 7, form: 26, surfaceAffinity: 20, homeAdvantage: false },
+    });
+  });
+});

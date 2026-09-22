@@ -3,12 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   createProCheckoutSession,
-  EntitlementDto,
-  fetchEntitlement,
   fetchNotificationPreferences,
   setNotificationPreferences,
 } from '../../lib/api';
 import { useDevManagerId } from '../../lib/managerContext';
+import { useEntitlement } from '../../lib/entitlement';
 import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, Hero, SectionLabel } from '../../components/ui/primitives';
 
@@ -35,7 +34,7 @@ export default function ManagerProPage() {
   const devManagerId = useDevManagerId();
   const [managerId, setManagerId] = useState(devManagerId ?? '');
   const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
-  const [entitlement, setEntitlement] = useState<EntitlementDto | null>(null);
+  const { entitlement } = useEntitlement(managerId);
   const [error, setError] = useState<string | null>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   // null = not loaded yet; the toggle is disabled until we know the real
@@ -45,12 +44,6 @@ export default function ManagerProPage() {
 
   const load = useCallback(async (id: string) => {
     setError(null);
-    try {
-      setEntitlement(await fetchEntitlement(id));
-    } catch (e) {
-      setEntitlement(null);
-      setError(e instanceof Error ? e.message : String(e));
-    }
     try {
       setDigestOptOut((await fetchNotificationPreferences(id)).digestOptOut);
     } catch {
