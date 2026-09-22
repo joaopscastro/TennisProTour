@@ -50,8 +50,13 @@ class InMemoryTournamentRepository implements TournamentRepository {
   }
 
   async deleteAbandonedTournament(id: TournamentId): Promise<boolean> {
+    // The use case owns the "no manager-owned entrant" decision (it has
+    // the PlayerRepository; this fake does not). Mirror the production
+    // adapter's remaining structural guard: never delete a started
+    // tournament. The Drizzle adapter re-checks ownership inside the
+    // transaction as a safety net.
     const tournament = this.store.get(id);
-    if (!tournament || tournament.hasStarted || tournament.entrants.length > 0) return false;
+    if (!tournament || tournament.hasStarted) return false;
     this.store.delete(id);
     return true;
   }
@@ -458,12 +463,37 @@ describe('StartDueTournamentsUseCase — abandoned-draw expiry', () => {
     expect(await tournaments.findById(TournamentId('t-abandoned'))).toBeNull();
   });
 
-  it('leaves a never-started draw alone while it still has entrants', async () => {
-    const { tournaments, useCase } = await setup({ season: 1, week: 4 });
+  it('expires a never-started, FILLER-ONLY draw past the threshold, releasing its agents', async () => {
+    // A partially-filled draw whose bye placement left an empty round 1
+    // is deliberately left open by the start loop; once the week passes
+    // it can never seed. Its fillers must be released, not locked out of
+    // the signing pool forever.
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 4 });
+
+    const entered = openSeniorTournament('t-filler-only');
+    realEntrant(entered, 'filler-a');
+    realEntrant(entered, 'filler-b');
+    await tournaments.save(entered);
+    await players.save(fillOnlyPlayer('filler-a', 25 * 52));
+    await players.save(fillOnlyPlayer('filler-b', 25 * 52));
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.expired).toBe(1);
+    expect(await tournaments.findById(TournamentId('t-filler-only'))).toBeNull();
+    // The fillers survive (deleting the draw cascades only its entries);
+    // they are free agents again and signable.
+    expect(await players.findById(PlayerId('filler-a'))).not.toBeNull();
+    expect(await players.findById(PlayerId('filler-b'))).not.toBeNull();
+  });
+
+  it('leaves a never-started draw with a MANAGER-OWNED entrant alone', async () => {
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 4 });
 
     const entered = openSeniorTournament('t-entered');
-    realEntrant(entered, 'real-1');
+    realEntrant(entered, 'managed-1');
     await tournaments.save(entered);
+    await players.save(Player.hire(PlayerId('managed-1'), 'Managed One', 25 * 52, attributes(40), ManagerId('m1')));
 
     const result = await useCase.execute({ worldId });
 

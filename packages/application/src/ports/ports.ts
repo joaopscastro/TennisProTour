@@ -169,16 +169,19 @@ export interface TournamentRepository {
    * the only production implementation — always provides it. */
   findStartedLive?(): Promise<Tournament[]>;
 
-  /** Removes a never-started, genuinely EMPTY tournament (see
-   * StartDueTournamentsUseCase's expiry step) and returns true only if
-   * a row was actually deleted. A soft state was deliberately rejected:
-   * the schema has no tournament-status column, and these are hollow
-   * shells (no entrants, matches, titles or ranking rows — the child
-   * tables cascade), so keeping them would only keep accumulating
-   * useless rows. Implementations must only ever delete such a shell,
-   * never a tournament with entrants/matches. Optional for test
-   * compatibility; the Drizzle adapter — the only production
-   * implementation — always provides it. */
+  /** Removes a never-started tournament that is either genuinely EMPTY
+   * or manager-less (every entrant is a filler/free agent, so deleting it
+   * releases those players from the unfinished-commitment lock) and
+   * returns true only if a row was actually deleted. A soft state was
+   * deliberately rejected: the schema has no tournament-status column,
+   * and these are abandoned shells (no matches, titles or ranking rows —
+   * the child tables cascade), so keeping them would only keep
+   * accumulating useless rows. Implementations must never delete a
+   * never-started draw that has a manager-owned entrant (someone
+   * invested a decision in it) or a tournament with matches. Optional
+   * for test compatibility; the Drizzle adapter — the only production
+   * implementation — always provides it and re-checks the condition
+   * inside one transaction. */
   deleteAbandonedTournament?(id: TournamentId): Promise<boolean>;
   /** Every tournament (open or started — a filled draw still "used" a
    * registration slot for the week) this player is registered in for

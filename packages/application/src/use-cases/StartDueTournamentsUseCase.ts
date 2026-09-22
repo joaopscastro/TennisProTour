@@ -24,21 +24,27 @@ export interface StartDueTournamentsResult {
    * tournament — 0 whenever every started tournament was already full
    * of real registrants. */
   filled: number;
-  /** Never-started, genuinely EMPTY draws expired this run because they
-   * sat past their scheduled week without ever filling — the fix for a
-   * live world slowly accumulating permanently-stuck shells (a 3-season
-   * soak peaked at 34 and had to delete 305). 0 whenever none qualify. */
+  /** Never-started draws expired this run because they sat past their
+   * scheduled week without ever filling. Two cases qualify (see the
+   * expiry pass doc comment): a genuinely EMPTY shell, and a
+   * MANAGER-LESS but non-empty draw (only fillers/free agents — nobody
+   * invested a decision in it). The first closes the "world slowly
+   * accumulating permanently-stuck shells" gap (a 3-season soak peaked
+   * at 34 and had to delete 305); the second releases the fillers of a
+   * draw that will never seed so they become signable again. 0 whenever
+   * none qualify. */
   expired: number;
 }
 
 /** How many weeks past its scheduled week a never-started tournament
- * with ZERO entrants is left open before it is expired. Deliberately
- * small: a tournament that was never entered by any manager and whose
- * week is long gone is an abandoned shell, not a pending event. Two
- * weeks leaves room for the filler top-up (and the odd late rollover)
- * without letting shells pile up. Named and doc-commented, same
- * "explicit PLACEHOLDER threshold" discipline as every other pacing
- * constant here. */
+ * is left open before it is expired, provided nobody with a manager is
+ * entered in it. Deliberately small: a tournament that no manager ever
+ * entered (or one only fillers placed themselves into) and whose week
+ * is long gone is an abandoned shell, not a pending event. Two weeks
+ * leaves room for the filler top-up (and the odd late rollover) without
+ * letting shells pile up. Named and doc-commented, same "explicit
+ * PLACEHOLDER threshold" discipline as every other pacing constant
+ * here. */
 export const ABANDONED_TOURNAMENT_EXPIRY_WEEKS = 2;
 
 /**
@@ -146,24 +152,40 @@ export class StartDueTournamentsUseCase {
 
     const open = await this.tournaments.findOpenForRegistration();
 
-    // Expiry pass FIRST, before anything can fill/start a shell: a
-    // never-started tournament with ZERO singles AND doubles entrants
-    // whose scheduled week is more than ABANDONED_TOURNAMENT_EXPIRY_WEEKS
-    // in the past is abandoned (nobody ever chose it) and is deleted, so
-    // the open-tournament set can't accumulate stuck shells forever. Only
-    // genuinely empty shells qualify — a tournament with any entrant is
-    // left for the normal start/fill path, and a started one never
-    // appears in `open` at all. Idempotent: a deleted shell simply never
-    // appears again. `deleteAbandonedTournament` is optional on the port
-    // (in-memory fakes omit it); when absent the pass is inert.
+    // Expiry pass FIRST, before anything can fill/start a shell. A
+    // never-started tournament whose scheduled week is more than
+    // ABANDONED_TOURNAMENT_EXPIRY_WEEKS in the past is abandoned when
+    // NO MANAGER-OWNED player is entered in it. Two shapes qualify:
+    //
+    //   1. A genuinely EMPTY shell (`entrants.length === 0 &&
+    //      doublesEntrants.length === 0`) — nobody ever chose it.
+    //   2. A MANAGER-LESS but non-empty draw — every entrant is a
+    //      filler/free agent (managerId null). This is the case a
+    //      partially-filled draw falls into when bye placement leaves an
+    //      EMPTY round 1 (the `bracket[0].matches.length === 0` branch
+    //      below deliberately leaves it open for a later tick), the week
+    //      passes, and the draw can therefore never seed. Its fillers
+    //      would otherwise be locked out of the signing pool forever by
+    //      the "unfinished commitment" rule, since their main draw never
+    //      exists. Deleting it releases them.
+    //
+    // A never-started draw that has even ONE manager-owned entrant is
+    // NEVER expired, no matter how far past its week it is: a manager
+    // invested a real decision in it and may still be waiting on its
+    // bracket. Those are deliberately left in place for the normal
+    // start/fill path (and are reported as stuck draws rather than
+    // silently swept). A started tournament never appears in `open` at
+    // all. Idempotent: a deleted draw simply never appears again.
+    // `deleteAbandonedTournament` is optional on the port (in-memory
+    // fakes omit it); when absent the pass is inert.
     const expiredIds = new Set<string>();
     if (this.tournaments.deleteAbandonedTournament) {
       for (const tournament of open) {
-        const abandoned =
-          tournament.entrants.length === 0 &&
-          tournament.doublesEntrants.length === 0 &&
-          weeksBetween(tournament.weekScheduled, currentWeek) > ABANDONED_TOURNAMENT_EXPIRY_WEEKS;
-        if (!abandoned) continue;
+        if (weeksBetween(tournament.weekScheduled, currentWeek) <= ABANDONED_TOURNAMENT_EXPIRY_WEEKS) {
+          continue;
+        }
+        const isEmpty = tournament.entrants.length === 0 && tournament.doublesEntrants.length === 0;
+        if (!isEmpty && (await this.hasManagerOwnedEntrant(tournament))) continue;
         if (await this.tournaments.deleteAbandonedTournament(tournament.id)) {
           expiredIds.add(tournament.id);
         }
@@ -307,11 +329,35 @@ export class StartDueTournamentsUseCase {
   }
 
   /**
+   * True when a never-started draw should be KEPT because it may hold a
+   * manager-owned entrant. Used ONLY by the expiry pass. An entrant counts
+   * as manager-owned when its `Player` is owned by a manager OR when no
+   * `Player` row can be found for it — a missing player is treated
+   * CONSERVATIVELY as manager-owned, since a real registration is never
+   * manager-less and the delete should only ever fire when every entrant
+   * is POSITIVELY identifiable as a filler/free agent (managerId null).
+   * Only positively-manager-less draws are releasable. This exactly
+   * matches the production adapter's own transaction-scoped guard, where
+   * every entrant has a player row.
+   */
+  private async hasManagerOwnedEntrant(tournament: Tournament): Promise<boolean> {
+    const entrantIds = [
+      ...tournament.entrants.map((e) => e.playerId),
+      ...tournament.doublesEntrants,
+    ];
+    for (const playerId of entrantIds) {
+      const player = await this.players.findById(playerId);
+      if (!player || player.managerId != null) return true;
+    }
+    return false;
+  }
+
+  /**
    * Adds a filler to the MAIN draw. A DIRECT-acceptance place goes in
    * through `registerEntrant` — the aggregate enforces that capacity, and
    * a filler must never take a place reserved for a qualifier. Once the
    * direct places are gone, the remainder of the fill target can only be
-   * un-awarded WILD-CARD places, which `addMainDrawFiller` fills (legal
+   * un-awarded WILDCARD places, which `addMainDrawFiller` fills (legal
    * before the main bracket is seeded, which is exactly where this runs).
    * Keeping the two paths explicit is what preserves the aggregate's
    * capacity invariant while still letting an un-awarded reserved place

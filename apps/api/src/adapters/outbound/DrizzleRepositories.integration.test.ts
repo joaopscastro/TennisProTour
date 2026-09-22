@@ -479,7 +479,7 @@ describe('DrizzleTournamentRepository', () => {
     ]);
   });
 
-  it('deleteAbandonedTournament removes an empty never-started shell but never one with entrants', async () => {
+  it('deleteAbandonedTournament removes an empty shell and a filler-only draw, but never one with a manager-owned entrant', async () => {
     await savePlayers(1);
 
     const shell = Tournament.open({ name: 'Shell', id: TournamentId('t-shell'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
@@ -487,6 +487,22 @@ describe('DrizzleTournamentRepository', () => {
     expect(await tournamentRepository.deleteAbandonedTournament(TournamentId('t-shell'))).toBe(true);
     expect(await tournamentRepository.findById(TournamentId('t-shell'))).toBeNull();
 
+    // A never-started draw whose only entrants are fillers/free agents
+    // (manager_id null) is expirable: deleting it releases them from the
+    // unfinished-commitment lock they'd otherwise sit in forever.
+    await playerRepository.save(Player.generateFillOnly(PlayerId('f1'), 'Filler One', 25 * 52, 'prime', attributes(30), 'BR'));
+    await playerRepository.save(Player.generateFillOnly(PlayerId('f2'), 'Filler Two', 25 * 52, 'prime', attributes(30), 'BR'));
+    const fillerOnly = Tournament.open({ name: 'Filler Only', id: TournamentId('t-filler-only'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
+    fillerOnly.registerEntrant({ playerId: PlayerId('f1'), seed: null });
+    fillerOnly.registerEntrant({ playerId: PlayerId('f2'), seed: null });
+    await tournamentRepository.save(fillerOnly);
+    expect(await tournamentRepository.deleteAbandonedTournament(TournamentId('t-filler-only'))).toBe(true);
+    expect(await tournamentRepository.findById(TournamentId('t-filler-only'))).toBeNull();
+    // The fillers themselves survive the cascade — they're free agents
+    // again, not deleted along with the draw.
+    expect(await playerRepository.findById(PlayerId('f1'))).not.toBeNull();
+
+    // A single manager-owned entrant blocks the delete entirely.
     const entered = Tournament.open({ name: 'Entered', id: TournamentId('t-entered'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 });
     entered.registerEntrant({ playerId: PlayerId('p1'), seed: null });
     await tournamentRepository.save(entered);

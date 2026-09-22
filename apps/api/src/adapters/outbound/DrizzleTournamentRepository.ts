@@ -125,13 +125,23 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   /**
-   * Deletes a never-started, empty tournament shell. Guarded in one
-   * transaction: it re-checks `has_started = false` AND that the six
-   * child tables that could possibly reference it are empty, so it can
-   * never remove a tournament that has any real state (the FK-bearing
+   * Deletes a never-started tournament that is either genuinely EMPTY or
+   * manager-less (every entrant is a filler/free agent). Guarded in one
+   * transaction: it re-checks `has_started = false` AND that no
+   * manager-owned player is entered in either draw AND that the other
+   * child tables that could hold real state are empty, so it can never
+   * remove a tournament a manager invested in (the FK-bearing
    * weekly_entry_claims is removed first — a crash between an entry
-   * claim and its save is the one way an empty shell can still hold a
-   * claim row). Returns true only if the tournaments row was deleted.
+   * claim and its save is the one way a shell can still hold a claim
+   * row). Returns true only if the tournaments row was deleted.
+   *
+   * The manager-owned check replaces the old "no entrant rows at all"
+   * check: a never-started draw whose only entrants are fillers (e.g.
+   * one stuck because its bye placement left an empty round 1) would
+   * otherwise lock those free agents out of the signing pool forever via
+   * the unfinished-commitment rule, so it is expirable and deleting it
+   * releases them. A single manager-owned entrant makes the whole guard
+   * fail, exactly like StartDueTournamentsUseCase's own pre-check.
    */
   async deleteAbandonedTournament(id: TournamentId): Promise<boolean> {
     return this.db.transaction(async (tx) => {
@@ -139,8 +149,16 @@ export class DrizzleTournamentRepository implements TournamentRepository {
         SELECT t.id FROM tournaments t
         WHERE t.id = ${id}
           AND t.has_started = false
-          AND NOT EXISTS (SELECT 1 FROM tournament_entries e WHERE e.tournament_id = t.id)
-          AND NOT EXISTS (SELECT 1 FROM tournament_doubles_entrants e WHERE e.tournament_id = t.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM tournament_entries e
+            JOIN players p ON p.id = e.player_id
+            WHERE e.tournament_id = t.id AND p.manager_id IS NOT NULL
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM tournament_doubles_entrants e
+            JOIN players p ON p.id = e.player_id
+            WHERE e.tournament_id = t.id AND p.manager_id IS NOT NULL
+          )
           AND NOT EXISTS (SELECT 1 FROM tournament_matches m WHERE m.tournament_id = t.id)
           AND NOT EXISTS (SELECT 1 FROM tournament_doubles_matches m WHERE m.tournament_id = t.id)
           AND NOT EXISTS (SELECT 1 FROM tournament_doubles_pairs p WHERE p.tournament_id = t.id)
