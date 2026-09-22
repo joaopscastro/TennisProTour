@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../lib/bracketStatus';
-import { hasAired, matchAirState, matchAirStateForDto, replayScoreVisible } from '../lib/matchAir';
+import {
+  activeSetTag,
+  championRevealed,
+  hasAired,
+  matchAirState,
+  matchAirStateForDto,
+  matchState,
+  replayOverlayCopy,
+  replayScoreVisible,
+} from '../lib/matchAir';
 import { nextPendingEntry } from '../lib/pendingEntry';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
@@ -17,10 +26,10 @@ test.describe('bracket round status + collapse', () => {
   const decidedAired = { decided: true, airState: 'aired' as const };
   const decidedLive = { decided: true, airState: 'live' as const };
   const decidedUpcoming = { decided: true, airState: 'upcoming' as const };
-  // An undecided match has no reveal window, so the air-state function
-  // yields 'aired' for it — the exact reason the old logic mislabelled a
-  // whole un-played round as Decided.
-  const undecided = { decided: false, airState: 'aired' as const };
+  // An undecided match has no result to reveal, so the air-state function
+  // now reports 'upcoming' for it (never 'aired') — the exact reason the
+  // old logic mislabelled a whole un-played round as Decided.
+  const undecided = { decided: false, airState: 'upcoming' as const };
 
   test('an all-undecided generated round is Upcoming, never Decided', () => {
     expect(roundStatus(true, [undecided, undecided])).toBe('Upcoming');
@@ -90,9 +99,14 @@ test.describe('match air state (one predicate for bracket + replay)', () => {
     expect(hasAired(decided('2026-01-01T11:55:00Z'), now)).toBe(false);
   });
 
-  test('a match with no schedule or no outcome is treated as aired (nothing to hide)', () => {
+  test('a decided match with no schedule is aired; an undecided one is upcoming', () => {
     expect(matchAirState(decided(null), now)).toBe('aired');
-    expect(matchAirState({ decided: false, scheduledStartAt: '2026-01-01T13:00:00Z', revealSeconds: 900 }, now)).toBe('aired');
+    expect(hasAired(decided(null), now)).toBe(true);
+    // An undecided match has no result to hide, so it is NOT "aired" —
+    // it is simply upcoming (this is what stops a round being "Decided"
+    // before anything has been played).
+    expect(matchAirState({ decided: false, scheduledStartAt: '2026-01-01T13:00:00Z', revealSeconds: 900 }, now)).toBe('upcoming');
+    expect(hasAired({ decided: false, scheduledStartAt: null, revealSeconds: 0 }, now)).toBe(false);
   });
 
   test('the DTO adapter applies the SAME predicate to every bracket draw', () => {
@@ -109,10 +123,73 @@ test.describe('match air state (one predicate for bracket + replay)', () => {
     expect(matchAirStateForDto(decidedDto('2026-01-01T13:00:00Z'), now)).toBe('upcoming');
     expect(matchAirStateForDto(decidedDto('2026-01-01T11:55:00Z'), now)).toBe('live');
     expect(matchAirStateForDto(decidedDto('2026-01-01T11:00:00Z'), now)).toBe('aired');
-    // An undecided row has nothing to hide, and an absent schedule is aired.
-    expect(matchAirStateForDto({ outcome: null, scheduledStartAt: null }, now)).toBe('aired');
+    // An undecided row is upcoming; a decided row with no schedule is aired.
+    expect(matchAirStateForDto({ outcome: null, scheduledStartAt: null }, now)).toBe('upcoming');
     expect(matchAirStateForDto(decidedDto(null), now)).toBe('aired');
   });
+});
+
+/**
+ * The state matrix: the four combinations a match can be in, checked
+ * against EVERY view that used to compute its own notion of "has this
+ * aired". One row per state, one assertion per view, so a future change
+ * that lets a view drift is caught here rather than in a walkthrough.
+ *
+ *   not-started    decided=false            -> upcoming
+ *   live           decided, reveal running  -> live
+ *   decided-unaired decided, reveal pending -> upcoming
+ *   aired          decided, reveal elapsed  -> aired
+ */
+test.describe('match-state matrix — every view reads the one predicate', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const match = (decided: boolean, scheduledStartAt: string | null): { decided: boolean; scheduledStartAt: string | null; revealSeconds: number } => ({
+    decided,
+    scheduledStartAt,
+    revealSeconds: 900,
+  });
+
+  const states = [
+    { name: 'not started', m: match(false, null), expected: 'upcoming' as const },
+    { name: 'live', m: match(true, '2026-01-01T11:55:00Z'), expected: 'live' as const },
+    { name: 'decided but not aired', m: match(true, '2026-01-01T13:00:00Z'), expected: 'upcoming' as const },
+    { name: 'aired', m: match(true, '2026-01-01T11:00:00Z'), expected: 'aired' as const },
+  ];
+
+  for (const { name, m, expected } of states) {
+    test(`[${name}] the predicate, round header, champion gate, replay and set tag all agree`, () => {
+      // 1. The one predicate.
+      expect(matchState(m, now)).toBe(expected);
+      expect(matchAirState(m, now)).toBe(expected);
+
+      // 2. The bracket's round summary derives from the SAME state as its
+      //    cards: a round is only "Decided"/collapsed when every match is
+      //    played AND aired.
+      const cards = [{ decided: m.decided, airState: expected }];
+      const status = roundStatus(true, cards);
+      const collapsed = roundCollapsed(true, cards);
+      if (expected === 'aired') {
+        expect(status).toBe('Decided');
+        expect(collapsed).toBe(true);
+      } else {
+        expect(status).not.toBe('Decided');
+        expect(collapsed).toBe(false);
+      }
+
+      // 3. The champion banner + title celebration are gated on AIRED, never
+      //    merely decided.
+      expect(championRevealed(m, now)).toBe(expected === 'aired');
+
+      // 4. The replay overlay never claims "premiere" and "already decided"
+      //    at once, and shows the final score only once aired.
+      const overlay = replayOverlayCopy(expected, '2:00 PM');
+      expect(overlay.headline).toContain(expected === 'aired' ? 'Aired' : expected === 'live' ? 'Premiering' : 'Premieres');
+      expect(overlay.note.includes('already decided')).toBe(expected === 'aired');
+      expect(replayScoreVisible(false, expected, false)).toBe(expected === 'aired');
+
+      // 5. The set tag only says PREMIERE before the match airs.
+      expect(activeSetTag(expected)).toBe(expected === 'upcoming' ? 'PREMIERE' : null);
+    });
+  }
 });
 
 test.describe('replay scoreboard — aired results show immediately', () => {

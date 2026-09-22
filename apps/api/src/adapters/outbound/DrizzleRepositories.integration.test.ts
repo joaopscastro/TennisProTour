@@ -1284,6 +1284,47 @@ describe('DrizzlePlayerMatchesQuery.unfinishedCommitmentByPlayer', () => {
     const blocked = await query.unfinishedCommitmentByPlayer([PlayerId('fa-finished')]);
     expect(blocked.has(PlayerId('fa-finished'))).toBe(false);
   });
+
+  it('keeps the flag while the decided main draw is still inside its reveal window', async () => {
+    // Same predicate the atomic claim uses: "concluded" means fully AIRED,
+    // not merely decided — so the DTO's disabled-Sign state and the server's
+    // refusal agree during the reveal window.
+    await saveFree('fa-revealing-commit', 'Revealing Commitment');
+    await saveFree('fa-revealing-opp', 'Revealing Opponent');
+    await db.insert(schema.tournaments).values({
+      id: 'commit-revealing',
+      name: 'Revealing Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'commit-revealing',
+      playerId: PlayerId('fa-revealing-commit'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'commit-revealing',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('fa-revealing-commit'),
+      entrantB: PlayerId('fa-revealing-opp'),
+      winnerId: PlayerId('fa-revealing-opp'),
+      loserId: PlayerId('fa-revealing-commit'),
+      setScores: [{ winnerGames: 6, loserGames: 3 }],
+      scheduledStartAt: new Date(Date.now() + 60 * 60 * 1000),
+      revealSeconds: 900,
+    });
+
+    const blocked = await query.unfinishedCommitmentByPlayer([PlayerId('fa-revealing-commit')]);
+    expect(blocked.get(PlayerId('fa-revealing-commit'))).toEqual({ id: 'commit-revealing', name: 'Revealing Open' });
+  });
 });
 
 describe('DrizzlePlayerTournamentHistoryQuery (reveal-gated results)', () => {
@@ -1582,7 +1623,7 @@ describe('DrizzleTalentClaimAdapter', () => {
     expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100);
   });
 
-  it('signs a free agent again once their only tournament main draw has FINISHED', async () => {
+  it('signs a free agent again once their only tournament main draw has FINISHED (and aired)', async () => {
     // The counterpart: a decided main draw is a concluded commitment, so
     // the player is signable again — the pool must not shrink forever.
     await saveFreeAgent('tp1');
@@ -1596,6 +1637,52 @@ describe('DrizzleTalentClaimAdapter', () => {
     if (outcome.kind !== 'claimed') throw new Error('unreachable');
     expect(outcome.player.managerId).toBe(ManagerId('m1'));
     expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(60);
+  });
+
+  it('still refuses a free agent whose main draw is decided but NOT yet aired (the boundary bug)', async () => {
+    // The rule is "committed until the event's results have fully AIRED",
+    // matching what the profile shows ("Next: vs … in 4:39:09"). A decided
+    // final still inside its reveal window must not make the player
+    // signable while they look mid-match.
+    await saveFreeAgent('tp1');
+    await saveFreeAgent('tp-opp');
+    await db.insert(schema.tournaments).values({
+      id: 'commit-revealing',
+      name: 'Revealing Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'commit-revealing',
+      playerId: PlayerId('tp1'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'commit-revealing',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('tp1'),
+      entrantB: PlayerId('tp-opp'),
+      winnerId: PlayerId('tp-opp'),
+      loserId: PlayerId('tp1'),
+      setScores: [{ winnerGames: 6, loserGames: 2 }],
+      scheduledStartAt: new Date(Date.now() + 60 * 60 * 1000),
+      revealSeconds: 900,
+    });
+    await xpRepository.credit(ManagerId('m1'), 100);
+
+    const outcome = await adapter.claimAndCharge(PlayerId('tp1'), ManagerId('m1'), 40);
+
+    expect(outcome).toEqual({ kind: 'player-committed' });
+    expect(await xpRepository.balanceFor(ManagerId('m1'))).toBe(100); // rolled back
+    expect((await playerRepository.findById(PlayerId('tp1')))!.managerId).toBeNull();
   });
 
   it(

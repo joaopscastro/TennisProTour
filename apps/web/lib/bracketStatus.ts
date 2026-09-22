@@ -2,13 +2,12 @@
  * Round status + collapse for the tournament bracket — pure so the
  * "undecided round reads as Decided" bug can't come back unnoticed.
  *
- * The original defect: `matchAirState` returns 'aired' for a match that
- * has NOT been decided (there is no reveal window to wait for), so a
- * round where nothing had been played satisfied "every match aired" and
- * was labelled "Decided" and collapsed into fake "X def. Y" rows — some
- * of which linked to replays that were never written. The rule below
- * makes "aired" count only for DECIDED matches, so an un-played round is
- * always "Upcoming".
+ * The original defect: an un-played round satisfied "every match aired"
+ * and was labelled "Decided" and collapsed into fake "X def. Y" rows —
+ * some of which linked to replays that were never written. `matchState`
+ * now reports an undecided match as 'upcoming' (never 'aired'), and the
+ * rule below additionally counts "aired" only over DECIDED matches, so
+ * an un-played round is always "Upcoming".
  *
  * A SECOND defect (found after the first fix shipped): the round's badge
  * was derived from the reveal state but its subtitle ("8 of 8 played")

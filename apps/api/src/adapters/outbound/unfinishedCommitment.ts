@@ -13,13 +13,19 @@ import { PlayerId } from '@tennis-manager/domain';
  * disagree.
  *
  * "Unfinished" here means exactly "the tournament's MAIN draw has not
- * been played to its final" — the SQL twins of Tournament.isMainDrawFinished()
- * / isDoublesMainDrawFinished(), reusing the same shape
- * DrizzleTournamentRepository.findStartedLive() established: a main-draw
- * match exists (hasMainDraw) AND no main-draw match is still undecided.
+ * been played out AND fully AIRED" — the SQL twin of the web/API
+ * `matchState` rule (matchAir.ts), NOT merely of
+ * Tournament.isMainDrawFinished(). A main-draw match is still live for
+ * this purpose while its result is decided but its staggered reveal
+ * window has not elapsed, because that is exactly the state the UI
+ * presents as "still competing" (the profile's "Next: vs … in 4:39:09"
+ * strip). Before this, a free agent whose final was decided but not yet
+ * aired was signable while still looking mid-match — the exact
+ * confusion the signing rule exists to remove.
+ *
  * A tournament that has not started, is mid-draw, or is sitting between
  * qualifying and main-draw seeding is therefore unfinished; one whose
- * main draw is decided is finished.
+ * main draw is decided AND fully aired is finished.
  *
  * Note the semantics are TOURNAMENT-level, not player-level (per the
  * spec): a player eliminated in round 1 of an event still in progress
@@ -31,22 +37,43 @@ import { PlayerId } from '@tennis-manager/domain';
  * in the surrounding query (all callers here do).
  */
 
-/** The singles main draw of tournament `t` is NOT finished. */
+/** The singles main draw of tournament `t` is NOT finished (decided + aired). */
 export const singlesMainDrawUnfinished = sql`(
   NOT EXISTS (SELECT 1 FROM tournament_matches m WHERE m.tournament_id = t.id AND m.draw = 'main')
-  OR EXISTS (SELECT 1 FROM tournament_matches m WHERE m.tournament_id = t.id AND m.draw = 'main' AND m.winner_id IS NULL)
+  OR EXISTS (
+    SELECT 1 FROM tournament_matches m
+    WHERE m.tournament_id = t.id AND m.draw = 'main'
+      AND (
+        m.winner_id IS NULL
+        OR (
+          m.scheduled_start_at IS NOT NULL
+          AND now() < m.scheduled_start_at + make_interval(secs => COALESCE(m.reveal_seconds, 0))
+        )
+      )
+  )
 )`;
 
-/** The doubles main draw of tournament `t` is NOT finished. */
+/** The doubles main draw of tournament `t` is NOT finished (decided + aired). */
 export const doublesMainDrawUnfinished = sql`(
   NOT EXISTS (SELECT 1 FROM tournament_doubles_matches m WHERE m.tournament_id = t.id AND m.draw = 'main')
-  OR EXISTS (SELECT 1 FROM tournament_doubles_matches m WHERE m.tournament_id = t.id AND m.draw = 'main' AND m.winner_id IS NULL)
+  OR EXISTS (
+    SELECT 1 FROM tournament_doubles_matches m
+    WHERE m.tournament_id = t.id AND m.draw = 'main'
+      AND (
+        m.winner_id IS NULL
+        OR (
+          m.scheduled_start_at IS NOT NULL
+          AND now() < m.scheduled_start_at + make_interval(secs => COALESCE(m.reveal_seconds, 0))
+        )
+      )
+  )
 )`;
 
 /**
  * Boolean SQL predicate: this player has NO unfinished tournament
  * commitment, i.e. every tournament they hold a singles entry or a
- * doubles entry/pair in has its relevant main draw decided. Covers both
+ * doubles entry/pair in has its relevant main draw decided AND fully
+ * aired. Covers both
  * entry paths (singles `tournament_entries`, doubles
  * `tournament_doubles_entrants` registrations AND formed
  * `tournament_doubles_pairs`, so a manager-less filler placed into a

@@ -24,7 +24,7 @@ import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Ce
 import { surfaceTheme } from '../../../lib/surfaces';
 import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../../../lib/bracketStatus';
-import { matchAirState, matchAirStateForDto } from '../../../lib/matchAir';
+import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -658,10 +658,19 @@ export default function TournamentBracketPage() {
   const totalHeight = counts.length > 0 ? (counts[0] - 1) * steps[0] + CARD_H : 0;
   const positions = rounds.map((round, ri) => round.matches.map((_, i) => top0s[ri] + i * steps[ri]));
 
-  // Title-win celebration (GC-16): fires from the existing "a champion is
-  // decided" signal — the final match transitioning to decided. Re-fetches
-  // the tournament fresh (state from load() isn't visible synchronously here),
-  // then reads the champion's profile to tell a maiden title from a repeat one
+  // The champion is revealed ONLY once the final has AIRED — the one
+  // `matchState` predicate (lib/matchAir) every view reads, never a bespoke
+  // "is it decided" test. This single value drives the hero copy, the
+  // champion banner AND the title celebration below, so a decided-but-still-
+  // revealing final can never crown anyone (the exact bug: a "lifts the
+  // trophy" hero and a "FIRST TITLE" popup while the final read "Live now").
+  const finalRoundGate = rounds[rounds.length - 1];
+  const finalMatchGate = finalRoundGate?.matches[0] ?? null;
+  const champDecided = !!finalMatchGate && championRevealed(finalMatchGate, now);
+
+  // Title-win celebration (GC-16): fires ONLY once the final has aired (the
+  // same gate as the banner). Re-fetches the tournament fresh, then reads the
+  // champion's profile to tell a maiden title from a repeat one
   // (titles.length === 1). fire-once guarded so a reload never re-fires it.
   const detectTitle = useCallback(async () => {
     if (firedTitleRef.current) return;
@@ -670,7 +679,9 @@ export default function TournamentBracketPage() {
       const dr = buildDisplayRounds(t);
       const fr = dr[dr.length - 1];
       const fm = fr?.matches[0];
-      if (!fm?.decided) return;
+      // Aired, not merely decided — the final must be viewable before the
+      // title is celebrated.
+      if (!fm || matchState(fm, Date.now()) !== 'aired') return;
       const winner = fm.outcome?.winner;
       if (!winner) return;
       firedTitleRef.current = true;
@@ -699,10 +710,12 @@ export default function TournamentBracketPage() {
   // The title celebration used to be triggered by the manual "Simulate"
   // button. That control is an operator/dev override and was removed from the
   // player-facing bracket (its route is now admin-gated), so the celebration
-  // now reacts to the loaded tournament instead.
+  // now reacts to the loaded tournament instead — and specifically to the
+  // final having AIRED (`champDecided`), so it can fire the moment the reveal
+  // completes rather than only at load.
   useEffect(() => {
-    void detectTitle();
-  }, [tournament, detectTitle]);
+    if (champDecided) void detectTitle();
+  }, [champDecided, detectTitle]);
 
   function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string; fillOnly: boolean } {
     if (!entrant) return { name: '', flag: '', seedLabel: '', fillOnly: false };
@@ -755,14 +768,10 @@ export default function TournamentBracketPage() {
     );
   }
 
-  const finalRound = rounds[rounds.length - 1];
-  const finalMatch = finalRound?.matches[0] ?? null;
-  // The champion is only revealed once the final has AIRED. Showing the
-  // trophy while earlier rounds' results were still revealing was the same
-  // header/card contradiction this pass fixes — and it spoiled the final's
-  // own premiere before it aired.
-  const champDecided = !!finalMatch && finalMatch.decided && matchAirState(finalMatch, now) === 'aired';
-  const champWinner = champDecided ? finalMatch.outcome?.winner ?? null : null;
+  // `champDecided` is computed above (before the celebration effect) from the
+  // same `matchState` predicate — the champion is only revealed once the final
+  // has AIRED, never while it is merely decided/still revealing.
+  const champWinner = champDecided ? finalMatchGate?.outcome?.winner ?? null : null;
   const champLabel = champWinner ? playerLabel({ playerId: champWinner, seed: null }) : null;
   const finalTop = positions[rounds.length - 1]?.[0] ?? 0;
   const finalMid = finalTop + CARD_H / 2;

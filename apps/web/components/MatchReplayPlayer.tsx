@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScorePop } from './ui/motion';
 import { MatchLogDto } from '../lib/api';
-import { replayScoreVisible } from '../lib/matchAir';
+import { activeSetTag, replayOverlayCopy, replayScoreVisible } from '../lib/matchAir';
 
 /**
  * The "fake live" replay player — CLAUDE.md principle #4 made
@@ -198,9 +198,27 @@ export function MatchReplayPlayer({
   const [elapsed, setElapsed] = useState(0);
   const [speed, setSpeed] = useState<(typeof SPEEDS)[number]['multiplier']>(SPEEDS[0].multiplier);
   const [playing, setPlaying] = useState(false);
-  const [liveEdgeSeconds, setLiveEdgeSeconds] = useState(() => computeLiveEdgeSeconds(log.simulatedAt, log.totalDurationSeconds));
+  // Ticking wall-clock so the live edge re-evaluates as the reveal progresses
+  // (and, critically, so it stops being a value frozen at mount — see below).
+  const [clock, setClock] = useState(() => Date.now());
   const speedRef = useRef(speed);
   speedRef.current = speed;
+
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // The wall-clock live edge, derived from the SAME air state the bracket and
+  // replay share. Once the match has AIRED the whole replay is available (the
+  // result is already public on the bracket), so the edge is the full duration
+  // and the skip/scrub controls work. Deriving it — rather than freezing it at
+  // mount — is the fix for a replay that said "Aired … already decided" while
+  // every control stayed disabled because the edge was captured mid-reveal.
+  const liveEdgeSeconds =
+    airState === 'aired'
+      ? log.totalDurationSeconds
+      : computeLiveEdgeSeconds(log.simulatedAt, log.totalDurationSeconds, clock);
 
   const finished = elapsed >= log.totalDurationSeconds;
   const caughtUp = started && !finished && elapsed >= liveEdgeSeconds;
@@ -215,12 +233,14 @@ export function MatchReplayPlayer({
   useEffect(() => {
     if (!playing || finished) return;
     const interval = setInterval(() => {
-      const edge = computeLiveEdgeSeconds(log.simulatedAt, log.totalDurationSeconds);
-      setLiveEdgeSeconds(edge);
+      const edge =
+        airState === 'aired'
+          ? log.totalDurationSeconds
+          : computeLiveEdgeSeconds(log.simulatedAt, log.totalDurationSeconds);
       setElapsed((current) => Math.min(current + 0.1 * speedRef.current, log.totalDurationSeconds, edge));
     }, 100);
     return () => clearInterval(interval);
-  }, [playing, finished, log.simulatedAt, log.totalDurationSeconds]);
+  }, [playing, finished, log.simulatedAt, log.totalDurationSeconds, airState]);
 
   const moments = useMemo(() => deriveMoments(log, playerAName, playerBName), [log, playerAName, playerBName]);
   const visibleMoments = useMemo(() => moments.filter((m) => m.offsetSeconds <= elapsed).slice().reverse(), [moments, elapsed]);
@@ -297,15 +317,11 @@ export function MatchReplayPlayer({
   }
 
   const premiereTime = new Date(scheduledStartAt ?? log.simulatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-  // One predicate, three honest wordings — never say a match "premieres at"
-  // a time that has already passed (the bracket will already be showing its
-  // score by then; see lib/matchAir.ts).
-  const premiereLabel =
-    airState === 'aired'
-      ? `Aired at ${premiereTime}`
-      : airState === 'live'
-        ? 'Premiering now'
-        : `Premieres at ${premiereTime}`;
+  // One predicate, three honest wordings — and crucially the note only claims
+  // "Result already decided" once the match has AIRED, never alongside a
+  // live/upcoming "premiere" (the exact "PREMIERING NOW · RESULT ALREADY
+  // DECIDED" contradiction). See lib/matchAir.ts.
+  const overlay = replayOverlayCopy(airState, premiereTime);
 
   return (
     <div>
@@ -347,7 +363,7 @@ export function MatchReplayPlayer({
                   style={{ color: c.completed || c.active ? 'var(--gc-ink-mute)' : 'var(--gc-ink-faint)' }}
                 >
                   SET {c.setNumber}
-                  {c.active && ' · PREMIERE'}
+                  {c.active && activeSetTag(airState) && ` · ${activeSetTag(airState)}`}
                 </div>
                 <div
                   className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-[15px] [font-variant-numeric:tabular-nums]"
@@ -433,8 +449,13 @@ export function MatchReplayPlayer({
             style={{ background: 'linear-gradient(180deg, oklch(24% 0.012 150 / 0.94), oklch(15% 0.01 150 / 0.97))', backdropFilter: 'blur(2px)' }}
           >
             <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
-              {premiereLabel} · Result already decided
+              {overlay.headline}
             </div>
+            {overlay.note && (
+              <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                {overlay.note}
+              </div>
+            )}
             {/* Aired matches already show this result on the bracket, so
                 state the final score here too rather than faking suspense
                 the viewer can see through. Nothing is revealed pre-premiere. */}

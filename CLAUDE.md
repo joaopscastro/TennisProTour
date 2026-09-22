@@ -2013,6 +2013,74 @@ green; root `tsc --build --force` and `apps/web` typecheck clean. New pure
 web cases pin `replayScoreVisible` (display-logic.spec.ts) and
 `entryPlacement` (tournament-pick.spec.ts).
 
+## Fifth naive-walkthrough pass — one air-state predicate everywhere + fully-aired commitment
+
+Two problems that had each survived several one-view patches, fixed at the
+predicate rather than at the view.
+
+**Problem 1 — "has this match aired?" was computed in ~4 places and they
+disagreed.** `matchState` (`apps/web/lib/matchAir.ts`, server twin
+`apps/api/src/adapters/outbound/matchAir.ts`) is now the ONE authority:
+`upcoming | live | aired`, derived from `scheduledStartAt + revealSeconds`
+vs now. Its semantics changed in one important way: an UNDECIDED match is
+now `upcoming`, never `aired` (previously "nothing to hide" mapped it to
+`aired`, which is exactly why an un-played round read as "Decided"). Every
+view consumes it and none re-derives its own: the bracket's match cards
+(main/qualifying/doubles), its round badge + subtitle + collapse
+(`lib/bracketStatus.ts`), the champion banner, the title celebration, the
+replay page and `MatchReplayPlayer` (overlay copy, final-score visibility,
+`PREMIERE` set tag, skip/scrub live edge), and — server-side — the profile
+matches strip, the Scouting commitment flag and the tournament history
+(all via `isMatchAired`). The champion hero copy, the champion card AND
+the `FIRST TITLE` celebration are gated on the FINAL having AIRED
+(`championRevealed`), not merely being decided — a decided-but-still-
+revealing final crowns no one. The replay can no longer say "Premiering
+now · Result already decided": the note only claims a decided result once
+aired, the final score shows as soon as aired, the `PREMIERE` tag only
+shows pre-air, and the live edge is derived from the ticking clock so
+skip/scrub controls work the moment a match airs (they used to stay frozen
+mid-reveal). A pure state matrix
+(`not started | live | decided-not-aired | aired` × predicate / round
+header / champion gate / replay overlay / score visibility / set tag) is
+pinned in `apps/web/e2e/display-logic.spec.ts`; the server twin is pinned
+in `apps/api/src/adapters/outbound/matchAir.test.ts`.
+
+**Problem 2 — a free agent could be signed while still looking mid-match.**
+"Committed" is now "their current event's results have not fully AIRED",
+not merely "decided" — the SQL twin of the same `matchState` rule, in the
+SAME race-safe place the existing rule already lived:
+`apps/api/src/adapters/outbound/unfinishedCommitment.ts`'s
+`singlesMainDrawUnfinished`/`doublesMainDrawUnfinished` fragments now also
+treat a decided match inside its reveal window
+(`now() < scheduled_start_at + make_interval(secs => reveal_seconds)`) as
+unfinished, and those fragments feed both the display read
+(`DrizzlePlayerMatchesQuery.unfinishedCommitmentByPlayer`) and the atomic
+claim's conditional `UPDATE` (`DrizzleTalentClaimAdapter`) — so the
+disabled Sign button and the server refusal can never disagree. A
+fully-aired SQL predicate IS practical here (it is the same
+`scheduled_start_at + reveal_seconds` arithmetic the reveal schedule
+itself uses), so no fallback was needed.
+
+**Harness-vs-production verdict (Problem 2):** the reveal window is
+wall-clock-bounded and assigned within the tick's own day
+(`scheduledStartAtFor` staggers a round's matches across the day,
+`revealSeconds` capped at `MATCH_REVEAL_CAP_SECONDS` = 900s), so in
+production the extra "committed while looking live" tail after a match is
+decided is ≤ 15 minutes and the whole event concludes on its real
+schedule. It is production-relevant but short. The walkthrough harness
+(worker stopped) made it look unbounded because matches stop being
+simulated — but a match that was already decided still airs by wall clock,
+and an un-simulated match was `unfinished` under the old rule too, so the
+new rule never *widens* the harness window; it only stops the UI and the
+claim from disagreeing.
+
+Tests: domain 379, application 263, api 146 (was 140 — +4 `matchAir.test.ts`,
++2 real-Postgres commitment cases), worker 11; root `tsc --build --force`
+and `apps/web` typecheck clean. NOT changed (deliberately): the Masters
+Cup / World Team Cup panels (`SeasonEvents.tsx`) still render their
+outcomes directly — they are separate capstone formats outside the
+bracket/replay/profile surface this pass unified.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
