@@ -2087,6 +2087,50 @@ Cup / World Team Cup panels (`SeasonEvents.tsx`) still render their
 outcomes directly — they are separate capstone formats outside the
 bracket/replay/profile surface this pass unified.
 
+## Naive-walkthrough round — five smaller findings (browse honesty, singles entry, hero count, row links, onboarding copy)
+
+Five smaller frontend findings from a first-time-user walkthrough. No game
+systems, no balance constants, no worker-tick changes; every fix reuses
+existing DTOs/endpoints.
+
+- **Browse filter state was misleading.** The category chip "All" (which
+  means all CIRCUITS) read as "no filter" while the persisted single-tier
+  default (`['tour']`) was still applied — the header looked like it was
+  showing everything while the list held only 64-draw tour events
+  (`apps/web/app/tournaments/page.tsx`). Fixed by (a) relabelling the chip
+  "All circuits", (b) labelling the tier/surface chip rows and adding an
+  explicit "Showing <circuits> · tier <…> · surface <…>" line via a new pure
+  `describeBrowseFilters` helper (`lib/tournamentPick.ts`, pinned in
+  `tournamentPick.spec.ts`), and (c) bumping the persisted-filters storage
+  key to `gc-tournaments-filters-v2` so a stale saved filter can't produce a
+  misleading view. The single-tier default itself is kept (it deliberately
+  avoids an overwhelming first-visit dump); it is now just stated plainly.
+- **Singles entry needed a keyboard.** The tournament page's singles control
+  used a native `<select>`; a naive walkthrough found it offered no on-screen
+  options (ArrowDown + Enter was the only way to pick), so entering a player
+  was impossible with mouse/touch. Replaced with a visible, clickable roster
+  list (roster cap is 2/4, so it's cheap) plus a "Select a player above to
+  enable Enter." note explaining the disabled button; an eligibility refusal
+  still shows its own reason (`components/SinglesEntryPanel.tsx`).
+- **Hero said "0 players" while the qualifying entry list showed one.** The
+  hero counted `mainDrawEntrants` only, so a qualifying-tier event's
+  below-cutoff field (in the 'qualifying' draw) was invisible. The hero now
+  reads "N/drawSize in the main draw · M in qualifying", consistent with the
+  list rows' `mainDrawEntrants` usage (`app/tournaments/[id]/page.tsx`).
+- **"View draw →" looked like a dead click.** Browse rows and planner entry
+  cards used `next/link`; the App Router only updates the URL after the
+  destination's RSC payload resolves, so on a cold dev route the click read
+  as dead. Converted to plain `<a href>` — the same treatment already applied
+  to the bracket's decided-replay cards (`app/tournaments/page.tsx`).
+- **Onboarding copy promised "this week".** The first-run step said "Register
+  them for an open tournament this week", but current-week draws had often
+  already started. Reworded to point at the planner/entry picker and disclose
+  that this week's draws may already be underway (`app/page.tsx`).
+
+Tests: domain 379, application 263, api 146, worker 11 — all unchanged and
+green; root `tsc --build --force` and `apps/web` typecheck clean. New pure web
+cases pin `describeBrowseFilters`.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
