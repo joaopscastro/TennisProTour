@@ -66,6 +66,13 @@ export default function ScoutingPage() {
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const [shown, setShown] = useState(48);
   const [sortBy, setSortBy] = useState<ScoutSort>('youngest');
+  // The pool deliberately spans raw teenagers to match-hardened veterans,
+  // and the youngest are exactly the ones a junior draw pulls in — so the
+  // default "Youngest" sort used to open on a page that was ~92%
+  // "Unavailable" (measured: 44 blocked / 4 signable). This filter
+  // defaults ON so a first-time manager sees a useful list, while the
+  // committed players are only one click away (never hidden permanently).
+  const [availableOnly, setAvailableOnly] = useState(true);
 
   const load = useCallback(async () => {
     setError(null);
@@ -180,17 +187,33 @@ export default function ScoutingPage() {
   // disabled every Sign button until a reload won the fetch.
   const xpBalance = entitlement?.xpBalance ?? null;
 
+  // How many free agents are actually signable right now — drives both
+  // the filter and the honest count copy. Committed players stay in the
+  // pool (and on the "All" view); they are never removed.
+  const availableCount = useMemo(
+    () => (candidates ?? []).filter((c) => !c.signingBlocked).length,
+    [candidates],
+  );
+
+  // The set the grid actually draws from: signable-only by default, or
+  // everyone (including 🔒 In a draw) when the filter is switched off.
+  const visibleCandidates = useMemo(() => {
+    if (!candidates) return [];
+    return availableOnly ? candidates.filter((c) => !c.signingBlocked) : candidates;
+  }, [candidates, availableOnly]);
+
   // "Youngest" stays the default (and the backend already returns the
   // pool youngest-first), so this only re-orders when the scout picks
-  // another axis. Ties fall back to age so the order is stable.
+  // another axis. Ties fall back to age so the order is stable. Sorting
+  // always happens WITHIN the filtered set, so the filter and every sort
+  // option work together.
   const sortedCandidates = useMemo(() => {
-    if (!candidates) return [];
-    const copy = [...candidates];
+    const copy = [...visibleCandidates];
     if (sortBy === 'overall') copy.sort((a, b) => overallOf(b) - overallOf(a) || a.ageInWeeks - b.ageInWeeks);
     else if (sortBy === 'cost') copy.sort((a, b) => a.claimCost - b.claimCost || a.ageInWeeks - b.ageInWeeks);
     else copy.sort((a, b) => a.ageInWeeks - b.ageInWeeks);
     return copy;
-  }, [candidates, sortBy]);
+  }, [visibleCandidates, sortBy]);
 
   return (
     <AppFrame>
@@ -265,28 +288,84 @@ export default function ScoutingPage() {
           <>
             <SectionLabel
               right={
-                <select
-                  className="gc-select"
-                  value={sortBy}
-                  onChange={(e) => {
-                    setSortBy(e.target.value as ScoutSort);
-                    // Jump back to the top of the newly-ordered list so
-                    // the sorted head is actually visible, not buried
-                    // behind however far "Show more" had already gone.
-                    setShown(48);
-                  }}
-                  style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
-                >
-                  <option value="youngest">Sort: Youngest</option>
-                  <option value="overall">Sort: Overall rating</option>
-                  <option value="cost">Sort: Cheapest to sign</option>
-                </select>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  {/* The default view is signable-only; committed agents
+                      are one click away, never hidden permanently. */}
+                  <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--gc-line)' }}>
+                    {([
+                      { label: 'Available only', value: true, title: `Show only the ${availableCount} free agent${availableCount === 1 ? '' : 's'} you can sign right now` },
+                      { label: 'All', value: false, title: `Show all ${candidates.length} free agents, including those committed to a tournament` },
+                    ] as const).map((opt) => {
+                      const active = availableOnly === opt.value;
+                      return (
+                        <button
+                          key={opt.label}
+                          type="button"
+                          title={opt.title}
+                          aria-pressed={active}
+                          onClick={() => {
+                            setAvailableOnly(opt.value);
+                            setShown(48);
+                          }}
+                          style={{
+                            padding: '7px 12px',
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            border: 'none',
+                            background: active ? 'var(--gc-ball)' : 'transparent',
+                            color: active ? 'oklch(20% 0.02 250)' : 'var(--gc-ink-mute)',
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <select
+                    className="gc-select"
+                    value={sortBy}
+                    onChange={(e) => {
+                      setSortBy(e.target.value as ScoutSort);
+                      // Jump back to the top of the newly-ordered list so
+                      // the sorted head is actually visible, not buried
+                      // behind however far "Show more" had already gone.
+                      setShown(48);
+                    }}
+                    style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
+                  >
+                    <option value="youngest">Sort: Youngest</option>
+                    <option value="overall">Sort: Overall rating</option>
+                    <option value="cost">Sort: Cheapest to sign</option>
+                  </select>
+                </div>
               }
             >
-              {candidates.length} free agent{candidates.length === 1 ? '' : 's'} available
+              {availableOnly ? (
+                <>
+                  {availableCount} available of {candidates.length} free agent{candidates.length === 1 ? '' : 's'}
+                </>
+              ) : (
+                <>
+                  All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} · {availableCount} available
+                </>
+              )}
             </SectionLabel>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-              {sortedCandidates.slice(0, shown).map((c, idx) => {
+
+            {sortedCandidates.length === 0 ? (
+              <Panel grain style={{ marginTop: 20, padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents available to sign right now</div>
+                <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', maxWidth: 480, lineHeight: 1.5 }}>
+                  All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} in the pool {candidates.length === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.
+                </div>
+                <Button variant="ghost" onClick={() => { setAvailableOnly(false); setShown(48); }} style={{ padding: '9px 20px' }}>
+                  Show everyone ({candidates.length})
+                </Button>
+              </Panel>
+            ) : (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
+                  {sortedCandidates.slice(0, shown).map((c, idx) => {
                 const busy = claimingId === c.id;
                 const claimedOut = claimedOutId === c.id;
                 // One source for the XP shown and the gating: unknown (not
@@ -378,13 +457,15 @@ export default function ScoutingPage() {
                   />
                 );
               })}
-            </div>
-            {shown < candidates.length && (
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
-                <Button variant="ghost" onClick={() => setShown((n) => n + 48)} style={{ padding: '10px 22px' }}>
-                  Show more ({candidates.length - shown} older free agents)
-                </Button>
-              </div>
+                </div>
+                {shown < sortedCandidates.length && (
+                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
+                    <Button variant="ghost" onClick={() => setShown((n) => n + 48)} style={{ padding: '10px 22px' }}>
+                      Show more ({sortedCandidates.length - shown} more free agents)
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
           </>
         )}

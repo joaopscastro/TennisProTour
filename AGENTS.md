@@ -1900,6 +1900,69 @@ draw.
   case a match-based read misses), which is exactly why the DTO read is
   the tournament-level predicate, not `liveTournamentByPlayer`.
 
+## Free-agent signability follow-up — permanent leak fixed + Scouting default view
+
+A measured follow-up to the commitment rule above. Measurement of the
+mid-week pool put it at **~8-18% signable** (recovering to **~62-67%**
+late-week), which is accepted as the realistic consequence of the rule —
+but two things were not acceptable and are now fixed.
+
+**JOB 1 (bug) — never-seeded draws permanently locked free agents.**
+19 junior draws (j30/j60/j200, u14/u16/u18) were entered but NEVER SEEDED
+and past their week. Because their main draw never exists, the
+unfinished-commitment predicate reads them as unfinished forever —
+permanently locking **~42 distinct free agents (~13% of the pool)** and
+growing ~2-4 agents/week. Root cause: `StartDueTournamentsUseCase`
+deliberately leaves a partially-filled draw open when bye placement yields
+an EMPTY round 1 (a later tick is meant to retry), but the week passes and
+the old abandoned-draw expiry only deleted shells with ZERO entrants, so
+these stuck forever with their fillers inside. **Fix — extended expiry**
+(`StartDueTournamentsUseCase.ts`): past
+`ABANDONED_TOURNAMENT_EXPIRY_WEEKS` (2), a never-started draw is expired
+when it is empty OR when it has entrants but **no manager-owned entrant**
+(every entrant is a filler/free agent — checked via the use case's new
+`hasManagerOwnedEntrant`: an entrant counts as manager-owned when its
+`Player.managerId != null`, and CONSERVATIVELY also when no Player row can
+be found, so the delete only ever fires when every entrant is POSITIVELY
+filler-only). A never-started draw with even ONE manager-owned entrant is
+NEVER expired — a manager invested a real decision in it and may still be
+waiting on its bracket — and that is stated in the doc comment. Deleting a
+filler-only draw returns its free agents to the pool, clearing the lock.
+The Drizzle-side guard is mirrored transactionally
+(`DrizzleTournamentRepository.deleteAbandonedTournament`): its old "no
+entry rows at all" condition is replaced by "no entry whose `players`
+row has `manager_id IS NOT NULL`" for BOTH singles
+(`tournament_entries`) and doubles (`tournament_doubles_entrants`), with
+the same never-started + no-matches/pairs/titles/ledger guards and the
+`weekly_entry_claims` delete first. Idempotent (a deleted draw never
+reappears). Tests: three in `StartDueTournamentsUseCase.test.ts`
+(filler-only past-threshold expired + its agents survive and are signable;
+manager-owned entrant NOT expired; zero-entrant case still works) plus the
+extended real-Postgres guarded-delete case in
+`DrizzleRepositories.integration.test.ts` (empty shell deletes,
+filler-only deletes and its fillers survive the cascade, manager-owned
+refuses). **Not changed, deliberately:** the underlying "empty round 1"
+stickiness itself (see the report note below) — the expiry extension is
+the whole fix.
+
+**JOB 2 (UX) — the Scouting pool opened on the wrong end of the list.**
+The grid defaulted to sorting by Youngest, and the youngest free agents
+are exactly the ones junior draws pull in, so the first page measured
+**44 blocked / 4 signable (8%)** — a first-time manager's opening screen
+was ~92% "Unavailable". **Fix** (`apps/web/app/scouting/page.tsx`): a new
+**"Available only" filter defaulting ON**, showing only signable free
+agents, with an explicit **"All"** toggle right beside it so committed
+players (🔒 In a draw) are always one click away and never hidden. The
+three existing sorts (Youngest / Overall rating / Cheapest to sign) still
+work WITHIN the filtered set, "Show more" pagination is preserved, and the
+count copy is honest: "N available of M free agents" when filtered, "All M
+free agents · N available" when showing everyone. When the whole pool is
+committed the grid shows a "No free agents available to sign right now"
+panel with a "Show everyone (M)" button. **Sanity-check of other
+free-agent lists:** the Scouting grid is the ONLY free-agent list in the
+app — the player-profile free-agent banner is a single-player action, not
+a sortable list — so no other screen had the same default-sort problem.
+
 ## Fourth naive-walkthrough pass (seven UX fixes)
 
 A fourth round of first-time-user walkthroughs (4 agents, UI only) found
