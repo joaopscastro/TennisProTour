@@ -106,6 +106,39 @@ export interface SetScore {
   loserGames: number;
 }
 
+/** A player's display name, disambiguated against every other player it
+ * will be rendered alongside. The name generator draws from a finite
+ * pool, so two real, distinct players genuinely can share a full name —
+ * which reads as a bug in a list (two identical "Yuki Okafor" cards) or
+ * on a bracket ("Amara Yamamoto v Amara Yamamoto"). Given the list, any
+ * name that appears more than once gets a short, stable id suffix so
+ * every listed player is individually identifiable; unique names are
+ * returned untouched. Pure and deterministic — no hidden data leaks,
+ * only a public id fragment. */
+export interface DisambiguableName {
+  id: string;
+  name: string;
+}
+
+export function disambiguatedNames(players: Iterable<DisambiguableName>): Map<string, string> {
+  const all = [...players];
+  const counts = new Map<string, number>();
+  for (const p of all) counts.set(p.name, (counts.get(p.name) ?? 0) + 1);
+  const names = new Map<string, string>();
+  for (const p of all) {
+    const duplicated = (counts.get(p.name) ?? 0) > 1;
+    names.set(p.id, duplicated ? `${p.name} (${shortIdSuffix(p.id)})` : p.name);
+  }
+  return names;
+}
+
+/** Last 4 alphanumeric characters of an id, uppercased — a compact,
+ * stable secondary identifier for a duplicated name. */
+function shortIdSuffix(id: string): string {
+  const compact = id.replace(/[^0-9a-zA-Z]/g, '');
+  return (compact.slice(-4) || id.slice(-4)).toUpperCase();
+}
+
 /** Tennis scoreline notation from a given side's perspective, e.g.
  * "6-4, 7-6" — setScores is stored {winnerGames, loserGames} from the
  * MATCH WINNER's perspective, so this flips each pair when the given

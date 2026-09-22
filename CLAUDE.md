@@ -2133,6 +2133,54 @@ Two findings from a sixth first-time-user round.
 
 **2. The replay's "what decided it" panel now shows the REAL match-time inputs, recorded in the replay log.** The simulator now echoes each side's actual inputs into the `MatchLog` blob (`MatchLog.inputs`: `{ surface, a, b }`, each side `{ fatigue, form, surfaceAffinity, homeAdvantage }`) — additive/optional on `MatchLog`, produced purely from what `simulate()` was handed, so the simulator stays a pure function of its inputs and `scaleMatchLogToReveal` preserves it via its `...log` spread. No DB migration: the log is the persisted artifact, and old logs simply have no `inputs`. The replay page's `WhatDecidedIt` resolves each side via the new pure `apps/web/lib/decidedIt.ts` `resolveDecidedSide` — recorded values win and are labelled "at match time"; a pre-change blob falls back to the player's current values labelled "now", never presenting a current value as if it decided the match. Tests: a domain case asserting the recorded inputs equal exactly what the simulator was given (including a per-surface affinity and a home flag), and three pure web cases (recorded wins, old-log fallback, no-player degrades to nulls). Domain 380 (was 379), application 263, api 146, worker 11 — all green; root `tsc --build --force` and `apps/web` typecheck clean; the pure Playwright specs 32 passed.
 
+## Seventh naive-walkthrough pass — five polish findings
+
+Five frontend-first findings from the sixth naive-user round. No game
+systems, no balance constants, no worker-tick changes; every fix reuses
+existing DTOs/endpoints and the one new helper is pure presentation.
+
+- **The Tournaments browse default no longer pins a newcomer to a single
+  tier.** `DEFAULT_TIERS` was `['tour']` (senior-only, the third-highest
+  level), so the list showed ~50 identical `tour · 64-draw` rows and
+  never surfaced futures/challenger — exactly the levels a brand-new,
+  unranked roster should enter. It is now an EMPTY set, the filter bar's
+  "no restriction from this group" state, so the default is "the senior
+  tour, all tiers"; the tier chips, the `describeBrowseFilters` "Showing …"
+  summary and the persisted-filter sanitisation are all unchanged, and the
+  storage key was bumped (`gc-tournaments-filters-v2` → `v3`) so a stale
+  saved single-tier default can't reintroduce it.
+- **The standings answer "where am I?".** `/rankings` renders 100 foreign
+  rows, so a manager had to scan manually and fall back to `/managers` to
+  conclude they were unranked. It now reads the caller's own roster
+  (existing `GET /me|managers/:id/players` — no new endpoint), highlights
+  their rows, offers a "Show only my players" filter, and renders an
+  explicit your-position strip: no players yet; N players in this top-100
+  with their best rank; or "none of your players is in the top 100 of the
+  X ladder yet" plus the earned-by-winning/own-band scope notes.
+- **Duplicate full names are disambiguated.** The generator draws from a
+  finite pool, so two real, distinct players genuinely share a name (two
+  "Yuki Okafor" cards; "Amara Yamamoto v Amara Yamamoto"). New pure
+  `disambiguatedNames` (`apps/web/lib/format.ts`) returns each colliding
+  name with a short, stable id suffix and leaves unique names untouched;
+  it is applied to the Scouting grid, the standings table and the whole
+  bracket page (main, qualifying, doubles). Display-only — no hidden
+  attribute is exposed, and the generator itself was deliberately NOT
+  changed (avoiding reuse in the live pool needs cross-row uniqueness
+  state; the display fix is the cheap, honest one).
+- **"Filler" jargon replaced with plain language.** A bracket full of
+  `FILLER` badges was unexplained. The visible badge now reads "Free
+  agent" (tooltip: an unmanaged free agent padding the draw to a full
+  bracket — not a manager's rostered player), the bracket legend defines
+  it, and the entry-list copy names "unmanaged free-agent players".
+- **XP now shows in the player-profile sidebar.** The profile page fetched
+  entitlement already but passed only `active` to `<Sidebar>`, so it alone
+  omitted the XP panel. It now passes `tier`/`xpBalance` on all three of
+  its sidebar renders, matching every other screen.
+
+Tests: domain 380, application 263, api 146, worker 11 — all unchanged and
+green; root `tsc --build --force` and `apps/web` typecheck clean. A pure
+`disambiguatedNames` case was added to `display-logic.spec.ts`.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

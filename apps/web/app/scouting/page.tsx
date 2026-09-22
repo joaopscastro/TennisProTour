@@ -17,7 +17,7 @@ import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { xpAffordability } from '../../lib/xp';
-import { formatMoney } from '../../lib/format';
+import { disambiguatedNames, formatMoney } from '../../lib/format';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -200,6 +200,12 @@ export default function ScoutingPage() {
   // another axis. Ties fall back to age so the order is stable. Sorting
   // always happens WITHIN the filtered set, so the filter and every sort
   // option work together.
+  // Two distinct free agents can share a full name (finite generator
+  // pool), which read as a duplicate bug on the grid. Disambiguate against
+  // the WHOLE pool (not just the visible page) so a colliding name keeps
+  // the same suffix as the manager pages through "Show more".
+  const displayNames = useMemo(() => disambiguatedNames(candidates ?? []), [candidates]);
+
   const sortedCandidates = useMemo(() => {
     const copy = [...visibleCandidates];
     if (sortBy === 'overall') copy.sort((a, b) => overallOf(b) - overallOf(a) || a.ageInWeeks - b.ageInWeeks);
@@ -369,7 +375,7 @@ export default function ScoutingPage() {
                   <PlayerCard
                     key={c.id}
                     id={c.id}
-                    name={c.name}
+                    name={displayNames.get(c.id) ?? c.name}
                     nationality={c.nationality}
                     avatarSize={72}
                     ovr={overallOf(c)}

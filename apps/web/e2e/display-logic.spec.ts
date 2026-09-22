@@ -14,7 +14,7 @@ import { nextPendingEntry } from '../lib/pendingEntry';
 import { resolveDecidedSide } from '../lib/decidedIt';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
-import { RANK_BAND_LABEL, rankingBandScopeNote } from '../lib/format';
+import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../lib/format';
 
 /**
  * Pure-logic regression tests for two first-time-visitor bugs. These need
@@ -302,5 +302,25 @@ test.describe('rank bands are always labelled', () => {
 
   test('the senior scope note is about senior results specifically', () => {
     expect(rankingBandScopeNote('senior')).toContain('senior-tour');
+  });
+});
+
+test.describe('duplicate player names are disambiguated', () => {
+  test('a unique name is left untouched', () => {
+    const names = disambiguatedNames([{ id: 'abcdef123', name: 'Marta Silva' }]);
+    expect(names.get('abcdef123')).toBe('Marta Silva');
+  });
+
+  test('two players sharing a full name each get a stable id suffix', () => {
+    const names = disambiguatedNames([
+      { id: 'aaaa-1111', name: 'Yuki Okafor' },
+      { id: 'bbbb-2222', name: 'Yuki Okafor' },
+      { id: 'cccc-3333', name: 'Marta Vukovic' },
+    ]);
+    const first = names.get('aaaa-1111')!;
+    const second = names.get('bbbb-2222')!;
+    expect(first).not.toBe(second);
+    expect(first.startsWith('Yuki Okafor (')).toBe(true);
+    expect(names.get('cccc-3333')).toBe('Marta Vukovic');
   });
 });

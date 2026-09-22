@@ -22,7 +22,7 @@ import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
 import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
-import { flagFor, formatMoney, formatScoreline } from '../../../lib/format';
+import { disambiguatedNames, flagFor, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle } from '../../../lib/bracketStatus';
 import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
@@ -234,7 +234,9 @@ function EntryList({
         {draw === 'qualifying'
           ? `Players competing for ${tournament.qualifierSlots} main-draw place(s)`
           : 'Players entered by managers'}
-        {tournament.hasStarted ? ' — the draw may also include filler players to complete the bracket.' : '.'}
+        {tournament.hasStarted
+          ? ' — the draw may also include unmanaged free-agent players (badged “Free agent”) padding it to a full bracket.'
+          : '.'}
       </div>
       {humanEntrants.length === 0 ? (
         <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px' }}>
@@ -303,7 +305,11 @@ function QualifyingPanel({
    * replay page correctly said "Premieres at …"). */
   now: number;
 }) {
-  const nameOf = (playerId: string) => players.get(playerId)?.name ?? playerId;
+  // Disambiguated against every player in this tournament, so two entrants
+  // who share a full name still read as two distinct people (see
+  // disambiguatedNames). Cheap: one pass over the tournament's players.
+  const names = disambiguatedNames(players.values());
+  const nameOf = (playerId: string) => names.get(playerId) ?? players.get(playerId)?.name ?? playerId;
   const qualifiers = new Set(
     tournament.entrants.filter((e) => e.draw === 'main' && e.entryType === 'Q').map((e) => e.playerId),
   );
@@ -651,6 +657,11 @@ export default function TournamentBracketPage() {
   }, [load]);
 
   const rounds = useMemo(() => (tournament ? buildDisplayRounds(tournament) : []), [tournament]);
+  // The ONE disambiguation map for every name this page renders (main
+  // bracket, qualifying, doubles) — duplicate full names in the same draw
+  // are the "Amara Yamamoto v Amara Yamamoto" ambiguity, fixed by a short
+  // stable suffix on the colliding names only.
+  const displayNames = useMemo(() => disambiguatedNames(players.values()), [players]);
   const accent = tournament ? (SURFACE_COLOR[tournament.surface] ?? 'oklch(50% 0.006 75)') : MUTED;
 
   const counts = rounds.map((r) => r.matches.length);
@@ -721,7 +732,7 @@ export default function TournamentBracketPage() {
     if (!entrant) return { name: '', flag: '', seedLabel: '', fillOnly: false };
     const p = players.get(entrant.playerId);
     return {
-      name: p?.name ?? entrant.playerId,
+      name: displayNames.get(entrant.playerId) ?? p?.name ?? entrant.playerId,
       flag: p ? flagFor(p.nationality) : '',
       seedLabel: entrant.seed ? `(${entrant.seed})` : '',
       fillOnly: p?.fillOnly ?? false,
@@ -831,6 +842,15 @@ export default function TournamentBracketPage() {
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.75 }}>
                   <div style={{ width: 10, height: 10, borderRadius: 2, background: 'oklch(100% 0 0 / 0.4)' }} /> Pending / TBD
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.75 }}>
+                  <span
+                    className="text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
+                    style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
+                  >
+                    Free agent
+                  </span>
+                  = unmanaged draw filler
                 </div>
                 <div style={{ opacity: 0.75 }}>Decided cards link to replay →</div>
               </div>
@@ -943,8 +963,8 @@ export default function TournamentBracketPage() {
             ) : (
               <div className="flex flex-col gap-[6px]">
                 {tournament.doublesPairs.map((p) => {
-                  const a = players.get(p.playerA)?.name ?? p.playerA;
-                  const b = players.get(p.playerB)?.name ?? p.playerB;
+                  const a = displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA;
+                  const b = displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB;
                   const ca = players.get(p.playerA);
                   const cb = players.get(p.playerB);
                   return (
@@ -968,7 +988,7 @@ export default function TournamentBracketPage() {
                   const pairName = (pairId: string) => {
                     const p = tournament.doublesPairs.find((pp) => pp.pairId === pairId);
                     if (!p) return pairId;
-                    return `${players.get(p.playerA)?.name ?? p.playerA} + ${players.get(p.playerB)?.name ?? p.playerB}`;
+                    return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
                   };
                   return (
                     <div key={round.roundNumber}>
@@ -1023,7 +1043,7 @@ export default function TournamentBracketPage() {
                       const pairName = (pairId: string) => {
                         const p = tournament.doublesQualifyingPairs.find((pp) => pp.pairId === pairId);
                         if (!p) return pairId;
-                        return `${players.get(p.playerA)?.name ?? p.playerA} + ${players.get(p.playerB)?.name ?? p.playerB}`;
+                        return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
                       };
                       return (
                         <div key={round.roundNumber}>
@@ -1221,9 +1241,9 @@ export default function TournamentBracketPage() {
                                           <span
                                             className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
                                             style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                                            title="A free agent filling out the draw, not a manager's rostered player"
+                                            title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
                                           >
-                                            Filler
+                                            Free agent
                                           </span>
                                         )}
                                       </div>
@@ -1258,9 +1278,9 @@ export default function TournamentBracketPage() {
                                           <span
                                             className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
                                             style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                                            title="A free agent filling out the draw, not a manager's rostered player"
+                                            title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
                                           >
-                                            Filler
+                                            Free agent
                                           </span>
                                         )}
                                       </div>
