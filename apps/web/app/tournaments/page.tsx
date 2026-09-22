@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import {
   PlannerWeekDto,
   PlayerDto,
@@ -18,7 +17,7 @@ import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
-import { pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
+import { describeBrowseFilters, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -68,7 +67,7 @@ const DEFAULT_TIERS: readonly TierFilterValue[] = ['tour'];
 /** Storage key for the manager's last-used filter state. Versioned so a
  * future change to the filter model (renamed tiers/surfaces) can be
  * introduced without stale stored values wedging the page. */
-const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v1';
+const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v2';
 
 const VALID_CATEGORIES: readonly Category[] = ['all', 'senior', 'junior'];
 const VALID_TIERS: readonly TierFilterValue[] = ['u14', 'u16', 'u18', 'futures', 'challenger', 'tour', 'major'];
@@ -154,7 +153,13 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
   // so it could read "88/64". See TournamentDto.mainDrawEntrants.
   const fillPct = Math.round((t.mainDrawEntrants / t.drawSize) * 100);
   return (
-    <Link
+    // A plain `<a>`, deliberately NOT next/link: the App Router intercepts
+    // the click and does not update the URL until the destination's RSC
+    // payload resolves, so on a cold dev route a row click read as dead
+    // ("View draw →" and the list stayed). A native anchor changes the URL
+    // the instant it is activated — the same fix already applied to the
+    // bracket's decided-replay cards.
+    <a
       href={`/tournaments/${t.id}`}
       className="gc-card gc-card--hover"
       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', textDecoration: 'none', color: 'inherit', position: 'relative', overflow: 'hidden' }}
@@ -179,7 +184,7 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
       <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gc-ball)' }}>
         {cta} →
       </div>
-    </Link>
+    </a>
   );
 }
 
@@ -211,15 +216,19 @@ function FilterBar({
   const anyActive = category !== 'all' || tiers.size > 0 || surfaces.size > 0;
   return (
     <div className="mb-5 flex flex-col gap-[10px]">
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         {(['all', 'senior', 'junior'] as const).map((c) => (
           <button
             key={c}
             onClick={() => onCategory(c)}
+            title={c === 'all' ? 'Both the senior tour and the junior circuit' : c === 'senior' ? 'Senior tour only' : 'Junior circuit only'}
             className="px-[12px] py-[6px] rounded-[6px] text-[12.5px] font-semibold cursor-pointer"
             style={chipStyle(category === c)}
           >
-            {c === 'all' ? 'All' : c === 'senior' ? 'Senior' : 'Junior'}
+            {/* "All" here means all CIRCUITS, not "no filter" — the old bare
+                "All" label read as "showing everything" while a tier filter
+                was still applied. */}
+            {c === 'all' ? 'All circuits' : c === 'senior' ? 'Senior' : 'Junior'}
           </button>
         ))}
         {anyActive && (
@@ -233,10 +242,12 @@ function FilterBar({
         )}
       </div>
       <div className="flex flex-wrap items-center gap-[6px]">
+        <span className="text-[10.5px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>Tier</span>
         {TIER_CHIPS.filter((chip) => tierChipAppliesToCategory(chip.value, category)).map((chip) => (
           <button
             key={chip.value}
             onClick={() => onToggleTier(chip.value)}
+            aria-pressed={tiers.has(chip.value)}
             className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
             style={chipStyle(tiers.has(chip.value))}
           >
@@ -244,16 +255,24 @@ function FilterBar({
           </button>
         ))}
         <div className="w-px h-4 mx-1" style={{ background: 'var(--gc-line)' }} />
+        <span className="text-[10.5px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>Surface</span>
         {SURFACE_CHIPS.map((chip) => (
           <button
             key={chip.value}
             onClick={() => onToggleSurface(chip.value)}
+            aria-pressed={surfaces.has(chip.value)}
             className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
             style={chipStyle(surfaces.has(chip.value))}
           >
             {chip.label}
           </button>
         ))}
+      </div>
+      {/* Names the applied filters explicitly, so the displayed state can
+          never contradict the list (the "All selected but only Tour shown"
+          finding). */}
+      <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+        Showing {describeBrowseFilters(category, tiers, surfaces)}.
       </div>
     </div>
   );
@@ -572,7 +591,9 @@ function PlannerView() {
                       </div>
                     )}
                     {week.entries.map((t) => (
-                      <Link
+                      // Plain `<a>` for the same immediate-navigation reason
+                      // as the browse rows above (not next/link).
+                      <a
                         key={t.id}
                         href={`/tournaments/${t.id}`}
                         className="rounded-[6px] px-[9px] py-[7px] no-underline block"
@@ -595,7 +616,7 @@ function PlannerView() {
                         <div className="text-[10.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
                           {t.hasStarted ? 'Started' : `${t.mainDrawEntrants}/${t.drawSize} entrants`}
                         </div>
-                      </Link>
+                      </a>
                     ))}
                   </div>
 

@@ -239,6 +239,27 @@ export function tierChipAppliesToCategory(value: string, category: BrowseCategor
   return true;
 }
 
+/** A one-line, human-readable description of the Browse page's ACTIVE
+ * filter state, rendered right under the chips as "Showing …". This is the
+ * honesty fix for a naive-walkthrough finding: the category chip "All"
+ * (meaning all CIRCUITS) read as "no filter" while a persisted single-tier
+ * selection (`['tour']`) was still applied, so the header looked like it
+ * was showing everything while the list held only 64-draw tour events.
+ * Naming the applied tier/surface explicitly means the displayed state can
+ * never contradict the list below it. */
+export function describeBrowseFilters(
+  category: BrowseCategory,
+  tiers: ReadonlySet<string>,
+  surfaces: ReadonlySet<string>,
+): string {
+  const parts: string[] = [
+    category === 'all' ? 'all circuits' : category === 'senior' ? 'senior tour' : 'junior circuit',
+  ];
+  if (tiers.size > 0) parts.push(`tier ${[...tiers].sort().join(' + ')}`);
+  if (surfaces.size > 0) parts.push(`surface ${[...surfaces].sort().join(' + ')}`);
+  return parts.join(' · ');
+}
+
 /** Convenience: the full picker pipeline (filter → sort → group) used by
  * EnterTournamentModal, in one place so the list order can't drift between
  * the modal and any future caller. */

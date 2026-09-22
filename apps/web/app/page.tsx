@@ -142,7 +142,7 @@ const FIRST_RUN_STEPS: Array<{ n: number; title: string; body: string; href: str
   {
     n: 2,
     title: 'Enter a tournament',
-    body: 'Register them for an open tournament this week. The planner maps out the weeks ahead.',
+    body: "Register them for an open tournament. This week's draws may already be underway — the planner and the entry picker show the next events still open.",
     href: '/tournaments',
     cta: 'Find a tournament',
   },

@@ -122,33 +122,59 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
         >
           {roster === null ? 'Enter a player' : 'Choose a player'}
         </button>
-        {roster !== null && (
-          <>
-            <select
-              className="gc-select"
-              value={pick}
-              onChange={(e) => void onPick(e.target.value)}
-              style={{ padding: '7px 10px', fontSize: 12.5 }}
-              aria-label="Player to enter in singles"
-            >
-              <option value="">Select player…</option>
-              {activeRoster.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-            <button
-              onClick={submit}
-              disabled={!pick || busy || checking || refusal !== null}
-              className="rounded-[8px] px-[12px] py-[8px] text-[12px] font-extrabold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink)', border: '1px solid var(--gc-line)' }}
-            >
-              {busy ? 'Entering…' : 'Enter'}
-            </button>
-          </>
-        )}
+        <button
+          onClick={submit}
+          disabled={!pick || busy || checking || refusal !== null}
+          className="rounded-[8px] px-[12px] py-[8px] text-[12px] font-extrabold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+          style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink)', border: '1px solid var(--gc-line)' }}
+        >
+          {busy ? 'Entering…' : 'Enter'}
+        </button>
       </div>
+
+      {/* A visible option list, deliberately NOT a native <select>: a naive
+          walkthrough found the select offered no on-screen options — a user
+          needed ArrowDown then Enter to pick, so entering a player was
+          impossible with a mouse or touch. Each roster player is its own
+          clickable row; the roster cap is tiny (2 free / 4 Pro), so showing
+          them all is cheap. */}
+      {roster !== null && activeRoster.length > 0 && (
+        <div className="flex flex-col gap-[6px]" style={{ marginBottom: 10 }} role="radiogroup" aria-label="Player to enter in singles">
+          {activeRoster.map((p) => {
+            const selected = pick === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => void onPick(p.id)}
+                className="text-left rounded-[7px] px-[10px] py-[8px] text-[12.5px] font-semibold cursor-pointer"
+                style={{
+                  border: selected ? '2px solid var(--gc-ball)' : '1px solid var(--gc-line)',
+                  background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
+                  color: 'var(--gc-ink)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: 8,
+                }}
+              >
+                <span>{p.name}</span>
+                {selected && <span style={{ color: 'oklch(80% 0.16 145)', fontWeight: 800 }}>✓ Selected</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Say WHY Enter is disabled: nothing picked yet (an eligibility
+          refusal is shown separately below). */}
+      {roster !== null && activeRoster.length > 0 && !pick && (
+        <div className="text-[11.5px] mb-[8px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          Select a player above to enable Enter.
+        </div>
+      )}
 
       {roster !== null && activeRoster.length === 0 && (
         <div className="text-[12px]" style={{ color: 'var(--gc-ink-mute)' }}>

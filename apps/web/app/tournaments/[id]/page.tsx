@@ -777,6 +777,12 @@ export default function TournamentBracketPage() {
   const finalMid = finalTop + CARD_H / 2;
 
   const th = surfaceTheme(tournament.surface);
+  // Main-draw entrants alone under-counts a qualifying-tier event: its
+  // below-cutoff field sits in the 'qualifying' draw, so the hero used to
+  // read "0 players" while the qualifying entry list showed one. Count both
+  // fields and label which is which, consistent with the list rows' use of
+  // mainDrawEntrants/drawSize.
+  const qualifyingEntrants = tournament.entrants.filter((e) => e.draw === 'qualifying').length;
   const championCopy = champDecided && champLabel
     ? `${champLabel.name} lifts the trophy.`
     : overallStatus;
@@ -810,7 +816,8 @@ export default function TournamentBracketPage() {
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 8, textShadow: '0 2px 10px oklch(0% 0 0 / 0.45)' }}>{tournament.name}</div>
                 <div style={{ fontSize: 13.5, color: 'white', opacity: 0.85, marginTop: 4 }}>
-                  Single elimination · {tournament.mainDrawEntrants} players · {championCopy}
+                  Single elimination · {tournament.mainDrawEntrants}/{tournament.drawSize} in the main draw
+                  {qualifyingEntrants > 0 ? ` · ${qualifyingEntrants} in qualifying` : ''} · {championCopy}
                 </div>
                 {worldClock && (
                   <div style={{ fontSize: 12, color: 'white', opacity: 0.6, marginTop: 3 }}>

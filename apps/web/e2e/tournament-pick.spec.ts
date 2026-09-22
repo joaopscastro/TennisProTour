@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   buildTournamentPickGroups,
+  describeBrowseFilters,
   entryPlacement,
   groupTournamentsForPicker,
   matchesTournamentPickFilters,
@@ -129,6 +130,23 @@ test.describe('Browse Junior filter — the real bug', () => {
     expect(tierChipAppliesToCategory('u16', 'junior')).toBe(true);
     expect(tierChipAppliesToCategory('u16', 'senior')).toBe(false);
     expect(tierChipAppliesToCategory('tour', 'all')).toBe(true);
+  });
+});
+
+test.describe('Browse "All" honesty — the displayed state names the applied tier', () => {
+  test('an "All circuits" view with a tour tier filter names the tier', () => {
+    const summary = describeBrowseFilters('all', new Set(['tour']), new Set());
+    expect(summary).toContain('all circuits');
+    expect(summary).toContain('tier tour');
+  });
+
+  test('no filters reads as just the circuit', () => {
+    expect(describeBrowseFilters('senior', new Set(), new Set())).toBe('senior tour');
+  });
+
+  test('surfaces and multiple tiers are all named', () => {
+    const summary = describeBrowseFilters('senior', new Set(['tour', 'futures']), new Set(['clay']));
+    expect(summary).toBe('senior tour · tier futures + tour · surface clay');
   });
 });
 
