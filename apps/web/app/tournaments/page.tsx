@@ -57,17 +57,24 @@ const SURFACE_CHIPS: Array<{ value: string; label: string }> = [
   { value: 'indoor', label: 'Indoor' },
 ];
 
-/** The out-of-the-box filter selection — Senior + Tour only. A first-time
- * visitor lands here rather than on the overwhelming "every tournament
- * ever" dump; once the manager changes a filter, their last selection is
- * persisted (localStorage) and becomes their default on the next visit. */
+/** The out-of-the-box filter selection — the senior tour, ALL tiers.
+ * This deliberately replaces the old `['tour']` default: pinning a
+ * first-time visitor to a single tier (`tour`, the third-highest senior
+ * level) hid exactly the futures/challenger events a brand-new, unranked
+ * roster should be entering, and made the list read as ~50 identical
+ * 64-draw rows. An empty tier set is the filter bar's "no restriction
+ * from this group" state, so a newcomer sees a sensible spread of levels;
+ * once the manager picks a filter, their last selection is persisted
+ * (localStorage) and becomes their default on the next visit. */
 const DEFAULT_CATEGORY: Category = 'senior';
-const DEFAULT_TIERS: readonly TierFilterValue[] = ['tour'];
+const DEFAULT_TIERS: readonly TierFilterValue[] = [];
 
 /** Storage key for the manager's last-used filter state. Versioned so a
  * future change to the filter model (renamed tiers/surfaces) can be
- * introduced without stale stored values wedging the page. */
-const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v2';
+ * introduced without stale stored values wedging the page. Bumped to v3
+ * when the default moved off the single-tier `['tour']` selection, so a
+ * stale v2 save can't reintroduce the problem. */
+const FILTERS_STORAGE_KEY = 'gc-tournaments-filters-v3';
 
 const VALID_CATEGORIES: readonly Category[] = ['all', 'senior', 'junior'];
 const VALID_TIERS: readonly TierFilterValue[] = ['u14', 'u16', 'u18', 'futures', 'challenger', 'tour', 'major'];

@@ -214,12 +214,15 @@ export type BrowseCategory = 'all' | 'senior' | 'junior';
 /** Keeps a tier-chip selection consistent with a freshly chosen category.
  *
  * This is the real cause of the Browse page's "Junior filter shows
- * nothing" bug: the default tier selection is `['tour']` (senior-only),
- * so picking Junior left an impossible Junior + Tier=Tour combination
- * selected and every row was filtered out. Dropping the now-inapplicable
- * chips leaves an empty tier set, which the filter bar already treats as
- * "no restriction from this group" — so Junior genuinely shows every
- * junior event, exactly what its label claims. */
+ * nothing" bug: the (then-default) single-tier selection was `['tour']`
+ * (senior-only), so picking Junior left an impossible Junior + Tier=Tour
+ * combination selected and every row was filtered out. Dropping the
+ * now-inapplicable chips leaves an empty tier set, which the filter bar
+ * already treats as "no restriction from this group" — so Junior
+ * genuinely shows every junior event, exactly what its label claims. The
+ * Browse default is now an empty tier set too (all levels), but this
+ * sanitisation still matters for any persisted selection that combines a
+ * category with now-inapplicable tier chips. */
 export function pruneTiersForCategory<T extends string>(category: BrowseCategory, tiers: ReadonlySet<T>): Set<T> {
   const next = new Set(tiers);
   if (category === 'senior') {

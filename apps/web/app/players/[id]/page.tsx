@@ -466,7 +466,7 @@ export default function PlayerProfilePage() {
   if (error) {
     return (
       <AppFrame>
-        <Sidebar active="roster" />
+        <Sidebar active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
         <div className="flex-1 p-8">
           <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)' }}>
             {error}
@@ -479,7 +479,7 @@ export default function PlayerProfilePage() {
   if (!profile) {
     return (
       <AppFrame>
-        <Sidebar active="roster" />
+        <Sidebar active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
         <div className="flex-1 p-8 text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
           Loading player…
         </div>

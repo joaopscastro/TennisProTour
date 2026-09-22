@@ -1,17 +1,18 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   RankingBand,
   RankingsBoardDto,
   fetchRankings,
+  fetchRoster,
 } from '../../lib/api';
 import { Sidebar } from '../../components/Sidebar';
 import { AppFrame, PageShell, Hero, Panel } from '../../components/ui/primitives';
 import { AnimatedNumber } from '../../components/ui/motion';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
-import { RANK_BAND_LABEL, rankingBandScopeNote } from '../../lib/format';
+import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../../lib/format';
 
 const MEDAL = ['oklch(80% 0.15 90)', 'oklch(78% 0.02 250)', 'oklch(62% 0.11 55)'];
 
@@ -29,6 +30,18 @@ export default function RankingsPage() {
   const [band, setBand] = useState<RankingBand>('senior');
   const [board, setBoard] = useState<RankingsBoardDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The caller's own roster ids, so the standings can answer "where am I?"
+  // instead of leaving a manager to scan 100 foreign rows. null until
+  // loaded (unknown ≠ empty); the roster read is the caller-scoped one the
+  // rest of the app already uses — no new backend concept.
+  const [myPlayerIds, setMyPlayerIds] = useState<Set<string> | null>(null);
+  const [onlyMine, setOnlyMine] = useState(false);
+
+  useEffect(() => {
+    fetchRoster(managerId)
+      .then((roster) => setMyPlayerIds(new Set(roster.map((p) => p.id))))
+      .catch(() => setMyPlayerIds(new Set()));
+  }, [managerId]);
 
   useEffect(() => {
     setBoard(null);
@@ -37,6 +50,21 @@ export default function RankingsPage() {
       .then(setBoard)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
   }, [band]);
+
+  // Two distinct players can share a full name (finite generator pool);
+  // disambiguate the names this table renders.
+  const displayNames = useMemo(
+    () => disambiguatedNames((board?.standings ?? []).map((r) => ({ id: r.playerId, name: r.name }))),
+    [board],
+  );
+  const myStandings = useMemo(
+    () => (board && myPlayerIds ? board.standings.filter((r) => myPlayerIds.has(r.playerId)) : []),
+    [board, myPlayerIds],
+  );
+  const visibleStandings = useMemo(
+    () => (board ? (onlyMine ? myStandings : board.standings) : []),
+    [board, onlyMine, myStandings],
+  );
 
   return (
     <AppFrame>
@@ -73,6 +101,41 @@ export default function RankingsPage() {
           ))}
         </div>
 
+        {/* "Where am I?" — the standings answer it directly instead of
+            making a manager scan 100 rows and fall back to /managers to
+            conclude they are unranked. */}
+        {board && myPlayerIds && !error && (
+          <div
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+              marginTop: 14, fontSize: 12.5, borderRadius: 10, padding: '10px 14px',
+              background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)',
+            }}
+          >
+            <span style={{ lineHeight: 1.5 }}>
+              {myPlayerIds.size === 0
+                ? 'You have no players yet — sign a free agent in Scouting to start building a ranked roster.'
+                : myStandings.length > 0
+                  ? `You have ${myStandings.length} player${myStandings.length === 1 ? '' : 's'} in this top-100 table, best #${Math.min(...myStandings.map((r) => r.rank))}.`
+                  : `None of your players is in the top 100 of the ${RANK_BAND_LABEL[band]} ladder yet. ${RANKING_EARNED_NOTE} ${rankingBandScopeNote(band)}`}
+            </span>
+            {myStandings.length > 0 && (
+              <button
+                onClick={() => setOnlyMine((v) => !v)}
+                aria-pressed={onlyMine}
+                style={{
+                  padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', flex: 'none',
+                  border: `1px solid ${onlyMine ? 'var(--gc-gold)' : 'var(--gc-line)'}`,
+                  background: onlyMine ? 'oklch(70% 0.15 90 / 0.14)' : 'var(--gc-s2)',
+                  color: onlyMine ? 'var(--gc-gold)' : 'var(--gc-ink-mute)',
+                }}
+              >
+                {onlyMine ? 'Show all players' : 'Show only my players'}
+              </button>
+            )}
+          </div>
+        )}
+
         {error && (
           <div style={{ marginTop: 14, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
@@ -88,7 +151,16 @@ export default function RankingsPage() {
           </Panel>
         )}
 
-        {board && board.standings.length > 0 && (
+        {board && onlyMine && visibleStandings.length === 0 && !error && (
+          <Panel style={{ marginTop: 18, padding: '24px 20px', textAlign: 'center', color: 'var(--gc-ink-mute)', fontSize: 14 }}>
+            <div>None of your players is in the top 100 of the {RANK_BAND_LABEL[band]} ladder.</div>
+            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--gc-ink-faint)', lineHeight: 1.5 }}>
+              {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
+            </div>
+          </Panel>
+        )}
+
+        {board && visibleStandings.length > 0 && (
           <Panel style={{ marginTop: 18, padding: 0, overflow: 'hidden' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
               <thead>
@@ -100,8 +172,16 @@ export default function RankingsPage() {
                 </tr>
               </thead>
               <tbody>
-                {board.standings.map((row) => (
-                  <tr key={row.playerId} style={{ borderTop: '1px solid var(--gc-line)' }}>
+                {visibleStandings.map((row) => {
+                  const mine = myPlayerIds?.has(row.playerId) ?? false;
+                  return (
+                  <tr
+                    key={row.playerId}
+                    style={{
+                      borderTop: '1px solid var(--gc-line)',
+                      background: mine ? 'oklch(70% 0.15 90 / 0.08)' : undefined,
+                    }}
+                  >
                     <td style={{ padding: '11px 16px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
                       <span style={{ color: row.rank <= 3 ? MEDAL[row.rank - 1] : 'var(--gc-ink-mute)' }}>
                         {row.rank <= 3 ? '● ' : ''}#{row.rank}
@@ -109,15 +189,24 @@ export default function RankingsPage() {
                     </td>
                     <td style={{ padding: '11px 16px', fontWeight: 700 }}>
                       <a href={`/players/${row.playerId}`} style={{ color: 'var(--gc-ink)', textDecoration: 'none' }}>
-                        {row.name}
+                        {displayNames.get(row.playerId) ?? row.name}
                       </a>
+                      {mine && (
+                        <span
+                          title="One of your rostered players"
+                          style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 800, letterSpacing: '0.4px', textTransform: 'uppercase', padding: '3px 7px', borderRadius: 5, background: 'oklch(70% 0.15 90 / 0.16)', color: 'var(--gc-gold)' }}
+                        >
+                          Your player
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: '11px 16px', color: 'var(--gc-ink-mute)' }}>{row.nationality ?? '—'}</td>
                     <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--gc-ink-dim)' }}>
                       <AnimatedNumber value={row.points} mountFrom={row.points} />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </Panel>
