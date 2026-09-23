@@ -40,6 +40,7 @@ export * from './ranking/DoublesRanking';
 export * from './ranking/DoublesTitleRecord';
 export * from './ranking/SeasonBonusPoolPolicy';
 export * from './ranking/WildCardPolicy';
+export * from './ranking/TierEntryRestrictionPolicy';
 export * from './manager/ManagerXpPolicy';
 export * from './manager/ManagerLadderPolicy';
 export * from './manager/PracticePolicy';

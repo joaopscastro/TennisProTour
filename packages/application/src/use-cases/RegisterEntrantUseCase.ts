@@ -1,6 +1,7 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
+import { maxSeniorRankForTier, seniorTierEntryRestrictionReason } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
@@ -45,6 +46,16 @@ export interface RegisterEntrantCommand {
  * ageBand"). Deliberately scoped to junior tournaments only — a junior
  * player entering the senior tour is a normal, unrestricted case in
  * real tennis (and in this game), not a second gap to close here.
+ *
+ * **Ranking-based tier restriction**: a player whose SENIOR ranking is
+ * too good may not drop into a lower senior tier — a top-`FUTURES_MAX_RANK`
+ * player may not enter `futures`, a top-`CHALLENGER_MAX_RANK` player may
+ * not enter `challenger`; `tour`/`major` and every junior tier are
+ * unrestricted, and an unranked player is never blocked. See
+ * TierEntryRestrictionPolicy for the full rule and why it exists. This is
+ * the same live senior `RankPositionQuery` the qualifying rule already
+ * reads; the read only happens at a restricted tier, so an ordinary
+ * tour/major/junior entry pays no extra ranking cost.
  *
  * **Weekly entry cap**: a player may not enter more than the tier's
  * weekly cap worth of same-band tournaments in one GameWeek — junior
@@ -139,6 +150,20 @@ export class RegisterEntrantUseCase {
             `${tournament.ageBand} tournament — a player may play up into an older junior band, but not down ` +
             `into a younger one, and a senior player may not enter a junior tournament at all`,
         );
+      }
+    }
+
+    // Ranking-based tier restriction (see the class doc comment and
+    // TierEntryRestrictionPolicy): a senior player ranked too highly may
+    // not drop into a lower senior tier. Only reads the rank at a tier
+    // that actually has a restriction, and only when a rank query is
+    // injected (omitted, as in the pre-qualifying unit tests, the rule is
+    // simply inert — the composition root always passes it).
+    if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+      const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
+      const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+      if (reason) {
+        throw new Error(`Player ${command.playerId} is ${reason}`);
       }
     }
 

@@ -1,6 +1,8 @@
 import { PlayerId, TournamentId, isAgeEligibleForTournamentBand, isJuniorTier } from '@tennis-manager/domain';
 import { ManagerId } from '@tennis-manager/domain';
+import { maxSeniorRankForTier, seniorTierEntryRestrictionReason } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
+import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 
 export interface RegisterDoublesEntrantCommand {
@@ -30,6 +32,11 @@ export interface RegisterDoublesEntrantCommand {
  * the gap where a senior player at the singles cap-1 could enter
  * unlimited doubles fields the same week (whose rounds run the same
  * days).
+ *
+ * **Ranking-based tier restriction**: the SAME senior-tour rule singles
+ * enforces (see TierEntryRestrictionPolicy) applies to doubles — a
+ * top-ranked player can't farm a lower tier's doubles draw either, and a
+ * doubles entry can never be the loophole around the singles refusal.
  */
 export class RegisterDoublesEntrantUseCase {
   constructor(
@@ -38,6 +45,12 @@ export class RegisterDoublesEntrantUseCase {
     /** Atomic weekly-cap guard (see WeeklyEntryGuardPort) — optional for
      * test compatibility, always passed by the composition root. */
     private readonly weeklyEntryGuard?: WeeklyEntryGuardPort,
+    /** The SENIOR rank query, read for the ranking-based tier restriction
+     * (see TierEntryRestrictionPolicy) — the SAME rule RegisterEntrantUseCase
+     * enforces, so a doubles entry can't be used to sidestep it. Optional
+     * for the same test-compat reason: omitted, the rule is inert, exactly
+     * as it is in the pre-existing doubles unit tests. */
+    private readonly seniorRankPosition?: RankPositionQuery,
   ) {}
 
   async execute(command: RegisterDoublesEntrantCommand): Promise<void> {
@@ -64,6 +77,17 @@ export class RegisterDoublesEntrantUseCase {
         `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for the ` +
           `${tournament.ageBand} doubles draw`,
       );
+    }
+
+    // Ranking-based tier restriction (see TierEntryRestrictionPolicy):
+    // the SAME rule singles enforces, so a doubles entry can never be
+    // the loophole around a refused singles entry.
+    if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+      const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
+      const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+      if (reason) {
+        throw new Error(`Player ${command.playerId} is ${reason}`);
+      }
     }
 
     const entryCount = await countSameBandEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled, tournament.tier);

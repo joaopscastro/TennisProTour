@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, seniorTierEntryRestrictionReason, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -110,6 +110,15 @@ export interface PlayerScopedInfo {
    * capacity (0/0 at a tier with no qualifying). */
   qualifyingFieldTaken: number;
   qualifyingFieldSize: number;
+  /** Whether this player's SENIOR ranking is too high to enter this
+   * tournament at all (see TierEntryRestrictionPolicy: a top-200 player
+   * can't enter `futures`, a top-50 player can't enter `challenger`).
+   * Computed from the SAME policy RegisterEntrantUseCase enforces, so the
+   * disabled row and the server refusal can never disagree. */
+  rankRestricted: boolean;
+  /** The plain-language reason `rankRestricted` is true (the exact
+   * phrasing a rejected POST uses), or null when the player may enter. */
+  rankRestrictedReason: string | null;
 }
 export function toTournamentDto(
   tournament: Tournament,
@@ -298,6 +307,11 @@ async function attachEntryInfo(
       qualifyingFieldFull,
       qualifyingFieldTaken,
       qualifyingFieldSize,
+      // Ranking-based tier restriction — the SAME predicate/reason the
+      // registration use cases enforce, so the UI can disable the row and
+      // explain why before the POST rather than only after a failure.
+      rankRestricted: seniorTierEntryRestrictionReason(tournament.tier, playerRank) !== null,
+      rankRestrictedReason: seniorTierEntryRestrictionReason(tournament.tier, playerRank),
     });
   }
   return result;

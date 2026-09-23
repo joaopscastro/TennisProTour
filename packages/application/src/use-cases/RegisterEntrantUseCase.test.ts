@@ -19,6 +19,7 @@ import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, Tournam
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 import { RegisterEntrantUseCase } from './RegisterEntrantUseCase';
+import { RegisterDoublesEntrantUseCase } from './RegisterDoublesEntrantUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -784,3 +785,125 @@ describe('RegisterEntrantUseCase — automatic wild cards', () => {
     expect(saved!.entrants[0].entryType).toBe('Q');
   });
 });
+
+describe('RegisterEntrantUseCase — ranking-based tier entry restrictions', () => {
+  /** Builds a real RankPositionQuery whose subject lands at exactly
+   * `rank` (or unranked when null) by seeding `rank - 1` players with
+   * strictly more points ahead of them — the actual ranking read the
+   * rule depends on, never a stub. */
+  async function setupWithRank(rank: number | null) {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const worlds = new InMemoryGameWorldRepository();
+    await worlds.save(
+      GameWorld.reconstitute({ id: WorldId('main'), currentWeek: { season: 1, week: 1 }, lastAppliedTick: null }),
+    );
+    const ledger = new InMemoryRankingLedgerRepository();
+    if (rank !== null) {
+      for (let i = 0; i < rank - 1; i++) {
+        await ledger.append({
+          playerId: PlayerId(`ahead${i}`),
+          tournamentId: TournamentId(`past-ahead${i}`),
+          tier: 'challenger',
+          ageBand: null,
+          points: 10_000 - i,
+          weekEarned: { season: 1, week: 1 },
+        });
+      }
+      await ledger.append({
+        playerId: PlayerId('subject'),
+        tournamentId: TournamentId('past-subject'),
+        tier: 'challenger',
+        ageBand: null,
+        points: 1,
+        weekEarned: { season: 1, week: 1 },
+      });
+    }
+    const rankPosition = new RankPositionQuery(ledger, worlds, WorldId('main'), 'senior');
+    const useCase = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), rankPosition);
+    return { tournaments, players, rankPosition, useCase };
+  }
+
+  function openSenior(id: TournamentId, tier: 'futures' | 'challenger' | 'tour' | 'major', week = 1): Tournament {
+    return Tournament.open({ name: 'Tier Test', id, tier, surface: 'clay', weekScheduled: { season: 1, week }, drawSize: 16 });
+  }
+
+  it('refuses a top-200 player from futures but allows challenger and tour', async () => {
+    const { tournaments, useCase } = await setupWithRank(200);
+    const futures = TournamentId('futures-t1');
+    const challenger = TournamentId('challenger-t1');
+    const tour = TournamentId('tour-t1');
+    // Distinct weeks so the senior one-entry-per-week cap never interferes
+    // with what this test is actually about (the ranking restriction).
+    await tournaments.save(openSenior(futures, 'futures', 1));
+    await tournaments.save(openSenior(challenger, 'challenger', 2));
+    await tournaments.save(openSenior(tour, 'tour', 3));
+
+    await expect(useCase.execute({ tournamentId: futures, playerId: PlayerId('subject') })).rejects.toThrow(
+      /ranked #200 on the senior ladder — too high to enter a futures event/,
+    );
+    await expect(useCase.execute({ tournamentId: challenger, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+    await expect(useCase.execute({ tournamentId: tour, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+  });
+
+  it('refuses a top-50 player from challenger but allows tour', async () => {
+    const { tournaments, useCase } = await setupWithRank(50);
+    const challenger = TournamentId('challenger-top50');
+    const tour = TournamentId('tour-top50');
+    await tournaments.save(openSenior(challenger, 'challenger', 1));
+    await tournaments.save(openSenior(tour, 'tour', 2));
+
+    await expect(useCase.execute({ tournamentId: challenger, playerId: PlayerId('subject') })).rejects.toThrow(
+      /ranked #50 on the senior ladder — too high to enter a challenger event/,
+    );
+    await expect(useCase.execute({ tournamentId: tour, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+  });
+
+  it('allows a player ranked just outside each cutoff (201 in futures, 51 in challenger)', async () => {
+    const { tournaments, useCase } = await setupWithRank(201);
+    const futures = TournamentId('futures-201');
+    await tournaments.save(openSenior(futures, 'futures'));
+    await expect(useCase.execute({ tournamentId: futures, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+
+    const challengerSetup = await setupWithRank(51);
+    const challenger = TournamentId('challenger-51');
+    await challengerSetup.tournaments.save(openSenior(challenger, 'challenger'));
+    await expect(
+      challengerSetup.useCase.execute({ tournamentId: challenger, playerId: PlayerId('subject') }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('never blocks an unranked player from any senior tier', async () => {
+    const { tournaments, useCase } = await setupWithRank(null);
+    const weeks: Record<string, number> = { futures: 1, challenger: 2, tour: 3, major: 4 };
+    for (const tier of ['futures', 'challenger', 'tour', 'major'] as const) {
+      const id = TournamentId(`unranked-${tier}`);
+      await tournaments.save(openSenior(id, tier, weeks[tier]));
+      await expect(useCase.execute({ tournamentId: id, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+    }
+  });
+
+  it('applies the same restriction to the doubles path — a top-200 player cannot enter a futures doubles draw either', async () => {
+    const { tournaments, players, rankPosition } = await setupWithRank(200);
+    const playerId = PlayerId('subject');
+    await savePlayer(players, playerId, SENIOR_AGE);
+    const doubles = new RegisterDoublesEntrantUseCase(tournaments, players, undefined, rankPosition);
+    const futuresId = TournamentId('futures-doubles');
+    await tournaments.save(
+      Tournament.open({
+        name: 'Doubles Tier Test',
+        id: futuresId,
+        tier: 'futures',
+        surface: 'clay',
+        weekScheduled: { season: 1, week: 1 },
+        drawSize: 16,
+        doublesDrawSize: 4,
+      }),
+    );
+
+    await expect(
+      doubles.execute({ tournamentId: futuresId, playerId, managerId: ManagerId('m1') }),
+    ).rejects.toThrow(/too high to enter a futures event/);
+  });
+});
+

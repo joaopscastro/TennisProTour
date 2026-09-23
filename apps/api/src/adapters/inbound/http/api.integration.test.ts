@@ -201,6 +201,89 @@ describe('API', () => {
     expect(row.registrationOpen).toBe(true);
   });
 
+  it('surfaces the ranking-based tier restriction in the player-scoped open list, and enforces the same rule on POST', async () => {
+    const adminHeaders = { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' };
+    for (const [id, tier] of [['t-futures-rr', 'futures'], ['t-challenger-rr', 'challenger']] as const) {
+      const opened = await app.inject({
+        method: 'POST',
+        url: '/tournaments/open-registration',
+        headers: adminHeaders,
+        payload: { tournamentId: id, tier, surface: 'clay', weekScheduled: { season: 1, week: 52 }, drawSize: 16 },
+      });
+      expect(opened.statusCode).toBe(201);
+    }
+
+    // A manager with a rank-100 senior player: 99 players seeded ahead of
+    // them in the rolling ledger, so the real RankPositionQuery places the
+    // subject at exactly #100 — inside the futures cutoff (200), outside
+    // the challenger one (50).
+    const managerId = 'm-rank-rules';
+    expect(await hirePlayer('rank-subject', managerId)).toBe(201);
+    const agingPolicy = new StandardAgingPolicy();
+    for (let i = 0; i < 99; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId(`rank-ahead-${i}`),
+          `Ahead ${i}`,
+          750,
+          agingPolicy.stageForAge(750),
+          fixedAttributes(30),
+          'BR',
+          100,
+          { speed: 100, stamina: 100, strength: 100 },
+        ),
+      );
+      await db.insert(schema.rankingLedger).values({
+        id: `ledger-ahead-${i}`,
+        playerId: `rank-ahead-${i}`,
+        tournamentId: 't-futures-rr',
+        tier: 'challenger',
+        ageBand: null,
+        points: 10_000 - i,
+        seasonEarned: 1,
+        weekEarned: 52,
+      });
+    }
+    await db.insert(schema.rankingLedger).values({
+      id: 'ledger-rank-subject',
+      playerId: 'rank-subject',
+      tournamentId: 't-futures-rr',
+      tier: 'challenger',
+      ageBand: null,
+      points: 1,
+      seasonEarned: 1,
+      weekEarned: 52,
+    });
+
+    const list = await app.inject({ method: 'GET', url: '/tournaments?status=open&playerId=rank-subject' });
+    expect(list.statusCode).toBe(200);
+    const rows = list.json() as Array<{ id: string; rankRestricted: boolean; rankRestrictedReason: string | null }>;
+    const futures = rows.find((r) => r.id === 't-futures-rr')!;
+    const challenger = rows.find((r) => r.id === 't-challenger-rr')!;
+    expect(futures.rankRestricted).toBe(true);
+    expect(futures.rankRestrictedReason).toContain('too high to enter a futures event');
+    expect(challenger.rankRestricted).toBe(false);
+    expect(challenger.rankRestrictedReason).toBeNull();
+
+    // The preview flag and the server enforcement are the SAME decision.
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-futures-rr/entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'rank-subject' },
+    });
+    expect(refused.statusCode).toBe(409);
+    expect((refused.json() as { error: string }).error).toContain('too high to enter a futures event');
+
+    const accepted = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-challenger-rr/entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'rank-subject' },
+    });
+    expect(accepted.statusCode).toBe(201);
+  });
+
   it('serves the world clock: the real seeded GameWeek + day plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
     const response = await app.inject({ method: 'GET', url: '/world/clock' });
     expect(response.statusCode).toBe(200);

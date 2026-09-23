@@ -244,6 +244,17 @@ test.describe('refusal reasons mirror the server rules', () => {
     expect(tournamentHasRoom(t)).toBe(true);
   });
 
+  test('a rank-restricted senior event surfaces the server reason and is dropped from the "eligible to enter" filter', () => {
+    const reason = 'ranked #87 on the senior ladder — too high to enter a futures event';
+    const restricted = tour({ id: 'r', tier: 'futures', rankRestricted: true, rankRestrictedReason: reason, weekScheduled: { season: 1, week: 3 } });
+    expect(tournamentRefusalReason(restricted)).toBe(reason);
+    expect(matchesTournamentPickFilters(restricted, { circuit: 'eligible', surfaces: new Set(), search: '' })).toBe(false);
+    // An unrestricted event of the same tier is unaffected.
+    const open = tour({ id: 'u', tier: 'futures', rankRestricted: false, weekScheduled: { season: 1, week: 3 } });
+    expect(tournamentRefusalReason(open)).toBeNull();
+    expect(matchesTournamentPickFilters(open, { circuit: 'eligible', surfaces: new Set(), search: '' })).toBe(true);
+  });
+
   test('a below-cutoff entrant is measured against the qualifying field', () => {
     const t = tour({
       id: 'q',

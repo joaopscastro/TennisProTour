@@ -269,6 +269,15 @@ export interface TournamentDto {
    * (0/0 at a tier with no qualifying). Only set when ?playerId=. */
   qualifyingFieldTaken?: number;
   qualifyingFieldSize?: number;
+  /** Whether this player's SENIOR ranking is too high to enter this event
+   * (a top-200 player can't enter futures, a top-50 player can't enter
+   * challenger — see the domain TierEntryRestrictionPolicy). The SAME
+   * rule the server enforces, so the picker can disable the row up front.
+   * Only set when ?playerId= was supplied. */
+  rankRestricted?: boolean;
+  /** The plain-language reason `rankRestricted` is true, or null. Only set
+   * when ?playerId= was supplied. */
+  rankRestrictedReason?: string | null;
   rounds: Array<{
     roundNumber: number;
     matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;

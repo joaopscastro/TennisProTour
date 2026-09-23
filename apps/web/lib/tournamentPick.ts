@@ -37,6 +37,11 @@ export interface PickableTournament {
   mainDrawEntrants?: number;
   qualifyingFieldTaken?: number;
   qualifyingFieldSize?: number;
+  /** Whether the player's senior ranking is too high for this event (see
+   * TierEntryRestrictionPolicy), plus the server's own plain-language
+   * reason. Only set when the list was fetched with ?playerId=. */
+  rankRestricted?: boolean;
+  rankRestrictedReason?: string | null;
 }
 
 /** Junior age bands, in their canonical order — the same values the
@@ -151,9 +156,12 @@ function searchHaystack(tournament: PickableTournament): string {
 /** Applies the picker's circuit / surface / search narrowing. Circuit is
  * the primary axis: 'eligible' drops a band the player's age doesn't
  * qualify for (never a silent hide — it is the labelled default), while
- * 'all'/'senior'/'junior' are explicit, matchable choices. */
+ * 'all'/'senior'/'junior' are explicit, matchable choices. 'Eligible'
+ * also drops a senior event the player's RANK is too high for — the
+ * ranking restriction is a genuine permission rule, so it belongs in the
+ * list the label calls "every event this player is permitted to enter". */
 export function matchesTournamentPickFilters(tournament: PickableTournament, filters: TournamentPickFilters): boolean {
-  if (filters.circuit === 'eligible' && tournament.ageEligible === false) return false;
+  if (filters.circuit === 'eligible' && (tournament.ageEligible === false || tournament.rankRestricted === true)) return false;
   if (filters.circuit === 'senior' && tournament.ageBand !== null) return false;
   if (filters.circuit === 'junior' && tournament.ageBand === null) return false;
   if (filters.directEntryOnly && tournament.entryViaQualifying === true) return false;
@@ -183,6 +191,9 @@ export function tournamentHasRoom(tournament: PickableTournament): boolean {
 export function tournamentRefusalReason(tournament: PickableTournament): string | null {
   if (tournament.ageEligible === false) {
     return `Too old for this ${tournament.ageBand} draw — a player may play up into an older junior band, not down`;
+  }
+  if (tournament.rankRestricted === true) {
+    return tournament.rankRestrictedReason ?? 'Your senior ranking is too high to enter this event';
   }
   const overCap =
     tournament.weeklyEntryCountThisWeek !== undefined &&
