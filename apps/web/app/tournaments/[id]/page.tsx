@@ -23,9 +23,10 @@ import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/prim
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme } from '../../../lib/surfaces';
 import { disambiguatedNames, flagFor, formatMoney, formatScoreline } from '../../../lib/format';
-import { roundCollapsed, roundStatus, roundSubtitle } from '../../../lib/bracketStatus';
+import { roundCollapsed, roundStatus, roundSubtitle, tournamentHeadline } from '../../../lib/bracketStatus';
 import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
+import { useEntitlement } from '../../../lib/entitlement';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -604,6 +605,10 @@ export default function TournamentBracketPage() {
   // Doubles solo entry (P7b) — pick one of my players to sign up into
   // this tournament's doubles field (paired at draw formation).
   const devManagerId = useDevManagerId() ?? '';
+  // Persistent chrome consistency: every screen with a manager context shows
+  // the XP balance. This page has one (it registers players), so read the
+  // same shared entitlement source the rest of the app uses.
+  const { entitlement } = useEntitlement(devManagerId);
   const [doublesRoster, setDoublesRoster] = useState<RosterDashboardEntryDto[] | null>(null);
   const [doublesPick, setDoublesPick] = useState<string | null>(null);
   const [doublesBusy, setDoublesBusy] = useState(false);
@@ -748,24 +753,16 @@ export default function TournamentBracketPage() {
   const overallStatus = useMemo(() => {
     if (!tournament) return '';
     if (!tournament.hasStarted) return 'Registration open — draw not yet made';
-    const activeRound = rounds.find((r) => r.generated && r.matches.some((m) => !m.decided));
-    if (activeRound) return `${activeRound.label} in progress`;
-    const lastGenerated = [...rounds].reverse().find((r) => r.generated);
-    if (!lastGenerated) return 'Awaiting entrants';
-    // "Complete" waits for the reveal too — a decided-but-not-yet-aired
-    // final must not read as a finished tournament.
-    const allAired = lastGenerated.matches.every((m) => !m.decided || matchAirState(m, now) === 'aired');
-    if (!allAired) return 'Results airing';
-    if (lastGenerated.roundNumber === rounds.length && lastGenerated.matches.every((m) => m.decided)) {
-      return 'Tournament complete';
-    }
-    return `${lastGenerated.label} complete`;
+    // Derived from the same per-round status (and so the same `matchState`
+    // predicate) the round badges use — the hero can no longer claim the
+    // final is "in progress" while the final's own badge reads "Upcoming".
+    return tournamentHeadline(rounds, rounds.length, now);
   }, [tournament, rounds, now]);
 
   if (error && !tournament) {
     return (
       <AppFrame>
-        <Sidebar active="tournaments" />
+        <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
         <div className="flex-1 p-8" style={{ background: 'var(--gc-bg)' }}>
           <div className="text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
@@ -777,7 +774,7 @@ export default function TournamentBracketPage() {
   if (!tournament) {
     return (
       <AppFrame>
-        <Sidebar active="tournaments" />
+        <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
         <div className="flex-1 p-8 text-[13.5px]" style={{ background: 'var(--gc-bg)', color: 'var(--gc-ink-mute)' }}>
           Loading bracket…
         </div>
@@ -817,7 +814,7 @@ export default function TournamentBracketPage() {
       {celebrations.length > 0 && (
         <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
       )}
-      <Sidebar active="tournaments" />
+      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
       <div className="flex-1 min-w-0" style={{ background: 'var(--gc-bg)', position: 'relative' }}>
         <div style={{ position: 'relative', padding: '30px 34px 60px', maxWidth: 1400, margin: '0 auto' }}>
@@ -1232,6 +1229,14 @@ export default function TournamentBracketPage() {
                           // reveal window has passed; only then is the result shown.
                           const airState = matchAirState(m, now);
                           const revealed = airState === 'aired';
+                          // The outcome in plain text for assistive readers — a
+                          // decided card's winner is marked visually (a "Winner"
+                          // badge), but colour/weight alone must never be the only
+                          // signal, so the link carries the result as a label.
+                          const cardAriaLabel =
+                            revealed && m.outcome
+                              ? `${aLabel.name} def. ${bLabel.name}, ${formatScoreline(m.outcome.setScores, true)}`
+                              : undefined;
 
                           const cardInner = (
                             <>
@@ -1263,6 +1268,15 @@ export default function TournamentBracketPage() {
                                             title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
                                           >
                                             Free agent
+                                          </span>
+                                        )}
+                                        {m.a.isWinner && revealed && (
+                                          <span
+                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
+                                            style={{ background: 'oklch(45% 0.1 150 / 0.35)', color: 'oklch(85% 0.12 150)' }}
+                                            title="Winner of this match"
+                                          >
+                                            Winner
                                           </span>
                                         )}
                                       </div>
@@ -1300,6 +1314,15 @@ export default function TournamentBracketPage() {
                                             title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
                                           >
                                             Free agent
+                                          </span>
+                                        )}
+                                        {m.b.isWinner && revealed && (
+                                          <span
+                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
+                                            style={{ background: 'oklch(45% 0.1 150 / 0.35)', color: 'oklch(85% 0.12 150)' }}
+                                            title="Winner of this match"
+                                          >
+                                            Winner
                                           </span>
                                         )}
                                       </div>
@@ -1358,6 +1381,7 @@ export default function TournamentBracketPage() {
                             <a
                               key={i}
                               href={`/replay/${slot}`}
+                              aria-label={cardAriaLabel}
                               className="block no-underline hover:opacity-95"
                               style={{ ...cardStyle, color: 'inherit', cursor: 'pointer' }}
                             >

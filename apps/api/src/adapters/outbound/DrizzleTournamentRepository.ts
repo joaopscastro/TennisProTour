@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
 import { GameWeek, PairId, PlayerId, TournamentId, WEEKS_PER_SEASON } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
@@ -17,7 +17,7 @@ import {
 import { Surface } from '@tennis-manager/domain';
 import { ConcurrentModificationError, TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
-import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments, weeklyEntryClaims } from '../../db/schema';
+import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments, weeklyEntryClaims, players } from '../../db/schema';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 type EntryRow = typeof tournamentEntries.$inferSelect;
@@ -201,6 +201,30 @@ export class DrizzleTournamentRepository implements TournamentRepository {
         ),
       );
     return Promise.all(rows.map((row) => this.load(row.tournament)));
+  }
+
+  /**
+   * How many of each given tournament's singles entrants belong to a real
+   * manager — one grouped query joining `tournament_entries` to `players`,
+   * never a per-tournament read. This is the exact condition the tournament
+   * detail page's entry list applies client-side (managerId != null), moved
+   * server-side so a list/picker can show it cheaply. A tournament with no
+   * manager entrants is simply absent from the returned map.
+   */
+  async countManagerEntrants(tournamentIds: TournamentId[]): Promise<Map<string, number>> {
+    if (tournamentIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({
+        tournamentId: tournamentEntries.tournamentId,
+        managerEntrants: sql<number>`count(*)::int`,
+      })
+      .from(tournamentEntries)
+      .innerJoin(players, eq(players.id, tournamentEntries.playerId))
+      .where(and(inArray(tournamentEntries.tournamentId, tournamentIds), isNotNull(players.managerId)))
+      .groupBy(tournamentEntries.tournamentId);
+    const counts = new Map<string, number>();
+    for (const row of rows) counts.set(row.tournamentId, Number(row.managerEntrants));
+    return counts;
   }
 
   async save(tournament: Tournament): Promise<void> {

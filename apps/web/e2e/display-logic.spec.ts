@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { roundCollapsed, roundStatus, roundSubtitle } from '../lib/bracketStatus';
+import { roundCollapsed, roundStatus, roundSubtitle, tournamentHeadline } from '../lib/bracketStatus';
 import {
   activeSetTag,
   championRevealed,
@@ -74,6 +74,41 @@ test.describe('bracket round status + collapse', () => {
     // Once everything has aired the count is the plain "played" total again.
     expect(roundSubtitle(true, [decidedAired, decidedAired])).toBe('2 of 2 played');
     expect(roundSubtitle(true, [undecided, undecided])).toBe('2 matches scheduled');
+  });
+});
+
+test.describe('tournament hero headline — never "Final in progress" for an upcoming final', () => {
+  const now = Date.parse('2026-01-01T12:00:00Z');
+  const played = (start: string | null) => ({ decided: true, scheduledStartAt: start, revealSeconds: 900 });
+  const aired = played('2026-01-01T11:00:00Z');
+  const unaired = played('2026-01-01T13:00:00Z');
+  const notStarted = { decided: false, scheduledStartAt: null, revealSeconds: 0 };
+  const round = (roundNumber: number, label: string, matches: Array<{ decided: boolean; scheduledStartAt: string | null; revealSeconds: number }>) => ({ roundNumber, label, generated: true, matches });
+
+  test('an all-undecided final reads "Final upcoming", never "Final in progress"', () => {
+    const rounds = [round(1, 'Semifinals', [aired, aired]), round(2, 'Final', [notStarted])];
+    expect(tournamentHeadline(rounds, 2, now)).toBe('Final upcoming');
+    expect(tournamentHeadline(rounds, 2, now)).not.toContain('in progress');
+  });
+
+  test('a partially played round is "in progress"', () => {
+    const rounds = [round(1, 'Semifinals', [aired, notStarted])];
+    expect(tournamentHeadline(rounds, 2, now)).toBe('Semifinals in progress');
+  });
+
+  test('a decided-but-not-yet-aired final reads "Results airing", not complete', () => {
+    const rounds = [round(1, 'Semifinals', [aired, aired]), round(2, 'Final', [unaired])];
+    expect(tournamentHeadline(rounds, 2, now)).toBe('Results airing');
+  });
+
+  test('a fully aired final reads "Tournament complete"', () => {
+    const rounds = [round(1, 'Semifinals', [aired, aired]), round(2, 'Final', [aired])];
+    expect(tournamentHeadline(rounds, 2, now)).toBe('Tournament complete');
+  });
+
+  test('an earlier complete round with a not-yet-started next round is not "in progress"', () => {
+    const rounds = [round(1, 'Quarterfinals', [aired, aired]), round(2, 'Semifinals', [notStarted, notStarted])];
+    expect(tournamentHeadline(rounds, 3, now)).toBe('Semifinals upcoming');
   });
 });
 

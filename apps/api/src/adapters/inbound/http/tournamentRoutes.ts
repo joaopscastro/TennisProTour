@@ -123,6 +123,7 @@ export interface PlayerScopedInfo {
 export function toTournamentDto(
   tournament: Tournament,
   playerScopedInfo?: PlayerScopedInfo,
+  managerEntrants?: number,
 ) {
   return {
     id: tournament.id,
@@ -157,6 +158,14 @@ export function toTournamentDto(
      * THIS, never `entrants.length`, or it contradicts the draw it
      * claims to describe. Always ≤ `drawSize` by construction. */
     mainDrawEntrants: tournament.entrants.filter((entrant) => drawOf(entrant) === 'main').length,
+    /** How many entrants are owned by a real manager (`manager_id` not
+     * null) — the count the tournament lists/pickers show so a manager can
+     * see whether real people have already entered before deciding. Computed
+     * by the caller from ONE grouped query
+     * (TournamentRepository.countManagerEntrants), never per-tournament.
+     * Absent when the caller didn't compute it (so the client omits the
+     * line rather than printing a misleading 0). */
+    ...(managerEntrants !== undefined ? { managerEntrants } : {}),
     hasStarted: tournament.hasStarted,
     /** The main draw has been seeded. Distinct from `hasStarted`, which
      * is also true while a tournament is playing its QUALIFYING draw
@@ -317,6 +326,17 @@ async function attachEntryInfo(
   return result;
 }
 
+/** Manager-entrant counts for a list of tournaments, from ONE grouped
+ * query — see TournamentRepository.countManagerEntrants. Falls back to an
+ * empty map (no counts) for a fake repository that omits the method. */
+async function managerEntrantCounts(
+  tournaments: TournamentRepository,
+  list: Tournament[],
+): Promise<Map<string, number>> {
+  if (list.length === 0 || !tournaments.countManagerEntrants) return new Map();
+  return tournaments.countManagerEntrants(list.map((t) => t.id));
+}
+
 interface OpenTournamentBody {
   tournamentId: string;
   tier: TournamentTier;
@@ -458,7 +478,8 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     if (!tournament) {
       return reply.code(404).send({ error: `Tournament ${request.params.id} not found` });
     }
-    return toTournamentDto(tournament);
+    const managerCounts = await managerEntrantCounts(deps.tournaments, [tournament]);
+    return toTournamentDto(tournament, undefined, managerCounts.get(tournament.id));
   });
 
   // Lists tournaments by status: 'open' (still accepting entrants —
@@ -492,6 +513,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       const player = playerId ? await deps.players.findById(playerId) : null;
       const rank = player ? (await deps.rankPosition.rankFor(playerId!)).rank : null;
       const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, open, playerId, player.ageInWeeks, rank) : null;
+      const managerCounts = await managerEntrantCounts(deps.tournaments, open);
       // Explicit and additive, not derived from `hasStarted` on the
       // client: this list is ALREADY filtered to genuinely-open
       // tournaments (see the filtering above), so every row here really
@@ -501,7 +523,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       // which endpoint it called. Deliberately NOT added inside
       // `toTournamentDto` itself, since that function also serves the
       // `status=started` list, where it would be wrong.
-      return open.map((t) => ({ ...toTournamentDto(t, entryInfo?.get(t.id)), registrationOpen: true }));
+      return open.map((t) => ({ ...toTournamentDto(t, entryInfo?.get(t.id), managerCounts.get(t.id)), registrationOpen: true }));
     }
     if (request.query.status === 'started') {
       const list = await deps.tournaments.findStarted();
@@ -534,7 +556,8 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
             return !t.isMainDrawFinished() && weeksSinceScheduled <= 3;
           })
         : list;
-      return started.map((t) => toTournamentDto(t));
+      const managerCounts = await managerEntrantCounts(deps.tournaments, started);
+      return started.map((t) => toTournamentDto(t, undefined, managerCounts.get(t.id)));
     }
     return reply.code(400).send({ error: "GET /tournaments requires ?status=open or ?status=started" });
   });

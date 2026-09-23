@@ -42,6 +42,11 @@ export interface PickableTournament {
    * reason. Only set when the list was fetched with ?playerId=. */
   rankRestricted?: boolean;
   rankRestrictedReason?: string | null;
+  /** How many of this tournament's entrants are owned by a real manager
+   * (players.manager_id IS NOT NULL) — the server's own count, so a picker
+   * can show "N entered by managers" without an N+1 player fetch. Optional:
+   * absent when the endpoint didn't compute it. */
+  managerEntrants?: number;
 }
 
 /** Junior age bands, in their canonical order — the same values the
@@ -335,4 +340,30 @@ export function buildTournamentPickGroups<T extends PickableTournament>(
 ): TournamentPickGroup<T>[] {
   const filtered = list.filter((t) => matchesTournamentPickFilters(t, filters));
   return groupTournamentsForPicker(sortTournamentsForPicker(filtered));
+}
+
+/** A human label for the manager-entrant count the tournament DTO now
+ * carries (see tournamentRoutes.ts's countManagerEntrants). null when the
+ * list wasn't built with that count, so the caller omits the line rather
+ * than printing a hollow "0". */
+export function managerEntrantLabel(count: number | undefined): string | null {
+  if (count === undefined) return null;
+  if (count === 0) return 'No managers entered yet';
+  return count === 1 ? '1 entered by a manager' : `${count} entered by managers`;
+}
+
+/** Whether a started tournament's MAIN draw is fully decided — every match
+ * in the final round has an outcome. This mirrors the domain's
+ * `Tournament.isMainDrawFinished()` (the same predicate the `?status=started`
+ * filter uses), computed from the DTO's own rounds, so the Browse list can
+ * tell a finished bracket from one still being played without a new field.
+ * A tournament that never seeded a main draw (empty rounds) is not finished. */
+export function isTournamentFinished(t: {
+  drawSize: number;
+  rounds: ReadonlyArray<{ roundNumber: number; matches: ReadonlyArray<{ outcome: unknown | null }> }>;
+}): boolean {
+  const totalRounds = Math.round(Math.log2(t.drawSize));
+  const final = t.rounds.find((r) => r.roundNumber === totalRounds);
+  if (!final || final.matches.length === 0) return false;
+  return final.matches.every((m) => m.outcome != null);
 }

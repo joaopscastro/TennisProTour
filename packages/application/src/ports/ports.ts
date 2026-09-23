@@ -194,6 +194,17 @@ export interface TournamentRepository {
    * together (a player can't play two tournaments' doubles on the same
    * days they're playing singles), so the cap helper reads BOTH. */
   findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]>;
+
+  /** For each of the given tournaments, how many of its SINGLES entrants
+   * are owned by a real manager (`players.manager_id IS NOT NULL`) — the
+   * count the tournament lists/pickers show so a manager can see whether
+   * real people have already entered before deciding. One grouped query
+   * over the given ids, never N+1; the SAME filter the tournament detail
+   * page's entry list applies client-side. A tournament with no manager
+   * entrants is simply absent from the map (read as 0). Optional for test
+   * compatibility; the Drizzle adapter — the only production
+   * implementation — always provides it. */
+  countManagerEntrants?(tournamentIds: TournamentId[]): Promise<Map<string, number>>;
   save(tournament: Tournament): Promise<void>;
 }
 

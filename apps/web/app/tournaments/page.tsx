@@ -17,7 +17,8 @@ import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
-import { describeBrowseFilters, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
+import { useEntitlement } from '../../lib/entitlement';
+import { describeBrowseFilters, isTournamentFinished, managerEntrantLabel, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -159,6 +160,10 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
   // Main draw only — `t.entrants.length` also counts the qualifying field,
   // so it could read "88/64". See TournamentDto.mainDrawEntrants.
   const fillPct = Math.round((t.mainDrawEntrants / t.drawSize) * 100);
+  // Distinguish a finished bracket from one still being played, so a user
+  // looking for played results can tell them apart without opening each one.
+  const finished = t.hasStarted && isTournamentFinished(t);
+  const managersLabel = managerEntrantLabel(t.managerEntrants);
   return (
     // A plain `<a>`, deliberately NOT next/link: the App Router intercepts
     // the click and does not update the URL until the destination's RSC
@@ -181,10 +186,28 @@ function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
             {t.ageBand}
           </div>
         )}
+        {t.hasStarted && (
+          <div
+            title={finished ? 'This bracket has been played to its final — open it to watch any match replay' : 'This bracket is still being played'}
+            style={{
+              fontSize: 10,
+              fontWeight: 800,
+              letterSpacing: '0.4px',
+              textTransform: 'uppercase',
+              padding: '4px 9px',
+              borderRadius: 5,
+              ...(finished
+                ? { background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }
+                : { background: 'oklch(50% 0.1 60 / 0.3)', color: 'oklch(82% 0.12 70)' }),
+            }}
+          >
+            {finished ? '✓ Finished' : 'In progress'}
+          </div>
+        )}
         <div>
           <div style={{ fontSize: 14.5, fontWeight: 750 }}>{t.name}</div>
           <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 1 }}>
-            {t.tier} · {t.drawSize}-draw · <span style={{ color: fillPct >= 100 ? 'var(--gc-ball)' : 'var(--gc-ink-dim)' }}>{t.mainDrawEntrants}/{t.drawSize}</span> · S{t.weekScheduled.season} W{t.weekScheduled.week}{t.hostCountry ? ` · 🏠 ${t.hostCountry}` : ''}
+            {t.tier} · {t.drawSize}-draw · <span style={{ color: fillPct >= 100 ? 'var(--gc-ball)' : 'var(--gc-ink-dim)' }}>{t.mainDrawEntrants}/{t.drawSize}</span> · S{t.weekScheduled.season} W{t.weekScheduled.week}{t.hostCountry ? ` · 🏠 ${t.hostCountry}` : ''}{managersLabel ? ` · ${managersLabel}` : ''}
           </div>
         </div>
       </div>
@@ -394,6 +417,11 @@ function WeekRegisterPicker({
                 Qualifying — {t.qualifyingFieldTaken}/{t.qualifyingFieldSize} spots taken
               </div>
             )}
+            {managerEntrantLabel(t.managerEntrants) && (
+              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                {managerEntrantLabel(t.managerEntrants)}
+              </div>
+            )}
             {ageIneligible && (
               <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
                 Too old for this {t.ageBand} draw
@@ -415,6 +443,22 @@ function WeekRegisterPicker({
           </button>
         );
       })}
+      {selectedId && (
+        <a
+          href={`/tournaments/${encodeURIComponent(selectedId)}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[11px] font-semibold no-underline hover:underline mt-1"
+          style={{ color: 'var(--gc-ball)' }}
+        >
+          See who&apos;s already entered →
+        </a>
+      )}
+      {!selectedId && (
+        <div className="text-[11px] mt-1" style={{ color: 'var(--gc-ink-mute)' }}>
+          Select a tournament above to enable Register.
+        </div>
+      )}
       <div className="flex gap-[6px] mt-1">
         <button
           onClick={confirm}
@@ -665,6 +709,12 @@ function PlannerView() {
 
 export default function TournamentsIndexPage() {
   const [view, setView] = useState<'browse' | 'planner' | 'events'>('browse');
+  // Persistent chrome consistency: this screen has a manager context, so it
+  // shows the same XP balance every other screen does (shared entitlement
+  // source — see lib/entitlement.ts).
+  const devManagerId = useDevManagerId();
+  const managerId = devManagerId ?? '';
+  const { entitlement } = useEntitlement(managerId);
   // Deep link for the tournament page's "Open the Planner" pointer
   // (/tournaments#planner). A hash — not a query param — so this stays a
   // plain client-only read with no Suspense boundary needed.
@@ -741,7 +791,7 @@ export default function TournamentsIndexPage() {
         right={
           hasStartedBrackets ? (
             <a href="#brackets-underway" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
-              Brackets underway ↑
+              Results &amp; live brackets ↑
             </a>
           ) : undefined
         }
@@ -772,13 +822,20 @@ export default function TournamentsIndexPage() {
           ) : undefined
         }
       >
-        Brackets underway{filteredStarted ? ` · ${filteredStarted.length}` : ''}
+        Results &amp; live brackets{filteredStarted ? ` · ${filteredStarted.length}` : ''}
       </SectionLabel>
+      {/* Say plainly what lives here: played results (watch the replay) and
+          brackets still in progress. A naive walkthrough reported having to
+          GUESS that "Brackets underway" were the played ones. */}
+      <div className="text-[11.5px] mb-2 -mt-1" style={{ color: 'var(--gc-ink-mute)' }}>
+        Finished brackets and ones still being played. Open any bracket to watch its match replays — a
+        <span style={{ color: 'oklch(85% 0.12 150)' }}> ✓ Finished</span> badge means every result is in.
+      </div>
       <div className="flex flex-col gap-2">
         {started === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
         {started && filteredStarted?.length === 0 && (
           <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            {started.length === 0 ? 'No brackets underway.' : 'No brackets underway match your filters.'}
+            {started.length === 0 ? 'No results or live brackets yet.' : 'No results or live brackets match your filters.'}
           </div>
         )}
         {filteredStarted?.map((t) => (
@@ -790,7 +847,7 @@ export default function TournamentsIndexPage() {
 
   return (
     <AppFrame>
-      <Sidebar active="tournaments" />
+      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
       <PageShell wash="radial-gradient(120% 55% at 12% -10%, oklch(45% 0.1 45 / 0.13), transparent 60%)">
         <Hero minHeight={130}>

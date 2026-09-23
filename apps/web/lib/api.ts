@@ -200,6 +200,12 @@ export interface TournamentDto {
    * 24-player qualifying field has 88 entries. Anything shown as
    * "entrants out of drawSize" must read THIS. Always ≤ `drawSize`. */
   mainDrawEntrants: number;
+  /** How many entrants are owned by a real manager (manager_id not null) —
+   * the count shown in tournament lists/pickers so a manager can see whether
+   * real people have already entered before deciding. Computed server-side
+   * from one grouped query; absent when the endpoint didn't compute it. It
+   * shows who HAS entered, never who will. */
+  managerEntrants?: number;
   hasStarted: boolean;
   entrants: Array<{
     playerId: string;

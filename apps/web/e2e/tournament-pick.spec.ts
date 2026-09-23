@@ -7,6 +7,8 @@ import {
   entryPlacement,
   fitGuidance,
   groupTournamentsForPicker,
+  isTournamentFinished,
+  managerEntrantLabel,
   matchesTournamentPickFilters,
   pruneTiersForCategory,
   sortTournamentsForPicker,
@@ -263,5 +265,33 @@ test.describe('refusal reasons mirror the server rules', () => {
       weekScheduled: { season: 1, week: 3 },
     });
     expect(tournamentHasRoom(t)).toBe(false);
+  });
+});
+
+test.describe('manager entrants — see who else has entered', () => {
+  test('the count reads plainly and absent is null, not a hollow zero', () => {
+    expect(managerEntrantLabel(undefined)).toBeNull();
+    expect(managerEntrantLabel(0)).toBe('No managers entered yet');
+    expect(managerEntrantLabel(1)).toBe('1 entered by a manager');
+    expect(managerEntrantLabel(3)).toBe('3 entered by managers');
+  });
+});
+
+test.describe('finished vs in-progress brackets', () => {
+  const rounds = (finalDecided: boolean) => [
+    { roundNumber: 1, matches: [{ outcome: {} }, { outcome: {} }] },
+    { roundNumber: 2, matches: [{ outcome: finalDecided ? {} : null }] },
+  ];
+
+  test('a fully-decided final round means finished', () => {
+    expect(isTournamentFinished({ drawSize: 4, rounds: rounds(true) })).toBe(true);
+  });
+
+  test('an undecided final means not finished', () => {
+    expect(isTournamentFinished({ drawSize: 4, rounds: rounds(false) })).toBe(false);
+  });
+
+  test('a tournament with no seeded main draw is not finished', () => {
+    expect(isTournamentFinished({ drawSize: 32, rounds: [] })).toBe(false);
   });
 });

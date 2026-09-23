@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
-import { CircuitFilter, PlayerFitContext, buildTournamentPickGroups, entryFitFor, entryFitLabel, fitGuidance, tournamentRefusalReason } from '../lib/tournamentPick';
+import { CircuitFilter, PlayerFitContext, buildTournamentPickGroups, entryFitFor, entryFitLabel, fitGuidance, managerEntrantLabel, tournamentRefusalReason } from '../lib/tournamentPick';
 import { TournamentRewardsLadder, TournamentRewardSummary } from './TournamentRewards';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -74,6 +74,7 @@ function TournamentPickRow({
   onSelect: () => void;
 }) {
   const fit = entryFitFor(tournament);
+  const managers = managerEntrantLabel(tournament.managerEntrants);
   return (
     <button
       onClick={() => !blocked && onSelect()}
@@ -145,6 +146,15 @@ function TournamentPickRow({
       {tournament.entryViaQualifying && !tournament.qualifyingFieldFull && (
         <div className="text-[11px] mt-[4px]" style={{ color: 'var(--gc-ink-dim)' }}>
           You&apos;ll enter through qualifying — {tournament.qualifyingFieldTaken}/{tournament.qualifyingFieldSize} qualifying spots taken
+        </div>
+      )}
+      {/* Who else is already in — the server's own count of manager-owned
+          entrants, so a manager can judge whether it makes sense to enter
+          without opening every tournament. It shows who HAS entered, never
+          who will. */}
+      {managers && (
+        <div className="text-[11px] mt-[4px]" style={{ color: managers === 'No managers entered yet' ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)' }}>
+          {managers}
         </div>
       )}
       {reason && (
@@ -398,10 +408,31 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, pl
               What you&apos;re playing for — {selectedTournament.name}
             </div>
             <TournamentRewardsLadder tournament={selectedTournament} />
+            {/* The "check before you enter" affordance: open the tournament's
+                profile to see the actual names already registered (the detail
+                page lists manager-entered players). A new tab so the modal's
+                selection isn't lost. */}
+            <a
+              href={`/tournaments/${encodeURIComponent(selectedTournament.id)}`}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-block mt-[8px] text-[11.5px] font-semibold no-underline hover:underline"
+              style={{ color: 'var(--gc-ball)' }}
+            >
+              See who&apos;s already entered →
+            </a>
           </div>
         )}
 
-        <div className="flex justify-end gap-2 mt-5">
+        <div className="flex items-center justify-end gap-2 mt-5">
+          {/* Say WHY "Enter tournament" is disabled: nothing is selected yet
+              (mirrors the singles entry panel's equivalent note). A disabled
+              button with no visible instruction read as broken. */}
+          {!selectedId && (
+            <span className="text-[11.5px] mr-auto" style={{ color: 'var(--gc-ink-mute)' }}>
+              Select a tournament above to enable Enter.
+            </span>
+          )}
           <button
             onClick={onClose}
             className="px-[14px] py-[9px] rounded-[6px] bg-transparent text-[12.5px] font-semibold cursor-pointer"

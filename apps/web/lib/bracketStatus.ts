@@ -17,7 +17,7 @@
  * per-match air states the cards use, so the header can never contradict
  * the cards beneath it.
  */
-import type { AirState } from './matchAir';
+import { matchState, type AirState } from './matchAir';
 
 export type { AirState };
 
@@ -62,4 +62,54 @@ export function roundSubtitle(generated: boolean, matches: ReadonlyArray<Display
  * genuinely Decided — every match played AND aired. */
 export function roundCollapsed(generated: boolean, matches: ReadonlyArray<DisplayMatchAir>): boolean {
   return generated && matches.length > 0 && matches.every((m) => m.decided && m.airState === 'aired');
+}
+
+export interface HeadlineMatch {
+  decided: boolean;
+  scheduledStartAt: string | null;
+  revealSeconds: number;
+}
+
+export interface HeadlineRound {
+  roundNumber: number;
+  label: string;
+  generated: boolean;
+  matches: ReadonlyArray<HeadlineMatch>;
+}
+
+/**
+ * The tournament hero's one-line status, derived from the SAME per-round
+ * `roundStatus` (which itself reads the one `matchState` predicate) the
+ * round badges use — never a second notion of "under way".
+ *
+ * The bug this fixes: the hero used to pick "the first generated round with
+ * an undecided match" and call it "in progress", so a final that had not
+ * begun read "Final in progress" while its own badge read "Upcoming" — two
+ * labels on one page disagreeing about whether the final was under way.
+ * Here a round with nothing decided yet is `Upcoming`, so it can never be
+ * reported as in progress.
+ */
+export function tournamentHeadline(
+  rounds: ReadonlyArray<HeadlineRound>,
+  totalRounds: number,
+  now: number = Date.now(),
+): string {
+  const generated = rounds.filter((r) => r.generated);
+  if (generated.length === 0) return 'Awaiting entrants';
+  const statusOf = (r: HeadlineRound) =>
+    roundStatus(r.generated, r.matches.map((m) => ({ decided: m.decided, airState: matchState(m, now) })));
+
+  // A round genuinely under way (some match played, not all aired).
+  const active = generated.find((r) => statusOf(r) === 'In progress');
+  if (active) return `${active.label} in progress`;
+  // Any round fully played but not fully aired — its results are airing.
+  if (generated.some((r) => statusOf(r) === 'Airing' || statusOf(r) === 'Scheduled')) return 'Results airing';
+
+  const last = generated[generated.length - 1];
+  const lastStatus = statusOf(last);
+  if (last.roundNumber === totalRounds && lastStatus === 'Decided') return 'Tournament complete';
+  // The last generated round hasn't begun — say so (never "in progress"),
+  // matching its own "Upcoming" badge.
+  if (lastStatus === 'Upcoming') return `${last.label} upcoming`;
+  return `${last.label} complete`;
 }

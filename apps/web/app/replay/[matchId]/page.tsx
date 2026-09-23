@@ -22,6 +22,8 @@ import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard'
 import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
 import { AirState, matchAirState } from '../../../lib/matchAir';
 import { DecidedSide, resolveDecidedSide } from '../../../lib/decidedIt';
+import { useDevManagerId } from '../../../lib/managerContext';
+import { useEntitlement } from '../../../lib/entitlement';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -164,6 +166,11 @@ export default function ReplayPage() {
   const [log, setLog] = useState<MatchLogDto | null>(null);
   const [context, setContext] = useState<MatchContext | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Persistent chrome consistency: the replay is reached from a bracket, so
+  // it shares the same manager context as every other screen and shows the
+  // XP balance (the same shared entitlement source, not a second fetch).
+  const devManagerId = useDevManagerId() ?? '';
+  const { entitlement } = useEntitlement(devManagerId);
 
   // Ticking clock so the premiere label re-evaluates against the SAME shared
   // predicate the bracket uses, rather than freezing the state seen at fetch
@@ -272,7 +279,7 @@ export default function ReplayPage() {
 
   return (
     <AppFrame>
-      <Sidebar active="tournaments" />
+      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
       <div className="flex-1 p-8 max-w-[1040px] min-w-0" style={{ background: 'var(--gc-bg)' }}>
         <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--gc-ink-mute)' }}>

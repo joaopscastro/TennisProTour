@@ -698,6 +698,40 @@ describe('DrizzleTournamentRepository', () => {
     expect(results.map((t) => t.id).sort()).toEqual(['t-fpw-1', 't-fpw-2']);
   });
 
+  it('countManagerEntrants counts only manager-owned entrants, in one grouped read', async () => {
+    await playerRepository.save(Player.hire(PlayerId('cme-p1'), 'Owned One', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('cme-p2'), 'Owned Two', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.generateFillOnly(PlayerId('cme-f1'), 'Free Agent', 20 * 52, 'prime', attributes(30), 'BR'));
+
+    const mixed = Tournament.open({ name: 'Test Tournament',
+      id: TournamentId('t-cme-1'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 8 },
+      drawSize: 16,
+    });
+    mixed.registerEntrant({ playerId: PlayerId('cme-p1'), seed: null });
+    mixed.registerEntrant({ playerId: PlayerId('cme-p2'), seed: null });
+    mixed.registerEntrant({ playerId: PlayerId('cme-f1'), seed: null });
+    await tournamentRepository.save(mixed);
+
+    // Only a free agent entered this one — it must be absent from the map (0).
+    const fillerOnly = Tournament.open({ name: 'Test Tournament',
+      id: TournamentId('t-cme-2'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 2, week: 8 },
+      drawSize: 16,
+    });
+    fillerOnly.registerEntrant({ playerId: PlayerId('cme-f1'), seed: null });
+    await tournamentRepository.save(fillerOnly);
+
+    const counts = await tournamentRepository.countManagerEntrants!([TournamentId('t-cme-1'), TournamentId('t-cme-2')]);
+    expect(counts.get('t-cme-1')).toBe(2);
+    expect(counts.get('t-cme-2')).toBeUndefined();
+    expect(await tournamentRepository.countManagerEntrants!([])).toEqual(new Map());
+  });
+
   it('round-trips an unstarted tournament and lists it via findOpenForRegistration', async () => {
     await savePlayers(10);
 
