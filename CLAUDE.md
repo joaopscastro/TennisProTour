@@ -2181,6 +2181,77 @@ Tests: domain 380, application 263, api 146, worker 11 — all unchanged and
 green; root `tsc --build --force` and `apps/web` typecheck clean. A pure
 `disambiguatedNames` case was added to `display-logic.spec.ts`.
 
+## Eighth naive-walkthrough pass — seven findings
+
+Seven frontend-first findings from the seventh naive-user round. No game
+systems, no balance constants, no worker-tick changes; every fix reuses
+existing DTOs/endpoints, and the new logic is pure presentation.
+
+- **The tournament entry picker now answers "what should this player
+  enter?" and its search/filter controls are unmissable.**
+  `EnterTournamentModal`'s search input + chips existed but sat in an
+  unlabelled row a naive user scrolled past ("no search box" was reported
+  despite one being present). They now live in a bordered **"Search &
+  filter"** panel, and a new **"Best fit → Direct entry only"** toggle
+  (default ON, with an explicit "Show all events" escape and a
+  `N of M events match your filters` footer that names the total) narrows
+  the ~250-event list to the events that take the player straight into the
+  main draw. Fit is derived ONLY from the player-scoped API's existing
+  `entryViaQualifying` preview — the one real fit signal this app has —
+  plus the player's already-loaded rank/overall (passed in as a
+  `playerFit` prop from the roster row and the profile; no new query, no
+  new backend concept). Each row now reads **"Direct entry"** or **"Via
+  qualifying"**, and a guidance banner states the player's standing and
+  explicitly disclaims predicting results ("the app doesn't predict how
+  far they'll go") — deliberately NOT a fake field-strength/tier-rating
+  number. New pure helpers `entryFitFor`/`entryFitLabel`/`fitGuidance`
+  and the optional `directEntryOnly` filter flag live in
+  `lib/tournamentPick.ts`, pinned by new `tournament-pick.spec.ts` cases.
+- **The Scouting card's bare OVR number is labelled.** `PlayerCard`'s
+  `OvrRing` rendered `83` with no label; it now carries an explicit
+  **"OVR"** caption (the roster's `AnimatedOvrRing` and the profile's ring
+  were already labelled, so this was the only unlabelled instance).
+- **Only an AIRED match is a replay link — the earlier fix was
+  INCOMPLETE, not regressed.** The prior pass gated the qualifying and
+  doubles panels on the shared air predicate, but the main bracket's
+  expanded cards and collapsed rows still linked on `m.decided`, so a
+  decided-but-still-counting-down card ("Starts in 9:52") was an anchor to
+  `/replay/…` — exactly the reported bug and exactly what the bracket
+  legend ("Decided cards link to replay") contradicted. Both now use the
+  SAME `matchAirState` predicate (`revealed` / `airs[i].airState ===
+  'aired'`); no second predicate was introduced.
+- **The picker's count no longer reads as truncation.** "Showing 254 of
+  291 open tournaments" became **"254 of 291 events match your filters"**
+  with a one-click **"Show all 291"**, so it is plainly a filter summary,
+  not a page limit.
+- **The home page has one primary talent-pool CTA, and its dead click is
+  fixed.** Three controls all said "Browse talent pool": the hero CTA, the
+  first-run step-1 link and the empty-slot card. The hero is now the one
+  primary ("Browse talent pool →"), step 1 reads "Sign your first player"
+  and the empty-slot card reads "+ Open roster slot — add a player" (each
+  a distinct purpose). The hero CTA was a `<button>` nested inside a
+  `<Link>` — invalid nesting, and the reason a first click did nothing —
+  and is now a single real anchor (`<Link className="gc-btn
+  gc-btn--primary">`).
+- **The roster's `C G H I` surface letters have a legend.** A one-line
+  "Surfaces: C Clay · G Grass · H Hard · I Indoor" legend is derived from
+  the same `SURFACES` array the affinity bars render, so it can't drift.
+- **The entry list and the draw header no longer read as a
+  contradiction.** An open tournament showed "ENTRY LIST — 0 · No managers
+  have entered a player yet" beside a header reading "64/64 in the main
+  draw". Both were true — the draw is padded with unmanaged free agents at
+  start — but the copy hid that. The entry list's count now reads **"N
+  entered by managers"**, its subtitle states the draw's fill is a
+  separate figure padded with unmanaged free agents, its empty state says
+  why a full header can coexist with zero managers, and the hero now reads
+  **"64/64 main-draw places filled (0 by managers, 64 free-agent
+  fillers)"** when fillers are present.
+
+Tests: domain 380, application 263, api 146, worker 11 — all unchanged and
+green; root `tsc --build --force` and `apps/web` typecheck clean. New pure
+`entryFitFor`/`entryFitLabel`/`fitGuidance`/`directEntryOnly` cases were
+added to `tournament-pick.spec.ts`.
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
