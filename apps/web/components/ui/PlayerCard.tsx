@@ -214,7 +214,16 @@ export function PlayerCard({
         ) : (
           identity
         )}
-        {ovr != null && <OvrRing value={ovr} size={50} />}
+        {ovr != null && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flex: 'none' }}>
+            <OvrRing value={ovr} size={50} />
+            {/* Explicit label: a bare number above the attribute bars read as
+                an unlabelled mystery figure on the Scouting grid. */}
+            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>
+              OVR
+            </span>
+          </div>
+        )}
       </div>
 
       {(rank || hasForm) && (

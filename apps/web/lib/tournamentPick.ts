@@ -135,6 +135,13 @@ export interface TournamentPickFilters {
   circuit: CircuitFilter;
   surfaces: ReadonlySet<string>;
   search: string;
+  /** When true, keep only events that would take this player STRAIGHT into
+   * the main draw (no qualifying). This is the picker's "best fit" default:
+   * the only genuine fit signal the app has is the player-scoped API's own
+   * entry preview (`entryViaQualifying`), never a prediction of results.
+   * Optional so every existing caller/test literal is unchanged — undefined
+   * means "no narrowing". */
+  directEntryOnly?: boolean;
 }
 
 function searchHaystack(tournament: PickableTournament): string {
@@ -149,6 +156,7 @@ export function matchesTournamentPickFilters(tournament: PickableTournament, fil
   if (filters.circuit === 'eligible' && tournament.ageEligible === false) return false;
   if (filters.circuit === 'senior' && tournament.ageBand !== null) return false;
   if (filters.circuit === 'junior' && tournament.ageBand === null) return false;
+  if (filters.directEntryOnly && tournament.entryViaQualifying === true) return false;
   if (filters.surfaces.size > 0 && !filters.surfaces.has(tournament.surface)) return false;
   const query = filters.search.trim().toLowerCase();
   if (query.length > 0 && !searchHaystack(tournament).includes(query)) return false;
@@ -207,6 +215,50 @@ export function entryPlacement(
   playerId: string,
 ): 'main' | 'qualifying' {
   return entrants.some((e) => e.playerId === playerId && e.draw === 'qualifying') ? 'qualifying' : 'main';
+}
+
+/** What the app already knows about the queried player when the entry
+ * picker opens — passed in from the caller (the roster row and the player
+ * profile both already hold this; no new query). Deliberately tiny and
+ * observable-only. */
+export interface PlayerFitContext {
+  overall: number | null;
+  /** Band-scoped current rank, or null when unranked on that ladder. */
+  rank: number | null;
+  /** Which ladder `rank` is on — 'senior' | 'u14' | 'u16' | 'u18'. */
+  rankBand: string | null;
+}
+
+/** How a tournament would ACCEPT the queried player, straight from the
+ * player-scoped API's own `entryViaQualifying` preview — the only real fit
+ * signal this app has. It is NOT a prediction of how far the player would
+ * go; the app has no field-strength model and must not imply one. */
+export type EntryFit = 'direct' | 'qualifying';
+
+export function entryFitFor(tournament: PickableTournament): EntryFit {
+  return tournament.entryViaQualifying === true ? 'qualifying' : 'direct';
+}
+
+export function entryFitLabel(fit: EntryFit): string {
+  return fit === 'qualifying' ? 'Via qualifying' : 'Direct entry';
+}
+
+/** A plain-language, honest read of where the player stands for the picker's
+ * guidance banner. It describes how the draw would accept them (rank, and
+ * direct-entry vs qualifying) and explicitly disclaims predicting results.
+ * Returns null only when there is nothing at all to say (no context), so
+ * the caller can omit the banner rather than print a hollow line. */
+export function fitGuidance(fit: PlayerFitContext | null | undefined): string | null {
+  if (!fit) return null;
+  const ladder = fit.rankBand ? ` on the ${fit.rankBand.toUpperCase()} ladder` : '';
+  const standing = fit.rank != null ? `ranked #${fit.rank}${ladder}` : `unranked${ladder}`;
+  const rated = fit.overall != null ? `rated ${fit.overall} overall` : null;
+  const who = [rated, standing].filter((p): p is string => p != null).join(' and ') || 'unranked';
+  return (
+    `This player is ${who}. Events marked “Direct entry” take them straight into the main draw; ` +
+    '“Via qualifying” means they must win through qualifying first. ' +
+    'That fit is judged only from how each draw would accept them today — the app doesn’t predict how far they’ll go.'
+  );
 }
 
 export type BrowseCategory = 'all' | 'senior' | 'junior';

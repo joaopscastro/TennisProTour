@@ -1103,6 +1103,15 @@ export default function PlayerProfilePage() {
             playerName={profile.name}
             managerId={profile.managerId}
             week={plannerWeeks?.[enterModalWeek]?.week}
+            playerFit={
+              player
+                ? {
+                    overall: overallOf(player),
+                    rank: profile.currentRankings.find((r) => r.band === profile.currentEligibleBand)?.rank ?? null,
+                    rankBand: profile.currentEligibleBand,
+                  }
+                : null
+            }
             onClose={() => setEnterModalWeek(null)}
             onEntered={() => {
               setEnterModalWeek(null);

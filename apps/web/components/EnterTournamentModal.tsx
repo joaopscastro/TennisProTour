@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
-import { CircuitFilter, buildTournamentPickGroups, tournamentRefusalReason } from '../lib/tournamentPick';
+import { CircuitFilter, PlayerFitContext, buildTournamentPickGroups, entryFitFor, entryFitLabel, fitGuidance, tournamentRefusalReason } from '../lib/tournamentPick';
 import { TournamentRewardsLadder, TournamentRewardSummary } from './TournamentRewards';
 
 const SURFACE_COLOR: Record<string, string> = {
@@ -48,6 +48,10 @@ interface Props {
    * tournament across the whole season. Omitted (the roster board's
    * "Enter" action) = show every open tournament, same as before. */
   week?: { season: number; week: number };
+  /** What the app already knows about this player (rank + overall) so the
+   * picker can mark each event as a direct entry or a qualifying one. Both
+   * callers already hold this — no new query. Omitted = no fit guidance. */
+  playerFit?: PlayerFitContext | null;
   onClose: () => void;
   onEntered: (tournament: TournamentDto) => void;
 }
@@ -69,6 +73,7 @@ function TournamentPickRow({
   reason: string | null;
   onSelect: () => void;
 }) {
+  const fit = entryFitFor(tournament);
   return (
     <button
       onClick={() => !blocked && onSelect()}
@@ -132,6 +137,10 @@ function TournamentPickRow({
       <div className="text-[11.5px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
         {tournament.tier} · season {tournament.weekScheduled.season}, week {tournament.weekScheduled.week}
         {tournament.hostCountry ? ` · 🏠 ${tournament.hostCountry}` : ''}
+        {' · '}
+        <span style={{ fontWeight: 700, color: fit === 'direct' ? 'oklch(74% 0.14 150)' : 'oklch(80% 0.12 45)' }}>
+          {entryFitLabel(fit)}
+        </span>
       </div>
       {tournament.entryViaQualifying && !tournament.qualifyingFieldFull && (
         <div className="text-[11px] mt-[4px]" style={{ color: 'var(--gc-ink-dim)' }}>
@@ -163,7 +172,7 @@ function TournamentPickRow({
  * lib/tournamentPick.ts. Without that, a first-time user faced a flat
  * ~250-row list in arbitrary week order with no way to narrow it.
  */
-export function EnterTournamentModal({ playerId, playerName, managerId, week, onClose, onEntered }: Props) {
+export function EnterTournamentModal({ playerId, playerName, managerId, week, playerFit, onClose, onEntered }: Props) {
   const [tournaments, setTournaments] = useState<TournamentDto[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -171,6 +180,10 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
   const [circuit, setCircuit] = useState<CircuitFilter>('eligible');
   const [surfaces, setSurfaces] = useState<Set<string>>(() => new Set());
   const [search, setSearch] = useState('');
+  // Default ON: with ~250 open events, the fastest answer to "what should
+  // this player enter?" is the set that accepts them directly. It is a
+  // labelled, one-click-widenable disclosure, never a silent hide.
+  const [directEntryOnly, setDirectEntryOnly] = useState(true);
 
   useEffect(() => {
     fetchOpenTournaments(playerId)
@@ -199,11 +212,13 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
     }
   }
 
-  const filters = useMemo(() => ({ circuit, surfaces, search }), [circuit, surfaces, search]);
+  const filters = useMemo(() => ({ circuit, surfaces, search, directEntryOnly }), [circuit, surfaces, search, directEntryOnly]);
   const groups = useMemo(() => (tournaments ? buildTournamentPickGroups(tournaments, filters) : []), [tournaments, filters]);
   const filteredCount = useMemo(() => groups.reduce((n, g) => n + g.items.length, 0), [groups]);
 
   const selectedTournament = tournaments?.find((t) => t.id === selectedId) ?? null;
+  const guidance = fitGuidance(playerFit);
+  const anyNarrowing = circuit !== 'eligible' || surfaces.size > 0 || search.trim().length > 0 || directEntryOnly;
 
   return (
     <div
@@ -224,6 +239,15 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
             : 'Choose a tournament still open for registration.'}
         </div>
 
+        {guidance && (
+          <div
+            className="mb-3 rounded-[8px] px-3 py-2 text-[12px] leading-[1.5]"
+            style={{ background: 'oklch(45% 0.06 240 / 0.18)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
+          >
+            <strong style={{ color: 'var(--gc-ink)' }}>Which event fits {playerName}?</strong> {guidance}
+          </div>
+        )}
+
         {error && (
           <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
             {error}
@@ -231,13 +255,16 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
         )}
 
         {tournaments !== null && tournaments.length > 0 && (
-          <div className="flex flex-col gap-[7px] mb-3">
+          <div className="flex flex-col gap-[8px] mb-3 rounded-[9px] p-3" style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-s2)' }}>
+            <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>
+              Search &amp; filter
+            </div>
             <input
               type="search"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name, tier, surface or country…"
-              className="gc-input text-[12.5px] w-full"
+              placeholder="Search by name, tier, surface or country…"
+              className="gc-input text-[13px] w-full"
               aria-label="Search open tournaments"
             />
             <div className="flex flex-wrap items-center gap-[6px]">
@@ -279,6 +306,33 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
                 );
               })}
             </div>
+            <div className="flex flex-wrap items-center gap-[6px]">
+              <span className="text-[10.5px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>Best fit</span>
+              <button
+                type="button"
+                aria-pressed={directEntryOnly}
+                title="Only events that take this player straight into the main draw — no qualifying"
+                onClick={() => setDirectEntryOnly((v) => !v)}
+                className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
+                style={
+                  directEntryOnly
+                    ? { background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)', border: '1px solid var(--gc-ball)', fontWeight: 750 }
+                    : { background: 'var(--gc-s2)', color: 'var(--gc-ink-dim)', border: '1px solid var(--gc-line)' }
+                }
+              >
+                Direct entry only
+              </button>
+              {directEntryOnly && (
+                <button
+                  type="button"
+                  onClick={() => setDirectEntryOnly(false)}
+                  className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
+                  style={{ background: 'transparent', color: 'var(--gc-ink-mute)', border: '1px solid var(--gc-line)' }}
+                >
+                  Show all events
+                </button>
+              )}
+            </div>
           </div>
         )}
 
@@ -295,7 +349,7 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
           )}
           {tournaments && tournaments.length > 0 && filteredCount === 0 && (
             <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-              No tournaments match these filters — widen the circuit filter or clear the search.
+              No tournaments match these filters — widen the circuit filter, turn off “Direct entry only”, or clear the search.
             </div>
           )}
           {groups.map((group) => (
@@ -321,8 +375,20 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, on
         </div>
 
         {tournaments && tournaments.length > 0 && (
-          <div className="text-[11px] mt-2" style={{ color: 'var(--gc-ink-faint)' }}>
-            Showing {filteredCount} of {tournaments.length} open tournaments.
+          <div className="text-[11px] mt-2 flex items-center justify-between gap-3" style={{ color: 'var(--gc-ink-faint)' }}>
+            <span>
+              {filteredCount} of {tournaments.length} events match your filters.
+            </span>
+            {anyNarrowing && (
+              <button
+                type="button"
+                onClick={() => { setCircuit('all'); setSurfaces(new Set()); setSearch(''); setDirectEntryOnly(false); }}
+                className="cursor-pointer bg-transparent border-none underline p-0"
+                style={{ color: 'var(--gc-ball)', fontSize: 11 }}
+              >
+                Show all {tournaments.length}
+              </button>
+            )}
           </div>
         )}
 

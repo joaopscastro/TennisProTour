@@ -136,7 +136,7 @@ const FIRST_RUN_STEPS: Array<{ n: number; title: string; body: string; href: str
     title: 'Sign a free agent',
     body: 'Claim a free agent from the shared talent pool. It costs XP — you start with enough for your first player.',
     href: '/scouting',
-    cta: 'Browse talent pool',
+    cta: 'Sign your first player',
   },
   {
     n: 2,
@@ -522,6 +522,10 @@ export default function RosterDashboardPage() {
   const customPlayerCredits = entitlement?.customPlayerCredits ?? 0;
   const canCreateCustomPlayer = tier === 'pro' && customPlayerCredits > 0;
 
+  // The entry picker's fit guidance reads the player's already-loaded roster
+  // row (rank + overall) — no new query.
+  const enterModalEntry = enterModalPlayer ? players?.find((p) => p.id === enterModalPlayer.id) ?? null : null;
+
   function showNotice(text: string) {
     setNotice(text);
     setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
@@ -552,8 +556,8 @@ export default function RosterDashboardPage() {
                     Create custom player ({customPlayerCredits})
                   </Button>
                 )}
-                <Link href="/scouting" style={{ textDecoration: 'none' }}>
-                  <Button variant="primary">Browse talent pool →</Button>
+                <Link href="/scouting" className="gc-btn gc-btn--primary" style={{ textDecoration: 'none' }}>
+                  Browse talent pool →
                 </Link>
               </div>
               {/* Slot pips */}
@@ -608,6 +612,20 @@ export default function RosterDashboardPage() {
                 </select>
               </div>
             }>Squad · {usedSlots} player{usedSlots === 1 ? '' : 's'}</SectionLabel>
+
+            {/* Legend for the C/G/H/I surface-affinity bars on each row — the
+                letters had no explanation anywhere. Derived from the same
+                SURFACES list the bars render, so the two can't drift. */}
+            <div style={{ marginTop: -8, marginBottom: 12, fontSize: 10.5, color: 'var(--gc-ink-faint)' }}>
+              Surfaces:{' '}
+              {SURFACES.map((s, i) => (
+                <span key={s.key}>
+                  {i > 0 ? ' · ' : ''}
+                  <strong style={{ color: 'var(--gc-ink-mute)' }}>{s.letter}</strong>{' '}
+                  {s.key[0].toUpperCase() + s.key.slice(1)}
+                </span>
+              ))}
+            </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {sortedPlayers.map((p, idx) => {
@@ -726,7 +744,7 @@ export default function RosterDashboardPage() {
               {showOpenSlot && (
                 <Link href="/scouting" style={{ textDecoration: 'none' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, padding: 18, fontSize: 13, fontWeight: 650, color: 'var(--gc-ink-mute)', border: '1.5px dashed var(--gc-line)', background: 'oklch(100% 0 0 / 0.02)' }}>
-                    + Open roster slot — browse the talent pool
+                    + Open roster slot — add a player
                   </div>
                 </Link>
               )}
@@ -896,6 +914,7 @@ export default function RosterDashboardPage() {
           playerId={enterModalPlayer.id}
           playerName={enterModalPlayer.name}
           managerId={managerId}
+          playerFit={enterModalEntry ? { overall: enterModalEntry.overall, rank: enterModalEntry.rank, rankBand: enterModalEntry.rankBand } : null}
           onClose={() => setEnterModalPlayer(null)}
           onEntered={(tournament) => {
             setEnterModalPlayer(null);

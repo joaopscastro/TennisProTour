@@ -2,7 +2,10 @@ import { expect, test } from '@playwright/test';
 import {
   buildTournamentPickGroups,
   describeBrowseFilters,
+  entryFitFor,
+  entryFitLabel,
   entryPlacement,
+  fitGuidance,
   groupTournamentsForPicker,
   matchesTournamentPickFilters,
   pruneTiersForCategory,
@@ -162,6 +165,43 @@ test.describe('entry confirmation names the real draw', () => {
     expect(entryPlacement([{ playerId: 'wc-1', draw: 'main' as const }], 'wc-1')).toBe('main');
     // A player not present at all (defensive) reads main, never throws.
     expect(entryPlacement([], 'missing')).toBe('main');
+  });
+});
+
+test.describe('entry fit — the picker guides which event suits the player', () => {
+  test('a qualifying-tier entry reads "qualifying", everything else "direct"', () => {
+    expect(entryFitFor(tour({ id: 'q', entryViaQualifying: true, weekScheduled: { season: 1, week: 3 } }))).toBe('qualifying');
+    expect(entryFitFor(tour({ id: 'd', weekScheduled: { season: 1, week: 3 } }))).toBe('direct');
+    // undefined (a non-qualifying tier / non-player-scoped list) is "direct".
+    expect(entryFitFor(tour({ id: 'u', weekScheduled: { season: 1, week: 3 } }))).toBe('direct');
+  });
+
+  test('the fit label is human-readable', () => {
+    expect(entryFitLabel('direct')).toBe('Direct entry');
+    expect(entryFitLabel('qualifying')).toBe('Via qualifying');
+  });
+
+  test('the "direct entry only" filter drops qualifying events and is off by default', () => {
+    const q = tour({ id: 'q', entryViaQualifying: true, weekScheduled: { season: 1, week: 3 } });
+    const d = tour({ id: 'd', weekScheduled: { season: 1, week: 3 } });
+    const base = { circuit: 'all' as const, surfaces: new Set<string>(), search: '' };
+    // Absent field = no narrowing (every existing caller is unchanged).
+    expect(matchesTournamentPickFilters(q, base)).toBe(true);
+    expect(matchesTournamentPickFilters(q, { ...base, directEntryOnly: true })).toBe(false);
+    expect(matchesTournamentPickFilters(d, { ...base, directEntryOnly: true })).toBe(true);
+  });
+
+  test('fit guidance names the rank and always disclaims predicting results', () => {
+    expect(fitGuidance(null)).toBeNull();
+    const ranked = fitGuidance({ overall: 62, rank: 45, rankBand: 'senior' })!;
+    expect(ranked).toContain('#45');
+    expect(ranked).toContain('SENIOR');
+    expect(ranked).toContain('Direct entry');
+    expect(ranked).toContain('Via qualifying');
+    expect(ranked.toLowerCase()).toContain('predict');
+    const unranked = fitGuidance({ overall: 48, rank: null, rankBand: 'senior' })!;
+    expect(unranked).toContain('unranked');
+    expect(unranked).toContain('SENIOR');
   });
 });
 

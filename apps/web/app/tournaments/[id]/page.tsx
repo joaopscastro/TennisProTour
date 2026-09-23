@@ -227,20 +227,26 @@ function EntryList({
 
   return (
     <Panel style={{ padding: 18 }}>
-      <SectionLabel right={<span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>{humanEntrants.length}</span>}>
+      <SectionLabel
+        right={
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+            {humanEntrants.length} entered by manager{humanEntrants.length === 1 ? '' : 's'}
+          </span>
+        }
+      >
         {draw === 'qualifying' ? 'Qualifying entry list' : 'Entry list'}
       </SectionLabel>
-      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
         {draw === 'qualifying'
-          ? `Players competing for ${tournament.qualifierSlots} main-draw place(s)`
-          : 'Players entered by managers'}
-        {tournament.hasStarted
-          ? ' — the draw may also include unmanaged free-agent players (badged “Free agent”) padding it to a full bracket.'
-          : '.'}
+          ? `Players competing for ${tournament.qualifierSlots} main-draw place(s). This list is separate from the draw's fill.`
+          : "Players entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents."}
+        {tournament.hasStarted && ' Those fillers are badged “Free agent” in the bracket.'}
       </div>
       {humanEntrants.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px' }}>
-          No managers have entered a player yet.
+        <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px', lineHeight: 1.5 }}>
+          {tournament.hasStarted
+            ? 'No managers have entered a player yet — this draw is padded with unmanaged free agents, which is why the header still shows a full draw.'
+            : 'No managers have entered a player yet.'}
         </div>
       ) : (
         <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
@@ -794,6 +800,14 @@ export default function TournamentBracketPage() {
   // fields and label which is which, consistent with the list rows' use of
   // mainDrawEntrants/drawSize.
   const qualifyingEntrants = tournament.entrants.filter((e) => e.draw === 'qualifying').length;
+  // Manager-entered vs free-agent-filled main-draw places. The hero's "N/N"
+  // is the draw's FILL (which includes unmanaged fillers); the entry list
+  // counts manager entries only — naming both stops the two reading as a
+  // contradiction ("0 managers entered" next to "64/64 full").
+  const unmanagedMainEntrants = tournament.entrants.filter(
+    (e) => e.draw === 'main' && players.get(e.playerId)?.managerId == null,
+  ).length;
+  const managerMainEntrants = tournament.mainDrawEntrants - unmanagedMainEntrants;
   const championCopy = champDecided && champLabel
     ? `${champLabel.name} lifts the trophy.`
     : overallStatus;
@@ -827,7 +841,8 @@ export default function TournamentBracketPage() {
                 </div>
                 <div style={{ fontSize: 30, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 8, textShadow: '0 2px 10px oklch(0% 0 0 / 0.45)' }}>{tournament.name}</div>
                 <div style={{ fontSize: 13.5, color: 'white', opacity: 0.85, marginTop: 4 }}>
-                  Single elimination · {tournament.mainDrawEntrants}/{tournament.drawSize} in the main draw
+                  Single elimination · {tournament.mainDrawEntrants}/{tournament.drawSize} main-draw places filled
+                  {unmanagedMainEntrants > 0 ? ` (${managerMainEntrants} by managers, ${unmanagedMainEntrants} free-agent fillers)` : ''}
                   {qualifyingEntrants > 0 ? ` · ${qualifyingEntrants} in qualifying` : ''} · {championCopy}
                 </div>
                 {worldClock && (
@@ -1173,7 +1188,11 @@ export default function TournamentBracketPage() {
                           // changes the URL the instant it is activated, so a
                           // decided card always behaves like the link it is
                           // (real, focusable, keyboard-navigable).
-                          return slot && m.decided ? (
+                          // Only an AIRED match is a replay link — a decided
+                          // but not-yet-aired match still shows a countdown
+                          // ("Starts in …") and must not be clickable, matching
+                          // the bracket legend's "Decided cards link to replay".
+                          return slot && airs[i].airState === 'aired' ? (
                             <a key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
                               {row}
                             </a>
@@ -1332,7 +1351,10 @@ export default function TournamentBracketPage() {
 
                           // Plain `<a>` for the same reason as the collapsed
                           // rows above — the click must navigate immediately.
-                          return slot && m.decided ? (
+                          // And ONLY an aired match is a link: a decided match
+                          // still counting down ("Starts in 9:52") must not be
+                          // clickable (the exact reported bug).
+                          return slot && revealed ? (
                             <a
                               key={i}
                               href={`/replay/${slot}`}
