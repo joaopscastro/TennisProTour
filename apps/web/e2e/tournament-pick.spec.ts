@@ -10,6 +10,7 @@ import {
   isTournamentFinished,
   managerEntrantLabel,
   matchesTournamentPickFilters,
+  plannerWeekBlockReason,
   pruneTiersForCategory,
   sortTournamentsForPicker,
   tierChipAppliesToCategory,
@@ -274,6 +275,32 @@ test.describe('manager entrants — see who else has entered', () => {
     expect(managerEntrantLabel(0)).toBe('No managers entered yet');
     expect(managerEntrantLabel(1)).toBe('1 entered by a manager');
     expect(managerEntrantLabel(3)).toBe('3 entered by managers');
+  });
+});
+
+test.describe('planner week — a week with nothing enterable is explained, not offered', () => {
+  test('an empty current week says the draws have already started', () => {
+    expect(plannerWeekBlockReason([], true)).toBe("This week's draws have already started — pick a later week.");
+  });
+
+  test('an empty future week says nothing is open yet', () => {
+    expect(plannerWeekBlockReason([], false)).toBe('No open events this week yet.');
+  });
+
+  test('a week whose events are all ineligible says so, rather than opening a dead picker', () => {
+    const juniorOnly = [tour({ id: 'j', tier: 'j30', ageBand: 'u14', ageEligible: false, weekScheduled: { season: 1, week: 2 } })];
+    expect(plannerWeekBlockReason(juniorOnly, true)).toBe('No events this player can enter this week.');
+  });
+
+  test('one enterable event means no block (the Register button stays)', () => {
+    const enterable = [tour({ id: 'ok', ageEligible: true, weekScheduled: { season: 1, week: 3 } })];
+    expect(plannerWeekBlockReason(enterable, false)).toBeNull();
+    // A blocked event alongside an enterable one is fine — the picker still opens.
+    const mixed = [
+      tour({ id: 'j', tier: 'j30', ageBand: 'u14', ageEligible: false, weekScheduled: { season: 1, week: 3 } }),
+      tour({ id: 'ok', ageEligible: true, weekScheduled: { season: 1, week: 3 } }),
+    ];
+    expect(plannerWeekBlockReason(mixed, false)).toBeNull();
   });
 });
 

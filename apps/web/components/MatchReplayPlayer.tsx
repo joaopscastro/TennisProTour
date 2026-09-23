@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ScorePop } from './ui/motion';
 import { MatchLogDto } from '../lib/api';
-import { activeSetTag, replayOverlayCopy, replayScoreVisible } from '../lib/matchAir';
+import { activeSetTag, replayOverlayCopy, replayScoreVisible, replayStartOffset } from '../lib/matchAir';
 
 /**
  * The "fake live" replay player — CLAUDE.md principle #4 made
@@ -465,13 +465,19 @@ export function MatchReplayPlayer({
               </div>
             )}
             <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'var(--gc-ink-dim)' }}>
-              This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled
-              slot — you can skip ahead to catch up any time.
+              {airState === 'aired'
+                ? 'This match was simulated in full ahead of time and has already aired. Press play to watch it from the start — or skip ahead any time.'
+                : 'This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled slot — you can skip ahead to catch up any time.'}
             </div>
             <button
               onClick={() => {
                 setStarted(true);
                 setPlaying(true);
+                // Join at the live edge ONLY while the match is still airing
+                // (a viewer arriving mid-reveal catches up); an aired match
+                // starts from the beginning. Same air-state predicate as
+                // everywhere else — see replayStartOffset.
+                setElapsed(replayStartOffset(airState, liveEdgeSeconds, log.totalDurationSeconds));
               }}
               className="gc-btn gc-btn--primary flex items-center gap-2 px-[22px] py-[12px] text-[14px] font-bold cursor-pointer"
             >

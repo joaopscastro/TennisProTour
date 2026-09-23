@@ -219,6 +219,25 @@ export function tournamentRefusalReason(tournament: PickableTournament): string 
   return null;
 }
 
+/** Why a planner week has no Register action, or null when at least one
+ * event is enterable. Derived from the SAME `tournamentRefusalReason` the
+ * picker itself uses, so a blocked week and the picker can never disagree.
+ * `isCurrentWeek` is true only for the planner's first column —
+ * PlayerEntryPlannerQuery always starts from the world's current week. A
+ * current week with nothing enterable is the common case (its draws have
+ * already started); presenting it as a live "+ Register" that opened a
+ * picker of disabled rows read as broken (a naive-walkthrough finding). */
+export function plannerWeekBlockReason(
+  candidates: readonly PickableTournament[],
+  isCurrentWeek: boolean,
+): string | null {
+  if (candidates.some((t) => tournamentRefusalReason(t) === null)) return null;
+  if (candidates.length === 0) {
+    return isCurrentWeek ? "This week's draws have already started — pick a later week." : 'No open events this week yet.';
+  }
+  return 'No events this player can enter this week.';
+}
+
 /** Where a just-registered player actually landed, from the returned
  * tournament DTO's entrants. 'qualifying' when they sit in the qualifying
  * field — a below-cutoff `[Q]` entrant who must win through — else 'main'.

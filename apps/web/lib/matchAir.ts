@@ -78,6 +78,19 @@ export function replayScoreVisible(finished: boolean, airState: MatchState, star
   return finished || (airState === 'aired' && !started);
 }
 
+/**
+ * Where playback should BEGIN when the viewer presses play. A match still
+ * inside its reveal window (`live`) joins at the live edge so a late viewer
+ * catches up to the action; an `aired` or `upcoming` match starts from the
+ * very beginning (a finished match has no live edge to sync to — the viewer
+ * can skip forward with the controls). Consumes the ONE `MatchState`
+ * predicate, never a second one.
+ */
+export function replayStartOffset(airState: MatchState, liveEdgeSeconds: number, totalDurationSeconds: number): number {
+  if (airState !== 'live') return 0;
+  return Math.max(0, Math.min(liveEdgeSeconds, totalDurationSeconds));
+}
+
 /** The replay overlay's headline + note. The note is ONLY "Result already
  * decided" once the match has aired: never simultaneously claiming a
  * live/upcoming premiere and a decided result is the exact contradiction

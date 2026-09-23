@@ -765,6 +765,29 @@ describe('API', () => {
     expect(dto.mainDrawEntrants).toBeLessThanOrEqual(dto.drawSize);
   });
 
+  it('reports managerEntrants as a real, present 0 when nobody has entered (not absent)', async () => {
+    // The grouped count only returns tournaments that HAVE a manager
+    // entrant, so without the route's zero-fill the DTO field was ABSENT and
+    // the picker showed no entrant line at all — exactly when a manager most
+    // wants to know nobody has entered. Zero must be present; absent means
+    // "this read never computed it".
+    const tournamentId = TournamentId('t-zero-manager-entrants');
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Test Zero Manager Entrants',
+        id: tournamentId,
+        tier: 'futures',
+        surface: 'hard',
+        hostCountry: null,
+        weekScheduled: { season: 1, week: 51 },
+        drawSize: 16,
+      }),
+    );
+
+    const dto = (await app.inject({ method: 'GET', url: `/tournaments/${tournamentId}` })).json();
+    expect(dto.managerEntrants).toBe(0);
+  });
+
   it('lists a manager roster (empty roster is 200 [], missing replay is 404)', async () => {
     expect((await app.inject({ method: 'GET', url: '/managers/m9/players', headers: { 'x-dev-manager-id': 'm9' } })).json()).toEqual([]);
 

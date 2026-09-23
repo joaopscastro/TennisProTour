@@ -2326,6 +2326,60 @@ Tests: domain 386, application 268, api 148 (was 147 — one new real-Postgres
 (`display-logic.spec.ts`) and `managerEntrantLabel`/`isTournamentFinished`
 (`tournament-pick.spec.ts`).
 
+## Ninth naive-walkthrough pass — four final fixes
+
+A frontend-first pass closing the last four findings from the ninth
+naive-user round. No game systems or balance constants changed; the
+`advance-world-day` handler was deliberately not touched.
+
+- **The Browse section's "✓ Finished" badge is now reachable.** The
+  `?status=started` filter kept only the current week plus (last week AND
+  a two-week tier), so every finished one-week event was dropped the
+  moment its week passed — all 10 rows read "In progress" and the
+  section's own "a ✓ Finished badge means every result is in" copy
+  described a state the list could never show. The filter now keeps ALL
+  of last week's brackets (`weeksSinceScheduled === 1` → keep), both a
+  two-week tier still mid-draw and a one-week event that just finished.
+  Option (a) was chosen over rewriting the copy: it is a one-line change,
+  it makes a completed result findable (the user's actual goal), and it
+  stays bounded to one week of recently-decided brackets rather than the
+  whole history. `isTwoWeekTier` is no longer needed in the route.
+- **The Planner's current week no longer reads as broken.** The first
+  planner column is always the world's current week (see
+  `PlayerEntryPlannerQuery`), whose draws have usually already started, so
+  its "+ Register" opened a picker full of disabled rows. New pure
+  `plannerWeekBlockReason(candidates, isCurrentWeek)` (lib/tournamentPick)
+  derives from the SAME `tournamentRefusalReason` the picker uses: an
+  empty current week reads "This week's draws have already started — pick
+  a later week.", an empty future week "No open events this week yet.",
+  and a week whose every event is ineligible "No events this player can
+  enter this week." The "+ Register" button is replaced by that note only
+  when nothing is enterable; the picker is otherwise unchanged.
+- **An aired replay now starts from the beginning.** New pure
+  `replayStartOffset(airState, liveEdgeSeconds, totalDurationSeconds)`
+  (lib/matchAir, the ONE air-state predicate): `live` joins at the live
+  edge (a late viewer catches up), `aired`/`upcoming` start at 0. The
+  play button now sets `elapsed` through it, and the pre-start body copy
+  no longer tells an already-aired viewer they are "in sync with its
+  scheduled slot … skip ahead to catch up" — an aired match says "Press
+  play to watch it from the start — or skip ahead any time."
+- **Zero is now a real, present manager-entrant count.** The grouped
+  `countManagerEntrants` query omits zero-count tournaments (GROUP BY
+  returns only groups with rows), so the DTO field was absent and the
+  picker's "No managers entered yet" label was unreachable — exactly when
+  nobody has entered, when a manager most wants to know. The route's
+  `managerEntrantCounts` helper now fills 0 for every queried tournament
+  the grouped query didn't return, while the field stays genuinely ABSENT
+  when the method is unavailable at all (the deliberate "never computed"
+  distinction is preserved). `managerEntrantLabel` already rendered 0
+  correctly.
+
+Tests: domain 386, application 268, api 149 (was 148 — one new
+real-Postgres zero-manager-entrants case), worker 11; root `tsc --build
+--force` and `apps/web` typecheck clean. New pure web cases pin
+`plannerWeekBlockReason` (`tournament-pick.spec.ts`) and
+`replayStartOffset` (`display-logic.spec.ts`).
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an

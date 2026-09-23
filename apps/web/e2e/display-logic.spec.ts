@@ -9,6 +9,7 @@ import {
   matchState,
   replayOverlayCopy,
   replayScoreVisible,
+  replayStartOffset,
 } from '../lib/matchAir';
 import { nextPendingEntry } from '../lib/pendingEntry';
 import { resolveDecidedSide } from '../lib/decidedIt';
@@ -248,6 +249,26 @@ test.describe('replay scoreboard — aired results show immediately', () => {
 
   test('once playback starts, the scoreboard follows playback (not the air state)', () => {
     expect(replayScoreVisible(false, 'aired', true)).toBe(false);
+  });
+});
+
+test.describe('replay playback start — aired starts from the beginning', () => {
+  test('an aired match starts at 0, never the (non-existent) live edge', () => {
+    // The reported bug: pressing "Watch replay" on an already-aired match
+    // began near the end with a "skip ahead to catch up" note. There is no
+    // live edge to sync to once a match has aired.
+    expect(replayStartOffset('aired', 900, 900)).toBe(0);
+  });
+
+  test('a still-airing match joins at the live edge so a late viewer catches up', () => {
+    expect(replayStartOffset('live', 420, 900)).toBe(420);
+    // The edge is clamped to the match's real length.
+    expect(replayStartOffset('live', 1200, 900)).toBe(900);
+    expect(replayStartOffset('live', -5, 900)).toBe(0);
+  });
+
+  test('an upcoming match starts from the beginning too', () => {
+    expect(replayStartOffset('upcoming', 0, 900)).toBe(0);
   });
 });
 

@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isTwoWeekTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, seniorTierEntryRestrictionReason, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, seniorTierEntryRestrictionReason, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -334,7 +334,17 @@ async function managerEntrantCounts(
   list: Tournament[],
 ): Promise<Map<string, number>> {
   if (list.length === 0 || !tournaments.countManagerEntrants) return new Map();
-  return tournaments.countManagerEntrants(list.map((t) => t.id));
+  const counts = await tournaments.countManagerEntrants(list.map((t) => t.id));
+  // The grouped query omits zero-count tournaments (a GROUP BY only returns
+  // groups that have rows), so an entered-by-nobody event is simply absent
+  // from it. Zero is a real, PRESENT value for every tournament whose count
+  // WAS computed — the UI needs to say "No managers entered yet" exactly
+  // when nobody has, which is when it matters most — so fill it in here.
+  // The field stays genuinely ABSENT (never a misleading 0) only when the
+  // method is unavailable at all, handled by the early return above.
+  const result = new Map<string, number>();
+  for (const t of list) result.set(t.id, counts.get(t.id) ?? 0);
+  return result;
 }
 
 interface OpenTournamentBody {
@@ -527,28 +537,32 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
     }
     if (request.query.status === 'started') {
       const list = await deps.tournaments.findStarted();
-      // "Brackets underway" should be the CURRENT week's tournaments, not
-      // the entire history of every bracket ever played. The carve-outs:
-      //   - a two-week tier (major/juniorMasters — see isTwoWeekTier) is
-      //     still mid-draw the week AFTER its scheduled week, so a bracket
-      //     scheduled last week is kept when (and only when) it is one of
-      //     those two-week tiers;
+      // "Results & live brackets" should be the CURRENT week's tournaments
+      // plus last week's, not the entire history of every bracket ever
+      // played. The carve-outs:
+      //   - a bracket scheduled LAST week is always kept — both a two-week
+      //     tier (major/juniorMasters) still mid-draw, AND a one-week event
+      //     that just FINISHED. Keeping only the two-week tiers made the
+      //     section's own "✓ Finished" badge unreachable: every finished
+      //     one-week event was dropped the moment its week passed, so all
+      //     the list could ever show was "In progress". A user looking for
+      //     a RESULT must be able to find a completed event;
       //   - an UNFINISHED bracket is kept a couple of weeks beyond its
-      //     scheduled week even when not two-week-tier-eligible — the real
-      //     reason the naive "current week only" rule was wrong: a
-      //     128-draw major with a qualifying draw schedules its main final
-      //     at firstDay + qualifyingRoundCount + 14, i.e. into the SECOND
-      //     week after its scheduled week, and that final is a live bracket
-      //     a manager would expect to still see. "Finished" is read off the
-      //     aggregate (last main round fully decided), not guessed from the
-      //     tier.
-      // Anything else older than last week is finished and hidden.
+      //     scheduled week — the real reason the naive "current week only"
+      //     rule was wrong: a 128-draw major with a qualifying draw
+      //     schedules its main final at firstDay + qualifyingRoundCount +
+      //     14, i.e. into the SECOND week after its scheduled week, and
+      //     that final is a live bracket a manager would expect to still
+      //     see. "Finished" is read off the aggregate (last main round
+      //     fully decided), not guessed from the tier.
+      // Anything else older than last week is finished and hidden — one
+      // week of recently-decided brackets, not the whole history.
       const world = await deps.worlds.findById(WORLD_ID);
       const started = world
         ? list.filter((t) => {
             const weeksSinceScheduled = weeksBetween(t.weekScheduled, world.currentWeek);
             if (weeksSinceScheduled === 0) return true;
-            if (weeksSinceScheduled === 1 && isTwoWeekTier(t.tier)) return true;
+            if (weeksSinceScheduled === 1) return true;
             // A genuinely unfinished bracket stays visible for up to ~3
             // weeks past its scheduled week (covers the qualifying-shifted
             // major final); an unfinished bracket older than that is

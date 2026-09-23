@@ -18,7 +18,7 @@ import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/pri
 import { surfaceTheme } from '../../lib/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
-import { describeBrowseFilters, isTournamentFinished, managerEntrantLabel, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
+import { describeBrowseFilters, isTournamentFinished, managerEntrantLabel, plannerWeekBlockReason, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
 
 const SURFACE_COLOR: Record<string, string> = {
   clay: 'var(--sf-clay)',
@@ -616,7 +616,7 @@ function PlannerView() {
       {selectedPlayer && planner && (
         <div className="overflow-x-auto pb-2">
           <div className="flex gap-[10px]" style={{ minWidth: planner.length * 210 }}>
-            {planner.map((week) => {
+            {planner.map((week, weekIndex) => {
               const weekKey = `${week.week.season}-${week.week.week}`;
               const candidates = (openForPlayer ?? []).filter(
                 (t) =>
@@ -626,6 +626,12 @@ function PlannerView() {
                   !t.entrants.some((e) => e.playerId === selectedPlayerId) &&
                   !week.entries.some((entered) => entered.id === t.id),
               );
+              // The first column is always the world's current week (the
+              // planner starts from "now" — see PlayerEntryPlannerQuery), so
+              // its draws have usually already started. If nothing here is
+              // actually enterable, state why instead of offering a
+              // "+ Register" that opens a picker of disabled rows.
+              const blockReason = plannerWeekBlockReason(candidates, weekIndex === 0);
               return (
                 <div
                   key={weekKey}
@@ -679,6 +685,10 @@ function PlannerView() {
                       onEntered={handleEntered}
                       onCancel={() => setOpenWeekKey(null)}
                     />
+                  ) : blockReason ? (
+                    <div className="mt-[8px] text-[11px] leading-[1.4]" style={{ color: 'var(--gc-ink-mute)' }}>
+                      {blockReason}
+                    </div>
                   ) : (
                     <button
                       onClick={() => setOpenWeekKey(weekKey)}
