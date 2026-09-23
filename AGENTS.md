@@ -2260,6 +2260,78 @@ green; root `tsc --build --force` and `apps/web` typecheck clean. New pure
 `entryFitFor`/`entryFitLabel`/`fitGuidance`/`directEntryOnly` cases were
 added to `tournament-pick.spec.ts`.
 
+## Eighth naive-walkthrough round — five follow-up fixes + who else has entered
+
+A frontend-first pass closing the remaining findings from the eighth
+naive-user round, plus one owner-requested improvement. No game systems, no
+balance constants, and the `advance-world-day` handler untouched; the one new
+backend concept is a single read query (6a).
+
+- **The tournament hero no longer contradicts the final's own badge.** The
+  hero's status picked "the first generated round with an undecided match" and
+  called it "in progress", so an un-played final read "Final in progress" while
+  the Final badge read "Upcoming". `overallStatus` now calls a new pure
+  `tournamentHeadline(rounds, totalRounds, now)`
+  (`apps/web/lib/bracketStatus.ts`), which derives each round's status from the
+  SAME `roundStatus`/`matchState` predicate the badges use: a round with
+  nothing decided is `Upcoming` ("Final upcoming"), a partly-played round is
+  "X in progress", a played-but-not-yet-aired round is "Results airing", and a
+  fully-aired final is "Tournament complete". Pinned by new
+  `display-logic.spec.ts` cases.
+- **The sidebar shows the XP balance on `/tournaments`, the replay page and
+  the tournament detail page.** Those three still rendered the bare
+  `<Sidebar active="tournaments" />` while every other screen passed the shared
+  entitlement. All now read `useEntitlement` (the same shared source, no second
+  fetch) and pass `tier`/`xpBalance`. Only a screen with genuinely no manager
+  context would omit it.
+- **A decided bracket card names its winner in plain text, not colour alone.**
+  The expanded card marked the winner only by weight/colour, so a reader (or an
+  assistive tool) could not tell who won. The winner's name now carries a
+  visible "Winner" badge, and the replay link carries an `aria-label` of the
+  result ("A def. B, 6-3, 6-3") — the outcome is legible without relying on
+  styling.
+- **The entry pickers explain a disabled confirm button.**
+  `EnterTournamentModal` and the planner's `WeekRegisterPicker` disabled
+  "Enter tournament" / "Register" with nothing on screen saying why. Both now
+  show "Select a tournament above to enable Enter/Register." whenever nothing
+  is selected — the same note the singles entry panel already used.
+- **Browse makes it obvious where played results live.** The
+  started-tournament section was labelled "Brackets underway", which read as
+  "in progress" only — a naive user had to guess that played results were
+  there. The section is now **"Results & live brackets"**, with a one-line
+  subtitle ("Open any bracket to watch its match replays"), and each started
+  row carries a per-row **"✓ Finished"** / **"In progress"** badge derived from
+  a new pure `isTournamentFinished` (`lib/tournamentPick.ts`, the client-side
+  twin of the domain's `isMainDrawFinished`). Empty-state copy updated to match.
+- **(Owner-requested) A manager can now see who else has entered before
+  deciding.** (a) `GET /tournaments` (both `status=open` and `status=started`)
+  and `GET /tournaments/:id` gained an additive `managerEntrants` count —
+  computed server-side from ONE grouped query,
+  `TournamentRepository.countManagerEntrants(tournamentIds)`
+  (`DrizzleTournamentRepository`), joining `tournament_entries` to `players`
+  where `manager_id IS NOT NULL`, the same filter the detail page's entry list
+  applies client-side. The field is absent (not a misleading 0) wherever it
+  wasn't computed. Query shape:
+  ```sql
+  SELECT e.tournament_id, COUNT(*)::int
+  FROM tournament_entries e JOIN players p ON p.id = e.player_id
+  WHERE e.tournament_id IN (…) AND p.manager_id IS NOT NULL
+  GROUP BY e.tournament_id
+  ```
+  (b) the entry picker rows and the planner picker rows show "N entered by
+  managers" / "No managers entered yet" via a new pure `managerEntrantLabel`.
+  (c) the picker's selected-tournament panel links "See who's already entered
+  →" to the tournament profile (new tab), and the planner picker does the same
+  once a row is selected — so the "check before you enter" flow is reachable
+  from the decision point. Honest by construction: it shows who HAS entered,
+  never who will.
+
+Tests: domain 386, application 268, api 148 (was 147 — one new real-Postgres
+`countManagerEntrants` case), worker 11; root `tsc --build --force` and
+`apps/web` typecheck clean. New pure web cases pin `tournamentHeadline`
+(`display-logic.spec.ts`) and `managerEntrantLabel`/`isTournamentFinished`
+(`tournament-pick.spec.ts`).
+
 ## Context on the person building this
 Software engineer, hexagonal/clean architecture background, comfortable
 with agentic MCP pipelines. This is a side venture explored alongside an
