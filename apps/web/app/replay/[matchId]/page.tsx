@@ -15,11 +15,11 @@ import {
   matchIdForSlot,
   parseMatchId,
 } from '../../../lib/api';
-import { Sidebar } from '../../../components/Sidebar';
+import { AppShell } from '../../../components/ui/AppShell';
+import { PageShell } from '../../../components/ui/primitives';
 import { MatchReplayPlayer } from '../../../components/MatchReplayPlayer';
-import { AppFrame } from '../../../components/ui/primitives';
 import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
-import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
+import { RANK_BAND_LABEL, matchRoundLabel } from '../../../lib/format';
 import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { AirState, matchAirState } from '../../../lib/matchAir';
 import { DecidedSide, resolveDecidedSide } from '../../../lib/decidedIt';
@@ -70,54 +70,54 @@ function WhatDecidedIt({ tournament, playerA, playerB, nameA, nameB, inputs, acc
   const sideA = resolveDecidedSide(inputs?.a, playerA, surface, tournament.hostCountry);
   const sideB = resolveDecidedSide(inputs?.b, playerB, surface, tournament.hostCountry);
   const atMatchTime = sideA.atMatchTime && sideB.atMatchTime;
-  const fatigueHint = atMatchTime ? 'at match time' : 'current, not at match time';
 
-  const row = (label: string, a: React.ReactNode, b: React.ReactNode, hint?: string) => (
-    <div key={label} className="grid items-center gap-x-[8px] px-[10px] py-[6px]" style={{ gridTemplateColumns: '1.3fr 1fr 1fr', borderTop: '1px solid var(--gc-line)' }}>
-      <div className="text-[11px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
-        {label}
-        {hint && <div className="text-[9.5px] font-normal" style={{ color: 'var(--gc-ink-faint)' }}>{hint}</div>}
-      </div>
-      <div className="text-[12px] font-semibold text-right [font-variant-numeric:tabular-nums]">{a}</div>
-      <div className="text-[12px] font-semibold text-right [font-variant-numeric:tabular-nums]">{b}</div>
+  /** The venue each side played at — home advantage is stable for the whole
+   * match (nationality vs. host country can't change mid-event). */
+  const venueValue = (side: DecidedSide) => (side.homeAdvantage ? 'home' : tournament.hostCountry ? 'away' : '—');
+  const formValue = (side: DecidedSide) => (side.form === null ? '—' : `${side.form} · ${formBandLabel(side.form)}`);
+
+  const sideRow = (name: string, side: DecidedSide) => (
+    <div className="row" key={name}>
+      <span style={{ minWidth: 0 }}>
+        {name} — fatigue / form / affinity / venue
+        <span className="dim">{' · '}{side.atMatchTime ? 'at match time' : 'now'}</span>
+      </span>
+      <span className="v" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+        {side.fatigue === null ? '—' : `${side.fatigue}/100`} / {formValue(side)} / {side.surfaceAffinity ?? '—'} / {venueValue(side)}
+      </span>
     </div>
   );
 
-  const formCell = (side: DecidedSide) =>
-    side.form === null ? '—' : <>{side.form}<span className="font-normal" style={{ color: 'var(--gc-ink-faint)' }}> · {formBandLabel(side.form)}</span></>;
-
   return (
-    <div className="mb-[14px] gc-card rounded-[10px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-      <div className="flex items-center gap-[8px] px-[10px] py-[8px]">
-        <span className="text-[10.5px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>What decided it</span>
-        {accent && (
-          <span className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[1px] rounded-[3px] text-white" style={{ background: accent }}>
-            {tournament.surface}
+    <div style={{ marginBottom: 14 }}>
+      <div className="gc-decided-panel">
+        <div className="head">What decided it — {atMatchTime ? 'at match time' : 'current values, not at match time'}</div>
+        <div className="row">
+          <span>Surface</span>
+          <span className="v">
+            <span className="gc-dot" style={{ background: accent ?? 'var(--ink-4)', marginRight: 6 }} />
+            {surface ?? tournament.surface}{tournament.hostCountry ? ` · host ${tournament.hostCountry}` : ''}
           </span>
-        )}
-        {tournament.hostCountry && <span className="text-[10.5px]" style={{ color: 'var(--gc-ink-faint)' }}>Host: {tournament.hostCountry}</span>}
+        </div>
+        <div className="row">
+          <span>Home / away <span className="dim">stable for this match</span></span>
+          <span className="v" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{venueValue(sideA)} · {venueValue(sideB)}</span>
+        </div>
+        {sideRow(nameA, sideA)}
+        {sideRow(nameB, sideB)}
       </div>
-      <div className="grid gap-x-[8px] px-[10px] py-[5px] text-[10px] font-bold tracking-[0.4px] uppercase" style={{ gridTemplateColumns: '1.3fr 1fr 1fr', color: 'var(--gc-ink-faint)' }}>
-        <span />
-        <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameA}</span>
-        <span className="text-right overflow-hidden text-ellipsis whitespace-nowrap">{nameB}</span>
-      </div>
-      {row('Home / away', sideA.homeAdvantage ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', sideB.homeAdvantage ? '🏠 Home' : tournament.hostCountry ? 'Away' : '—', 'stable for this match')}
-      {row('Fatigue', sideA.fatigue === null ? '—' : `${sideA.fatigue}/100`, sideB.fatigue === null ? '—' : `${sideB.fatigue}/100`, fatigueHint)}
-      {row('Form', formCell(sideA), formCell(sideB), fatigueHint)}
-      {row(
-        surface ? `Surface affinity (${surface})` : 'Surface affinity',
-        sideA.surfaceAffinity ?? '—',
-        sideB.surfaceAffinity ?? '—',
-        atMatchTime ? 'at match time' : 'current',
-      )}
-      <div className="px-[10px] py-[8px] text-[10.5px] leading-[1.5]" style={{ color: 'var(--gc-ink-mute)', borderTop: '1px solid var(--gc-line)' }}>
-        {atMatchTime ? (
-          <>These are the exact numbers that decided this match — each player&apos;s fatigue, form and surface affinity at the moment it was simulated, plus whether the home bonus applied.</>
-        ) : (
-          <>The sim blends each player&apos;s technical, physical and mental ability, adds their surface affinity, then applies a fatigue penalty, a form modifier and a home bonus on the day. Fatigue and form shown here are their values <em>now</em> — this replay predates per-match recording, so they are context, not the exact numbers that decided this one.</>
-        )}
-      </div>
+      {/* The full explanation lives behind a tap, never a hover — the panel
+          itself stays scannable like a broadcast data strip. */}
+      <details className="gc-details" style={{ marginTop: 10 }}>
+        <summary>How these numbers were read</summary>
+        <p className="t-body-sm" style={{ margin: '8px 0 0', lineHeight: 1.6, color: 'var(--ink-3)' }}>
+          {atMatchTime ? (
+            <>These are the exact numbers that decided this match — each player&apos;s fatigue, form and surface affinity at the moment it was simulated, plus whether the home bonus applied.</>
+          ) : (
+            <>The sim blends each player&apos;s technical, physical and mental ability, adds their surface affinity, then applies a fatigue penalty, a form modifier and a home bonus on the day. Fatigue and form shown here are their values <em>now</em> — this replay predates per-match recording, so they are context, not the exact numbers that decided this one.</>
+          )}
+        </p>
+      </details>
     </div>
   );
 }
@@ -272,103 +272,103 @@ export default function ReplayPage() {
     : 'upcoming';
 
   return (
-    <AppFrame>
-      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
+    <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+      <PageShell>
+        <div style={{ maxWidth: 1040 }}>
+          <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--gc-ink-mute)' }}>
+            <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+              ← Back to bracket
+            </Link>
+            {context && (
+              <>
+                <span>·</span>
+                <span style={{ color: 'var(--gc-ink-dim)' }}>{context.tournament.name}</span>
+                <span>·</span>
+                <span>{context.roundLabel}</span>
+                <div
+                  className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"
+                  style={{ background: accent ?? 'var(--gc-s3)' }}
+                >
+                  {context.tournament.surface}
+                </div>
+              </>
+            )}
+          </div>
 
-      <div className="flex-1 p-8 max-w-[1040px] min-w-0" style={{ background: 'var(--gc-bg)' }}>
-        <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--gc-ink-mute)' }}>
-          <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
-            ← Back to bracket
-          </Link>
-          {context && (
-            <>
-              <span>·</span>
-              <span style={{ color: 'var(--gc-ink-dim)' }}>{context.tournament.name}</span>
-              <span>·</span>
-              <span>{context.roundLabel}</span>
-              <div
-                className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"
-                style={{ background: accent ?? 'var(--gc-s3)' }}
-              >
-                {context.tournament.surface}
+          {error && !log && (
+            <div className="gc-notice" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
+              {error}
+            </div>
+          )}
+          {!log && !error && (
+            <div className="t-body-sm">
+              Loading replay…
+            </div>
+          )}
+
+          {context && (context.playerA || context.playerB) && (
+            <div
+              className="grid gap-[10px] mb-[14px] items-stretch"
+              style={{ gridTemplateColumns: '1fr auto 1fr' }}
+            >
+              <VersusPlayer
+                id={context.entrantA}
+                name={playerAName}
+                nationality={context.playerA?.nationality ?? '—'}
+                rank={context.rankA ?? undefined}
+                form={context.formA}
+                accent={accent}
+              />
+              <div className="flex items-center justify-center px-[6px]">
+                <span
+                  className="text-[13px] font-black tracking-[1px] uppercase"
+                  style={{ color: 'var(--gc-ink-mute)' }}
+                >
+                  vs
+                </span>
               </div>
-            </>
+              <VersusPlayer
+                id={context.entrantB}
+                name={playerBName}
+                nationality={context.playerB?.nationality ?? '—'}
+                rank={context.rankB ?? undefined}
+                form={context.formB}
+                accent={accent}
+                mirror
+              />
+            </div>
+          )}
+
+          {context && (
+            <WhatDecidedIt
+              tournament={context.tournament}
+              playerA={context.playerA}
+              playerB={context.playerB}
+              nameA={playerAName}
+              nameB={playerBName}
+              inputs={log?.inputs ?? null}
+              accent={accent}
+            />
+          )}
+
+          {log && (
+            <MatchReplayPlayer
+              log={log}
+              playerAName={playerAName}
+              playerBName={playerBName}
+              playerANationality={context?.playerA?.nationality}
+              playerBNationality={context?.playerB?.nationality}
+              surfaceColor={accent}
+              backToBracketHref={context ? `/tournaments/${context.tournament.id}` : undefined}
+              nextReplayHref={context?.nextReplayHref ?? undefined}
+              nextRoundHref={context?.nextRoundHref ?? undefined}
+              nextRoundLabel={context?.nextRoundLabel ?? undefined}
+              airState={liveAirState}
+              scheduledStartAt={context?.scheduledStartAt ?? null}
+            />
           )}
         </div>
-
-        {error && !log && (
-          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
-            {error}
-          </div>
-        )}
-        {!log && !error && (
-          <div className="text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            Loading replay…
-          </div>
-        )}
-
-        {context && (context.playerA || context.playerB) && (
-          <div
-            className="grid gap-[10px] mb-[14px] items-stretch"
-            style={{ gridTemplateColumns: '1fr auto 1fr' }}
-          >
-            <VersusPlayer
-              id={context.entrantA}
-              name={playerAName}
-              nationality={context.playerA?.nationality ?? '—'}
-              rank={context.rankA ?? undefined}
-              form={context.formA}
-              accent={accent}
-            />
-            <div className="flex items-center justify-center px-[6px]">
-              <span
-                className="text-[13px] font-black tracking-[1px] uppercase"
-                style={{ color: 'var(--gc-ink-mute)' }}
-              >
-                vs
-              </span>
-            </div>
-            <VersusPlayer
-              id={context.entrantB}
-              name={playerBName}
-              nationality={context.playerB?.nationality ?? '—'}
-              rank={context.rankB ?? undefined}
-              form={context.formB}
-              accent={accent}
-              mirror
-            />
-          </div>
-        )}
-
-        {context && (
-          <WhatDecidedIt
-            tournament={context.tournament}
-            playerA={context.playerA}
-            playerB={context.playerB}
-            nameA={playerAName}
-            nameB={playerBName}
-            inputs={log?.inputs ?? null}
-            accent={accent}
-          />
-        )}
-
-        {log && (
-          <MatchReplayPlayer
-            log={log}
-            playerAName={playerAName}
-            playerBName={playerBName}
-            playerAFlag={context?.playerA ? flagFor(context.playerA.nationality) : undefined}
-            playerBFlag={context?.playerB ? flagFor(context.playerB.nationality) : undefined}
-            surfaceColor={accent}
-            backToBracketHref={context ? `/tournaments/${context.tournament.id}` : undefined}
-            nextReplayHref={context?.nextReplayHref ?? undefined}
-            nextRoundHref={context?.nextRoundHref ?? undefined}
-            nextRoundLabel={context?.nextRoundLabel ?? undefined}
-            airState={liveAirState}
-            scheduledStartAt={context?.scheduledStartAt ?? null}
-          />
-        )}
-      </div>
-    </AppFrame>
+      </PageShell>
+    </AppShell>
   );
 }

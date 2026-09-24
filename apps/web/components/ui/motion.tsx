@@ -171,25 +171,6 @@ export function FlashOnGain({
   );
 }
 
-/**
- * Pops a wrapped score value each time it changes (game/set count in replay).
- * Change (not just increase) — a corrected/rewound score should still register.
- */
-export function ScorePop({ value, children, style }: { value: number | string; children: React.ReactNode; style?: React.CSSProperties }) {
-  const prev = useRef<number | string | null>(null);
-  const [key, setKey] = useState<number | null>(null);
-  useEffect(() => {
-    if (prev.current === null) { prev.current = value; return; }
-    if (value !== prev.current) setKey(Date.now());
-    prev.current = value;
-  }, [value]);
-  return (
-    <span key={key ?? 'idle'} className={key ? 'gc-score-pop' : undefined} style={{ display: 'inline-flex', ...style }}>
-      {children}
-    </span>
-  );
-}
-
 /** Rank-shift indicator: ▲2 / ▼1 / — no change. Lower rank number is better. */
 export function RankShift({ from, to }: { from: number | null; to: number | null }) {
   if (from == null || to == null || from === to) return null;

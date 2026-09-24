@@ -1,0 +1,13 @@
+﻿{
+    "route":  "/replay/bootstrap-demo-futures-r1-m0",
+    "resultUrl":  "http://localhost:3001/replay/bootstrap-demo-futures-r1-m0",
+    "title":  "Grand Circuit",
+    "errorText":  "",
+    "consoleErrors":  [
+
+                      ],
+    "pageErrors":  [
+
+                   ],
+    "visibleText":  "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W1 · DAY 5/7\nNEXT DAY\n9:16:27\nXP\n500\nFREE TIER\n← Back to bracket\n·\nAurora Ireland Classic\n·\nRound of 16\nCLAY\nViktor Rossi\nSENIOR\n#\n5\n25 pts\nVS\nPriya Dubois\nWHAT DECIDED IT — AT MATCH TIME\nSurface\nclay · host Ireland\nHome / away stable for this match\naway · away\nViktor Rossi — fatigue / form / affinity / venue · at match time\n0/100 / 0 · rusty / 28 / away\nPriya Dubois — fatigue / form / affinity / venue · at match time\n0/100 / 0 · rusty / 15 / away\nHow these numbers were read\nReady to watch\n28 games simulated\nViktor Rossi\nWinner\n5\n7\nSET 1\n6\n2\nSET 2\n6\n2\nSET 3\nPriya Dubois\nAIRED AT 17:27\nResult already decided\nViktor Rossi won 5-7, 6-2, 6-2\nThis match was simulated in full ahead of time and has already aired. Press play to watch it from the start — or skip ahead any time.\nWATCH REPLAY\nCOMMENTARY\nCommentary will appear here once you press play."
+}

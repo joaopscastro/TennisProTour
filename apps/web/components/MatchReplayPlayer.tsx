@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { ScorePop } from './ui/motion';
 import { MatchLogDto } from '../lib/api';
 import { activeSetTag, replayOverlayCopy, replayScoreVisible, replayStartOffset } from '../lib/matchAir';
+import { Flag } from './ui/Flag';
+import { Icon } from './ui/Icon';
 
 /**
  * The "fake live" replay player — CLAUDE.md principle #4 made
@@ -15,6 +16,14 @@ import { activeSetTag, replayOverlayCopy, replayScoreVisible, replayStartOffset 
  * points and games arriving one by one, the commentary feed — is
  * manufactured client-side by advancing a local timer through the
  * log's offsetSeconds. No WebSocket, no SSE, no polling.
+ *
+ * Direction A (design/prototypes/a-broadcast-telemetry.html): the
+ * scoreboard is the prototype's `.gc-scoreboard` — player names in the
+ * display face, per-set mono numerals, a per-side Winner mark — and the
+ * playback controls are flat `.gc-btn` / segmented-tab chrome. Values
+ * snap as the replay advances; the reveal logic itself (the wall-clock
+ * "Premiere" edge, the shared air-state predicate, the commentary
+ * derivation) is unchanged.
  *
  * Never say "live": this is a replay of an already-decided result,
  * wall-clock-synced to a scheduled "premiere," not a real broadcast —
@@ -31,8 +40,8 @@ const SPEEDS = [
   { multiplier: 960, label: 'Very fast (~5s)' },
 ] as const;
 
-const ACCENT = 'var(--sf-clay)';
-const DARK = 'oklch(30% 0.012 150)';
+/** Neutral surface colour when the caller has none to hand. */
+const DEFAULT_SURFACE = 'var(--clay)';
 
 /** The wall-clock-synced "Premiere" live edge: in-game seconds since
  * `simulatedAt`, capped to the match's actual length. A missing/
@@ -164,8 +173,9 @@ interface Props {
   log: MatchLogDto;
   playerAName: string;
   playerBName: string;
-  playerAFlag?: string;
-  playerBFlag?: string;
+  /** Two-letter nationality codes — rendered as the Direction A `Flag`. */
+  playerANationality?: string;
+  playerBNationality?: string;
   surfaceColor?: string;
   backToBracketHref?: string;
   nextReplayHref?: string;
@@ -184,9 +194,9 @@ export function MatchReplayPlayer({
   log,
   playerAName,
   playerBName,
-  playerAFlag,
-  playerBFlag,
-  surfaceColor = ACCENT,
+  playerANationality,
+  playerBNationality,
+  surfaceColor = DEFAULT_SURFACE,
   backToBracketHref,
   nextReplayHref,
   nextRoundHref,
@@ -270,13 +280,9 @@ export function MatchReplayPlayer({
   const currentPoint = started && !finished && nextPointIdx >= 0 ? log.points[nextPointIdx] : null;
 
   const overallWinnerSide = log.entries.length > 0 ? log.entries[log.entries.length - 1].wonBy : null;
-  const aLeading =
-    showFinalScore && overallWinnerSide === 'A'
-      ? true
-      : showFinalScore
-        ? false
-        : setCells.filter((c) => c.completed && (c.gamesForA ?? 0) > (c.gamesForB ?? 0)).length >=
-          setCells.filter((c) => c.completed && (c.gamesForB ?? 0) > (c.gamesForA ?? 0)).length;
+  // The Winner mark (and the final score) only appear once the result is
+  // visible — the same `showFinalScore` predicate the set numerals read.
+  const winnerSide = showFinalScore ? overallWinnerSide : null;
 
   function jumpTo(offset: number) {
     setPlaying(false);
@@ -293,27 +299,24 @@ export function MatchReplayPlayer({
     jumpTo(next ? next.offsetSeconds : cap);
   }
 
+  // Status as a badge: the caught-up state carries the pulsing dot (it is
+  // waiting on the premiere's next point); an active replay carries a
+  // surface-coloured one. The words stay exactly as they were — this screen
+  // never claims to be "live".
   let statusLabel: string;
-  let statusDotColor: string | null = null;
-  let statusPulse = false;
-  let statusBg = 'var(--gc-s3)';
-  let statusFg = 'var(--gc-ink-mute)';
+  let statusDot: 'pulse' | 'static' | null = null;
+  let statusWarn = false;
   if (!started) {
     statusLabel = 'Ready to watch';
   } else if (finished) {
     statusLabel = 'Replay complete';
-    statusDotColor = DARK;
-    statusBg = 'var(--gc-s3)';
   } else if (caughtUp) {
     statusLabel = "You're caught up — waiting for the next point";
-    statusDotColor = 'oklch(70% 0.14 245)';
-    statusPulse = true;
-    statusBg = 'oklch(45% 0.1 240 / 0.28)';
-    statusFg = 'oklch(82% 0.1 240)';
+    statusWarn = true;
+    statusDot = 'pulse';
   } else {
     statusLabel = playing ? 'Replay in progress' : 'Replay paused';
-    statusDotColor = surfaceColor;
-    statusPulse = playing;
+    statusDot = playing ? 'pulse' : 'static';
   }
 
   const premiereTime = new Date(scheduledStartAt ?? log.simulatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -323,148 +326,130 @@ export function MatchReplayPlayer({
   // DECIDED" contradiction). See lib/matchAir.ts.
   const overlay = replayOverlayCopy(airState, premiereTime);
 
+  const activeTag = activeSetTag(airState);
+
   return (
     <div>
-      <style>{`@keyframes replay-pulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
-
-      {/* SCORE PANEL */}
-      <div className="relative gc-grain rounded-[12px] p-[22px_24px]" style={{ border: '1px solid var(--gc-line-hi)', background: 'linear-gradient(180deg, oklch(26% 0.012 150), oklch(18% 0.01 150))', boxShadow: '0 12px 40px -12px rgba(0,0,0,0.6)' }}>
-        <div className="flex items-center justify-between mb-4">
-          <div
-            className="flex items-center gap-[7px] text-[12.5px] font-semibold px-[10px] py-[5px] rounded-full"
-            style={{ background: statusBg, color: statusFg }}
+      <div style={{ position: 'relative' }}>
+        {/* Status strip */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+          <span
             data-testid="replay-status"
+            className="gc-badge"
+            style={statusWarn ? { color: 'var(--warn)', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' } : undefined}
           >
-            {statusDotColor && (
-              <div
-                className="w-[7px] h-[7px] rounded-full"
-                style={{ background: statusDotColor, animation: statusPulse ? 'replay-pulse 1.2s ease-in-out infinite' : undefined }}
-              />
+            {statusDot === 'pulse' && (
+              <span className="gc-live-dot" style={{ background: statusWarn ? 'var(--warn)' : surfaceColor }} />
+            )}
+            {statusDot === 'static' && (
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: surfaceColor, display: 'inline-block', flex: '0 0 auto' }} />
             )}
             {statusLabel}
-          </div>
-          <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          </span>
+          <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
             {started ? `${visibleEntries.length} of ${log.entries.length} games` : `${log.entries.length} games simulated`}
-          </div>
+          </span>
         </div>
 
-        <div className="grid gap-[10px_16px] items-center" style={{ gridTemplateColumns: '1fr auto' }} data-testid="set-scoreboard">
-          <div className="flex items-center gap-[10px]">
-            {playerAFlag && <span>{playerAFlag}</span>}
-            <div className="text-[15px]" style={{ fontWeight: finished && aLeading ? 700 : 600, color: 'var(--gc-ink)' }}>
-              {playerAName}
+        {/* Broadcast scoreboard — 1fr auto 1fr: left player, sets, right player. */}
+        <div className="gc-scoreboard" data-testid="set-scoreboard">
+          <div className="gc-sb-side">
+            <div className="gc-sb-name">
+              {playerANationality && <Flag code={playerANationality} size={22} />}
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{playerAName}</span>
             </div>
-          </div>
-          <div className="flex gap-2">
-            {setCells.map((c) => (
-              <div key={c.setNumber} className="flex flex-col items-center gap-[3px]">
-                <div
-                  className="text-[8.5px] font-bold tracking-[0.4px]"
-                  style={{ color: c.completed || c.active ? 'var(--gc-ink-mute)' : 'var(--gc-ink-faint)' }}
-                >
-                  SET {c.setNumber}
-                  {c.active && activeSetTag(airState) && ` · ${activeSetTag(airState)}`}
-                </div>
-                <div
-                  className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-[15px] [font-variant-numeric:tabular-nums]"
-                  style={{
-                    fontWeight: c.active ? 700 : 500,
-                    background: c.active ? 'oklch(55% 0.14 45 / 0.3)' : 'var(--gc-s3)',
-                    color: c.completed || c.active ? 'var(--gc-ink)' : 'var(--gc-ink-faint)',
-                  }}
-                >
-                  {c.active ? <ScorePop value={c.gamesForA ?? '–'}>{c.gamesForA ?? '–'}</ScorePop> : (c.gamesForA ?? '–')}
-                  {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'A' && (
-                    <sup className="text-[9px] ml-[1px]">{c.tieLoserPoints}</sup>
-                  )}
-                </div>
-              </div>
-            ))}
+            {winnerSide === 'A' && (
+              <div className="gc-sb-winner"><Icon name="check" size={14} /> Winner</div>
+            )}
           </div>
 
-          <div className="flex items-center gap-[10px]">
-            {playerBFlag && <span>{playerBFlag}</span>}
-            <div className="text-[15px]" style={{ fontWeight: finished && !aLeading ? 700 : 600, color: 'var(--gc-ink)' }}>
-              {playerBName}
-            </div>
-          </div>
-          <div className="flex gap-2">
-            {setCells.map((c) => (
-              <div key={c.setNumber} className="flex flex-col items-center gap-[3px]">
-                <div
-                  className="w-[34px] h-[34px] rounded-[6px] flex items-center justify-center text-[15px] [font-variant-numeric:tabular-nums]"
-                  style={{
-                    fontWeight: c.active ? 700 : 500,
-                    background: c.active ? 'oklch(55% 0.14 45 / 0.3)' : 'var(--gc-s3)',
-                    color: c.completed || c.active ? 'var(--gc-ink)' : 'var(--gc-ink-faint)',
-                  }}
-                >
-                  {c.active ? <ScorePop value={c.gamesForB ?? '–'}>{c.gamesForB ?? '–'}</ScorePop> : (c.gamesForB ?? '–')}
-                  {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'B' && (
-                    <sup className="text-[9px] ml-[1px]">{c.tieLoserPoints}</sup>
-                  )}
+          <div className="gc-sb-sets">
+            {setCells.map((c) => {
+              const unrevealed = !c.completed && !c.active;
+              const aLostSet = c.completed && (c.gamesForA ?? 0) < (c.gamesForB ?? 0);
+              const bLostSet = c.completed && (c.gamesForB ?? 0) < (c.gamesForA ?? 0);
+              return (
+                <div key={c.setNumber} className="gc-sb-set">
+                  <span className={`g${aLostSet ? ' lose' : ''}`} style={unrevealed ? { color: 'var(--ink-4)' } : undefined}>
+                    {c.gamesForA ?? '–'}
+                    {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'A' && (
+                      <sup style={{ fontSize: 12, marginLeft: 2 }}>{c.tieLoserPoints}</sup>
+                    )}
+                  </span>
+                  <span className={`g${bLostSet ? ' lose' : ''}`} style={unrevealed ? { color: 'var(--ink-4)' } : undefined}>
+                    {c.gamesForB ?? '–'}
+                    {c.completed && c.tieLoserPoints !== null && overallWinnerSide === 'B' && (
+                      <sup style={{ fontSize: 12, marginLeft: 2 }}>{c.tieLoserPoints}</sup>
+                    )}
+                  </span>
+                  <span className="sl" style={c.active ? { color: 'var(--accent)' } : undefined}>
+                    SET {c.setNumber}{c.active && activeTag ? ` · ${activeTag}` : ''}
+                  </span>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+          </div>
+
+          <div className="gc-sb-side right">
+            <div className="gc-sb-name">
+              <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{playerBName}</span>
+              {playerBNationality && <Flag code={playerBNationality} size={22} />}
+            </div>
+            {winnerSide === 'B' && (
+              <div className="gc-sb-winner"><Icon name="check" size={14} /> Winner</div>
+            )}
           </div>
         </div>
 
         {currentPoint && (
-          <div className="mt-[14px] flex items-center gap-2">
-            <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
-              Current game
-            </div>
+          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span className="t-label" style={{ fontSize: 10 }}>Current game</span>
             {(() => {
               const pl = pointLabel(currentPoint.pointScoreA, currentPoint.pointScoreB, playerAName, playerBName);
+              const isAdvantage = pl.state === 'advantage';
               return (
-                <div
-                  className="inline-flex items-center gap-[6px] text-[12.5px] px-[10px] py-1 rounded-[5px]"
+                <span
+                  className="mono"
                   style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 13,
+                    padding: '3px 10px',
+                    borderRadius: 'var(--r2)',
+                    border: '1px solid var(--hair)',
                     fontWeight: pl.state === 'normal' ? 600 : 700,
-                    background:
-                      pl.state === 'deuce'
-                        ? 'oklch(50% 0.13 240 / 0.4)'
-                        : pl.state === 'advantage'
-                          ? 'oklch(50% 0.14 60 / 0.4)'
-                          : 'var(--gc-s3)',
-                    color:
-                      pl.state === 'deuce'
-                        ? 'oklch(82% 0.1 240)'
-                        : pl.state === 'advantage'
-                          ? 'oklch(82% 0.13 55)'
-                          : 'var(--gc-ink-mute)',
+                    // Deuce is the level state (neutral `--bg-4`); an advantage
+                    // is point-deciding, so it wears the warn tint. The two must
+                    // stay visually distinct — replay.spec.ts compares their
+                    // computed backgrounds.
+                    background: isAdvantage ? 'color-mix(in srgb, var(--warn) 22%, var(--bg-3))' : 'var(--bg-4)',
+                    color: isAdvantage ? 'var(--warn)' : 'var(--ink-2)',
                   }}
                   data-testid="current-point"
                 >
-                  <ScorePop value={pl.label}>{pl.label}</ScorePop>
-                </div>
+                  {pl.label}
+                </span>
               );
             })()}
           </div>
         )}
 
         {!started && (
-          <div
-            className="absolute inset-0 rounded-[12px] flex flex-col items-center justify-center gap-[14px] text-center p-5 gc-grain"
-            style={{ background: 'linear-gradient(180deg, oklch(24% 0.012 150 / 0.94), oklch(15% 0.01 150 / 0.97))', backdropFilter: 'blur(2px)' }}
-          >
-            <div className="text-[11px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
-              {overlay.headline}
-            </div>
+          <div className="gc-slate">
+            <div className="t-label" style={{ color: 'var(--accent)', fontSize: 12 }}>{overlay.headline}</div>
             {overlay.note && (
-              <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                {overlay.note}
-              </div>
+              <div className="t-body-sm" style={{ fontSize: 12 }}>{overlay.note}</div>
             )}
             {/* Aired matches already show this result on the bracket, so
                 state the final score here too rather than faking suspense
                 the viewer can see through. Nothing is revealed pre-premiere. */}
             {airState === 'aired' && overallWinnerSide && (
-              <div className="text-[15px] font-extrabold text-white">
+              <div className="t-h3" style={{ fontSize: 22 }}>
                 {overallWinnerSide === 'A' ? playerAName : playerBName} won {formatMatchScoreline(log, overallWinnerSide)}
               </div>
             )}
-            <div className="text-[14px] max-w-[380px] leading-[1.5]" style={{ color: 'var(--gc-ink-dim)' }}>
+            <div className="t-body-sm" style={{ maxWidth: 420, lineHeight: 1.55 }}>
               {airState === 'aired'
                 ? 'This match was simulated in full ahead of time and has already aired. Press play to watch it from the start — or skip ahead any time.'
                 : 'This match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled slot — you can skip ahead to catch up any time.'}
@@ -479,11 +464,9 @@ export function MatchReplayPlayer({
                 // everywhere else — see replayStartOffset.
                 setElapsed(replayStartOffset(airState, liveEdgeSeconds, log.totalDurationSeconds));
               }}
-              className="gc-btn gc-btn--primary flex items-center gap-2 px-[22px] py-[12px] text-[14px] font-bold cursor-pointer"
+              className="gc-btn gc-btn--primary"
             >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 4l14 8-14 8V4z" />
-              </svg>
+              <Icon name="play" size={13} />
               Watch replay
             </button>
           </div>
@@ -492,8 +475,8 @@ export function MatchReplayPlayer({
 
       {/* PLAYBACK CONTROLS */}
       {started && (
-        <div className="mt-4 gc-card rounded-[10px] p-[16px_20px]" style={{ border: '1px solid var(--gc-line)' }}>
-          <div className="relative h-5 mb-[6px]" data-testid="scrub-bar">
+        <div className="gc-panel" style={{ marginTop: 16, padding: '14px 16px' }}>
+          <div style={{ position: 'relative', height: 20, marginBottom: 8 }} data-testid="scrub-bar">
             <input
               type="range"
               min={0}
@@ -507,68 +490,52 @@ export function MatchReplayPlayer({
             {moments.map((m, i) => (
               <div
                 key={i}
-                className="absolute top-0 w-[2px] h-2"
-                style={{ left: `${(m.offsetSeconds / log.totalDurationSeconds) * 100}%`, background: 'var(--gc-ball)', transform: 'translateX(-1px)' }}
+                style={{ position: 'absolute', top: 0, width: 2, height: 8, left: `${(m.offsetSeconds / log.totalDurationSeconds) * 100}%`, background: 'var(--accent)', transform: 'translateX(-1px)' }}
                 data-testid="scrub-tick"
               />
             ))}
           </div>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
-            <div className="flex items-center gap-2">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <button
+                type="button"
                 onClick={() => setPlaying((p) => !p)}
                 disabled={finished}
-                className="w-[34px] h-[34px] rounded-[6px] text-white border-none cursor-pointer flex items-center justify-center hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-                style={{ background: DARK }}
+                className="gc-btn"
+                aria-label={playing ? 'Pause' : 'Play'}
+                title={playing ? 'Pause' : 'Play'}
               >
-                {playing ? '⏸' : '▶'}
+                <Icon name={playing ? 'pause' : 'play'} size={14} />
               </button>
-              <button
-                onClick={prevMoment}
-                className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer"
-                style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
-              >
+              <button type="button" onClick={prevMoment} className="gc-btn gc-btn--ghost">
                 ← Prev moment
               </button>
-              <button
-                onClick={nextMoment}
-                disabled={caughtUp}
-                className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer disabled:cursor-not-allowed"
-                style={{
-                  border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : 'var(--gc-line)'}`,
-                  color: caughtUp ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
-                }}
-              >
+              <button type="button" onClick={nextMoment} disabled={caughtUp} className="gc-btn gc-btn--ghost">
                 Next moment →
               </button>
             </div>
-            <div className="flex items-center gap-2">
-              <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                Speed
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="t-label" style={{ fontSize: 10, margin: 0 }}>Speed</span>
+              <div className="gc-tabs gc-tabs--segmented" role="group" aria-label="Playback speed">
+                {SPEEDS.map(({ multiplier, label }) => (
+                  <button
+                    key={multiplier}
+                    type="button"
+                    onClick={() => !caughtUp && setSpeed(multiplier)}
+                    disabled={caughtUp}
+                    aria-pressed={speed === multiplier}
+                    className={`gc-tab${!caughtUp && speed === multiplier ? ' is-active' : ''}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
-              {SPEEDS.map(({ multiplier, label }) => (
-                <button
-                  key={multiplier}
-                  onClick={() => !caughtUp && setSpeed(multiplier)}
-                  disabled={caughtUp}
-                  className="px-[9px] py-[6px] rounded-[5px] text-[11.5px] font-bold cursor-pointer disabled:cursor-not-allowed"
-                  style={{
-                    border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : speed === multiplier ? DARK : 'var(--gc-line)'}`,
-                    background: !caughtUp && speed === multiplier ? DARK : 'transparent',
-                    color: caughtUp ? 'var(--gc-ink-faint)' : speed === multiplier ? 'white' : 'var(--gc-ink-mute)',
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
               <button
+                type="button"
                 onClick={() => jumpTo(liveEdgeSeconds)}
                 disabled={caughtUp}
-                className="ml-1 px-[10px] py-[7px] rounded-[6px] bg-transparent text-[12px] font-semibold cursor-pointer disabled:cursor-not-allowed"
-                style={{
-                  border: `1px solid ${caughtUp ? 'var(--gc-line-soft)' : 'var(--gc-line)'}`,
-                  color: caughtUp ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
-                }}
+                className="gc-btn gc-btn--ghost"
+                style={{ marginLeft: 4 }}
               >
                 {caughtUp ? 'Caught up' : 'Skip to now'}
               </button>
@@ -579,23 +546,27 @@ export function MatchReplayPlayer({
 
       {/* MATCH COMPLETE BANNER */}
       {finished && (
-        <div className="mt-4 text-white rounded-[12px] p-[18px_22px] flex items-center justify-between flex-wrap gap-3" style={{ background: 'linear-gradient(120deg, oklch(30% 0.05 150), oklch(20% 0.02 150))', border: '1px solid var(--gc-line-hi)' }} data-testid="completion-banner">
-          <div>
-            <div className="text-[13px] font-bold tracking-[0.3px]">
+        <div
+          className="gc-band"
+          data-testid="completion-banner"
+          style={{ marginTop: 16, ['--surf' as string]: 'var(--win)', gap: 16 }}
+        >
+          <div style={{ minWidth: 220 }}>
+            <div style={{ fontWeight: 700, fontSize: 15 }}>
               {overallWinnerSide === 'A' ? playerAName : playerBName} wins {formatMatchScoreline(log, overallWinnerSide ?? 'A')}
             </div>
-            <div className="text-[12px] mt-[3px]" style={{ color: 'var(--gc-ink-faint)' }}>
+            <div className="t-body-sm" style={{ fontSize: 12, marginTop: 3 }}>
               Replay complete{nextRoundLabel ? ` · advances to ${nextRoundLabel}` : ''}
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="gc-band-meta" style={{ gap: 8 }}>
             {backToBracketHref && (
-              <Link href={backToBracketHref} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'var(--gc-s3)' }}>
+              <Link href={backToBracketHref} className="gc-btn">
                 Back to bracket
               </Link>
             )}
             {(nextReplayHref || nextRoundHref) && nextRoundLabel && (
-              <Link href={nextReplayHref ?? nextRoundHref!} className="px-[14px] py-[9px] rounded-[6px] text-white text-[12.5px] font-semibold no-underline" style={{ background: 'var(--gc-ball)' }}>
+              <Link href={nextReplayHref ?? nextRoundHref!} className="gc-btn gc-btn--primary">
                 View {nextRoundLabel} →
               </Link>
             )}
@@ -604,28 +575,27 @@ export function MatchReplayPlayer({
       )}
 
       {/* COMMENTARY FEED */}
-      <div className="mt-4" data-testid="commentary-feed">
-        <div className="text-[13px] font-bold mb-2">Commentary</div>
-        <div className="flex flex-col gap-2 overflow-y-auto pr-1" style={{ maxHeight: 360 }}>
+      <div style={{ marginTop: 16 }} data-testid="commentary-feed">
+        <div className="t-label" style={{ marginBottom: 8 }}>Commentary</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflowY: 'auto', paddingRight: 4, maxHeight: 360 }}>
           {visibleMoments.map((m, i) => {
-            const accent = m.type === 'match' ? DARK : m.type === 'tiebreak' ? 'oklch(70% 0.14 245)' : m.type === 'set' ? 'var(--gc-ink-faint)' : surfaceColor;
+            const accent = m.type === 'match' ? 'var(--accent)' : m.type === 'tiebreak' ? 'var(--hard)' : m.type === 'set' ? 'var(--ink-4)' : surfaceColor;
             return (
               <div
                 key={i}
-                className="flex gap-3 px-3 py-[10px] rounded-r-[6px]"
-                style={{ borderLeft: `3px solid ${accent}`, background: 'var(--gc-s2)' }}
+                style={{ display: 'flex', gap: 12, padding: '8px 12px', borderRadius: '0 var(--r2) var(--r2) 0', borderLeft: `3px solid ${accent}`, background: 'var(--bg-2)' }}
               >
-                <div className="text-[10.5px] font-bold whitespace-nowrap" style={{ color: 'var(--gc-ink-mute)', minWidth: 88 }}>
+                <div className="num" style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 44 }}>
                   {formatElapsed(m.offsetSeconds)}
                 </div>
-                <div className="text-[13px] leading-[1.4]" style={{ color: 'var(--gc-ink-dim)' }}>
+                <div className="t-body-sm" style={{ fontSize: 13, color: 'var(--ink-2)' }}>
                   {m.text}
                 </div>
               </div>
             );
           })}
           {visibleMoments.length === 0 && (
-            <div className="text-[13px] py-[10px]" style={{ color: 'var(--gc-ink-mute)' }}>
+            <div className="t-body-sm" style={{ padding: '10px 0' }}>
               {started ? 'Nothing notable yet — keep watching' : 'Commentary will appear here once you press play.'}
             </div>
           )}

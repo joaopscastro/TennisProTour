@@ -1,0 +1,13 @@
+﻿{
+    "route":  "/replay/bootstrap-demo-futures-r1-m7",
+    "resultUrl":  "http://localhost:3001/replay/bootstrap-demo-futures-r1-m7",
+    "title":  "Grand Circuit",
+    "errorText":  "",
+    "consoleErrors":  [
+
+                      ],
+    "pageErrors":  [
+
+                   ],
+    "visibleText":  "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W1 · DAY 5/7\nNEXT DAY\n9:15:39\nXP\n500\nFREE TIER\n← Back to bracket\n·\nAurora Ireland Classic\n·\nRound of 16\nCLAY\nAmara Rossi\nSENIOR\n#\n2\n100 pts\nVS\nRafael Ivanova\nWHAT DECIDED IT — AT MATCH TIME\nSurface\nclay · host Ireland\nHome / away stable for this match\naway · away\nAmara Rossi — fatigue / form / affinity / venue · at match time\n0/100 / 0 · rusty / 18 / away\nRafael Ivanova — fatigue / form / affinity / venue · at match time\n0/100 / 0 · rusty / 18 / away\nHow these numbers were read\nReady to watch\n15 games simulated\nAmara Rossi\n–\n–\nSET 1\n–\n–\nSET 2\n–\n–\nSET 3\nRafael Ivanova\nPREMIERES AT 19:12\nThe result is simulated — it reveals here at the premiere\nThis match was simulated in full ahead of time. Press play to watch it unfold in sync with its scheduled slot — you can skip ahead to catch up any time.\nWATCH REPLAY\nCOMMENTARY\nCommentary will appear here once you press play."
+}
