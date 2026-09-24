@@ -1,7 +1,5 @@
 'use client';
 
-import React from 'react';
-import Link from 'next/link';
 import { Avatar } from './Avatar';
 import { Flag } from './primitives';
 import type { PlayerTournamentHistoryEntryDto } from '../../lib/api';
@@ -131,119 +129,6 @@ export interface PlayerCardRank {
   rank: number | null;
   points?: number;
   bandLabel?: string;
-}
-
-/* ---- Full subject card (scouting listings, general use) -------------------
-   Identity-forward: a large avatar and name lead; stats/actions follow. */
-export function PlayerCard({
-  id,
-  name,
-  nationality,
-  avatarSize = 66,
-  subtitle,
-  ovr,
-  rank,
-  archetype,
-  form,
-  h2h,
-  badges,
-  stats,
-  footer,
-  accent,
-  hover,
-  href,
-  className = '',
-  style,
-}: {
-  id: string;
-  name: string;
-  nationality: string;
-  avatarSize?: number;
-  subtitle?: React.ReactNode;
-  ovr?: number;
-  rank?: PlayerCardRank;
-  archetype?: string | null;
-  form?: PlayerTournamentHistoryEntryDto[] | null;
-  h2h?: React.ReactNode;
-  badges?: React.ReactNode;
-  /** Optional stats snapshot (e.g. the scouting page's per-attribute
-   * bars) rendered between the rank/form row and the badges. Omitted
-   * everywhere else, so every existing caller is unchanged. */
-  stats?: React.ReactNode;
-  footer?: React.ReactNode;
-  accent?: string;
-  hover?: boolean;
-  href?: string;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const hasForm = (form ?? []).some((h) => h.hasStarted && (h.won || h.eliminated));
-  const identity = (
-    <>
-      <Avatar id={id} name={name} size={avatarSize} ring />
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontWeight: 800, fontSize: 17, letterSpacing: '-0.2px' }}>
-          <Flag code={nationality} size={16} />
-          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-        </div>
-        {subtitle != null && (
-          <div style={{ fontSize: 11.5, color: 'var(--gc-ink-faint)', marginTop: 3 }}>{subtitle}</div>
-        )}
-        {archetype ? (
-          <div style={{ marginTop: 7 }}>
-            <ArchetypeBadge archetype={archetype} />
-          </div>
-        ) : null}
-      </div>
-    </>
-  );
-  return (
-    <div
-      className={`gc-card gc-grain ${hover ? 'gc-card--hover' : ''} ${className}`}
-      style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 13, borderColor: accent, ...style }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        {href ? (
-          <Link
-            href={href}
-            className="gc-identity-link"
-            style={{ display: 'flex', alignItems: 'center', gap: 14, flex: 1, minWidth: 0, textDecoration: 'none', color: 'inherit' }}
-          >
-            {identity}
-          </Link>
-        ) : (
-          identity
-        )}
-        {ovr != null && (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flex: 'none' }}>
-            <span className="num" style={{ fontSize: 32, fontWeight: 700, lineHeight: 1 }}>{ovr}</span>
-            {/* Explicit label: a bare number above the attribute bars read as
-                an unlabelled mystery figure on the Scouting grid. */}
-            <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>
-              OVR
-            </span>
-          </div>
-        )}
-      </div>
-
-      {(rank || hasForm) && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          {rank ? <RankPill rank={rank.rank} points={rank.points} bandLabel={rank.bandLabel} /> : <span />}
-          {hasForm && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-              <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>Form</span>
-              <FormDots history={form} />
-            </div>
-          )}
-        </div>
-      )}
-
-      {stats}
-      {badges}
-      {h2h}
-      {footer && <div style={{ marginTop: 'auto', paddingTop: 4 }}>{footer}</div>}
-    </div>
-  );
 }
 
 /* ---- Versus card (match replay participants) ------------------------------

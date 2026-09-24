@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   TalentPoolCandidateDto,
   WorldClockDto,
@@ -8,16 +8,16 @@ import {
   fetchTalentPool,
   fetchWorldClock,
 } from '../../lib/api';
-import { Sidebar } from '../../components/Sidebar';
-import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, StatBar } from '../../components/ui/primitives';
-import { PlayerCard } from '../../components/ui/PlayerCard';
-import { AnimatedNumber, Delta } from '../../components/ui/motion';
+import { AppShell } from '../../components/ui/AppShell';
+import { PageShell, Button, StatBar, Flag } from '../../components/ui/primitives';
+import { Tabs } from '../../components/ui/Tabs';
+import { Icon } from '../../components/ui/Icon';
 import { CelebrationMoment, CelebrationOverlay } from '../../components/ui/Celebration';
 import { useCountdown, formatCountdown } from '../../lib/useCountdown';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { xpAffordability } from '../../lib/xp';
-import { disambiguatedNames, formatMoney } from '../../lib/format';
+import { disambiguatedNames, formatMoney, WEEKS_PER_SEASON } from '../../lib/format';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -25,16 +25,46 @@ function overallOf(c: TalentPoolCandidateDto): number {
   return Math.round(all.reduce((sum, v) => sum + v, 0) / all.length);
 }
 
-/** How the free-agent grid is ordered. "Youngest" is the long-standing
+/** Mean of one attribute cluster (technical / physical / mental) — the
+ * compact, OBSERVABLE summary the table column shows. Derived only from
+ * current attributes; nothing hidden (no ceiling, no grade) can leak. */
+function clusterAverage(cluster: Record<string, number>): number {
+  const values = Object.values(cluster);
+  return Math.round(values.reduce((sum, v) => sum + v, 0) / values.length);
+}
+
+/** The table's attribute summary column: one mono figure per cluster,
+ * labelled T·P·M. The full per-attribute bars stay one row-expand away. */
+function AttributeSummary({ attributes }: { attributes: TalentPoolCandidateDto['attributes'] }) {
+  const clusters: Array<[string, Record<string, number>]> = [
+    ['T', attributes.technical],
+    ['P', attributes.physical],
+    ['M', attributes.mental],
+  ];
+  return (
+    <span className="num" style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+      {clusters.map(([label, cluster], i) => (
+        <span key={label}>
+          {i > 0 && <span style={{ color: 'var(--ink-4)' }}> · </span>}
+          <span style={{ color: 'var(--ink-3)' }}>{label}</span>{' '}
+          <span style={{ color: 'var(--ink-2)' }}>{clusterAverage(cluster)}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** How the free-agent table is ordered. "Youngest" is the long-standing
  * default (see the "youngest first" copy) — the other two are the
  * comparison axes a scout actually weighs a prospect on. Sorted
  * client-side over data the DTO already carries; no new query. */
 type ScoutSort = 'youngest' | 'overall' | 'cost';
 
 /** A compact per-attribute snapshot so two prospects can be compared
- * without opening each profile. Deliberately only CURRENT attributes —
- * hidden potential/ceilings stay profile-only by design (see
- * talentPoolRoutes' DTO note); nothing here can leak a ceiling. */
+ * without opening each profile — held in the row's expanded <tr>.
+ * Deliberately only CURRENT attributes — hidden potential/ceilings stay
+ * profile-only by design (see talentPoolRoutes' DTO note); nothing here
+ * can leak a ceiling. */
 function AttributeSnapshot({ attributes }: { attributes: TalentPoolCandidateDto['attributes'] }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '5px 18px' }}>
@@ -65,6 +95,11 @@ export default function ScoutingPage() {
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
   const [shown, setShown] = useState(48);
   const [sortBy, setSortBy] = useState<ScoutSort>('youngest');
+  // Which rows are expanded to show their full attribute bars. A Set (not a
+  // single id) so two prospects can be compared side by side, which is the
+  // whole point of the row-expand pattern; toggling is per row and the
+  // state deliberately survives sorting and filtering.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   // The pool deliberately spans raw teenagers to match-hardened veterans,
   // and the youngest are exactly the ones a junior draw pulls in — so the
   // default "Youngest" sort used to open on a page that was ~92%
@@ -115,6 +150,15 @@ export default function ScoutingPage() {
     setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
   }
 
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function handleClaim(candidateId: string, name: string) {
     const claimed = candidates?.find((c) => c.id === candidateId) ?? null;
     // No mid-tournament confirm step any more: the rule now forbids
@@ -125,8 +169,8 @@ export default function ScoutingPage() {
     setError(null);
     try {
       await claimTalentPoolCandidate(candidateId, managerId);
-      // Play the card's exit animation before it leaves the board, so the
-      // sign never happens as a silent list mutation.
+      // Fade the row out before it leaves the board, so the sign never
+      // happens as a silent list mutation.
       setClaimedOutId(candidateId);
       const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
@@ -150,7 +194,7 @@ export default function ScoutingPage() {
     } catch (e) {
       // A lost claim race is a real, expected outcome (another manager signed
       // them first — atomic claimAndCharge refuses the loser with a 409), not a
-      // silent no-op. Say so plainly AND refresh the pool so the stale card
+      // silent no-op. Say so plainly AND refresh the pool so the stale row
       // disappears with an explanation, instead of leaving the agent to guess
       // why nothing happened. Every other failure surfaces the server's own
       // message rather than swallowing it.
@@ -188,8 +232,8 @@ export default function ScoutingPage() {
     [candidates],
   );
 
-  // The set the grid actually draws from: signable-only by default, or
-  // everyone (including 🔒 In a draw) when the filter is switched off.
+  // The set the table actually draws from: signable-only by default, or
+  // everyone (including In a draw) when the filter is switched off.
   const visibleCandidates = useMemo(() => {
     if (!candidates) return [];
     return availableOnly ? candidates.filter((c) => !c.signingBlocked) : candidates;
@@ -215,46 +259,24 @@ export default function ScoutingPage() {
   }, [visibleCandidates, sortBy]);
 
   return (
-    <AppFrame>
+    <AppShell active="scouting" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
       {celebrations.length > 0 && (
         <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
       )}
-      <Sidebar active="scouting" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
-      <PageShell wash="radial-gradient(120% 60% at 85% -10%, oklch(45% 0.13 320 / 0.14), transparent 60%)">
-        <Hero minHeight={140}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.05 320)', opacity: 0.9 }}>The Talent Pool</div>
-              <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Scouting</div>
-              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 320)', opacity: 0.85, marginTop: 5, maxWidth: 620, lineHeight: 1.5 }}>
-                One shared pool of <strong style={{ color: 'white' }}>free agents</strong> — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are committed to a tournament right now and can&apos;t be signed until it concludes. Every manager sees the same faces and races to sign them first.
-                {worldClock && (
-                  <> Fresh young talent arrives in <span style={{ fontWeight: 700, color: 'white', fontVariantNumeric: 'tabular-nums' }}>{formatCountdown(refreshRemainingMs)}</span>.</>
-                )}
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', borderRadius: 10, background: 'oklch(100% 0 0 / 0.1)', border: '1px solid oklch(100% 0 0 / 0.16)' }}>
-                <span style={{ fontSize: 11, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'oklch(90% 0.02 320)', opacity: 0.8 }}>Your XP</span>
-                <span style={{ position: 'relative', display: 'inline-flex' }}>
-                  {xpBalance === null ? (
-                    <span style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ink-mute)' }}>—</span>
-                  ) : (
-                    <>
-                      <AnimatedNumber value={xpBalance} mountFrom={xpBalance} style={{ fontSize: 17, fontWeight: 800, color: 'var(--gc-ball)' }} />
-                      <Delta value={xpBalance} suffix="XP" side="left" />
-                    </>
-                  )}
-                </span>
-              </div>
-            </div>
+      <PageShell>
+        {/* Page header — flat, no hero band/wash (Direction A). */}
+        <div>
+          <div className="t-label">The Talent Pool</div>
+          <h1 className="t-h1" style={{ margin: '4px 0 0' }}>Scouting</h1>
+          <div className="t-body-sm" style={{ marginTop: 4 }}>
+            One shared pool of <strong style={{ color: 'var(--ink)' }}>free agents</strong> — from raw teenagers to established, match-hardened players of every age. Every manager sees the same faces and races to sign them first.
           </div>
-        </Hero>
+        </div>
 
         {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
           <form
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--gc-ink-faint)', marginTop: 12 }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--ink-4)', marginTop: 12 }}
             onSubmit={(e) => { e.preventDefault(); setManagerId(managerIdInput.trim() || managerId); }}
           >
             Manager ID (dev)
@@ -262,219 +284,293 @@ export default function ScoutingPage() {
           </form>
         )}
 
-        <div style={{ marginTop: 16, fontSize: 12.5, lineHeight: 1.5, color: 'var(--gc-ink-mute)', borderRadius: 10, padding: '11px 15px', background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)' }}>
-          A scout can tell you what a free agent can do <strong style={{ color: 'var(--gc-ink-dim)' }}>today</strong> — never how high they&apos;ll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked <strong style={{ color: 'var(--gc-ink-dim)' }}>In a draw</strong> is committed to a tournament that hasn&apos;t concluded and can&apos;t be signed until it does — a signing is always clean, never inheriting an in-progress draw. Open a player&apos;s profile to study the full breakdown.
-        </div>
-
         {error && (
-          <div style={{ marginTop: 14, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div
+            className="gc-notice"
+            style={{
+              marginTop: 16,
+              color: 'var(--loss)',
+              borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+            }}
+          >
             {error}
           </div>
         )}
 
         {candidates === null && !error && (
-          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--gc-ink-mute)' }}>Loading talent pool…</div>
+          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--ink-3)' }}>Loading talent pool…</div>
         )}
 
         {candidates?.length === 0 && (
-          <Panel style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents right now</div>
-            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)' }}>Fresh young talent arrives at the next weekly refresh.</div>
-          </Panel>
+          <div className="gc-panel" style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents right now</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Fresh young talent arrives at the next weekly refresh.</div>
+          </div>
         )}
 
         {candidates && candidates.length > 0 && (
-          <>
-            <SectionLabel
-              right={
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  {/* The default view is signable-only; committed agents
-                      are one click away, never hidden permanently. */}
-                  <div style={{ display: 'inline-flex', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--gc-line)' }}>
-                    {([
-                      { label: 'Available only', value: true, title: `Show only the ${availableCount} free agent${availableCount === 1 ? '' : 's'} you can sign right now` },
-                      { label: 'All', value: false, title: `Show all ${candidates.length} free agents, including those committed to a tournament` },
-                    ] as const).map((opt) => {
-                      const active = availableOnly === opt.value;
-                      return (
-                        <button
-                          key={opt.label}
-                          type="button"
-                          title={opt.title}
-                          aria-pressed={active}
-                          onClick={() => {
-                            setAvailableOnly(opt.value);
-                            setShown(48);
-                          }}
-                          style={{
-                            padding: '7px 12px',
-                            fontSize: 12,
-                            fontWeight: 700,
-                            cursor: 'pointer',
-                            border: 'none',
-                            background: active ? 'var(--gc-ball)' : 'transparent',
-                            color: active ? 'oklch(20% 0.02 250)' : 'var(--gc-ink-mute)',
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
+          <div className="gc-panel" style={{ marginTop: 20 }}>
+            <div className="gc-panel-hd">
+              <span className="t-label" style={{ color: 'var(--ink-2)' }}>
+                {availableOnly ? (
+                  <>
+                    {availableCount} available of {candidates.length} free agent{candidates.length === 1 ? '' : 's'}
+                  </>
+                ) : (
+                  <>
+                    All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} · {availableCount} available
+                  </>
+                )}
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {/* The default view is signable-only; committed agents
+                    are one click away, never hidden permanently. */}
+                <Tabs
+                  variant="segmented"
+                  items={[
+                    { id: 'available', label: 'Available only' },
+                    { id: 'all', label: 'All' },
+                  ]}
+                  active={availableOnly ? 'available' : 'all'}
+                  onSelect={(id) => {
+                    setAvailableOnly(id === 'available');
+                    setShown(48);
+                  }}
+                />
+                <select
+                  className="gc-select"
+                  value={sortBy}
+                  aria-label="Sort free agents"
+                  onChange={(e) => {
+                    setSortBy(e.target.value as ScoutSort);
+                    // Jump back to the top of the newly-ordered list so
+                    // the sorted head is actually visible, not buried
+                    // behind however far "Show more" had already gone.
+                    setShown(48);
+                  }}
+                  style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
+                >
+                  <option value="youngest">Sort: Youngest</option>
+                  <option value="overall">Sort: Overall rating</option>
+                  <option value="cost">Sort: Cheapest to sign</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="gc-panel-bd flush">
+              {sortedCandidates.length === 0 ? (
+                <div style={{ padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+                  <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents available to sign right now</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink-3)', maxWidth: 480, lineHeight: 1.5 }}>
+                    All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} in the pool {candidates.length === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.
                   </div>
-                  <select
-                    className="gc-select"
-                    value={sortBy}
-                    onChange={(e) => {
-                      setSortBy(e.target.value as ScoutSort);
-                      // Jump back to the top of the newly-ordered list so
-                      // the sorted head is actually visible, not buried
-                      // behind however far "Show more" had already gone.
-                      setShown(48);
-                    }}
-                    style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
-                  >
-                    <option value="youngest">Sort: Youngest</option>
-                    <option value="overall">Sort: Overall rating</option>
-                    <option value="cost">Sort: Cheapest to sign</option>
-                  </select>
+                  <Button variant="ghost" onClick={() => { setAvailableOnly(false); setShown(48); }}>
+                    Show everyone ({candidates.length})
+                  </Button>
                 </div>
-              }
-            >
-              {availableOnly ? (
-                <>
-                  {availableCount} available of {candidates.length} free agent{candidates.length === 1 ? '' : 's'}
-                </>
               ) : (
                 <>
-                  All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} · {availableCount} available
+                  <table className="gc-table">
+                    <thead>
+                      <tr>
+                        <th>Player</th>
+                        <th>Attributes T·P·M</th>
+                        <th className="r">OVR</th>
+                        <th>Status</th>
+                        <th>Career</th>
+                        <th className="r">Cost</th>
+                        <th className="r">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sortedCandidates.slice(0, shown).map((c) => {
+                        const busy = claimingId === c.id;
+                        const claimedOut = claimedOutId === c.id;
+                        // One source for the XP shown and the gating: unknown (not
+                        // yet fetched) is its own state, never an assumed 0.
+                        const affordability = xpAffordability(xpBalance, c.claimCost);
+                        const affordable = affordability.state === 'affordable';
+                        const expanded = expandedIds.has(c.id);
+                        return (
+                          <Fragment key={c.id}>
+                            <tr
+                              className={`${expanded ? 'is-selected' : ''}${claimedOut ? ' gc-claimed-out' : ''}`}
+                              onClick={() => toggleExpanded(c.id)}
+                              onKeyDown={(e) => {
+                                // Only the row itself toggles — a keypress on the
+                                // caret button, name link or Sign button inside
+                                // must not double-handle (the caret is a real
+                                // button and fires its own click on Enter).
+                                if (e.target !== e.currentTarget) return;
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  toggleExpanded(c.id);
+                                }
+                              }}
+                              tabIndex={0}
+                              aria-expanded={expanded}
+                              style={{ cursor: 'pointer', opacity: busy && !claimedOut ? 0.55 : 1 }}
+                            >
+                              {/* Identity: expand caret + flag + name + age (mono). */}
+                              <td>
+                                <div className="gc-pcell">
+                                  <button
+                                    type="button"
+                                    aria-expanded={expanded}
+                                    aria-label={expanded ? 'Collapse attributes' : 'Expand attributes'}
+                                    onClick={(e) => { e.stopPropagation(); toggleExpanded(c.id); }}
+                                    style={{
+                                      display: 'grid', placeItems: 'center', padding: 0, width: 16, height: 16,
+                                      border: 0, background: 'transparent', color: expanded ? 'var(--accent)' : 'var(--ink-4)', cursor: 'pointer',
+                                    }}
+                                  >
+                                    <Icon name={expanded ? 'chevron-down' : 'chevron-right'} size={12} />
+                                  </button>
+                                  <Flag code={c.nationality} />
+                                  <div style={{ minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                                      <a
+                                        href={`/players/${c.id}`}
+                                        className="nm gc-identity-link"
+                                        style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        {displayNames.get(c.id) ?? c.name}
+                                      </a>
+                                      <span className="ag num">{(c.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)} yrs</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td><AttributeSummary attributes={c.attributes} /></td>
+
+                              <td className="r"><span className="gc-ovr">{overallOf(c)}</span></td>
+
+                              {/* The ONE "is this agent tied to a live event?"
+                                  badge. It reads the tournament-level UNFINISHED
+                                  commitment — the same predicate the atomic claim
+                                  enforces and the same one the profile banner and
+                                  roster use — so the row can never name a
+                                  different event than the roster's "Next:" line. */}
+                              <td>
+                                {c.signingBlocked ? (
+                                  <span
+                                    className="gc-badge"
+                                    title={`Committed to ${c.blockingCommitment?.name ?? 'a tournament'} — a free agent with an unfinished tournament can't be signed until it concludes.`}
+                                    style={{ color: 'var(--warn)', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' }}
+                                  >
+                                    <Icon name="lock" size={11} />
+                                    In a draw{c.blockingCommitment ? ` · ${c.blockingCommitment.name}` : ''}
+                                  </span>
+                                ) : (
+                                  <span className="gc-badge" style={{ color: 'var(--win)', borderColor: 'color-mix(in srgb, var(--win) 40%, transparent)' }}>
+                                    <Icon name="check" size={11} />
+                                    Available
+                                  </span>
+                                )}
+                              </td>
+
+                              {/* Observable career context — a real record, not a
+                                  scouting grade. Both figures keep their words
+                                  ("titles", "career") rather than hovering alone. */}
+                              <td>
+                                <span className="num" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, whiteSpace: 'nowrap' }}>
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--gold)' }} title="Titles won on tour">
+                                    <Icon name="trophy" size={12} />
+                                    <span style={{ color: 'var(--ink-2)' }}>
+                                      {c.titleCount} {c.titleCount === 1 ? 'title' : 'titles'}
+                                    </span>
+                                  </span>
+                                  <span style={{ color: 'var(--ink-4)' }}>·</span>
+                                  <span style={{ color: 'var(--ink-3)' }} title="Career prize money earned on tour">
+                                    {formatMoney(c.careerPrizeMoney)} career
+                                  </span>
+                                </span>
+                              </td>
+
+                              <td className="r">
+                                <div className="num" style={{ fontSize: 12, fontWeight: 600, color: affordable ? 'var(--accent)' : 'var(--ink-2)', whiteSpace: 'nowrap' }}>
+                                  SIGN FOR {c.claimCost.toLocaleString()} XP
+                                </div>
+                                {affordability.state === 'short' && (
+                                  <div style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--warn)', marginTop: 2 }}>
+                                    Need {affordability.remaining.toLocaleString()} more
+                                  </div>
+                                )}
+                              </td>
+
+                              <td className="r">
+                                <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                                  {c.signingBlocked && (
+                                    <div style={{ fontSize: 10.5, lineHeight: 1.35, color: 'var(--warn)', textAlign: 'right', maxWidth: 190 }}>
+                                      Committed to {c.blockingCommitment?.name ?? 'a tournament'} — can&apos;t sign until it concludes.
+                                    </div>
+                                  )}
+                                  <Button
+                                    variant="primary"
+                                    className="gc-btn--sm"
+                                    onClick={(e) => { e.stopPropagation(); handleClaim(c.id, c.name); }}
+                                    disabled={claimingId !== null || !affordable || c.signingBlocked}
+                                  >
+                                    {busy ? 'Signing…' : 'Sign'}
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                            {expanded && (
+                              <tr>
+                                <td colSpan={7} style={{ height: 'auto', padding: '10px 12px', background: 'var(--bg-3)' }}>
+                                  <AttributeSnapshot attributes={c.attributes} />
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+
+                  {shown < sortedCandidates.length && (
+                    <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0' }}>
+                      <Button variant="ghost" onClick={() => setShown((n) => n + 48)}>
+                        Show more ({sortedCandidates.length - shown} more free agents)
+                      </Button>
+                    </div>
+                  )}
                 </>
               )}
-            </SectionLabel>
 
-            {sortedCandidates.length === 0 ? (
-              <Panel style={{ marginTop: 20, padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents available to sign right now</div>
-                <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', maxWidth: 480, lineHeight: 1.5 }}>
-                  All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} in the pool {candidates.length === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.
-                </div>
-                <Button variant="ghost" onClick={() => { setAvailableOnly(false); setShown(48); }} style={{ padding: '9px 20px' }}>
-                  Show everyone ({candidates.length})
-                </Button>
-              </Panel>
-            ) : (
-              <>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: 16 }}>
-                  {sortedCandidates.slice(0, shown).map((c, idx) => {
-                const busy = claimingId === c.id;
-                const claimedOut = claimedOutId === c.id;
-                // One source for the XP shown and the gating: unknown (not
-                // yet fetched) is its own state, never an assumed 0.
-                const affordability = xpAffordability(xpBalance, c.claimCost);
-                const affordable = affordability.state === 'affordable';
-                return (
-                  <PlayerCard
-                    key={c.id}
-                    id={c.id}
-                    name={displayNames.get(c.id) ?? c.name}
-                    nationality={c.nationality}
-                    avatarSize={72}
-                    ovr={overallOf(c)}
-                    subtitle={`${Math.floor(c.ageInWeeks / 52)} yrs old`}
-                    hover
-                    href={`/players/${c.id}`}
-                    className={`gc-rise${claimedOut ? ' gc-claimed-out' : ''}`}
-                    style={{ opacity: busy && !claimedOut ? 0.55 : 1, animationDelay: claimedOut ? '0ms' : `${idx * 40}ms` }}
-                    stats={<AttributeSnapshot attributes={c.attributes} />}
-                    badges={
-                      c.blockingCommitment || c.titleCount > 0 || c.careerPrizeMoney > 0 ? (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                          {/* The ONE "is this agent tied to a live event?"
-                              badge. It reads the tournament-level UNFINISHED
-                              commitment — the same predicate the atomic claim
-                              enforces and the same one the profile banner and
-                              roster use — so the Scouting card can never name
-                              a different event than the roster's "Next:" line.
-                              The old separate match-level "● Competing" badge
-                              could name an arbitrary live match (a second
-                              entry, a doubles draw) and was superseded by the
-                              signing rule: any committed agent is now blocked
-                              here. */}
-                          {c.blockingCommitment && (
-                            <span
-                              className="gc-badge"
-                              title={`Committed to ${c.blockingCommitment.name} — a free agent with an unfinished tournament can't be signed until it concludes.`}
-                              style={{ background: 'oklch(42% 0.16 25 / 0.34)', color: 'oklch(86% 0.12 35)' }}
-                            >
-                              🔒 In a draw · {c.blockingCommitment.name}
-                            </span>
-                          )}
-                          {c.titleCount > 0 && (
-                            <span className="gc-badge" style={{ background: 'oklch(48% 0.13 85 / 0.28)', color: 'oklch(88% 0.12 85)' }}>
-                              🏆 {c.titleCount} {c.titleCount === 1 ? 'title' : 'titles'}
-                            </span>
-                          )}
-                          {c.careerPrizeMoney > 0 && (
-                            <span
-                              className="gc-badge"
-                              title="Career prize money earned on tour"
-                              style={{ background: 'oklch(45% 0.05 250 / 0.3)', color: 'oklch(85% 0.05 250)' }}
-                            >
-                              {formatMoney(c.careerPrizeMoney)} career
-                            </span>
-                          )}
-                        </div>
-                      ) : undefined
-                    }
-                    footer={
-                      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 10 }}>
-                        <div>
-                          <div style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>Sign for</div>
-                          <div style={{ fontSize: 18, fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: affordable ? 'var(--gc-ball)' : 'var(--gc-ink-mute)' }}>
-                            {c.claimCost.toLocaleString()} <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>XP</span>
-                          </div>
-                          {affordability.state === 'short' && (
-                            <div style={{ fontSize: 10.5, fontWeight: 700, color: 'oklch(72% 0.15 30)', marginTop: 2 }}>Need {affordability.remaining.toLocaleString()} more</div>
-                          )}
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
-                          {c.signingBlocked && (
-                            <div style={{ fontSize: 10.5, lineHeight: 1.35, color: 'oklch(78% 0.12 35)', textAlign: 'right', maxWidth: 180 }}>
-                              Committed to {c.blockingCommitment?.name ?? 'a tournament'} — can&apos;t sign until it concludes.
-                            </div>
-                          )}
-                          <Button
-                            variant="primary"
-                            onClick={() => handleClaim(c.id, c.name)}
-                            disabled={claimingId !== null || !affordable || c.signingBlocked}
-                            style={{ padding: '9px 18px' }}
-                          >
-                            {busy ? 'Signing…' : c.signingBlocked ? 'Unavailable' : 'Sign'}
-                          </Button>
-                        </div>
-                      </div>
-                    }
-                  />
-                );
-              })}
-                </div>
-                {shown < sortedCandidates.length && (
-                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: 20 }}>
-                    <Button variant="ghost" onClick={() => setShown((n) => n + 48)} style={{ padding: '10px 22px' }}>
-                      Show more ({sortedCandidates.length - shown} more free agents)
-                    </Button>
-                  </div>
+              {/* The pool explanation — the working one-liner stays visible;
+                  the full "how signing works" prose is one click away in the
+                  <details>, never deleted and never hover-only. */}
+              <div className="gc-tbl-note">
+                They keep training and competing while unsigned, so some are committed to a tournament right now and can&apos;t be signed until it concludes.
+                {worldClock && (
+                  <> Fresh young talent arrives in <strong className="num" style={{ color: 'var(--ink-2)' }}>{formatCountdown(refreshRemainingMs)}</strong>.</>
                 )}
-              </>
-            )}
-          </>
+              </div>
+              <details className="gc-details" style={{ margin: '4px 12px 12px' }}>
+                <summary>How signing works</summary>
+                <div className="t-body-sm" style={{ marginTop: 8, fontSize: 12, lineHeight: 1.55 }}>
+                  <div>A scout can tell you what a free agent can do <strong style={{ color: 'var(--ink-2)' }}>today</strong> — never how high they&apos;ll climb.</div>
+                  <div style={{ marginTop: 4 }}>There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does.</div>
+                  <div style={{ marginTop: 4 }}>Free agents range from raw teenagers to established players with titles and career earnings — a career record on the row is exactly that, not a scouting grade.</div>
+                  <div style={{ marginTop: 4 }}>Anyone marked <strong style={{ color: 'var(--ink-2)' }}>In a draw</strong> is committed to a tournament that hasn&apos;t concluded and can&apos;t be signed until it does — a signing is always clean, never inheriting an in-progress draw.</div>
+                  <div style={{ marginTop: 4 }}>Open a player&apos;s profile to study the full breakdown.</div>
+                </div>
+              </details>
+            </div>
+          </div>
         )}
       </PageShell>
 
       {notice && (
-        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--gc-ball-d)' }}>
+        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--accent)' }}>
           {notice}
         </div>
       )}
-    </AppFrame>
+    </AppShell>
   );
 }

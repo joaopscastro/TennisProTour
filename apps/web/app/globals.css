@@ -528,6 +528,13 @@ a { color: inherit; text-decoration: none; }
 .gc-result-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gc-result-score { flex: none; font-family: var(--mono); color: var(--ink-3); }
 
+/* A claimed free-agent row fades out before the pool re-renders (the same
+   "never a silent list mutation" cue the old card exit animation gave). */
+.gc-table tbody tr.gc-claimed-out td { opacity: 0; transition: opacity 520ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .gc-table tbody tr.gc-claimed-out td { transition: none; }
+}
+
 /* ---- Modal ----------------------------------------------------------------- */
 .gc-modal-backdrop {
   position: fixed; inset: 0; z-index: 200;

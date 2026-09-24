@@ -1,0 +1,394 @@
+baseline: design/reviews/stage-1/visibleText-scouting.json  (/scouting)
+stage-5 : C:\Users\joao.castro\projects\other\TennisProTour\design\reviews\stage-5\visibleText-scouting.json  (/scouting)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- Soon
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 9m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W2 · DAY 7/7
++ NEXT DAY
++ 8:35:46
++ XP
++ 382
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  THE TALENT POOL
+  Scouting
+- One shared pool of free agents — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are committed to a tournament right now and can't be signed until it concludes. Every manager sees the same faces and races to sign them first. Fresh young talent arrives in 14h 9m.
+- YOUR XP
+- 494
++ One shared pool of free agents — from raw teenagers to established, match-hardened players of every age. Every manager sees the same faces and races to sign them first.
+  Manager ID (dev)
+- A scout can tell you what a free agent can do today — never how high they'll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked In a draw is committed to a tournament that hasn't concluded and can't be signed until it does — a signing is always clean, never inheriting an in-progress draw. Open a player's profile to study the full breakdown.
+- 0 AVAILABLE OF 300 FREE AGENTS
+- Available only
+- All
++ 28 AVAILABLE OF 294 FREE AGENTS
++ AVAILABLE ONLY
++ ALL
+  Sort: Youngest
+  Sort: Overall rating
+  Sort: Cheapest to sign
+- No free agents available to sign right now
+- All 300 free agents in the pool are committed to a tournament that hasn't concluded. They become signable once it does.
+- SHOW EVERYONE (300)
++ PLAYER ATTRIBUTES T·P·M OVR STATUS CAREER COST ACTION
++ 
++ Kenji Okafor
++ 18.4 yrs
++ T 32 · P 33 · M 72 41
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 31 XP
++ 
++ SIGN
++ 
++ Marta Yamamoto (7976)
++ 18.5 yrs
++ T 34 · P 30 · M 76 42
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 32 XP
++ 
++ SIGN
++ 
++ João Costa (F90B)
++ 19.8 yrs
++ T 28 · P 31 · M 73 39
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 27 XP
++ 
++ SIGN
++ 
++ Yuki Müller
++ 20.6 yrs
++ T 61 · P 55 · M 79 63
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 88 XP
++ 
++ SIGN
++ 
++ Lena Andersson (3E19)
++ 21.0 yrs
++ T 56 · P 52 · M 74 59
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 75 XP
++ 
++ SIGN
++ 
++ Priya Yamamoto
++ 21.7 yrs
++ T 54 · P 57 · M 80 61
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 81 XP
++ 
++ SIGN
++ 
++ Marta Silva (DC09)
++ 22.1 yrs
++ T 54 · P 61 · M 80 62
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 86 XP
++ 
++ SIGN
++ 
++ Tomás Santos
++ 23.7 yrs
++ T 61 · P 57 · M 79 63
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 91 XP
++ 
++ SIGN
++ 
++ Luca Kim
++ 23.8 yrs
++ T 31 · P 35 · M 59 38
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 26 XP
++ 
++ SIGN
++ 
++ Aisha Vukovic (2C9E)
++ 25.6 yrs
++ T 32 · P 25 · M 72 38
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 26 XP
++ 
++ SIGN
++ 
++ Zara Dubois
++ 26.0 yrs
++ T 27 · P 27 · M 74 37
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 24 XP
++ 
++ SIGN
++ 
++ Noah Ivanova (3528)
++ 28.3 yrs
++ T 58 · P 62 · M 66 61
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 83 XP
++ 
++ SIGN
++ 
++ Viktor Rossi (7B14)
++ 29.8 yrs
++ T 28 · P 36 · M 81 42
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 33 XP
++ 
++ SIGN
++ 
++ Rafael Nakamura
++ 30.6 yrs
++ T 28 · P 32 · M 80 41
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 30 XP
++ 
++ SIGN
++ 
++ Chloe Okafor
++ 30.7 yrs
++ T 36 · P 29 · M 65 40
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 28 XP
++ 
++ SIGN
++ 
++ Lena Andersson (D145)
++ 30.8 yrs
++ T 35 · P 28 · M 74 41
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 31 XP
++ 
++ SIGN
++ 
++ Chloe Rossi
++ 32.5 yrs
++ T 33 · P 35 · M 70 42
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 31 XP
++ 
++ SIGN
++ 
++ Priya Nakamura
++ 32.7 yrs
++ T 33 · P 29 · M 76 41
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 30 XP
++ 
++ SIGN
++ 
++ Rafael Larsson
++ 32.9 yrs
++ T 31 · P 34 · M 63 39
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 27 XP
++ 
++ SIGN
++ 
++ Lena Andersson (DB10)
++ 33.3 yrs
++ T 30 · P 33 · M 80 42
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 32 XP
++ 
++ SIGN
++ 
++ Zara Silva
++ 34.3 yrs
++ T 58 · P 52 · M 81 61
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 82 XP
++ 
++ SIGN
++ 
++ Viktor Kowalski
++ 35.9 yrs
++ T 32 · P 32 · M 69 40
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 28 XP
++ 
++ SIGN
++ 
++ Kenji García
++ 36.0 yrs
++ T 27 · P 26 · M 67 36
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 21 XP
++ 
++ SIGN
++ 
++ Lena Silva (4DAB)
++ 36.4 yrs
++ T 27 · P 33 · M 67 38
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 24 XP
++ 
++ SIGN
++ 
++ Chloe Kowalski (988F)
++ 36.7 yrs
++ T 59 · P 62 · M 73 63
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 89 XP
++ 
++ SIGN
++ 
++ Marta Dubois
++ 37.8 yrs
++ T 34 · P 31 · M 79 43
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 33 XP
++ 
++ SIGN
++ 
++ Noah Müller
++ 37.8 yrs
++ T 27 · P 34 · M 61 37
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 23 XP
++ 
++ SIGN
++ 
++ Rafael Rossi (D62C)
++ 37.8 yrs
++ T 29 · P 34 · M 69 39
++ Available
++ 0 titles
++ ·
++ $0 career
++ 
++ SIGN FOR 27 XP
++ 
++ SIGN
++ They keep training and competing while unsigned, so some are committed to a tournament right now and can't be signed until it concludes. Fresh young talent arrives in 8h 35m.
++ How signing works
