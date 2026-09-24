@@ -1,10 +1,8 @@
 /** Presentation-only helpers shared across screens — nationality
- * flags, player initials/avatar tint, and tennis scoreline
- * formatting. None of this is domain logic; it's derived purely from
- * DTOs already fetched, same reasoning as RosterDashboardEntry's
- * "don't add avatar color to the backend" decision. */
-
-export type PlayerLifecycleStage = 'youth' | 'prime' | 'decline' | 'retired';
+ * flags and tennis scoreline formatting. None of this is domain logic;
+ * it's derived purely from DTOs already fetched. Stage metadata lives in
+ * `lib/ui/stage.ts` and surface colours in `lib/ui/surfaces.ts` (the
+ * copies that used to live here / per screen are deleted). */
 
 /** Compact USD formatting for on-site prize money (e.g. "$1.2M",
  * "$45K", "$0") — shared by the player profile and tournament pages so
@@ -19,41 +17,10 @@ export function formatMoney(amount: number): string {
   }).format(amount);
 }
 
-export function stageLabel(stage: PlayerLifecycleStage): string {
-  return stage[0].toUpperCase() + stage.slice(1);
-}
-
-export function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
-  if (stage === 'prime') return { bg: 'oklch(22% 0.006 75)', fg: 'white', noteColor: 'oklch(50% 0.006 75)' };
-  if (stage === 'decline') return { bg: 'oklch(90% 0.03 40)', fg: 'oklch(38% 0.1 30)', noteColor: 'oklch(48% 0.13 30)' };
-  return { bg: 'oklch(93% 0.006 75)', fg: 'oklch(35% 0.006 75)', noteColor: 'oklch(50% 0.006 75)' };
-}
-
-const AVATAR_COLORS = [
-  'oklch(58% 0.14 45)',
-  'oklch(55% 0.13 240)',
-  'oklch(48% 0.05 300)',
-  'oklch(52% 0.12 142)',
-  'oklch(62% 0.13 75)',
-  'oklch(55% 0.16 25)',
-];
-
-export function avatarColorFor(id: string): string {
-  let hash = 0;
-  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) | 0;
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
-}
-
-export function initialsFor(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? parts[0]?.[1] ?? '')).toUpperCase();
-}
-
-/** A flat flag glyph from any 2-letter nationality code — see
- * page.tsx's original note: real hired players can carry any
- * nationality string, not the mockup's fixed curated per-country
- * flat-CSS-swatch set, so this derives a real flag glyph generically
- * instead of hand-maintaining a palette. */
+/** A flat flag glyph from any 2-letter nationality code.
+ * STAGE 8: replace every caller with `<Flag code={...} />`
+ * (components/ui/Flag.tsx, the hand-authored 16×12 SVG set) and delete
+ * this emoji helper — screens still on the old look import it. */
 export function flagFor(nationality: string): string {
   if (!/^[A-Za-z]{2}$/.test(nationality)) return '\u{1F3F3}\u{FE0F}';
   const base = 0x1f1e6;

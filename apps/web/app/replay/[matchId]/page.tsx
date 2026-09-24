@@ -20,17 +20,11 @@ import { MatchReplayPlayer } from '../../../components/MatchReplayPlayer';
 import { AppFrame } from '../../../components/ui/primitives';
 import { VersusPlayer, PlayerCardRank } from '../../../components/ui/PlayerCard';
 import { RANK_BAND_LABEL, flagFor, matchRoundLabel } from '../../../lib/format';
+import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { AirState, matchAirState } from '../../../lib/matchAir';
 import { DecidedSide, resolveDecidedSide } from '../../../lib/decidedIt';
 import { useDevManagerId } from '../../../lib/managerContext';
 import { useEntitlement } from '../../../lib/entitlement';
-
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
 
 const KNOWN_SURFACES = ['clay', 'grass', 'hard', 'indoor'] as const;
 type KnownSurface = (typeof KNOWN_SURFACES)[number];

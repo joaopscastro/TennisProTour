@@ -277,7 +277,7 @@ export default function ScoutingPage() {
         )}
 
         {candidates?.length === 0 && (
-          <Panel grain style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          <Panel style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
             <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents right now</div>
             <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)' }}>Fresh young talent arrives at the next weekly refresh.</div>
           </Panel>
@@ -352,7 +352,7 @@ export default function ScoutingPage() {
             </SectionLabel>
 
             {sortedCandidates.length === 0 ? (
-              <Panel grain style={{ marginTop: 20, padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+              <Panel style={{ marginTop: 20, padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
                 <div style={{ fontSize: 16, fontWeight: 800 }}>No free agents available to sign right now</div>
                 <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', maxWidth: 480, lineHeight: 1.5 }}>
                   All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} in the pool {candidates.length === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.

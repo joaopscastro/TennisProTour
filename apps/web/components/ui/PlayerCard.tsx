@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { Avatar } from './Avatar';
-import { Flag, OvrRing } from './primitives';
+import { Flag } from './primitives';
 import type { PlayerTournamentHistoryEntryDto } from '../../lib/api';
 import { tournamentHistoryResultLabel } from '../../lib/format';
 
@@ -216,7 +216,7 @@ export function PlayerCard({
         )}
         {ovr != null && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flex: 'none' }}>
-            <OvrRing value={ovr} size={50} />
+            <span className="num" style={{ fontSize: 32, fontWeight: 700, lineHeight: 1 }}>{ovr}</span>
             {/* Explicit label: a bare number above the attribute bars read as
                 an unlabelled mystery figure on the Scouting grid. */}
             <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>

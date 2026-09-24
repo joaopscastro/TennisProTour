@@ -1,0 +1,9 @@
+{
+  "route": "/managers",
+  "resultUrl": "http://localhost:3001/managers",
+  "title": "Grand Circuit",
+  "errorText": "",
+  "consoleErrors": [],
+  "pageErrors": [],
+  "visibleText": "Grand Circuit\nTENNIS MANAGER\nRoster\nScouting\nTournaments\nRankings\nManagers\nManager Pro\nSocial\nSoon\nSEASON 1 · WEEK 3\nDay\n7 / 7\nNext day\n14h 9m\nXP BALANCE\n494\nFREE TIER\n2 roster slots · upgrade for more room\nTHE TOUR STANDINGS\nManager Rankings\nEvery ranking point your players earn banks onto your ladder — but it erodes a little each week. Stand still and you slide. This is the number that never stops moving.\nYOUR POSITION\n#1\n250 pts\nRANK MANAGER LADDER SCORE\n● #1 ux-agent-1YOU 250\n● #2 ux-agent-2 250\n● #3 ux-agent-3 165\n#4 ux-agent-4 100"
+}

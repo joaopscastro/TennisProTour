@@ -30,76 +30,25 @@ import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
 import { useCountdown, formatCountdownClock } from '../../../lib/useCountdown';
 import { Avatar } from '../../../components/ui/Avatar';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
-import { AppFrame, Hero, Flag, StatBar, OvrRing, SurfaceBadge } from '../../../components/ui/primitives';
+import { AppFrame, Hero, Flag, StatBar, SurfaceBadge } from '../../../components/ui/primitives';
 import { FormDots, RankPill, ArchetypeBadge } from '../../../components/ui/PlayerCard';
 import {
   RANKING_EARNED_NOTE,
   WEEKS_PER_SEASON,
-  flagFor,
   formatMoney,
   formatScoreline,
   matchRoundLabel,
   rankingBandScopeNote,
-  stageLabel,
-  stageMeta,
   tournamentHistoryResultLabel,
 } from '../../../lib/format';
-
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
+import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
+import { stageLabel, stageMeta } from '../../../lib/ui/stage';
+import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../../../lib/ui/focus';
 
 const JUNIOR_BADGE = { bg: 'oklch(45% 0.1 240 / 0.35)', fg: 'oklch(85% 0.08 240)' };
 const ACHIEVEMENT_BADGE = { bg: 'oklch(45% 0.13 80 / 0.3)', fg: 'oklch(85% 0.14 85)' };
 
 const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' };
-
-// Same focus-picker reference data / helpers as the roster dashboard's
-// "Set focus" dropdown (app/page.tsx) — deliberately not extracted to
-// a shared module, matching this codebase's existing tolerance for
-// small duplicated reference data per screen (e.g. SURFACE_COLOR is
-// already repeated across several pages).
-const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus: TrainingFocus }> }> = [
-  {
-    label: 'Surface',
-    options: (['clay', 'grass', 'hard', 'indoor'] as const).map((surface) => ({
-      label: surface[0].toUpperCase() + surface.slice(1),
-      focus: { kind: 'surface', surface },
-    })),
-  },
-  {
-    label: 'Technical',
-    options: [
-      { label: 'Serve', focus: { kind: 'attribute', attribute: 'serve' } },
-      { label: 'Forehand', focus: { kind: 'attribute', attribute: 'forehand' } },
-      { label: 'Backhand', focus: { kind: 'attribute', attribute: 'backhand' } },
-      { label: 'Volley', focus: { kind: 'attribute', attribute: 'volley' } },
-    ],
-  },
-  {
-    label: 'Physical',
-    options: [
-      { label: 'Speed', focus: { kind: 'attribute', attribute: 'speed' } },
-      { label: 'Stamina', focus: { kind: 'attribute', attribute: 'stamina' } },
-      { label: 'Strength', focus: { kind: 'attribute', attribute: 'strength' } },
-    ],
-  },
-];
-
-function trainingFocusLabel(focus: TrainingFocus | null): string {
-  if (!focus) return 'No focus';
-  if (focus.kind === 'surface') return focus.surface[0].toUpperCase() + focus.surface.slice(1);
-  return focus.attribute[0].toUpperCase() + focus.attribute.slice(1);
-}
-
-function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
-  if (!a) return false;
-  if (a.kind !== b.kind) return false;
-  return a.kind === 'surface' && b.kind === 'surface' ? a.surface === b.surface : (a as { attribute: string }).attribute === (b as { attribute: string }).attribute;
-}
 
 function NetDivider({ className }: { className?: string }) {
   return (
@@ -752,7 +701,7 @@ export default function PlayerProfilePage() {
             <SectionLabel>Attributes &amp; potential</SectionLabel>
             <div className="gc-card rounded-[10px] p-[16px]" style={{ border: '1px solid var(--gc-line)' }}>
               <div className="flex items-center gap-[14px] mb-[14px]">
-                <OvrRing value={overallOf(player)} size={52} />
+                <span className="num" style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>{overallOf(player)}</span>
                 <div>
                   <div className="text-[11px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>Overall</div>
                   <div className="text-[12px]" style={{ color: 'var(--gc-ink-faint)' }}>Observable ability today — not a ceiling.</div>
@@ -1047,7 +996,7 @@ export default function PlayerProfilePage() {
                       style={{ background: 'var(--gc-s2)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink)' }}
                     >
                       <span className="flex items-center gap-[5px] overflow-hidden text-ellipsis whitespace-nowrap">
-                        {trainingFocusLabel(sw?.focus ?? null)}
+                        {trainingFocusLabel(sw?.focus ?? null, 'No focus')}
                         {sw?.isExplicit && (
                           <span className="text-[9px] font-bold flex-none" style={{ color: 'var(--gc-ball)' }} title="Explicit entry for this week">
                             ●

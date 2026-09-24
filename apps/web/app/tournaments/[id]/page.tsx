@@ -21,19 +21,13 @@ import { Sidebar } from '../../../components/Sidebar';
 import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
 import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
-import { surfaceTheme } from '../../../lib/surfaces';
+import { surfaceTheme, SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { disambiguatedNames, flagFor, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle, tournamentHeadline } from '../../../lib/bracketStatus';
 import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
 import { useEntitlement } from '../../../lib/entitlement';
 
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
 const MUTED = 'oklch(42% 0.008 75)';
 
 const CARD_H = 84;

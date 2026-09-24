@@ -2,9 +2,9 @@
 
 import React, { useMemo, useState } from 'react';
 import { Avatar } from './Avatar';
-import { Flag, OvrRing } from './primitives';
+import { Flag } from './primitives';
 import { prefersReducedMotion } from './motion';
-import { surfaceTheme } from '../../lib/surfaces';
+import { surfaceTheme } from '../../lib/ui/surfaces';
 
 /* ============================================================================
    Celebration moments (GC-16, docs/ui-direction-v2-game-feel.md)
@@ -290,7 +290,7 @@ function CardContent({ m }: { m: CelebrationMoment }) {
           <Flag code={m.nationality} size={19} /> {m.playerName}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 6 }}>
-          <OvrRing value={m.overall} size={46} />
+          <span className="num" style={{ fontSize: 34, fontWeight: 700, lineHeight: 1 }}>{m.overall}</span>
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 13px', borderRadius: 8, fontSize: 12, fontWeight: 850, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'white', background: `linear-gradient(180deg, ${accent}, color-mix(in oklch, ${accent}, black 22%))`, border: '1px solid oklch(100% 0 0 / 0.22)', boxShadow: `0 0 20px ${accent}` }}>
             {m.overall} OVR
           </span>

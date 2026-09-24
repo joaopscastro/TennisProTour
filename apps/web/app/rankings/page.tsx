@@ -13,8 +13,7 @@ import { AnimatedNumber } from '../../components/ui/motion';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../../lib/format';
-
-const MEDAL = ['oklch(80% 0.15 90)', 'oklch(78% 0.02 250)', 'oklch(62% 0.11 55)'];
+import { MEDAL } from '../../lib/ui/medals';
 
 const BANDS: Array<{ key: RankingBand; label: string }> = [
   { key: 'senior', label: 'Senior' },

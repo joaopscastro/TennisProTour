@@ -3,14 +3,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { TournamentDto, fetchOpenTournaments, registerEntrant } from '../lib/api';
 import { CircuitFilter, PlayerFitContext, buildTournamentPickGroups, entryFitFor, entryFitLabel, fitGuidance, managerEntrantLabel, tournamentRefusalReason } from '../lib/tournamentPick';
+import { SURFACE_COLOR } from '../lib/ui/surfaces';
 import { TournamentRewardsLadder, TournamentRewardSummary } from './TournamentRewards';
-
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
 
 const SURFACE_CHIPS: Array<{ value: string; label: string }> = [
   { value: 'clay', label: 'Clay' },

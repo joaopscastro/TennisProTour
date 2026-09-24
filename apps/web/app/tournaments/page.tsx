@@ -15,17 +15,10 @@ import { Sidebar } from '../../components/Sidebar';
 import { SeasonEvents } from '../../components/SeasonEvents';
 import { TournamentRewardSummary } from '../../components/TournamentRewards';
 import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
-import { surfaceTheme } from '../../lib/surfaces';
+import { SURFACE_COLOR, surfaceTheme } from '../../lib/ui/surfaces';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { describeBrowseFilters, isTournamentFinished, managerEntrantLabel, plannerWeekBlockReason, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
-
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
 
 const AGE_BAND_BADGE = { background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)' };
 

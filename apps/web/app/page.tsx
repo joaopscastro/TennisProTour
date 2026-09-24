@@ -29,58 +29,20 @@ import { Sidebar } from '../components/Sidebar';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, flagFor, rankingBandScopeNote, stageLabel, type RankBand } from '../lib/format';
+import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, rankingBandScopeNote, type RankBand } from '../lib/format';
 import { useDevManagerId } from '../lib/managerContext';
 import { refreshEntitlement, useEntitlement } from '../lib/entitlement';
 import { Avatar } from '../components/ui/Avatar';
 import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
 import { AnimatedNumber, AnimatedOvrRing, Delta, RankShift, FlashOnGain, usePersistedPrevious } from '../components/ui/motion';
 import { CelebrationMoment, CelebrationOverlay } from '../components/ui/Celebration';
-import { surfaceTheme } from '../lib/surfaces';
+import { ALL_SURFACES, surfaceMeta, surfaceTheme } from '../lib/ui/surfaces';
+import { stageLabel, stageMeta } from '../lib/ui/stage';
+import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../lib/ui/focus';
 
-// ---------------------------------------------------------------------------
-// Static reference data — mirrors the surface-color system and training-focus
-// grouping established across the whole Grand Circuit design set
-// (docs/ui-direction.md), not just this screen.
-// ---------------------------------------------------------------------------
-
-const SURFACES: Array<{ key: Surface; letter: string; color: string }> = [
-  { key: 'clay', letter: 'C', color: 'oklch(58% 0.14 45)' },
-  { key: 'grass', letter: 'G', color: 'oklch(52% 0.12 142)' },
-  { key: 'hard', letter: 'H', color: 'oklch(55% 0.13 240)' },
-  { key: 'indoor', letter: 'I', color: 'oklch(48% 0.05 300)' },
-];
-
-// Single-attribute selection (see docs/training-redesign-per-attribute.md)
-// — no "Mental" group at all: mental attributes are never a training
-// target, enforced at the type level by TrainableAttribute, so there is
-// no `focus` value this file could even construct for one.
-const FOCUS_GROUPS: Array<{ label: string; options: Array<{ label: string; focus: TrainingFocus }> }> = [
-  {
-    label: 'Surface',
-    options: SURFACES.map((s) => ({
-      label: s.key[0].toUpperCase() + s.key.slice(1),
-      focus: { kind: 'surface', surface: s.key },
-    })),
-  },
-  {
-    label: 'Technical',
-    options: [
-      { label: 'Serve', focus: { kind: 'attribute', attribute: 'serve' } },
-      { label: 'Forehand', focus: { kind: 'attribute', attribute: 'forehand' } },
-      { label: 'Backhand', focus: { kind: 'attribute', attribute: 'backhand' } },
-      { label: 'Volley', focus: { kind: 'attribute', attribute: 'volley' } },
-    ],
-  },
-  {
-    label: 'Physical',
-    options: [
-      { label: 'Speed', focus: { kind: 'attribute', attribute: 'speed' } },
-      { label: 'Stamina', focus: { kind: 'attribute', attribute: 'stamina' } },
-      { label: 'Strength', focus: { kind: 'attribute', attribute: 'strength' } },
-    ],
-  },
-];
+// Static reference data (surface colours, training-focus grouping, stage
+// palette) now lives in lib/ui/* — shared with the player profile, which
+// carried its own copies before.
 
 // Mirrors StandardAgingPolicy's thresholds (packages/domain) — those
 // values are illustrative/not-yet-balanced per CLAUDE.md — the actual
@@ -103,25 +65,6 @@ function formMeta(f: number): { color: string; label: string } {
   if (f >= 26) return { color: 'oklch(75% 0.15 85)', label: `${f} · well-played` };
   if (f >= 8) return { color: 'oklch(75% 0.15 85)', label: `${f} · warming up` };
   return { color: 'oklch(70% 0.14 30)', label: `${f} · rusty, needs matches` };
-}
-
-function stageMeta(stage: PlayerLifecycleStage): { bg: string; fg: string; noteColor: string } {
-  if (stage === 'prime') return { bg: 'oklch(45% 0.13 150 / 0.3)', fg: 'oklch(85% 0.14 150)', noteColor: 'var(--gc-ink-mute)' };
-  if (stage === 'decline') return { bg: 'oklch(50% 0.15 40 / 0.28)', fg: 'oklch(80% 0.14 45)', noteColor: 'oklch(72% 0.13 45)' };
-  if (stage === 'retired') return { bg: 'var(--gc-s3)', fg: 'var(--gc-ink-mute)', noteColor: 'var(--gc-ink-faint)' };
-  return { bg: 'oklch(45% 0.1 240 / 0.28)', fg: 'oklch(83% 0.1 240)', noteColor: 'var(--gc-ink-mute)' };
-}
-
-function trainingFocusLabel(focus: TrainingFocus | null): string {
-  if (!focus) return 'Set focus';
-  if (focus.kind === 'surface') return focus.surface[0].toUpperCase() + focus.surface.slice(1);
-  return focus.attribute[0].toUpperCase() + focus.attribute.slice(1);
-}
-
-function focusEquals(a: TrainingFocus | null, b: TrainingFocus): boolean {
-  if (!a) return false;
-  if (a.kind !== b.kind) return false;
-  return a.kind === 'surface' && b.kind === 'surface' ? a.surface === b.surface : (a as { attribute: string }).attribute === (b as { attribute: string }).attribute;
 }
 
 const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, prime: 1, youth: 2, retired: 3 };
@@ -615,16 +558,19 @@ export default function RosterDashboardPage() {
 
             {/* Legend for the C/G/H/I surface-affinity bars on each row — the
                 letters had no explanation anywhere. Derived from the same
-                SURFACES list the bars render, so the two can't drift. */}
+                ALL_SURFACES list the bars render, so the two can't drift. */}
             <div style={{ marginTop: -8, marginBottom: 12, fontSize: 10.5, color: 'var(--gc-ink-faint)' }}>
               Surfaces:{' '}
-              {SURFACES.map((s, i) => (
-                <span key={s.key}>
-                  {i > 0 ? ' · ' : ''}
-                  <strong style={{ color: 'var(--gc-ink-mute)' }}>{s.letter}</strong>{' '}
-                  {s.key[0].toUpperCase() + s.key.slice(1)}
-                </span>
-              ))}
+              {ALL_SURFACES.map((key, i) => {
+                const meta = surfaceMeta(key);
+                return (
+                  <span key={key}>
+                    {i > 0 ? ' · ' : ''}
+                    <strong style={{ color: 'var(--gc-ink-mute)' }}>{meta.letter}</strong>{' '}
+                    {meta.label}
+                  </span>
+                );
+              })}
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -634,7 +580,7 @@ export default function RosterDashboardPage() {
                 const stg = stageMeta(p.stage);
                 const busy = busyPlayerId === p.id;
                 return (
-                  <Panel key={p.id} hover grain className="gc-rise" style={{ padding: 0, opacity: busy ? 0.55 : 1, animationDelay: `${idx * 55}ms`, overflow: 'visible' }}>
+                  <Panel key={p.id} className="gc-rise" style={{ padding: 0, opacity: busy ? 0.55 : 1, animationDelay: `${idx * 55}ms`, overflow: 'visible' }}>
                     <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2.5fr) auto minmax(0,1.1fr) minmax(0,1.15fr) auto minmax(150px,1.2fr) auto', gap: 16, alignItems: 'center', padding: '15px 18px' }}>
                       {/* Identity */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
@@ -681,8 +627,8 @@ export default function RosterDashboardPage() {
 
                       {/* Surfaces */}
                       <div style={{ display: 'flex', gap: 7 }}>
-                        {SURFACES.map((s) => (
-                          <AnimatedAffinityBar key={s.key} playerId={p.id} surfaceKey={s.key} value={p.surfaceAffinities[s.key]} letter={s.letter} />
+                        {ALL_SURFACES.map((key) => (
+                          <AnimatedAffinityBar key={key} playerId={p.id} surfaceKey={key} value={p.surfaceAffinities[key]} letter={surfaceMeta(key).letter} />
                         ))}
                       </div>
 
@@ -765,7 +711,7 @@ export default function RosterDashboardPage() {
 
             {/* Form a same-manager pair from two of my own players. */}
             {hasPlayers && usedSlots >= 2 && (
-              <Panel grain style={{ padding: 14, marginBottom: 12 }}>
+              <Panel style={{ padding: 14, marginBottom: 12 }}>
                 <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gc-ink)', marginBottom: 10 }}>Form a doubles pair</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <select className="gc-select" value={pairA ?? ''} onChange={(e) => setPairA(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
@@ -852,7 +798,7 @@ export default function RosterDashboardPage() {
 
         {showEmpty && (
           <div style={{ marginTop: 20 }}>
-            <Panel grain style={{ padding: '44px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, textAlign: 'center' }}>
+            <Panel style={{ padding: '44px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, textAlign: 'center' }}>
               <Avatar id="empty-roster-slot" size={72} />
               <div>
                 <div style={{ fontSize: 22, fontWeight: 850 }}>Welcome to the circuit</div>

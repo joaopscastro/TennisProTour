@@ -1,9 +1,35 @@
 import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
+import { IBM_Plex_Mono, Inter, Saira_Condensed } from 'next/font/google';
 import './globals.css';
 import { ClerkProvider } from '@clerk/nextjs';
 import { ClerkAuthBridge } from '../components/ClerkAuthBridge';
 import { AuthGate } from '../components/AuthGate';
+
+/* Direction A type system (design/prototypes/a-broadcast-telemetry.html):
+   Saira Condensed for display, IBM Plex Mono for figures, Inter for body.
+   Self-hosted at BUILD time by next/font; exposed as CSS variables on <html>
+   so globals.css's --display/--mono/--body stacks can name them with
+   fallbacks. */
+const displayFont = Saira_Condensed({
+  subsets: ['latin'],
+  weight: ['600', '700'],
+  variable: '--font-display',
+  display: 'swap',
+});
+
+const monoFont = IBM_Plex_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500', '600'],
+  variable: '--font-mono',
+  display: 'swap',
+});
+
+const bodyFont = Inter({
+  subsets: ['latin'],
+  variable: '--font-body',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Grand Circuit',
@@ -24,11 +50,11 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   );
 
   return (
-    <html lang="en">
+    <html lang="en" className={`${displayFont.variable} ${monoFont.variable} ${bodyFont.variable}`}>
       {/* No shared nav/main wrapper here — every route renders its own
          full-bleed Sidebar + content layout (components/Sidebar.tsx),
          so a second top nav bar here would just duplicate it. */}
-      <body style={{ margin: 0 }}>{content}</body>
+      <body>{content}</body>
     </html>
   );
 }

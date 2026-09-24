@@ -1,44 +1,57 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { surfaceTheme } from '../../lib/surfaces';
-import { flagFor } from '../../lib/format';
+import React from 'react';
+import { surfaceMeta } from '../../lib/ui/surfaces';
+
+export { Flag } from './Flag';
 
 /* ---- Layout shell ---------------------------------------------------------- */
 /** Every screen renders its own Sidebar + content; this wraps the content
- *  column so the atmospheric background and max-width are consistent. */
+ *  column so the background and max-width are consistent. */
 export function PageShell({ children, wash }: { children: React.ReactNode; wash?: string }) {
   return (
-    <div style={{ flex: 1, minWidth: 0, position: 'relative', background: 'var(--gc-bg)' }}>
+    <div style={{ flex: 1, minWidth: 0, position: 'relative', background: 'var(--bg)' }}>
       {wash && <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none', background: wash }} />}
-      <div style={{ position: 'relative', maxWidth: 1180, margin: '0 auto', padding: '30px 34px 80px' }}>{children}</div>
+      <div className="gc-container" style={{ position: 'relative', padding: '30px 24px 80px' }}>{children}</div>
     </div>
   );
 }
 
 export function AppFrame({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--gc-bg-deep)' }}>{children}</div>;
+  return <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>{children}</div>;
 }
 
 /* ---- Panel ----------------------------------------------------------------- */
-export function Panel({ children, className = '', style, grain, hover }: {
-  children: React.ReactNode; className?: string; style?: React.CSSProperties; grain?: boolean; hover?: boolean;
+export function Panel({ children, className = '', style }: {
+  children: React.ReactNode; className?: string; style?: React.CSSProperties;
 }) {
   return (
-    <div className={`gc-card${hover ? ' gc-card--hover' : ''}${grain ? ' gc-grain' : ''} ${className}`} style={style}>
+    <div className={`gc-card ${className}`} style={style}>
       {children}
     </div>
   );
 }
 
-/* ---- Section heading with net motif --------------------------------------- */
+/** Flat panel header bar: an uppercase label plus an optional mono figure. */
+export function PanelHeader({ children, right, className = '' }: {
+  children: React.ReactNode; right?: React.ReactNode; className?: string;
+}) {
+  return (
+    <div className={`gc-panel-hd ${className}`}>
+      <span className="t-label" style={{ color: 'var(--ink-2)' }}>{children}</span>
+      {right != null && <span className="fig">{right}</span>}
+    </div>
+  );
+}
+
+/* ---- Section heading ------------------------------------------------------- */
 export function SectionLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '30px 2px 14px' }}>
-      <div style={{ fontSize: 12.5, fontWeight: 800, letterSpacing: '1.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)' }}>
+      <div className="t-label" style={{ fontSize: 12.5, letterSpacing: '1.4px' }}>
         {children}
       </div>
-      <div className="gc-net" style={{ flex: 1 }}><span /></div>
+      <div style={{ flex: 1 }} />
       {right}
     </div>
   );
@@ -57,105 +70,64 @@ export function Badge({ children, style }: { children: React.ReactNode; style?: 
 }
 
 export function SurfaceBadge({ surface, size = 'md' }: { surface: string; size?: 'sm' | 'md' }) {
-  const t = surfaceTheme(surface);
+  const meta = surfaceMeta(surface);
   return (
-    <span className="gc-surface-chip" style={{
-      background: `linear-gradient(180deg, ${t.color}, ${t.deep})`,
-      fontSize: size === 'sm' ? 9.5 : 10.5,
-      padding: size === 'sm' ? '2px 7px 2px 6px' : undefined,
-    }}>
-      <span className="dot" />{t.label}
+    <span className="gc-badge gc-badge--surface" style={{ fontSize: size === 'sm' ? 10 : 11 }}>
+      <span style={{ width: 7, height: 7, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
+      {meta.label}
     </span>
   );
 }
 
 export function AgeBandBadge({ band }: { band: 'u14' | 'u16' | 'u18' | null | undefined }) {
   if (!band) return null;
-  return <span className="gc-badge" style={{ background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)', borderColor: 'oklch(60% 0.1 240 / 0.4)' }}>{band.toUpperCase()}</span>;
+  return <span className="gc-badge gc-badge--band">{band.toUpperCase()}</span>;
 }
 
-/** Rank as a prominent broadcast-style plate. */
+/** Rank as a compact mono plate: band label + rank figure, no gold. */
 export function RankBadge({ rank, points, band }: { rank: number | null; points: number; band?: string }) {
   const nr = rank == null;
   return (
     <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>#</span>
-      <span style={{
-        fontSize: 26, fontWeight: 850, lineHeight: 1, letterSpacing: '-0.5px',
-        color: nr ? 'var(--gc-ink-faint)' : 'var(--gc-gold)',
-        fontVariantNumeric: 'tabular-nums',
-      }}>{nr ? 'NR' : rank}</span>
-      {!nr && <span style={{ fontSize: 11.5, color: 'var(--gc-ink-mute)', fontVariantNumeric: 'tabular-nums' }}>{points.toLocaleString()} pts</span>}
+      {band && <span className="t-label" style={{ fontSize: 10 }}>{band}</span>}
+      <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: nr ? 'var(--ink-4)' : 'var(--ink)' }}>
+        {nr ? 'NR' : `#${rank}`}
+      </span>
+      {!nr && <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{points.toLocaleString()} pts</span>}
     </div>
   );
 }
 
-/* ---- Flag ------------------------------------------------------------------ */
-export function Flag({ code, size = 15 }: { code: string; size?: number }) {
-  return <span style={{ fontSize: size, lineHeight: 1 }} title={code.toUpperCase()}>{flagFor(code)}</span>;
-}
-
-/* ---- Overall rating ring --------------------------------------------------- */
-export function OvrRing({ value, size = 46 }: { value: number; size?: number }) {
-  const pct = Math.max(0, Math.min(100, value));
-  const hue = 30 + (pct / 100) * 100; // red→green
-  const col = `oklch(72% 0.16 ${hue})`;
-  return (
-    <div style={{
-      width: size, height: size, borderRadius: 999, flex: 'none',
-      display: 'grid', placeItems: 'center', position: 'relative',
-      background: `conic-gradient(${col} ${pct}%, oklch(0% 0 0 / 0.4) 0)`,
-      boxShadow: '0 2px 6px oklch(0% 0 0 / 0.3)',
-    }}>
-      <div style={{ position: 'absolute', inset: 4, borderRadius: 999, background: 'var(--gc-s1)', display: 'grid', placeItems: 'center' }}>
-        <span style={{ fontSize: size * 0.34, fontWeight: 850, color: col, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{Math.round(value)}</span>
-      </div>
-    </div>
-  );
-}
-
-/* ---- Stat bar -------------------------------------------------------------- */
+/* ---- Stat bar (segmented 10-block) ----------------------------------------- */
 export function StatBar({ label, value, max = 100, color }: { label?: string; value: number; max?: number; color?: string }) {
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
-  const hue = 30 + (Math.min(100, value) / 100) * 100;
-  const c = color ?? `oklch(70% 0.15 ${hue})`;
+  const c = color ?? 'var(--accent)';
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      {label && <span style={{ width: 68, fontSize: 11.5, color: 'var(--gc-ink-mute)', textTransform: 'capitalize' }}>{label}</span>}
-      <div className="gc-bar" style={{ flex: 1 }}><i style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${c}, color-mix(in oklch, ${c}, white 18%))` }} /></div>
-      <span style={{ width: 26, textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-dim)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(value)}</span>
+      {label && <span className="t-label" style={{ width: 68, textTransform: 'capitalize' }}>{label}</span>}
+      <span className="gc-seg" style={{ flex: 1, ['--p' as string]: pct, ['--seg' as string]: c }} />
+      <span className="gc-seg-val" style={{ width: 26, fontWeight: 600, color: 'var(--ink)' }}>{Math.round(value)}</span>
     </div>
   );
 }
 
-/* ---- Count-up number (juice) ---------------------------------------------- */
-export function CountUp({ value, className, style, format }: { value: number; className?: string; style?: React.CSSProperties; format?: (n: number) => string }) {
-  const [n, setN] = useState(0);
-  const raf = useRef<number | undefined>(undefined);
-  useEffect(() => {
-    const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) { setN(value); return; }
-    const start = performance.now();
-    const from = 0; const dur = 700;
-    const tick = (t: number) => {
-      const p = Math.min(1, (t - start) / dur);
-      const e = 1 - Math.pow(1 - p, 3);
-      setN(from + (value - from) * e);
-      if (p < 1) raf.current = requestAnimationFrame(tick);
-    };
-    raf.current = requestAnimationFrame(tick);
-    return () => { if (raf.current) cancelAnimationFrame(raf.current); };
-  }, [value]);
-  return <span className={className} style={style}>{(format ?? ((x) => Math.round(x).toLocaleString()))(n)}</span>;
-}
-
-/* ---- Environmental hero ---------------------------------------------------- */
+/* ---- Hero band ------------------------------------------------------------- */
+/** Flat page-top band: panel surface, hairline border, a 2px surface-coloured
+ *  top edge. No surface gradient, no grain. */
 export function Hero({ surface, children, minHeight = 150 }: { surface?: string | null; children: React.ReactNode; minHeight?: number }) {
-  const t = surfaceTheme(surface);
-  const bg = surface ? t.gradient : 'linear-gradient(135deg, oklch(30% 0.03 150), oklch(18% 0.02 150) 70%)';
+  const meta = surfaceMeta(surface);
   return (
-    <div className="gc-hero gc-grain gc-rise" style={{ background: bg, minHeight, padding: '26px 30px', display: 'flex', alignItems: 'flex-end' }}>
-      <div style={{ position: 'relative', zIndex: 1, width: '100%' }}>{children}</div>
+    <div style={{
+      background: 'var(--bg-2)',
+      border: '1px solid var(--hair)',
+      borderTop: `2px solid ${surface ? meta.color : 'var(--hair-2)'}`,
+      borderRadius: 'var(--r3)',
+      minHeight,
+      padding: '26px 30px',
+      display: 'flex',
+      alignItems: 'flex-end',
+    }}>
+      <div style={{ width: '100%' }}>{children}</div>
     </div>
   );
 }

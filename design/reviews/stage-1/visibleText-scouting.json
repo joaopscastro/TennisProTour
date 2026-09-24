@@ -1,0 +1,9 @@
+{
+  "route": "/scouting",
+  "resultUrl": "http://localhost:3001/scouting",
+  "title": "Grand Circuit",
+  "errorText": "",
+  "consoleErrors": [],
+  "pageErrors": [],
+  "visibleText": "Grand Circuit\nTENNIS MANAGER\nRoster\nScouting\nTournaments\nRankings\nManagers\nManager Pro\nSocial\nSoon\nSEASON 1 · WEEK 3\nDay\n7 / 7\nNext day\n14h 9m\nXP BALANCE\n494\nFREE TIER\n2 roster slots · upgrade for more room\nTHE TALENT POOL\nScouting\nOne shared pool of free agents — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are committed to a tournament right now and can't be signed until it concludes. Every manager sees the same faces and races to sign them first. Fresh young talent arrives in 14h 9m.\nYOUR XP\n494\nManager ID (dev)\nA scout can tell you what a free agent can do today — never how high they'll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked In a draw is committed to a tournament that hasn't concluded and can't be signed until it does — a signing is always clean, never inheriting an in-progress draw. Open a player's profile to study the full breakdown.\n0 AVAILABLE OF 300 FREE AGENTS\nAvailable only\nAll\nSort: Youngest\nSort: Overall rating\nSort: Cheapest to sign\nNo free agents available to sign right now\nAll 300 free agents in the pool are committed to a tournament that hasn't concluded. They become signable once it does.\nSHOW EVERYONE (300)"
+}

@@ -7,14 +7,8 @@ import { PlayerProfileDto, fetchPlayerProfile } from '../../../../lib/api';
 import { Sidebar } from '../../../../components/Sidebar';
 import { Avatar } from '../../../../components/ui/Avatar';
 import { AppFrame, Hero, Flag } from '../../../../components/ui/primitives';
+import { SURFACE_COLOR } from '../../../../lib/ui/surfaces';
 import { formatMoney, tournamentHistoryResultLabel } from '../../../../lib/format';
-
-const SURFACE_COLOR: Record<string, string> = {
-  clay: 'var(--sf-clay)',
-  grass: 'var(--sf-grass)',
-  hard: 'var(--sf-hard)',
-  indoor: 'var(--sf-indoor)',
-};
 
 const JUNIOR_BADGE = { bg: 'oklch(45% 0.1 240 / 0.35)', fg: 'oklch(85% 0.08 240)' };
 
