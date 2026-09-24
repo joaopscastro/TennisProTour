@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Tennis Pro Tour — UI direction prototypes</title>
+<style>
+:root{
+  --bg:#0d0f12; --panel:#15191e; --line:#262c33; --ink:#eef2f6; --dim:#9aa4af; --lime:#cdf25a; --amber:#ffb000;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:16px;line-height:1.5;
+}
+.wrap{max-width:980px;margin:0 auto;padding:48px 24px}
+h1{font-size:30px;margin:0 0 8px;letter-spacing:-.01em}
+.sub{color:var(--dim);margin:0 0 32px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media (max-width:760px){.grid{grid-template-columns:1fr}}
+.card{
+  display:block;background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:22px;text-decoration:none;color:inherit;transition:border-color .15s ease-out,transform .15s ease-out;
+}
+.card:hover{border-color:var(--lime)}
+.card.a{border-top:3px solid var(--lime)}
+.card.c{border-top:3px solid var(--amber)}
+.card h2{margin:0 0 4px;font-size:20px}
+.card .tag{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim);font-weight:600}
+.card p{margin:12px 0 0;color:var(--dim);font-size:14px}
+.card ul{margin:12px 0 0;padding-left:18px;color:var(--dim);font-size:14px}
+.card li{margin:3px 0}
+.open{margin-top:16px;font-weight:600;font-size:13px;letter-spacing:.04em;text-transform:uppercase;color:var(--lime)}
+.card.c .open{color:var(--amber)}
+.note{margin-top:32px;padding:14px 16px;border:1px solid var(--line);border-radius:8px;color:var(--dim);font-size:13px}
+code{background:#1d232a;border:1px solid var(--line);border-radius:4px;padding:1px 5px;font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Tennis Pro Tour — UI direction prototypes</h1>
+  <p class="sub">Two throwaway visual directions for the same screens and the same invented dataset. Open either and compare. Neither is wired into the app.</p>
+
+  <div class="grid">
+    <a class="card a" href="a-broadcast-telemetry.html">
+      <span class="tag">Direction A</span>
+      <h2>Broadcast Sports Telemetry</h2>
+      <p>A dark broadcast-booth look: dense squad tables, segmented stat bars, a horizontal bracket with surface-coloured rails, one court-lime accent. Numerals in IBM Plex Mono, display in Saira Condensed.</p>
+      <ul>
+        <li>Roster as a dense table (not cards)</li>
+        <li>Tabbed: Roster / Tournament</li>
+        <li>Depth from background steps, no shadows</li>
+      </ul>
+      <div class="open">Open prototype A &rarr;</div>
+    </a>
+
+    <a class="card c" href="c-terminal.html">
+      <span class="tag">Direction C</span>
+      <h2>90s Management Terminal</h2>
+      <p>A monospace terminal aesthetic: box-drawn panels, ASCII bars, bracketed tokens and hotkey tabs, amber-on-black. One font, zero radius, no motion beyond a live blink.</p>
+      <ul>
+        <li>Fixed-width terminal layout</li>
+        <li>Panels framed with box-drawing characters</li>
+        <li>ASCII bars for every continuous value</li>
+      </ul>
+      <div class="open">Open prototype C &rarr;</div>
+    </a>
+  </div>
+
+  <div class="note">
+    Both files are fully self-contained and open by double-clicking. They load optional Google Fonts and fall back to local system fonts when offline. See <code>README.md</code> in this folder for details.
+  </div>
+</div>
+</body>
+</html>

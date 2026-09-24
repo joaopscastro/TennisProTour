@@ -1,0 +1,793 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Direction A — Broadcast Sports Telemetry</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+
+:root{
+  /* surfaces (colour encodes surface only, never a page background) */
+  --clay:#E07F64; --grass:#A7CC70; --hard:#ACCEE5; --indoor:#94A4C2;
+  /* bg steps */
+  --bg:#0B0E12; --bg-2:#12161C; --bg-3:#1A2028; --bg-4:#232B35;
+  --hair:rgba(255,255,255,0.10); --hair-2:rgba(255,255,255,0.18);
+  /* ink */
+  --ink:#F2F5F8; --ink-2:#A8B2BD; --ink-3:#6C7682; --ink-4:#454E58;
+  /* accent + status */
+  --accent:#CDF25A; --accent-ink:#0B0E12;
+  --live:#FF4D3D; --win:#3FD07A; --loss:#FF5A5A; --warn:#FFB020; --gold:#E9C46A;
+  /* type stacks */
+  --display:"Saira Condensed","Arial Narrow","Helvetica Neue",sans-serif;
+  --mono:"IBM Plex Mono","Lucida Console",Consolas,monospace;
+  --body:"Inter",system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--ink); font-family:var(--body);
+  font-size:15px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+a{color:inherit;text-decoration:none}
+.wrap{max-width:1280px;margin:0 auto;padding:0 24px}
+
+/* ---------- type scale ---------- */
+.t-display-xl{font-family:var(--display);font-weight:700;font-size:64px;line-height:1;letter-spacing:.01em}
+.t-display-l{font-family:var(--display);font-weight:700;font-size:44px;line-height:1}
+.t-h1{font-family:var(--display);font-weight:700;font-size:34px;line-height:1.05}
+.t-h2{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.1}
+.t-h3{font-family:var(--display);font-weight:600;font-size:20px;line-height:1.2}
+.t-body{font-size:15px}
+.t-body-sm{font-size:13px;color:var(--ink-2)}
+.t-label{font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.t-mono-l{font-family:var(--mono);font-weight:600;font-size:20px}
+.t-mono-m{font-family:var(--mono);font-weight:500;font-size:13px}
+.t-mono-s{font-family:var(--mono);font-weight:400;font-size:11px}
+.mono{font-family:var(--mono)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.dim{color:var(--ink-2)}.dim2{color:var(--ink-3)}.off{color:var(--ink-4)}
+
+/* ---------- chrome ---------- */
+.topbar{background:var(--bg-2);border-bottom:1px solid var(--hair);position:sticky;top:0;z-index:20}
+.topbar-in{max-width:1280px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;gap:24px}
+.brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:20px;letter-spacing:.02em}
+.brand .ball{color:var(--accent)}
+.topbar .sep{width:1px;height:24px;background:var(--hair)}
+.kv{display:flex;flex-direction:column;gap:1px}
+.kv .k{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.kv .v{font-family:var(--mono);font-size:13px;color:var(--ink)}
+.spacer{flex:1}
+.xp{display:flex;align-items:center;gap:8px;background:var(--bg-3);border:1px solid var(--hair);border-radius:4px;padding:6px 10px}
+.xp .amt{font-family:var(--mono);font-weight:600;color:var(--accent)}
+
+/* ---------- tabs ---------- */
+.tabs{max-width:1280px;margin:0 auto;padding:16px 24px 0;display:flex;gap:0}
+.tab{
+  font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  background:transparent;border:0;border-bottom:2px solid transparent;color:var(--ink-3);
+  padding:12px 20px;cursor:pointer;transition:color .12s ease-out,border-color .12s ease-out;
+}
+.tab:hover{color:var(--ink)}
+.tab.is-active{color:var(--ink);border-bottom-color:var(--accent)}
+.tab .n{font-family:var(--mono);margin-right:8px;color:var(--ink-4)}
+.tab.is-active .n{color:var(--accent)}
+.screen{display:block;padding:24px 0 64px}
+.js .screen{display:none}
+.js .screen.is-active{display:block}
+
+/* ---------- panels ---------- */
+.panel{background:var(--bg-2);border:1px solid var(--hair);border-radius:6px;overflow:hidden}
+.panel + .panel{margin-top:24px}
+.panel-hd{
+  background:var(--bg-3);border-bottom:1px solid var(--hair);
+  padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:16px;
+}
+.panel-hd .fig{font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.panel-bd{padding:16px}
+.panel-bd.flush{padding:0}
+.grid{display:grid;gap:24px}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-3{grid-template-columns:1.1fr .9fr 1fr}
+@media (max-width:1080px){.cols-2,.cols-3{grid-template-columns:1fr}}
+
+/* ---------- sub bar / slot meter ---------- */
+.subbar{display:flex;align-items:center;gap:20px;background:var(--bg-2);border:1px solid var(--hair);border-radius:6px;padding:14px 16px}
+.slots{display:flex;align-items:center;gap:10px}
+.slotdots{display:flex;gap:4px}
+.slotdots i{width:16px;height:8px;border-radius:2px;background:var(--accent);display:block}
+.slotdots i.empty{background:var(--bg-4)}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse}
+thead th{
+  position:sticky;top:56px;z-index:5;background:var(--bg-3);
+  font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);
+  text-align:left;padding:9px 12px;border-bottom:1px solid var(--hair-2);white-space:nowrap;
+}
+tbody td{padding:0 12px;height:32px;border-bottom:1px solid var(--hair);font-size:13px;vertical-align:middle}
+tbody tr:hover td{background:var(--bg-4)}
+tbody tr.selected td{box-shadow:inset 2px 0 0 var(--accent);background:var(--bg-3)}
+td.r,th.r{text-align:right}
+td .strong{font-weight:600}
+.ovr{font-family:var(--mono);font-weight:600;font-size:20px}
+.pcell{display:flex;align-items:center;gap:10px;min-width:190px}
+.pcell .nm{font-weight:600;color:var(--ink)}
+.pcell .ag{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.rank{font-family:var(--mono);font-size:13px}
+.rank .lad{color:var(--ink-3);font-size:11px}
+.tbl-note{padding:8px 12px;font-size:11px;color:var(--ink-3)}
+
+/* ---------- segmented stat bar ---------- */
+.seg{
+  display:inline-block;width:74px;height:9px;vertical-align:middle;border-radius:1px;
+  background:
+    repeating-linear-gradient(90deg,transparent 0 5.4px,var(--bg-2) 5.4px 7.4px),
+    linear-gradient(90deg,var(--seg,#CDF25A) calc(var(--p,0)*1%),var(--bg-4) 0);
+}
+.seg-wrap{display:inline-flex;align-items:center;gap:8px}
+.seg-val{font-family:var(--mono);font-size:12px;color:var(--ink-2);min-width:22px;text-align:right}
+
+/* ---------- surface dots ---------- */
+.surf4{display:flex;gap:10px}
+.surf4 .s{display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.clay{background:var(--clay)}.dot.grass{background:var(--grass)}.dot.hard{background:var(--hard)}.dot.indoor{background:var(--indoor)}
+.letter{font-weight:600;color:var(--ink-3)}
+
+/* ---------- flags ---------- */
+.fl{width:16px;height:12px;border-radius:2px;border:1px solid rgba(255,255,255,.22);display:block;flex:0 0 auto}
+.flcode{font-family:var(--mono);font-size:11px;border:1px solid var(--hair-2);border-radius:2px;padding:0 4px;color:var(--ink-2)}
+.flag{display:inline-flex;align-items:center;gap:8px}
+
+/* ---------- badges / chips ---------- */
+.badge{font-family:var(--mono);font-size:11px;font-weight:600;border:1px solid var(--hair-2);border-radius:2px;padding:1px 5px;color:var(--ink-2);white-space:nowrap}
+.badge.q{color:var(--hard);border-color:rgba(172,206,229,.4)}
+.badge.wc{color:var(--gold);border-color:rgba(233,196,106,.4)}
+.badge.da{color:var(--ink-3)}
+.badge.live{color:var(--accent-ink);background:var(--live);border-color:var(--live);display:inline-flex;align-items:center;gap:5px}
+.badge.u16{color:var(--grass);border-color:rgba(167,204,112,.4)}
+.badge.win{color:var(--win);border-color:rgba(63,208,122,.4)}
+.badge.surf{color:var(--ink-2)}
+.chip{font-family:var(--mono);font-size:10px;font-weight:600;border-radius:2px;padding:0 4px;background:var(--bg-4);color:var(--ink-2);display:inline-block;line-height:16px}
+.chip.w{background:var(--accent);color:var(--accent-ink)}
+.livedot{width:7px;height:7px;border-radius:50%;background:var(--live);display:inline-block;animation:pulse 1s steps(2,end) infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+
+/* ---------- buttons ---------- */
+.btn{
+  font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;
+  border-radius:4px;border:1px solid var(--hair-2);background:transparent;color:var(--ink);
+  padding:8px 14px;cursor:pointer;transition:background .12s ease-out,color .12s ease-out,border-color .12s ease-out;
+}
+.btn:hover{background:var(--bg-4)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.primary:hover{background:#dcff7a}
+.btn.sm{padding:5px 9px}
+.btn[disabled]{opacity:.4;cursor:not-allowed}
+
+/* ---------- ladders ---------- */
+.ladder{width:100%}
+.ladder tr td{height:30px}
+.ladder .stage{color:var(--ink-2)}
+.ladder .pts{font-family:var(--mono);font-weight:600;text-align:right}
+.ladder .prize{font-family:var(--mono);text-align:right;color:var(--win)}
+.ladder .nopts{font-family:var(--mono);color:var(--ink-3);text-align:right}
+
+/* ---------- hero band ---------- */
+.hero{background:var(--bg-2);border:1px solid var(--hair);border-top:2px solid var(--hard);border-radius:6px;padding:16px 20px;display:flex;align-items:center;gap:24px;flex-wrap:wrap}
+.hero .meta{display:flex;gap:20px;flex-wrap:wrap;margin-left:auto}
+.hero .meta .kv .v{font-size:13px}
+
+/* ---------- bracket ---------- */
+.bracket-scroll{overflow-x:auto;padding-bottom:8px}
+.bracket{display:flex;gap:0;align-items:stretch;min-width:1180px}
+.bround{display:flex;flex-direction:column;flex:0 0 auto}
+.bhead{font-family:var(--body);font-weight:600;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:0 0 10px}
+.bhead .n{font-family:var(--mono);color:var(--ink-4);margin-left:6px}
+.pairs{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:18px}
+.pair{position:relative;display:flex;flex-direction:column;gap:12px;padding-right:28px}
+.pair::after{content:"";position:absolute;right:0;top:18px;bottom:18px;width:2px;background:var(--conn,var(--ink-4))}
+.pair::before{content:"";position:absolute;right:-28px;top:50%;width:28px;height:2px;background:var(--conn,var(--ink-4));transform:translateY(-1px)}
+.match{width:232px;background:var(--bg-2);border:1px solid var(--hair);border-left:3px solid var(--surf,var(--ink-4));border-radius:4px;overflow:hidden}
+.match.is-live{border-color:rgba(255,77,61,.5);border-left-color:var(--live)}
+.mrow{display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-bottom:1px solid var(--hair)}
+.mrow .nm{flex:1;font-size:13px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mrow .seed{font-family:var(--mono);font-size:11px;color:var(--ink-4)}
+.mrow .sets{display:flex;gap:6px;font-family:var(--mono);font-size:13px;color:var(--ink-2)}
+.mrow.is-win .nm{color:var(--ink);font-weight:600}
+.mrow.is-win .sets{color:var(--ink);font-weight:600}
+.mscore{display:flex;gap:6px;justify-content:flex-end}
+.mfoot{display:flex;align-items:center;justify-content:space-between;gap:8px;height:26px;padding:0 10px;background:var(--bg-3);font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.mfoot.live{color:var(--live)}
+.mfoot.link{cursor:pointer}
+.mfoot.link:hover{color:var(--accent)}
+.mfoot .arrow{color:var(--ink-4)}
+
+/* ---------- qualifying grid ---------- */
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.qcard{background:var(--bg-2);border:1px solid var(--hair);border-left:3px solid var(--clay);border-radius:4px;padding:10px 12px}
+.qcard .t{display:flex;justify-content:space-between;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;margin-bottom:6px}
+.qcard .l{display:flex;align-items:center;gap:8px;height:24px;font-size:13px}
+.qcard .l .nm{flex:1}
+.qcard .l .sc{font-family:var(--mono);font-size:13px}
+.qcard .l.is-win .nm{font-weight:600;color:var(--ink)}
+
+/* ---------- replay scoreboard ---------- */
+.scoreboard{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:24px;background:var(--bg-3);border:1px solid var(--hair);border-radius:6px;padding:24px}
+.sb-side{display:flex;flex-direction:column;gap:10px}
+.sb-side.right{align-items:flex-end;text-align:right}
+.sb-name{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:26px}
+.sb-side.right .sb-name{flex-direction:row-reverse}
+.sb-rank{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.sb-sets{display:flex;gap:16px}
+.sb-set{display:flex;flex-direction:column;align-items:center;gap:4px}
+.sb-set .g{font-family:var(--mono);font-weight:600;font-size:44px;line-height:1;color:var(--ink)}
+.sb-set .g.lose{color:var(--ink-3)}
+.sb-set .sl{font-size:10px;letter-spacing:.08em;color:var(--ink-4)}
+.sb-winner{align-self:center;font-family:var(--mono);font-size:11px;color:var(--accent)}
+.decided-panel{background:var(--bg);border:1px solid var(--hair);border-radius:6px;padding:14px 16px;font-family:var(--mono);font-size:12px;line-height:1.9;color:var(--ink-2)}
+.decided-panel .row{display:flex;justify-content:space-between;gap:16px}
+.decided-panel .row .v{color:var(--ink)}
+.decided-panel .head{color:var(--ink-3);letter-spacing:.06em;text-transform:uppercase;font-size:10px;margin-bottom:4px}
+
+/* ---------- misc ---------- */
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+@media (max-width:900px){.detail-grid{grid-template-columns:1fr}}
+.dl{display:grid;grid-template-columns:150px 1fr;gap:4px 16px;font-size:13px}
+.dl dt{color:var(--ink-3);font-size:11px;letter-spacing:.06em;text-transform:uppercase;font-weight:600;padding-top:2px}
+.dl dd{margin:0;font-family:var(--mono);font-size:13px;color:var(--ink)}
+.formlist{display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:12px}
+.formlist .r{display:flex;gap:10px;align-items:center}
+.formlist .res{width:18px;font-weight:600}
+.formlist .res.w{color:var(--win)}.formlist .res.l{color:var(--loss)}
+.openslot{border:1px dashed var(--hair-2);border-radius:6px;padding:14px 16px;display:flex;align-items:center;gap:12px;color:var(--ink-3);background:transparent}
+.openslot .t{flex:1;font-size:13px}
+.notice{display:flex;gap:10px;align-items:flex-start;background:var(--bg-3);border:1px solid var(--hair);border-radius:4px;padding:10px 12px;font-size:12px;color:var(--ink-2)}
+.proj-band{display:flex;align-items:center;gap:12px}
+.proj-track{position:relative;flex:1;height:8px;background:var(--bg-4);border-radius:1px}
+.proj-fill{position:absolute;top:0;bottom:0;background:var(--accent);border-radius:1px}
+.ico{width:16px;height:16px;flex:0 0 auto}
+.muted{color:var(--ink-3)}
+.nowrap{white-space:nowrap}
+</style>
+</head>
+<body>
+
+<!-- icon sprite -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="i-ball" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 8c4 2 12 2 16 0M4 16c4-2 12-2 16 0" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v4a4 4 0 0 1-8 0V4Z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5H5v2a3 3 0 0 0 3 3M16 5h3v2a3 3 0 0 1-3 3M10 15h4v3h-4zM8 21h8" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="14" r="5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M9 3l3 6 3-6" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-house" viewBox="0 0 24 24"><path d="M4 11l8-7 8 7M6 10v10h12V10" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5l12 7-12 7z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-stopwatch" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 13V9M9 3h6M18 6l1.5 1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 5l6 7h-4v7h-4v-7H6z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 19l-6-7h4V5h4v7h4z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+  <!-- flags 16x12 -->
+  <symbol id="f-POR" viewBox="0 0 16 12"><rect width="6" height="12" fill="#046A38"/><rect x="6" width="10" height="12" fill="#DA291C"/><circle cx="6" cy="6" r="2.2" fill="#FFD100"/></symbol>
+  <symbol id="f-JPN" viewBox="0 0 16 12"><rect width="16" height="12" fill="#fff"/><circle cx="8" cy="6" r="3.2" fill="#BC002D"/></symbol>
+  <symbol id="f-FRA" viewBox="0 0 16 12"><rect width="5.33" height="12" fill="#0055A4"/><rect x="5.33" width="5.34" height="12" fill="#fff"/><rect x="10.67" width="5.33" height="12" fill="#EF4135"/></symbol>
+  <symbol id="f-ITA" viewBox="0 0 16 12"><rect width="5.33" height="12" fill="#009246"/><rect x="5.33" width="5.34" height="12" fill="#fff"/><rect x="10.67" width="5.33" height="12" fill="#CE2B37"/></symbol>
+  <symbol id="f-GER" viewBox="0 0 16 12"><rect width="16" height="4" fill="#000"/><rect y="4" width="16" height="4" fill="#DD0000"/><rect y="8" width="16" height="4" fill="#FFCE00"/></symbol>
+  <symbol id="f-ESP" viewBox="0 0 16 12"><rect width="16" height="3" fill="#AA151B"/><rect y="3" width="16" height="6" fill="#F1BF00"/><rect y="9" width="16" height="3" fill="#AA151B"/></symbol>
+  <symbol id="f-CZE" viewBox="0 0 16 12"><rect width="16" height="6" fill="#fff"/><rect y="6" width="16" height="6" fill="#D7141A"/><path d="M0 0 L8 6 L0 12 Z" fill="#11457E"/></symbol>
+  <symbol id="f-ARG" viewBox="0 0 16 12"><rect width="16" height="4" fill="#74ACDF"/><rect y="4" width="16" height="4" fill="#fff"/><rect y="8" width="16" height="4" fill="#74ACDF"/><circle cx="8" cy="6" r="1.6" fill="#F6B40E"/></symbol>
+</svg>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand"><svg class="ico ball"><use href="#i-ball"/></svg> TENNIS PRO TOUR</div>
+    <span class="sep"></span>
+    <div class="kv"><span class="k">Manager</span><span class="v">Your Academy</span></div>
+    <div class="kv"><span class="k">Tier</span><span class="v">FREE</span></div>
+    <div class="spacer"></div>
+    <div class="kv" style="text-align:right"><span class="k">World clock</span><span class="v">S2 · W11 · Day 4/7</span></div>
+    <div class="kv" style="text-align:right"><span class="k">Next day in</span><span class="v" style="color:var(--accent)">03:12:44</span></div>
+    <div class="xp"><span class="t-label" style="margin:0">XP</span><span class="amt">1,240</span></div>
+  </div>
+</header>
+
+<nav class="tabs" role="tablist">
+  <button class="tab is-active" data-tab="roster" role="tab"><span class="n">1</span>ROSTER</button>
+  <button class="tab" data-tab="tournament" role="tab"><span class="n">2</span>TOURNAMENT · BRACKET</button>
+</nav>
+
+<main class="wrap">
+
+<!-- ============================= ROSTER ============================= -->
+<section id="roster" class="screen is-active" role="tabpanel">
+
+  <div class="subbar">
+    <div class="slots">
+      <span class="t-label" style="margin:0">Roster slots</span>
+      <span class="slotdots"><i></i><i></i></span>
+      <span class="mono" style="font-weight:600">2/2</span>
+    </div>
+    <span class="sep" style="width:1px;height:22px;background:var(--hair)"></span>
+    <div class="kv"><span class="k">Free agents signable</span><span class="v">14 of 61</span></div>
+    <div class="spacer"></div>
+    <button class="btn primary" disabled><svg class="ico"><use href="#i-ball"/></svg>&nbsp;Claim free agent</button>
+  </div>
+
+  <div class="panel" style="margin-top:24px">
+    <div class="panel-hd">
+      <span class="t-label" style="margin:0">Squad</span>
+      <span class="fig">2 players · cap 2</span>
+    </div>
+    <div class="panel-bd flush">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Stage</th>
+            <th class="r">OVR</th>
+            <th>Rank</th>
+            <th class="r">Pts</th>
+            <th>Fatigue</th>
+            <th>Form</th>
+            <th>Surfaces C·G·H·I</th>
+            <th>Focus</th>
+            <th>Next</th>
+            <th class="r">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="selected">
+            <td>
+              <div class="pcell">
+                <svg class="fl"><use href="#f-POR"/></svg>
+                <span class="nm">Tomás Ferreira</span>
+                <span class="ag">POR · 20.4</span>
+              </div>
+            </td>
+            <td>
+              <div class="strong">Prime</div>
+              <div class="t-body-sm" style="font-size:11px">Decline in ~4 seasons</div>
+            </td>
+            <td class="r"><span class="ovr">66</span></td>
+            <td><span class="rank"><span class="lad">SENIOR</span> #87</span></td>
+            <td class="r num">642</td>
+            <td>
+              <span class="seg-wrap"><span class="seg" style="--p:34;--seg:#FFB020"></span><span class="seg-val">34</span></span>
+            </td>
+            <td>
+              <span class="seg-wrap"><span class="seg" style="--p:18;--seg:#CDF25A"></span><span class="seg-val">18</span></span>
+            </td>
+            <td>
+              <div class="surf4">
+                <span class="s"><span class="dot clay"></span><span class="letter">C</span>48</span>
+                <span class="s"><span class="dot grass"></span><span class="letter">G</span>22</span>
+                <span class="s"><span class="dot hard"></span><span class="letter">H</span>41</span>
+                <span class="s"><span class="dot indoor"></span><span class="letter">I</span>26</span>
+              </div>
+            </td>
+            <td class="mono">forehand</td>
+            <td>
+              <div class="nowrap" style="font-size:12px">vs Andrés Molina <span class="flcode">ESP</span></div>
+              <div class="mono" style="font-size:11px;color:var(--ink-3)">Valencia QF · hard · <span style="color:var(--accent)">STARTS IN 03:12</span></div>
+            </td>
+            <td class="r"><button class="btn sm">View</button> <button class="btn sm">Enter</button></td>
+          </tr>
+          <tr>
+            <td>
+              <div class="pcell">
+                <svg class="fl"><use href="#f-JPN"/></svg>
+                <span class="nm">Yuki Okafor</span>
+                <span class="ag">JPN · 15.6</span>
+              </div>
+            </td>
+            <td>
+              <div class="strong">Youth</div>
+              <div class="t-body-sm" style="font-size:11px">Prime in ~4 seasons</div>
+            </td>
+            <td class="r"><span class="ovr">50</span></td>
+            <td>
+              <span class="rank"><span class="lad">U16</span> #34</span>
+              <div class="t-body-sm" style="font-size:11px">Senior NR</div>
+            </td>
+            <td class="r num">168</td>
+            <td>
+              <span class="seg-wrap"><span class="seg" style="--p:12;--seg:#CDF25A"></span><span class="seg-val">12</span></span>
+            </td>
+            <td>
+              <span class="seg-wrap"><span class="seg" style="--p:9;--seg:#FFB020"></span><span class="seg-val">9</span></span>
+            </td>
+            <td>
+              <div class="surf4">
+                <span class="s"><span class="dot clay"></span><span class="letter">C</span>24</span>
+                <span class="s"><span class="dot grass"></span><span class="letter">G</span>20</span>
+                <span class="s"><span class="dot hard"></span><span class="letter">H</span>31</span>
+                <span class="s"><span class="dot indoor"></span><span class="letter">I</span>20</span>
+              </div>
+            </td>
+            <td class="mono">serve</td>
+            <td>
+              <div class="nowrap" style="font-size:12px">Ireland Classic <span class="badge u16">U16</span> <span class="badge">j30</span></div>
+              <div class="mono" style="font-size:11px;color:var(--ink-3)">clay · S2 W12 · draw not yet made</div>
+            </td>
+            <td class="r"><button class="btn sm">View</button> <button class="btn sm">Enter</button></td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="tbl-note">Form sweet spot 12–25 = match sharp. Fatigue is a sim modifier, not a hard block.</div>
+    </div>
+  </div>
+
+  <div class="detail-grid" style="margin-top:24px">
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Player detail — Tomás Ferreira</span><span class="fig">SENIOR #87</span></div>
+      <div class="panel-bd">
+        <dl class="dl">
+          <dt>Peak rank</dt><dd>SENIOR #61</dd>
+          <dt>Last result</dt><dd>Won R16 — Valencia Hardcourt Trophy</dd>
+          <dt>Titles</dt><dd>1 · Brazil International Championship <span class="badge">major</span></dd>
+          <dt>Career / season</dt><dd>$184,500 / $42,000</dd>
+          <dt>Training focus</dt><dd>forehand</dd>
+          <dt>Attributes</dt><dd>srv 71 · fh 78 · bh 62 · vol 55 · spd 74 · sta 69 · str 58 · con 66 · clu 61 · dbl 44</dd>
+        </dl>
+        <div class="t-label" style="margin:16px 0 8px">Recent form</div>
+        <div class="formlist">
+          <div class="r"><span class="res w">W</span><span>vs Luca Bianchi <span class="flcode">ITA</span> 6-4 7-5 · R16</span></div>
+          <div class="r"><span class="res w">W</span><span>vs Marek Novák <span class="flcode">CZE</span> 6-3 6-4 · R32</span></div>
+          <div class="r"><span class="res l">L</span><span>vs Diego Salas <span class="flcode">ARG</span> 4-6 6-7(4) · QF</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Player detail — Yuki Okafor</span><span class="fig">U16 #34</span></div>
+      <div class="panel-bd">
+        <dl class="dl">
+          <dt>Peak rank</dt><dd>U16 #29</dd>
+          <dt>Senior rank</dt><dd>U16 NR</dd>
+          <dt>Last result</dt><dd>QF — Ireland Classic (j30)</dd>
+          <dt>Titles</dt><dd>0</dd>
+          <dt>Career / season</dt><dd>amateur circuit — no prize money</dd>
+          <dt>Training focus</dt><dd>serve</dd>
+          <dt>Attributes</dt><dd>srv 48 · fh 55 · bh 51 · vol 40 · spd 63 · sta 52 · str 38 · con 57 · clu 44 · dbl 30</dd>
+          <dt>Pending entry</dt><dd>Ireland Classic · j30 · clay · S2 W12</dd>
+        </dl>
+        <div class="t-label" style="margin:16px 0 8px">Scout's projection</div>
+        <div class="proj-band">
+          <span class="mono" style="font-weight:600">~47–74</span>
+          <span class="badge">high</span>
+          <div class="proj-track"><span class="proj-fill" style="left:0;width:68%"></span></div>
+          <span class="mono" style="font-size:12px;color:var(--ink-2)">dev 68%</span>
+          <span class="mono" style="font-size:12px;color:var(--ink-3)">conf 0.41</span>
+        </div>
+        <div class="t-body-sm" style="margin-top:8px;font-size:11px">A young signing is a genuine gamble — the read tightens toward the true ceiling as the player matures.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:24px">
+    <div class="panel-hd"><span class="t-label" style="margin:0">Doubles pair</span><span class="fig">1 active</span></div>
+    <div class="panel-bd flush">
+      <table>
+        <thead>
+          <tr><th>Pair</th><th>Players</th><th>Chemistry</th><th>Status</th><th class="r">Action</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="strong">Ferreira / Molina</td>
+            <td>
+              <div class="flag" style="gap:14px">
+                <span class="flag"><svg class="fl"><use href="#f-POR"/></svg> Ferreira</span>
+                <span class="flag"><svg class="fl"><use href="#f-ESP"/></svg> Molina</span>
+              </div>
+            </td>
+            <td><span class="seg-wrap"><span class="seg" style="--p:37;--seg:#CDF25A"></span><span class="seg-val">37</span></span></td>
+            <td><span class="badge win">Active</span></td>
+            <td class="r"><button class="btn sm">Manage</button></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="openslot" style="margin-top:16px">
+    <svg class="ico"><use href="#i-lock"/></svg>
+    <span class="t"><strong style="color:var(--ink-2)">No open roster slot</strong> — roster at 2/2. Release a player or upgrade to Manager Pro for more slots.</span>
+    <button class="btn" disabled>Manager Pro</button>
+  </div>
+
+</section>
+
+<!-- ========================= TOURNAMENT ========================= -->
+<section id="tournament" class="screen" role="tabpanel">
+
+  <div class="hero">
+    <div>
+      <div class="t-h1">Valencia Hardcourt Trophy</div>
+      <div class="t-label" style="margin-top:6px">Challenger · Hard · 32 draw</div>
+    </div>
+    <div class="meta">
+      <div class="kv"><span class="k">Status</span><span class="v" style="color:var(--win)">Started</span></div>
+      <div class="kv"><span class="k">Week</span><span class="v">S2 W11</span></div>
+      <div class="kv"><span class="k">Host</span><span class="v">Spain <span class="flcode">ESP</span></span></div>
+      <div class="kv"><span class="k">Draw</span><span class="v">32/32 main · 3 by managers</span></div>
+      <div class="kv"><span class="k">Wild cards</span><span class="v">1 slot · 1 taken</span></div>
+    </div>
+  </div>
+
+  <div class="grid cols-2" style="margin-top:24px">
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Tournament details</span><span class="fig">32 draw</span></div>
+      <div class="panel-bd">
+        <dl class="dl">
+          <dt>Circuit</dt><dd>Senior</dd>
+          <dt>Level</dt><dd>Challenger</dd>
+          <dt>Surface</dt><dd><span class="dot hard" style="vertical-align:middle"></span> Hard</dd>
+          <dt>Host country</dt><dd>Spain <span class="flcode">ESP</span></dd>
+          <dt>Scheduled</dt><dd>Season 2 · Week 11</dd>
+          <dt>Draw size</dt><dd>32 main · 3 entered by managers</dd>
+          <dt>Qualifying</dt><dd>16 draw · 4 slots · 3 rounds · complete</dd>
+          <dt>Wild cards</dt><dd>1 slot · 1 taken</dd>
+        </dl>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Entry list</span><span class="fig">6 shown</span></div>
+      <div class="panel-bd flush">
+        <table>
+          <thead><tr><th class="r">Seed</th><th>Player</th><th>Entry</th></tr></thead>
+          <tbody>
+            <tr><td class="r num">1</td><td><span class="flag"><svg class="fl"><use href="#f-ESP"/></svg> Andrés Molina</span></td><td><span class="badge da">DA</span></td></tr>
+            <tr><td class="r num">2</td><td><span class="flag"><svg class="fl"><use href="#f-POR"/></svg> Tomás Ferreira</span></td><td><span class="badge da">DA</span></td></tr>
+            <tr><td class="r num">—</td><td><span class="flag"><svg class="fl"><use href="#f-FRA"/></svg> Kylian Dubois</span></td><td><span class="badge da">DA</span></td></tr>
+            <tr><td class="r num">—</td><td><span class="flag"><svg class="fl"><use href="#f-ITA"/></svg> Marco Ricci</span></td><td><span class="badge q">[Q]</span></td></tr>
+            <tr><td class="r num">—</td><td><span class="flag"><svg class="fl"><use href="#f-ESP"/></svg> Pablo Serrano</span></td><td><span class="badge wc">[WC]</span></td></tr>
+            <tr><td class="r num">—</td><td><span class="flag"><svg class="fl"><use href="#f-GER"/></svg> Jonas Weber</span></td><td><span class="badge q">[Q]</span> <span class="badge">qualifying</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="grid cols-2" style="margin-top:24px">
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Ranking points by result</span><span class="fig">Champion-first</span></div>
+      <div class="panel-bd flush">
+        <table class="ladder">
+          <thead><tr><th>Stage</th><th class="r">Points</th></tr></thead>
+          <tbody>
+            <tr><td class="stage">Champion</td><td class="pts">500</td></tr>
+            <tr><td class="stage">Final</td><td class="pts">330</td></tr>
+            <tr><td class="stage">Semifinal</td><td class="pts">200</td></tr>
+            <tr><td class="stage">Quarterfinal</td><td class="pts">100</td></tr>
+            <tr><td class="stage">Round of 16</td><td class="pts">50</td></tr>
+            <tr><td class="stage">Round of 32</td><td class="nopts">No points</td></tr>
+          </tbody>
+        </table>
+        <div class="tbl-note">A ranking is earned by winning — a first-round loss pays no points.</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-hd"><span class="t-label" style="margin:0">Prize money by result</span><span class="fig">Paid to play</span></div>
+      <div class="panel-bd flush">
+        <table class="ladder">
+          <thead><tr><th>Stage</th><th class="r">Prize</th></tr></thead>
+          <tbody>
+            <tr><td class="stage">Champion</td><td class="prize">$70,000</td></tr>
+            <tr><td class="stage">Final</td><td class="prize">$35,000</td></tr>
+            <tr><td class="stage">Semifinal</td><td class="prize">$18,000</td></tr>
+            <tr><td class="stage">Quarterfinal</td><td class="prize">$10,000</td></tr>
+            <tr><td class="stage">Round of 16</td><td class="prize">$5,500</td></tr>
+            <tr><td class="stage">Round of 32</td><td class="prize">$3,000</td></tr>
+          </tbody>
+        </table>
+        <div class="tbl-note">"No points" is not "no prize" — a first-round loss still earns $3,000.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:24px">
+    <div class="panel-hd"><span class="t-label" style="margin:0">Bracket — Ferreira's quarter</span><span class="fig">R32 → F · 32 draw</span></div>
+    <div class="panel-bd">
+      <div class="bracket-scroll">
+        <div class="bracket">
+
+          <div class="bround" style="width:260px">
+            <div class="bhead">Round of 32<span class="n">8 decided</span></div>
+            <div class="pairs">
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-POR"/></svg><span class="nm">Tomás Ferreira</span><span class="seed">2</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-CZE"/></svg><span class="nm">Marek Novák</span><span class="sets"><span>3</span><span>4</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Ferreira</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Andrés Molina</span><span class="seed">1</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-GER"/></svg><span class="nm">Tobias Haas</span><span class="sets"><span>2</span><span>4</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Molina</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Luca Bianchi</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Étienne Silva</span><span class="sets"><span>2</span><span>2</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Bianchi</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ARG"/></svg><span class="nm">Diego Salas</span><span class="sets"><span>7</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-GER"/></svg><span class="nm">Jonas Müller</span><span class="sets"><span>6</span><span>4</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Salas</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Kylian Dubois</span><span class="sets"><span>7</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Marco Costa</span><span class="sets"><span>5</span><span>3</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Dubois</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Marco Ricci</span><span class="badge q">[Q]</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Hugo Laurent</span><span class="sets"><span>4</span><span>4</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Ricci</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Pablo Serrano</span><span class="badge wc">[WC]</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-CZE"/></svg><span class="nm">Petr Novotný</span><span class="sets"><span>1</span><span>2</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Serrano</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-GER"/></svg><span class="nm">Jonas Weber</span><span class="badge q">[Q]</span><span class="sets"><span>6</span><span>7</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Paul Andersen</span><span class="sets"><span>3</span><span>5</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Weber</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bround" style="width:260px">
+            <div class="bhead">Round of 16<span class="n">4 decided</span></div>
+            <div class="pairs">
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-POR"/></svg><span class="nm">Tomás Ferreira</span><span class="seed">2</span><span class="sets"><span>6</span><span>7</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Luca Bianchi</span><span class="sets"><span>4</span><span>5</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Ferreira</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Andrés Molina</span><span class="seed">1</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ARG"/></svg><span class="nm">Diego Salas</span><span class="sets"><span>3</span><span>2</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Molina</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+              <div class="pair" style="--conn:#ACCEE5">
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Kylian Dubois</span><span class="sets"><span>6</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Pablo Serrano</span><span class="badge wc">[WC]</span><span class="sets"><span>4</span><span>3</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Dubois</span><span class="arrow">Watch replay »</span></div>
+                </div>
+                <div class="match" style="--surf:#ACCEE5">
+                  <div class="mrow is-win"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Marco Ricci</span><span class="badge q">[Q]</span><span class="sets"><span>7</span><span>6</span></span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-GER"/></svg><span class="nm">Jonas Weber</span><span class="badge q">[Q]</span><span class="sets"><span>5</span><span>4</span></span></div>
+                  <div class="mfoot link"><span><span class="chip w">W</span> Ricci</span><span class="arrow">Watch replay »</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bround" style="width:260px">
+            <div class="bhead">Quarterfinal<span class="n">1 live · 1 upcoming</span></div>
+            <div class="pairs">
+              <div class="pair" style="--conn:#454E58">
+                <div class="match is-live" style="--surf:#FF4D3D">
+                  <div class="mrow"><svg class="fl"><use href="#f-POR"/></svg><span class="nm">Tomás Ferreira</span><span class="seed">2</span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Andrés Molina</span><span class="seed">1</span></div>
+                  <div class="mfoot live"><span><span class="livedot"></span> LIVE</span><span>STARTS IN 03:12</span></div>
+                </div>
+                <div class="match" style="--surf:#454E58">
+                  <div class="mrow"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Kylian Dubois</span></div>
+                  <div class="mrow"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Marco Ricci</span><span class="badge q">[Q]</span></div>
+                  <div class="mfoot"><span><svg class="ico"><use href="#i-stopwatch"/></svg></span><span>STARTS IN 9:52</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bround" style="width:260px">
+            <div class="bhead">Semifinal<span class="n">TBD</span></div>
+            <div class="pairs">
+              <div class="pair" style="--conn:#454E58">
+                <div class="match" style="--surf:#454E58">
+                  <div class="mrow"><span class="nm muted">TBD</span></div>
+                  <div class="mrow"><span class="nm muted">TBD</span></div>
+                  <div class="mfoot"><span>PENDING</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="bround" style="width:260px">
+            <div class="bhead">Final<span class="n">TBD</span></div>
+            <div class="pairs">
+              <div class="pair">
+                <div class="match" style="--surf:#454E58">
+                  <div class="mrow"><span class="nm muted">TBD</span></div>
+                  <div class="mrow"><span class="nm muted">TBD</span></div>
+                  <div class="mfoot"><span>PENDING</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:24px">
+    <div class="panel-hd"><span class="t-label" style="margin:0">Qualifying — final round</span><span class="fig">16 draw · 4 slots · 3 rounds · complete</span></div>
+    <div class="panel-bd">
+      <div class="qgrid">
+        <div class="qcard">
+          <div class="t"><span>Qualifying final</span><span class="mono">match 1</span></div>
+          <div class="l is-win"><svg class="fl"><use href="#f-ESP"/></svg><span class="nm">Pablo Serrano</span><span class="badge wc">[WC]</span><span class="sc">7-6(5) 6-4</span></div>
+          <div class="l"><svg class="fl"><use href="#f-GER"/></svg><span class="nm">Jonas Weber</span><span class="badge q">[Q]</span><span class="sc">6-7(5) 4-6</span></div>
+        </div>
+        <div class="qcard">
+          <div class="t"><span>Qualifying final</span><span class="mono">match 2</span></div>
+          <div class="l is-win"><svg class="fl"><use href="#f-ITA"/></svg><span class="nm">Marco Ricci</span><span class="badge q">[Q]</span><span class="sc">6-2 6-3</span></div>
+          <div class="l"><svg class="fl"><use href="#f-FRA"/></svg><span class="nm">Hugo Laurent</span><span class="sc">2-6 3-6</span></div>
+        </div>
+      </div>
+      <div class="tbl-note" style="padding-left:0">Winners of the qualifying final earn a reserved main-draw <span class="badge q">[Q]</span> place. A host-country qualifier may be promoted by wild card <span class="badge wc">[WC]</span>.</div>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-top:24px">
+    <div class="panel-hd"><span class="t-label" style="margin:0">Replay — Round of 16</span><span class="fig">hard · decided</span></div>
+    <div class="panel-bd">
+      <div class="scoreboard">
+        <div class="sb-side">
+          <div class="sb-name"><svg class="fl" style="width:22px;height:16px"><use href="#f-POR"/></svg> Tomás Ferreira</div>
+          <div class="sb-rank">SENIOR #87 · seed 2</div>
+          <div class="sb-winner"><svg class="ico"><use href="#i-check"/></svg> Winner</div>
+        </div>
+        <div class="sb-sets">
+          <div class="sb-set"><span class="g">6</span><span class="g lose">4</span><span class="sl">SET 1</span></div>
+          <div class="sb-set"><span class="g">7</span><span class="g lose">5</span><span class="sl">SET 2</span></div>
+        </div>
+        <div class="sb-side right">
+          <div class="sb-name">Luca Bianchi <svg class="fl" style="width:22px;height:16px"><use href="#f-ITA"/></svg></div>
+          <div class="sb-rank">SENIOR #104 · unseeded</div>
+        </div>
+      </div>
+      <div class="decided-panel" style="margin-top:16px">
+        <div class="head">What decided it — at match time</div>
+        <div class="row"><span>Surface</span><span class="v">Hard</span></div>
+        <div class="row"><span>Ferreira — fatigue / form / affinity / venue</span><span class="v">31 / 18 / 41 / away</span></div>
+        <div class="row"><span>Bianchi — fatigue / form / affinity / venue</span><span class="v">44 / 22 / 33 / away</span></div>
+      </div>
+    </div>
+  </div>
+
+</section>
+</main>
+
+<script>
+(function(){
+  var body=document.body; body.classList.add('js');
+  var tabs=Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  var screens=Array.prototype.slice.call(document.querySelectorAll('.screen'));
+  function show(id){
+    screens.forEach(function(s){s.classList.toggle('is-active',s.id===id);});
+    tabs.forEach(function(t){t.classList.toggle('is-active',t.getAttribute('data-tab')===id);});
+  }
+  tabs.forEach(function(t){t.addEventListener('click',function(){show(t.getAttribute('data-tab'));});});
+  show('roster');
+})();
+</script>
+</body>
+</html>

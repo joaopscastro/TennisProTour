@@ -1,0 +1,688 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Direction C — 90s Management Terminal</title>
+<!--
+  ASCII FALLBACK NOTES (for tools/browsers without box-drawing glyph coverage):
+  ┌─ TITLE ─┐   ->   +- TITLE -+
+  │ content │   ->   | content |
+  └─────────┘   ->   +---------+
+  Full-width bars use U+2588 (█) filled / U+2591 (░) empty; fallback: [#] / [.].
+-->
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#0A0C0A; --panel:#101410; --rule:#2A332A;
+  --t-fg:#C8D6C0; --t-dim:#7C877A; --t-off:#4A5348;
+  --amber:#FFB000; --green:#46C46A; --red:#E5544B; --cyan:#56B6C2; --yellow:#E8D44D; --magenta:#C77DBB;
+  --clay:#E07F64; --grass:#A7CC70; --hard:#ACCEE5; --indoor:#B0B6D8;
+  --mono:"IBM Plex Mono","Lucida Console",Monaco,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--t-fg); font-family:var(--mono);
+  font-size:14px; line-height:1.5; font-variant-numeric:tabular-nums;
+  overflow-x:auto;
+}
+a{color:var(--cyan);text-decoration:none}
+h1,h2,h3{margin:0;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.shell{width:max-content;margin:0 auto;padding:16px;min-width:1180px}
+
+/* ---------- header ---------- */
+.hdr{display:flex;gap:0;align-items:stretch;margin-bottom:12px}
+.hdr-box{flex:1}
+.brand{color:var(--amber);font-weight:600;font-size:16px;letter-spacing:.1em}
+.hdr .fields{display:flex;gap:24px;flex-wrap:wrap;padding:6px 8px}
+.fld{display:flex;gap:6px}
+.fld .k{color:var(--t-off)}
+.fld .v{color:var(--t-fg)}
+.fld .v.hot{color:var(--amber)}
+
+/* ---------- hotkeys ---------- */
+.hotkeys{display:flex;gap:20px;align-items:center;padding:6px 8px;margin-bottom:12px}
+.hk{color:var(--t-dim);cursor:pointer;user-select:none;font-size:13px;letter-spacing:.06em}
+.hk .n{color:var(--t-off)}
+.hk:hover{color:var(--t-fg)}
+.hk.is-active{background:var(--amber);color:#0A0C0A;font-weight:600;padding:0 6px}
+.hk.is-active .n{color:#0A0C0A}
+.hk.is-disabled{color:var(--t-off);cursor:not-allowed}
+
+/* ---------- layout ---------- */
+.body{display:flex;gap:16px;align-items:flex-start}
+.nav{width:180px;flex:0 0 auto}
+.content{flex:0 0 auto}
+.screen{display:block}
+.js .screen{display:none}
+.js .screen.is-active{display:block}
+.nav-row{display:flex;gap:8px;padding:3px 8px;color:var(--t-dim)}
+.nav-row .mk{color:var(--t-off);width:1ch}
+.nav-row.is-active{color:var(--amber);font-weight:600}
+.nav-row.is-active .mk{color:var(--amber)}
+.nav-row.is-off{color:var(--t-off)}
+
+/* ---------- box-drawn panel ---------- */
+.box{margin-bottom:16px}
+.box-top,.box-bot,.box-sep{display:flex;align-items:center;white-space:nowrap;color:var(--t-off);line-height:1.3}
+.box-top .ttl{color:var(--amber);font-weight:600;letter-spacing:.06em;padding:0 6px}
+.box-top .fig,.box-bot .fig{color:var(--t-dim);padding:0 4px}
+.box-top .fill,.box-bot .fill,.box-sep .fill{flex:1;border-top:1px solid var(--rule);align-self:center;margin:0 2px}
+.box-line{display:flex;align-items:stretch}
+.box-line>.v{color:var(--t-off);flex:0 0 auto;line-height:1.3}
+.box-line>.c{flex:1;min-width:0;padding:6px 8px}
+.box-line>.c.flush{padding:0}
+
+/* ---------- tables ---------- */
+table{width:100%;border-collapse:collapse;font-size:13px}
+thead th{font-weight:600;color:var(--t-dim);text-transform:uppercase;letter-spacing:.06em;font-size:11px;text-align:left;padding:4px 8px;border-bottom:1px solid var(--rule);white-space:nowrap}
+tbody td{padding:3px 8px;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--panel)}
+tbody tr.sel td{background:#141a14}
+td.r,th.r{text-align:right}
+td.c,th.c{text-align:center}
+.strong{font-weight:600;color:var(--t-fg)}
+.dim{color:var(--t-dim)}
+.off{color:var(--t-off)}
+
+/* ---------- ascii bars ---------- */
+.bar{color:var(--t-dim);letter-spacing:-.5px}
+.bar .f{color:var(--amber)}
+.bar .e{color:var(--t-off)}
+.bar.v-green .f{color:var(--green)}
+.bar.v-cyan .f{color:var(--cyan)}
+.bar.v-mag .f{color:var(--magenta)}
+.bar.v-red .f{color:var(--red)}
+
+/* ---------- tokens ---------- */
+.tok{color:var(--t-dim)}
+.tok.q{color:var(--hard)}
+.tok.wc{color:var(--yellow)}
+.tok.u16{color:var(--grass)}
+.tok.live{color:var(--red);font-weight:600}
+.tok.win{color:var(--green)}
+.tok.da{color:var(--t-off)}
+.code{color:var(--t-dim)}
+.code.clay{color:var(--clay)}.code.grass{color:var(--grass)}.code.hard{color:var(--hard)}.code.indoor{color:var(--indoor)}
+.blink{color:var(--red);animation:blink 1s steps(2,end) infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+
+/* ---------- buttons ---------- */
+.btn{
+  font-family:var(--mono);font-size:12px;letter-spacing:.06em;
+  background:transparent;color:var(--t-fg);border:1px solid var(--rule);border-radius:0;
+  padding:2px 8px;cursor:pointer;
+}
+.btn:hover{background:var(--amber);color:#0A0C0A;border-color:var(--amber)}
+.btn.primary{color:var(--amber);border-color:var(--amber)}
+.btn[disabled]{color:var(--t-off);border-color:var(--t-off);cursor:not-allowed}
+.btn[disabled]:hover{background:transparent;color:var(--t-off)}
+
+/* ---------- bracket ---------- */
+.tbracket-scroll{overflow-x:auto}
+.tbracket{display:flex;gap:0;min-width:1200px;padding-top:4px}
+.tround{width:238px;flex:0 0 auto;display:flex;flex-direction:column}
+.tround-head{color:var(--t-dim);text-transform:uppercase;letter-spacing:.06em;font-size:11px;font-weight:600;padding-bottom:8px}
+.tround-head .n{color:var(--t-off)}
+.tpairs{display:flex;flex-direction:column;justify-content:space-around;flex:1;gap:18px}
+.tpair{position:relative;display:flex;flex-direction:column;gap:10px;padding-right:22px}
+.tpair::after{content:"";position:absolute;right:0;top:14px;bottom:14px;width:1px;background:var(--conn,var(--t-off))}
+.tpair::before{content:"──────";position:absolute;right:-22px;top:50%;color:var(--conn,var(--t-off));font-size:12px;line-height:1;transform:translateY(-6px);letter-spacing:0}
+.tmatch{border:1px solid var(--rule);border-left:3px solid var(--surf,var(--t-off));background:var(--panel)}
+.tmatch .r{display:flex;align-items:center;gap:8px;padding:3px 8px;border-bottom:1px solid var(--rule);font-size:13px}
+.tmatch .r .nm{flex:1;color:var(--t-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tmatch .r .sc{color:var(--t-dim)}
+.tmatch .r.w .nm{color:var(--t-fg);font-weight:600}
+.tmatch .r.w .sc{color:var(--t-fg);font-weight:600}
+.tmatch .ft{display:flex;justify-content:space-between;gap:8px;padding:2px 8px;font-size:11px;color:var(--t-dim)}
+.tmatch .ft.live{color:var(--red)}
+.tmatch .ft .link{color:var(--cyan)}
+.tmatch.is-live{border-color:var(--red);border-left-color:var(--red)}
+
+/* ---------- qualifying ---------- */
+.qgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.qline{display:flex;gap:8px;align-items:center;font-size:13px;padding:2px 0}
+.qline .nm{flex:1}
+.qline.w .nm{font-weight:600;color:var(--t-fg)}
+
+/* ---------- scoreboard ---------- */
+.sb{display:grid;grid-template-columns:1fr auto 1fr;gap:24px;align-items:center;padding:16px 8px}
+.sb .side{display:flex;flex-direction:column;gap:6px}
+.sb .side.right{align-items:flex-end;text-align:right}
+.sb .nm{font-size:20px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.sb .rk{color:var(--t-dim);font-size:12px}
+.sb .win{color:var(--green)}
+.sb .sets{display:flex;gap:24px}
+.sb .set{display:flex;flex-direction:column;align-items:center;gap:2px}
+.sb .set .g{font-size:28px;font-weight:600;line-height:1}
+.sb .set .g.lose{color:var(--t-dim)}
+.sb .set .sl{font-size:11px;color:var(--t-off)}
+.decided{font-size:12px;line-height:1.9}
+.decided .row{display:flex;justify-content:space-between;gap:16px}
+.decided .row .k{color:var(--t-dim)}
+.decided .row .v{color:var(--t-fg)}
+.decided .hd{color:var(--amber);text-transform:uppercase;letter-spacing:.06em;font-size:11px;margin-bottom:4px}
+
+/* ---------- misc ---------- */
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.wide{width:1200px}
+.dl{font-size:13px}
+.dl .row{display:flex;gap:8px;padding:1px 0}
+.dl .k{color:var(--t-dim);width:22ch;flex:0 0 auto}
+.dl .v{color:var(--t-fg)}
+.attrline{display:grid;grid-template-columns:1fr 1fr;gap:2px 24px;font-size:12px}
+.attrline .a{display:flex;gap:8px;align-items:center}
+.attrline .a .lbl{color:var(--t-dim);width:4ch}
+.formlist{font-size:13px}
+.formlist .r{display:flex;gap:10px;padding:1px 0}
+.formlist .w{color:var(--green);font-weight:600}
+.formlist .l{color:var(--red);font-weight:600}
+.openslot{display:flex;gap:12px;align-items:center;padding:8px}
+.openslot .t{flex:1;color:var(--t-dim)}
+.note{color:var(--t-off);font-size:12px;padding:6px 8px}
+</style>
+</head>
+<body>
+
+<div class="shell">
+
+  <div class="hdr">
+    <div class="box hdr-box" style="margin-bottom:0">
+      <div class="box-top"><span>┌─</span><span class="ttl">TENNIS PRO TOUR</span><span class="fig">TERMINAL v2.11</span><span class="fill"></span><span>┐</span></div>
+      <div class="box-line"><span class="v">│</span><span class="c">
+        <div class="fields">
+          <span class="fld"><span class="k">MANAGER</span><span class="v">Your Academy</span></span>
+          <span class="fld"><span class="k">TIER</span><span class="v">FREE</span></span>
+          <span class="fld"><span class="k">XP</span><span class="v hot">1240</span></span>
+          <span class="fld"><span class="k">WORLD</span><span class="v">SEASON 2 · WEEK 11 · DAY 4/7</span></span>
+          <span class="fld"><span class="k">NEXT DAY IN</span><span class="v hot">03:12:44</span></span>
+        </div>
+      </span><span class="v">│</span></div>
+      <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+    </div>
+  </div>
+
+  <div class="hotkeys">
+    <span class="hk is-active" data-tab="roster"><span class="n">1:</span>ROSTER</span>
+    <span class="hk is-disabled"><span class="n">2:</span>SCOUT</span>
+    <span class="hk" data-tab="tournament"><span class="n">3:</span>TOUR</span>
+    <span class="hk is-disabled"><span class="n">4:</span>RANK</span>
+  </div>
+
+  <div class="body">
+    <nav class="nav">
+      <div class="box" style="margin-bottom:0">
+        <div class="box-top"><span>┌─</span><span class="ttl">NAV</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c flush">
+          <div class="nav-row is-active"><span class="mk">›</span><span>ROSTER</span></div>
+          <div class="nav-row is-off"><span class="mk"> </span><span>SCOUT</span></div>
+          <div class="nav-row"><span class="mk"> </span><span>TOUR</span></div>
+          <div class="nav-row is-off"><span class="mk"> </span><span>RANK</span></div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+    </nav>
+
+    <main class="content">
+
+    <!-- ========================= ROSTER ========================= -->
+    <section id="roster" class="screen is-active">
+
+      <div class="box">
+        <div class="box-top"><span>┌─</span><span class="ttl">SQUAD</span><span class="fig">── 2/2 SLOTS</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c flush">
+          <table>
+            <thead>
+              <tr>
+                <th>PLAYER</th><th>AGE</th><th>STAGE</th><th>OVR</th><th>RANK</th><th class="r">PTS</th>
+                <th>FATIGUE</th><th>FORM</th><th>SURFACES</th><th>FOCUS</th><th>NEXT</th><th class="r">ACTIONS</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="sel">
+                <td><span class="code">[POR]</span> <span class="strong">Tomás Ferreira</span></td>
+                <td>20.4</td>
+                <td>PRIME <span class="off">(decline ~4 seasons)</span></td>
+                <td><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 66</td>
+                <td>SENIOR #87</td>
+                <td class="r">642</td>
+                <td><span class="bar v-red"><span class="f">███</span><span class="e">░░░░░░░</span></span> 34</td>
+                <td><span class="bar v-green"><span class="f">██</span><span class="e">░░░░░░░░</span></span> 18</td>
+                <td><span class="code clay">CLY</span>48 <span class="code grass">GRS</span>22 <span class="code hard">HRD</span>41 <span class="code indoor">IND</span>26</td>
+                <td>forehand</td>
+                <td>vs Molina <span class="code">[ESP]</span> QF HRD<br><span class="off">STARTS IN 03:12</span></td>
+                <td class="r"><button class="btn">[ VIEW ]</button> <button class="btn">[ ENTER ]</button></td>
+              </tr>
+              <tr>
+                <td><span class="code">[JPN]</span> <span class="strong">Yuki Okafor</span></td>
+                <td>15.6</td>
+                <td>YOUTH <span class="off">(prime ~4 seasons)</span></td>
+                <td><span class="bar"><span class="f">█████</span><span class="e">░░░░░</span></span> 50</td>
+                <td>U16 #34 <span class="off">· senior NR</span></td>
+                <td class="r">168</td>
+                <td><span class="bar v-green"><span class="f">█</span><span class="e">░░░░░░░░░</span></span> 12</td>
+                <td><span class="bar v-cyan"><span class="f">█</span><span class="e">░░░░░░░░░</span></span> 9</td>
+                <td><span class="code clay">CLY</span>24 <span class="code grass">GRS</span>20 <span class="code hard">HRD</span>31 <span class="code indoor">IND</span>20</td>
+                <td>serve</td>
+                <td>Ireland Classic <span class="tok u16">[U16]</span> <span class="tok">[J30]</span><br><span class="off">S2 W12 · clay · draw pending</span></td>
+                <td class="r"><button class="btn">[ VIEW ]</button> <button class="btn">[ ENTER ]</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+      <div class="note">FORM SWEET SPOT 12-25 = MATCH SHARP. FATIGUE IS A SIM MODIFIER, NOT A HARD BLOCK.</div>
+
+      <div class="cols">
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">FERREIRA</span><span class="fig">── SENIOR #87</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c">
+            <div class="dl">
+              <div class="row"><span class="k">PEAK RANK</span><span class="v">SENIOR #61 <span class="tok win">▲</span></span></div>
+              <div class="row"><span class="k">LAST RESULT</span><span class="v">WON R16 — VALENCIA HARDCOURT TROPHY</span></div>
+              <div class="row"><span class="k">TITLES</span><span class="v"><span style="color:var(--yellow)">★</span> 1 · BRAZIL INTERNATIONAL (MAJOR)</span></div>
+              <div class="row"><span class="k">CAREER / SEASON</span><span class="v">$184,500 / $42,000</span></div>
+              <div class="row"><span class="k">TRAINING FOCUS</span><span class="v">FOREHAND</span></div>
+            </div>
+            <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin:8px 0 4px">ATTRIBUTES</div>
+            <div class="attrline">
+              <span class="a"><span class="lbl">SRV</span><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 71</span>
+              <span class="a"><span class="lbl">FH</span><span class="bar"><span class="f">████████</span><span class="e">░░</span></span> 78</span>
+              <span class="a"><span class="lbl">BH</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 62</span>
+              <span class="a"><span class="lbl">VOL</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 55</span>
+              <span class="a"><span class="lbl">SPD</span><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 74</span>
+              <span class="a"><span class="lbl">STA</span><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 69</span>
+              <span class="a"><span class="lbl">STR</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 58</span>
+              <span class="a"><span class="lbl">CON</span><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 66</span>
+              <span class="a"><span class="lbl">CLU</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 61</span>
+              <span class="a"><span class="lbl">DBL</span><span class="bar"><span class="f">████</span><span class="e">░░░░░░</span></span> 44</span>
+            </div>
+            <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin:8px 0 4px">RECENT FORM</div>
+            <div class="formlist">
+              <div class="r"><span class="w">W</span><span>vs Bianchi [ITA] 6-4 7-5 · R16</span></div>
+              <div class="r"><span class="w">W</span><span>vs Novák [CZE] 6-3 6-4 · R32</span></div>
+              <div class="r"><span class="l">L</span><span>vs Salas [ARG] 4-6 6-7(4) · QF</span></div>
+            </div>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">OKAFOR</span><span class="fig">── U16 #34</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c">
+            <div class="dl">
+              <div class="row"><span class="k">PEAK RANK</span><span class="v">U16 #29 <span class="tok win">▲</span></span></div>
+              <div class="row"><span class="k">SENIOR RANK</span><span class="v">U16 NR</span></div>
+              <div class="row"><span class="k">LAST RESULT</span><span class="v">QF — IRELAND CLASSIC (J30)</span></div>
+              <div class="row"><span class="k">TITLES</span><span class="v">0</span></div>
+              <div class="row"><span class="k">CAREER / SEASON</span><span class="v">AMATEUR CIRCUIT — NO PRIZE MONEY</span></div>
+              <div class="row"><span class="k">TRAINING FOCUS</span><span class="v">SERVE</span></div>
+              <div class="row"><span class="k">PENDING ENTRY</span><span class="v">IRELAND CLASSIC · J30 · CLAY · S2 W12</span></div>
+            </div>
+            <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin:8px 0 4px">ATTRIBUTES</div>
+            <div class="attrline">
+              <span class="a"><span class="lbl">SRV</span><span class="bar"><span class="f">█████</span><span class="e">░░░░░</span></span> 48</span>
+              <span class="a"><span class="lbl">FH</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 55</span>
+              <span class="a"><span class="lbl">BH</span><span class="bar"><span class="f">█████</span><span class="e">░░░░░</span></span> 51</span>
+              <span class="a"><span class="lbl">VOL</span><span class="bar"><span class="f">████</span><span class="e">░░░░░░</span></span> 40</span>
+              <span class="a"><span class="lbl">SPD</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 63</span>
+              <span class="a"><span class="lbl">STA</span><span class="bar"><span class="f">█████</span><span class="e">░░░░░</span></span> 52</span>
+              <span class="a"><span class="lbl">STR</span><span class="bar"><span class="f">████</span><span class="e">░░░░░░</span></span> 38</span>
+              <span class="a"><span class="lbl">CON</span><span class="bar"><span class="f">██████</span><span class="e">░░░░</span></span> 57</span>
+              <span class="a"><span class="lbl">CLU</span><span class="bar"><span class="f">████</span><span class="e">░░░░░░</span></span> 44</span>
+              <span class="a"><span class="lbl">DBL</span><span class="bar"><span class="f">███</span><span class="e">░░░░░░░</span></span> 30</span>
+            </div>
+            <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin:8px 0 4px">SCOUT'S PROJECTION</div>
+            <div class="dl">
+              <div class="row"><span class="k">CEILING BAND</span><span class="v">~47-74 <span class="tok u16">[HIGH]</span></span></div>
+              <div class="row"><span class="k">DEVELOPMENT</span><span class="v"><span class="bar"><span class="f">███████</span><span class="e">░░░</span></span> 68%</span></div>
+              <div class="row"><span class="k">CONFIDENCE</span><span class="v">0.41 <span class="off">(speculative)</span></span></div>
+            </div>
+            <div class="note" style="padding-left:0">A YOUNG SIGNING IS A GAMBLE — THE READ TIGHTENS TOWARD THE TRUE CEILING AS THE PLAYER MATURES.</div>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+      </div>
+
+      <div class="box">
+        <div class="box-top"><span>┌─</span><span class="ttl">DOUBLES PAIRS</span><span class="fig">── 1 ACTIVE</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c flush">
+          <table>
+            <thead><tr><th>PAIR</th><th>PLAYERS</th><th>CHEMISTRY</th><th>STATUS</th><th class="r">ACTION</th></tr></thead>
+            <tbody>
+              <tr>
+                <td class="strong">Ferreira / Molina</td>
+                <td><span class="code">[POR]</span> Ferreira &nbsp; <span class="code">[ESP]</span> Molina</td>
+                <td><span class="bar v-green"><span class="f">████</span><span class="e">░░░░░░</span></span> 37</td>
+                <td><span class="tok win">[ACTIVE]</span></td>
+                <td class="r"><button class="btn">[ MANAGE ]</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+      <div class="box">
+        <div class="box-top"><span>┌─</span><span class="ttl">ROSTER SLOT</span><span class="fig">── 2/2</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="openslot">
+            <span class="off">[##]</span>
+            <span class="t"><span class="strong">NO OPEN SLOT</span> — roster at 2/2. Release a player or upgrade to Manager Pro.</span>
+            <button class="btn" disabled>[ + CLAIM FREE AGENT ]</button>
+          </div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+    </section>
+
+    <!-- ====================== TOURNAMENT ====================== -->
+    <section id="tournament" class="screen">
+
+      <div class="box wide">
+        <div class="box-top"><span>┌─</span><span class="ttl">VALENCIA HARDCOURT TROPHY</span><span class="fig">── CHALLENGER · HARD · 32 DRAW</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="fields" style="display:flex;gap:24px;flex-wrap:wrap">
+            <span class="fld"><span class="k">STATUS</span><span class="v" style="color:var(--green)">STARTED</span></span>
+            <span class="fld"><span class="k">WEEK</span><span class="v">S2 W11</span></span>
+            <span class="fld"><span class="k">HOST</span><span class="v">SPAIN <span class="code">[ESP]</span></span></span>
+            <span class="fld"><span class="k">DRAW</span><span class="v">32/32 MAIN · 3 BY MANAGERS</span></span>
+            <span class="fld"><span class="k">WILD CARDS</span><span class="v">1 SLOT · 1 TAKEN</span></span>
+          </div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+      <div class="cols wide" style="grid-template-columns:1fr 1fr">
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">TOURNAMENT DETAILS</span><span class="fig">── 32 DRAW</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c">
+            <div class="dl">
+              <div class="row"><span class="k">CIRCUIT</span><span class="v">SENIOR</span></div>
+              <div class="row"><span class="k">LEVEL</span><span class="v">CHALLENGER</span></div>
+              <div class="row"><span class="k">SURFACE</span><span class="v"><span class="code hard">HRD</span> HARD</span></div>
+              <div class="row"><span class="k">HOST COUNTRY</span><span class="v">SPAIN <span class="code">[ESP]</span></span></div>
+              <div class="row"><span class="k">SCHEDULED</span><span class="v">SEASON 2 · WEEK 11</span></div>
+              <div class="row"><span class="k">DRAW SIZE</span><span class="v">32 MAIN · 3 ENTERED BY MANAGERS</span></div>
+              <div class="row"><span class="k">QUALIFYING</span><span class="v">16 DRAW · 4 SLOTS · 3 ROUNDS · COMPLETE</span></div>
+              <div class="row"><span class="k">WILD CARDS</span><span class="v">1 SLOT · 1 TAKEN</span></div>
+            </div>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">ENTRY LIST</span><span class="fig">── 6 SHOWN</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c flush">
+            <table>
+              <thead><tr><th class="r">SEED</th><th>PLAYER</th><th>ENTRY</th></tr></thead>
+              <tbody>
+                <tr><td class="r">1</td><td><span class="code">[ESP]</span> Andrés Molina</td><td><span class="tok da">[DA]</span></td></tr>
+                <tr><td class="r">2</td><td><span class="code">[POR]</span> Tomás Ferreira</td><td><span class="tok da">[DA]</span></td></tr>
+                <tr><td class="r">-</td><td><span class="code">[FRA]</span> Kylian Dubois</td><td><span class="tok da">[DA]</span></td></tr>
+                <tr><td class="r">-</td><td><span class="code">[ITA]</span> Marco Ricci</td><td><span class="tok q">[Q]</span></td></tr>
+                <tr><td class="r">-</td><td><span class="code">[ESP]</span> Pablo Serrano</td><td><span class="tok wc">[WC]</span></td></tr>
+                <tr><td class="r">-</td><td><span class="code">[GER]</span> Jonas Weber</td><td><span class="tok q">[Q]</span> <span class="tok">QUALIFYING</span></td></tr>
+              </tbody>
+            </table>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+      </div>
+
+      <div class="cols wide" style="grid-template-columns:1fr 1fr">
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">RANKING POINTS</span><span class="fig">── CHAMPION-FIRST</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c flush">
+            <table>
+              <thead><tr><th>STAGE</th><th class="r">POINTS</th></tr></thead>
+              <tbody>
+                <tr><td>CHAMPION</td><td class="r strong">500</td></tr>
+                <tr><td>FINAL</td><td class="r">330</td></tr>
+                <tr><td>SEMIFINAL</td><td class="r">200</td></tr>
+                <tr><td>QUARTERFINAL</td><td class="r">100</td></tr>
+                <tr><td>ROUND OF 16</td><td class="r">50</td></tr>
+                <tr><td>ROUND OF 32</td><td class="r off">NO POINTS</td></tr>
+              </tbody>
+            </table>
+            <div class="note">A RANKING IS EARNED BY WINNING — A FIRST-ROUND LOSS PAYS NO POINTS.</div>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+
+        <div class="box">
+          <div class="box-top"><span>┌─</span><span class="ttl">PRIZE MONEY</span><span class="fig">── PAID TO PLAY</span><span class="fill"></span><span>┐</span></div>
+          <div class="box-line"><span class="v">│</span><span class="c flush">
+            <table>
+              <thead><tr><th>STAGE</th><th class="r">PRIZE</th></tr></thead>
+              <tbody>
+                <tr><td>CHAMPION</td><td class="r strong" style="color:var(--green)">$70,000</td></tr>
+                <tr><td>FINAL</td><td class="r" style="color:var(--green)">$35,000</td></tr>
+                <tr><td>SEMIFINAL</td><td class="r" style="color:var(--green)">$18,000</td></tr>
+                <tr><td>QUARTERFINAL</td><td class="r" style="color:var(--green)">$10,000</td></tr>
+                <tr><td>ROUND OF 16</td><td class="r" style="color:var(--green)">$5,500</td></tr>
+                <tr><td>ROUND OF 32</td><td class="r" style="color:var(--green)">$3,000</td></tr>
+              </tbody>
+            </table>
+            <div class="note">"NO POINTS" IS NOT "NO PRIZE" — A FIRST-ROUND LOSS STILL EARNS $3,000.</div>
+          </span><span class="v">│</span></div>
+          <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+        </div>
+      </div>
+
+      <div class="box wide">
+        <div class="box-top"><span>┌─</span><span class="ttl">BRACKET</span><span class="fig">── FERREIRA'S QUARTER · R32 → F · 32 DRAW</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="tbracket-scroll">
+            <div class="tbracket">
+
+              <div class="tround" style="width:254px">
+                <div class="tround-head">ROUND OF 32 <span class="n">8 DECIDED</span></div>
+                <div class="tpairs">
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[POR]</span><span class="nm">Ferreira</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[CZE]</span><span class="nm">Novák</span><span class="sc">3 4</span></div>
+                      <div class="ft"><span class="tok win">[W] FERREIRA</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ESP]</span><span class="nm">Molina</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[GER]</span><span class="nm">Haas</span><span class="sc">2 4</span></div>
+                      <div class="ft"><span class="tok win">[W] MOLINA</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ITA]</span><span class="nm">Bianchi</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[FRA]</span><span class="nm">Silva</span><span class="sc">2 2</span></div>
+                      <div class="ft"><span class="tok win">[W] BIANCHI</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ARG]</span><span class="nm">Salas</span><span class="sc">7 6</span></div>
+                      <div class="r"><span class="code">[GER]</span><span class="nm">Müller</span><span class="sc">6 4</span></div>
+                      <div class="ft"><span class="tok win">[W] SALAS</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[FRA]</span><span class="nm">Dubois</span><span class="sc">7 6</span></div>
+                      <div class="r"><span class="code">[ITA]</span><span class="nm">Costa</span><span class="sc">5 3</span></div>
+                      <div class="ft"><span class="tok win">[W] DUBOIS</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ITA]</span><span class="nm">Ricci</span><span class="tok q">[Q]</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[FRA]</span><span class="nm">Laurent</span><span class="sc">4 4</span></div>
+                      <div class="ft"><span class="tok win">[W] RICCI</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ESP]</span><span class="nm">Serrano</span><span class="tok wc">[WC]</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[CZE]</span><span class="nm">Novotný</span><span class="sc">1 2</span></div>
+                      <div class="ft"><span class="tok win">[W] SERRANO</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[GER]</span><span class="nm">Weber</span><span class="tok q">[Q]</span><span class="sc">6 7</span></div>
+                      <div class="r"><span class="code">[FRA]</span><span class="nm">Andersen</span><span class="sc">3 5</span></div>
+                      <div class="ft"><span class="tok win">[W] WEBER</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tround" style="width:254px">
+                <div class="tround-head">ROUND OF 16 <span class="n">4 DECIDED</span></div>
+                <div class="tpairs">
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[POR]</span><span class="nm">Ferreira</span><span class="sc">6 7</span></div>
+                      <div class="r"><span class="code">[ITA]</span><span class="nm">Bianchi</span><span class="sc">4 5</span></div>
+                      <div class="ft"><span class="tok win">[W] FERREIRA</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ESP]</span><span class="nm">Molina</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[ARG]</span><span class="nm">Salas</span><span class="sc">3 2</span></div>
+                      <div class="ft"><span class="tok win">[W] MOLINA</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                  <div class="tpair" style="--conn:var(--t-fg)">
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[FRA]</span><span class="nm">Dubois</span><span class="sc">6 6</span></div>
+                      <div class="r"><span class="code">[ESP]</span><span class="nm">Serrano</span><span class="tok wc">[WC]</span><span class="sc">4 3</span></div>
+                      <div class="ft"><span class="tok win">[W] DUBOIS</span><span class="link">»</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--hard)">
+                      <div class="r w"><span class="code">[ITA]</span><span class="nm">Ricci</span><span class="tok q">[Q]</span><span class="sc">7 6</span></div>
+                      <div class="r"><span class="code">[GER]</span><span class="nm">Weber</span><span class="tok q">[Q]</span><span class="sc">5 4</span></div>
+                      <div class="ft"><span class="tok win">[W] RICCI</span><span class="link">»</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tround" style="width:254px">
+                <div class="tround-head">QUARTERFINAL <span class="n">1 LIVE · 1 UPCOMING</span></div>
+                <div class="tpairs">
+                  <div class="tpair" style="--conn:var(--t-off)">
+                    <div class="tmatch is-live" style="--surf:var(--red)">
+                      <div class="r"><span class="code">[POR]</span><span class="nm">Ferreira</span><span class="sc"> </span></div>
+                      <div class="r"><span class="code">[ESP]</span><span class="nm">Molina</span><span class="sc"> </span></div>
+                      <div class="ft live"><span><span class="blink">●</span> LIVE</span><span>STARTS IN 03:12</span></div>
+                    </div>
+                    <div class="tmatch" style="--surf:var(--t-off)">
+                      <div class="r"><span class="code">[FRA]</span><span class="nm">Dubois</span><span class="sc"> </span></div>
+                      <div class="r"><span class="code">[ITA]</span><span class="nm">Ricci</span><span class="tok q">[Q]</span><span class="sc"> </span></div>
+                      <div class="ft"><span>[ ]</span><span>STARTS IN 9:52</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tround" style="width:254px">
+                <div class="tround-head">SEMIFINAL <span class="n">TBD</span></div>
+                <div class="tpairs">
+                  <div class="tpair" style="--conn:var(--t-off)">
+                    <div class="tmatch" style="--surf:var(--t-off)">
+                      <div class="r"><span class="nm off">TBD</span></div>
+                      <div class="r"><span class="nm off">TBD</span></div>
+                      <div class="ft"><span>PENDING</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="tround" style="width:254px">
+                <div class="tround-head">FINAL <span class="n">TBD</span></div>
+                <div class="tpairs">
+                  <div class="tpair">
+                    <div class="tmatch" style="--surf:var(--t-off)">
+                      <div class="r"><span class="nm off">TBD</span></div>
+                      <div class="r"><span class="nm off">TBD</span></div>
+                      <div class="ft"><span>PENDING</span></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+      <div class="box wide">
+        <div class="box-top"><span>┌─</span><span class="ttl">QUALIFYING — FINAL ROUND</span><span class="fig">── 16 DRAW · 4 SLOTS · 3 ROUNDS · COMPLETE</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="qgrid">
+            <div>
+              <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin-bottom:4px">QUALIFYING FINAL · MATCH 1</div>
+              <div class="qline w"><span class="code">[ESP]</span><span class="nm">Pablo Serrano</span><span class="tok wc">[WC]</span><span>7-6(5) 6-4</span></div>
+              <div class="qline"><span class="code">[GER]</span><span class="nm">Jonas Weber</span><span class="tok q">[Q]</span><span>6-7(5) 4-6</span></div>
+            </div>
+            <div>
+              <div class="hd" style="color:var(--amber);text-transform:uppercase;font-size:11px;margin-bottom:4px">QUALIFYING FINAL · MATCH 2</div>
+              <div class="qline w"><span class="code">[ITA]</span><span class="nm">Marco Ricci</span><span class="tok q">[Q]</span><span>6-2 6-3</span></div>
+              <div class="qline"><span class="code">[FRA]</span><span class="nm">Hugo Laurent</span><span>2-6 3-6</span></div>
+            </div>
+          </div>
+          <div class="note">WINNERS OF THE QUALIFYING FINAL EARN A RESERVED MAIN-DRAW [Q] PLACE. A HOST-COUNTRY QUALIFIER MAY BE PROMOTED BY WILD CARD [WC].</div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+      <div class="box wide">
+        <div class="box-top"><span>┌─</span><span class="ttl">REPLAY — ROUND OF 16</span><span class="fig">── HARD · DECIDED</span><span class="fill"></span><span>┐</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="sb">
+            <div class="side">
+              <div class="nm"><span class="code">[POR]</span> TOMÁS FERREIRA</div>
+              <div class="rk">SENIOR #87 · SEED 2</div>
+              <div class="win">✓ WINNER</div>
+            </div>
+            <div class="sets">
+              <div class="set"><span class="g">6</span><span class="g lose">4</span><span class="sl">SET 1</span></div>
+              <div class="set"><span class="g">7</span><span class="g lose">5</span><span class="sl">SET 2</span></div>
+            </div>
+            <div class="side right">
+              <div class="nm">LUCA BIANCHI <span class="code">[ITA]</span></div>
+              <div class="rk">SENIOR #104 · UNSEEDED</div>
+            </div>
+          </div>
+        </span><span class="v">│</span></div>
+        <div class="box-sep"><span>├</span><span class="fill"></span><span>┤</span></div>
+        <div class="box-line"><span class="v">│</span><span class="c">
+          <div class="decided">
+            <div class="hd">WHAT DECIDED IT — AT MATCH TIME</div>
+            <div class="row"><span class="k">SURFACE</span><span class="v">HARD</span></div>
+            <div class="row"><span class="k">FERREIRA — FATIGUE / FORM / AFFINITY / VENUE</span><span class="v">31 / 18 / 41 / AWAY</span></div>
+            <div class="row"><span class="k">BIANCHI — FATIGUE / FORM / AFFINITY / VENUE</span><span class="v">44 / 22 / 33 / AWAY</span></div>
+          </div>
+        </span><span class="v">│</span></div>
+        <div class="box-bot"><span>└</span><span class="fill"></span><span>┘</span></div>
+      </div>
+
+    </section>
+    </main>
+  </div>
+</div>
+
+<script>
+(function(){
+  var body=document.body; body.classList.add('js');
+  var tabs=Array.prototype.slice.call(document.querySelectorAll('.hk[data-tab]'));
+  var screens=Array.prototype.slice.call(document.querySelectorAll('.screen'));
+  function show(id){
+    screens.forEach(function(s){s.classList.toggle('is-active',s.id===id);});
+    tabs.forEach(function(t){t.classList.toggle('is-active',t.getAttribute('data-tab')===id);});
+  }
+  tabs.forEach(function(t){t.addEventListener('click',function(){show(t.getAttribute('data-tab'));});});
+  show('roster');
+})();
+</script>
+</body>
+</html>
