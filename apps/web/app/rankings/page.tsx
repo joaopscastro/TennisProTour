@@ -7,9 +7,9 @@ import {
   fetchRankings,
   fetchRoster,
 } from '../../lib/api';
-import { Sidebar } from '../../components/Sidebar';
-import { AppFrame, PageShell, Hero, Panel } from '../../components/ui/primitives';
-import { AnimatedNumber } from '../../components/ui/motion';
+import { AppShell } from '../../components/ui/AppShell';
+import { PageShell } from '../../components/ui/primitives';
+import { Tabs } from '../../components/ui/Tabs';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../../lib/format';
@@ -66,52 +66,30 @@ export default function RankingsPage() {
   );
 
   return (
-    <AppFrame>
-      <Sidebar active="rankings" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-
-      <PageShell wash="radial-gradient(120% 60% at 85% -10%, oklch(50% 0.13 90 / 0.16), transparent 60%)">
-        <Hero minHeight={150}>
-          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(88% 0.06 90)', opacity: 0.9 }}>The Full Table</div>
-          <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Player Rankings</div>
-          <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 90)', opacity: 0.85, marginTop: 5, maxWidth: 620, lineHeight: 1.5 }}>
+    <AppShell active="rankings" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+      <PageShell>
+        {/* Page header — flat, no hero band/wash (Direction A). */}
+        <div>
+          <div className="t-label">The Full Table</div>
+          <h1 className="t-h1" style={{ margin: '4px 0 0' }}>Player Rankings</h1>
+          <div className="t-body-sm" style={{ marginTop: 4 }}>
             Senior, U18, U16, and U14 are four separate ladders — each only counts results from its own events, and a player is ranked on whichever ladders their age and results qualify them for. Winning a senior event earns Senior points, not junior ones.
           </div>
-        </Hero>
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 18 }}>
-          {BANDS.map((b) => (
-            <button
-              key={b.key}
-              onClick={() => setBand(b.key)}
-              style={{
-                padding: '8px 16px',
-                borderRadius: 10,
-                fontSize: 13,
-                fontWeight: 800,
-                letterSpacing: '0.3px',
-                cursor: 'pointer',
-                border: `1px solid ${band === b.key ? 'var(--gc-gold)' : 'var(--gc-line)'}`,
-                background: band === b.key ? 'oklch(70% 0.15 90 / 0.14)' : 'var(--gc-s2)',
-                color: band === b.key ? 'var(--gc-gold)' : 'var(--gc-ink-mute)',
-              }}
-            >
-              {b.label}
-            </button>
-          ))}
         </div>
+
+        <Tabs
+          items={BANDS.map((b) => ({ id: b.key, label: b.label }))}
+          active={band}
+          onSelect={(id) => setBand(id as RankingBand)}
+          className="mt-2 mb-4"
+        />
 
         {/* "Where am I?" — the standings answer it directly instead of
             making a manager scan 100 rows and fall back to /managers to
             conclude they are unranked. */}
         {board && myPlayerIds && !error && (
-          <div
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-              marginTop: 14, fontSize: 12.5, borderRadius: 10, padding: '10px 14px',
-              background: 'oklch(100% 0 0 / 0.03)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)',
-            }}
-          >
-            <span style={{ lineHeight: 1.5 }}>
+          <div className="gc-subbar" style={{ marginBottom: 18 }}>
+            <span style={{ lineHeight: 1.5, fontSize: 12.5, color: 'var(--ink-2)', flex: '1 1 320px' }}>
               {myPlayerIds.size === 0
                 ? 'You have no players yet — sign a free agent in Scouting to start building a ranked roster.'
                 : myStandings.length > 0
@@ -120,14 +98,11 @@ export default function RankingsPage() {
             </span>
             {myStandings.length > 0 && (
               <button
-                onClick={() => setOnlyMine((v) => !v)}
+                className="gc-chip"
+                data-active={onlyMine}
                 aria-pressed={onlyMine}
-                style={{
-                  padding: '6px 12px', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', flex: 'none',
-                  border: `1px solid ${onlyMine ? 'var(--gc-gold)' : 'var(--gc-line)'}`,
-                  background: onlyMine ? 'oklch(70% 0.15 90 / 0.14)' : 'var(--gc-s2)',
-                  color: onlyMine ? 'var(--gc-gold)' : 'var(--gc-ink-mute)',
-                }}
+                onClick={() => setOnlyMine((v) => !v)}
+                style={{ flex: 'none' }}
               >
                 {onlyMine ? 'Show all players' : 'Show only my players'}
               </button>
@@ -136,81 +111,91 @@ export default function RankingsPage() {
         )}
 
         {error && (
-          <div style={{ marginTop: 14, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div
+            className="gc-notice"
+            style={{
+              marginBottom: 18,
+              color: 'var(--loss)',
+              borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+            }}
+          >
             {error}
           </div>
         )}
 
         {board && board.standings.length === 0 && !error && (
-          <Panel style={{ marginTop: 18, padding: '28px 20px', textAlign: 'center', color: 'var(--gc-ink-mute)', fontSize: 14 }}>
+          <div className="gc-panel" style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
             <div>No player has earned points on the {RANK_BAND_LABEL[band]} ladder yet.</div>
-            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--gc-ink-faint)', maxWidth: 560, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', maxWidth: 560, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
               {rankingBandScopeNote(band)} A player only appears here once they&apos;ve won a match in one of this band&apos;s own events — an empty junior table while U14-badged players have won senior matches is expected, not a bug.
             </div>
-          </Panel>
+          </div>
         )}
 
         {board && onlyMine && visibleStandings.length === 0 && !error && (
-          <Panel style={{ marginTop: 18, padding: '24px 20px', textAlign: 'center', color: 'var(--gc-ink-mute)', fontSize: 14 }}>
+          <div className="gc-panel" style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
             <div>None of your players is in the top 100 of the {RANK_BAND_LABEL[band]} ladder.</div>
-            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--gc-ink-faint)', lineHeight: 1.5 }}>
+            <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5 }}>
               {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
             </div>
-          </Panel>
+          </div>
         )}
 
         {board && visibleStandings.length > 0 && (
-          <Panel style={{ marginTop: 18, padding: 0, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: 'var(--gc-ink-faint)', fontSize: 11, letterSpacing: '1px', textTransform: 'uppercase' }}>
-                  <th style={{ padding: '11px 16px', width: 90 }}>Rank · {RANK_BAND_LABEL[board.band]}</th>
-                  <th style={{ padding: '11px 16px' }}>Player</th>
-                  <th style={{ padding: '11px 16px' }}>Nationality</th>
-                  <th style={{ padding: '11px 16px', textAlign: 'right' }}>Points</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleStandings.map((row) => {
-                  const mine = myPlayerIds?.has(row.playerId) ?? false;
-                  return (
-                  <tr
-                    key={row.playerId}
-                    style={{
-                      borderTop: '1px solid var(--gc-line)',
-                      background: mine ? 'oklch(70% 0.15 90 / 0.08)' : undefined,
-                    }}
-                  >
-                    <td style={{ padding: '11px 16px', fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>
-                      <span style={{ color: row.rank <= 3 ? MEDAL[row.rank - 1] : 'var(--gc-ink-mute)' }}>
-                        {row.rank <= 3 ? '● ' : ''}#{row.rank}
-                      </span>
-                    </td>
-                    <td style={{ padding: '11px 16px', fontWeight: 700 }}>
-                      <a href={`/players/${row.playerId}`} style={{ color: 'var(--gc-ink)', textDecoration: 'none' }}>
-                        {displayNames.get(row.playerId) ?? row.name}
-                      </a>
-                      {mine && (
-                        <span
-                          title="One of your rostered players"
-                          style={{ marginLeft: 8, fontSize: 9.5, fontWeight: 800, letterSpacing: '0.4px', textTransform: 'uppercase', padding: '3px 7px', borderRadius: 5, background: 'oklch(70% 0.15 90 / 0.16)', color: 'var(--gc-gold)' }}
-                        >
-                          Your player
-                        </span>
-                      )}
-                    </td>
-                    <td style={{ padding: '11px 16px', color: 'var(--gc-ink-mute)' }}>{row.nationality ?? '—'}</td>
-                    <td style={{ padding: '11px 16px', textAlign: 'right', fontWeight: 800, fontVariantNumeric: 'tabular-nums', color: 'var(--gc-ink-dim)' }}>
-                      <AnimatedNumber value={row.points} mountFrom={row.points} />
-                    </td>
+          <div className="gc-panel">
+            <div className="gc-panel-bd flush">
+              <table className="gc-table">
+                <thead>
+                  <tr>
+                    <th className="r" style={{ width: 100 }}>Rank · {RANK_BAND_LABEL[board.band]}</th>
+                    <th>Player</th>
+                    <th>Nationality</th>
+                    <th className="r">Points</th>
                   </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </Panel>
+                </thead>
+                <tbody>
+                  {visibleStandings.map((row) => {
+                    const mine = myPlayerIds?.has(row.playerId) ?? false;
+                    return (
+                      <tr key={row.playerId} className={mine ? 'is-selected' : undefined}>
+                        <td className="r">
+                          <span className="num" style={{ fontWeight: 600, color: row.rank <= 3 ? MEDAL[row.rank - 1] : 'var(--ink-2)' }}>
+                            {row.rank <= 3 && (
+                              <span className="gc-dot" style={{ background: MEDAL[row.rank - 1], marginRight: 6 }} />
+                            )}
+                            #{row.rank}
+                          </span>
+                        </td>
+                        <td>
+                          <a
+                            href={`/players/${row.playerId}`}
+                            className="gc-identity-link"
+                            style={{ fontWeight: 600, color: 'var(--ink)' }}
+                          >
+                            {displayNames.get(row.playerId) ?? row.name}
+                          </a>
+                          {mine && (
+                            <span
+                              className="gc-badge"
+                              title="One of your rostered players"
+                              style={{ marginLeft: 8, color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
+                            >
+                              Your player
+                            </span>
+                          )}
+                        </td>
+                        <td style={{ color: 'var(--ink-2)' }}>{row.nationality ?? '—'}</td>
+                        <td className="r num" style={{ fontWeight: 600 }}>{row.points.toLocaleString()}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
         )}
       </PageShell>
-    </AppFrame>
+    </AppShell>
   );
 }
