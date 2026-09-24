@@ -4,19 +4,21 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { PlayerProfileDto, fetchPlayerProfile } from '../../../../lib/api';
-import { Sidebar } from '../../../../components/Sidebar';
-import { Avatar } from '../../../../components/ui/Avatar';
-import { AppFrame, Hero, Flag } from '../../../../components/ui/primitives';
+import { AppShell } from '../../../../components/ui/AppShell';
+import { PageShell, Flag } from '../../../../components/ui/primitives';
+import { Icon } from '../../../../components/ui/Icon';
 import { SURFACE_COLOR } from '../../../../lib/ui/surfaces';
 import { formatMoney, tournamentHistoryResultLabel } from '../../../../lib/format';
-
-const JUNIOR_BADGE = { bg: 'oklch(45% 0.1 240 / 0.35)', fg: 'oklch(85% 0.08 240)' };
+import { useDevManagerId } from '../../../../lib/managerContext';
+import { useEntitlement } from '../../../../lib/entitlement';
 
 export default function PlayerHistoryPage() {
   const params = useParams<{ id: string }>();
   const playerId = params.id;
   const [profile, setProfile] = useState<PlayerProfileDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const devManagerId = useDevManagerId() ?? '';
+  const { entitlement } = useEntitlement(devManagerId);
 
   useEffect(() => {
     fetchPlayerProfile(playerId)
@@ -26,25 +28,26 @@ export default function PlayerHistoryPage() {
 
   if (error) {
     return (
-      <AppFrame>
-        <Sidebar active="roster" />
-        <div className="flex-1 p-8">
-          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)' }}>
+      <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div
+            className="gc-notice"
+            style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)', background: 'color-mix(in srgb, var(--loss) 10%, transparent)' }}
+          >
             {error}
           </div>
-        </div>
-      </AppFrame>
+        </PageShell>
+      </AppShell>
     );
   }
 
   if (!profile) {
     return (
-      <AppFrame>
-        <Sidebar active="roster" />
-        <div className="flex-1 p-8 text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          Loading history…
-        </div>
-      </AppFrame>
+      <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div className="t-body-sm">Loading history…</div>
+        </PageShell>
+      </AppShell>
     );
   }
 
@@ -52,82 +55,91 @@ export default function PlayerHistoryPage() {
   const heroSurface = profile.tournamentHistory[0]?.surface ?? null;
 
   return (
-    <AppFrame>
-      <Sidebar active="roster" />
-
-      <div className="flex-1 p-8 max-w-[900px] min-w-0">
-        <Link href={`/players/${playerId}`} className="text-[13px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+    <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+      <PageShell>
+        <Link href={`/players/${playerId}`} className="t-body-sm" style={{ color: 'var(--accent)', fontWeight: 600 }}>
           ← Back to profile
         </Link>
 
-        <div className="mt-[14px] mb-[24px]">
-          <Hero surface={heroSurface} minHeight={130}>
-            <div className="flex items-end gap-[18px]">
-              <Avatar id={profile.playerId} name={profile.name} size={72} ring />
-              <div className="pb-[2px]">
-                <div className="text-[11px] font-extrabold tracking-[2px] uppercase text-white/70">Tournament history</div>
-                <div className="text-[26px] font-extrabold tracking-[-0.4px] text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.4)] mt-[2px] flex items-center gap-[9px]">
+        <div style={{ marginTop: 14, marginBottom: 24 }}>
+          <div
+            className="gc-band"
+            style={{
+              ['--surf' as string]: heroSurface ? SURFACE_COLOR[heroSurface] : 'var(--hair-2)',
+              minHeight: 110,
+              padding: '18px 24px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 18, width: '100%' }}>
+              <Flag code={profile.nationality} size={40} />
+              <div style={{ paddingBottom: 2 }}>
+                <div className="t-label" style={{ letterSpacing: '2px' }}>Tournament history</div>
+                <div className="t-h2" style={{ marginTop: 2, display: 'flex', alignItems: 'center', gap: 9 }}>
                   <Flag code={profile.nationality} size={17} /> {profile.name}
                 </div>
-                <div className="text-[13px] mt-[6px] text-white/80">
+                <div className="t-body-sm" style={{ marginTop: 6 }}>
                   {profile.tournamentHistory.length} tournament{profile.tournamentHistory.length === 1 ? '' : 's'} entered
-                  {titledCount > 0 && <> · {titledCount} 🏆</>}
+                  {titledCount > 0 && (
+                    <>
+                      {' · '}
+                      {titledCount} <Icon name="trophy" size={12} style={{ color: 'var(--gold)' }} />
+                    </>
+                  )}
                 </div>
               </div>
             </div>
-          </Hero>
+          </div>
         </div>
 
         {profile.tournamentHistory.length === 0 ? (
-          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            No tournament entries yet.
-          </div>
+          <div className="t-body-sm">No tournament entries yet.</div>
         ) : (
-          <div className="flex flex-col gap-[8px]">
-            {profile.tournamentHistory.map((entry) => (
-              <Link
-                key={entry.tournamentId}
-                href={`/tournaments/${entry.tournamentId}`}
-                className="flex items-center justify-between gc-card gc-card--hover rounded-[8px] px-[14px] py-[11px] no-underline"
-                style={{ border: '1px solid var(--gc-line)', color: 'inherit' }}
-              >
-                <div className="flex items-center gap-[10px] min-w-0">
-                  <div
-                    className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[3px] rounded-[4px] text-white flex-none"
-                    style={{ background: SURFACE_COLOR[entry.surface] ?? 'var(--gc-line)' }}
-                  >
-                    {entry.surface}
-                  </div>
-                  {entry.ageBand && (
-                    <div
-                      className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px] flex-none"
-                      style={{ background: JUNIOR_BADGE.bg, color: JUNIOR_BADGE.fg }}
-                    >
-                      {entry.ageBand}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap">{entry.name}</div>
-                    <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                      {entry.tier} · {entry.drawSize}-draw · Season {entry.weekScheduled.season}, Week {entry.weekScheduled.week}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right flex-none">
-                  <div className="text-[12px] font-semibold" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
-                    {tournamentHistoryResultLabel(entry)}
-                  </div>
-                  {entry.prizeMoney > 0 && (
-                    <div className="text-[10.5px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
-                      {formatMoney(entry.prizeMoney)}
-                    </div>
-                  )}
-                </div>
-              </Link>
-            ))}
+          <div className="gc-panel">
+            <div className="gc-panel-bd flush">
+              <table className="gc-table gc-table--rows">
+                <thead>
+                  <tr>
+                    <th>Tournament</th>
+                    <th>Surface</th>
+                    <th>Stage</th>
+                    <th className="r">Result</th>
+                    <th className="r">Prize money</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profile.tournamentHistory.map((entry) => (
+                    <tr key={entry.tournamentId} className="gc-rowlink">
+                      <td style={{ position: 'relative' }}>
+                        <a href={`/tournaments/${entry.tournamentId}`} className="gc-rowcover" style={{ fontWeight: 600, color: 'var(--ink)' }}>
+                          {entry.name}
+                        </a>
+                        {entry.ageBand && (
+                          <span className="gc-badge gc-badge--band" style={{ fontSize: 9.5, marginLeft: 8 }}>{entry.ageBand}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span className="gc-dot" style={{ background: SURFACE_COLOR[entry.surface] ?? 'var(--ink-4)' }} />
+                          <span className="t-mono-s" style={{ textTransform: 'uppercase' }}>{entry.surface}</span>
+                        </span>
+                      </td>
+                      <td className="num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
+                        {entry.tier} · {entry.drawSize}-draw · Season {entry.weekScheduled.season}, Week {entry.weekScheduled.week}
+                      </td>
+                      <td className="r" style={{ color: entry.won ? 'var(--gold)' : 'var(--ink-3)', fontWeight: 600, fontSize: 12 }}>
+                        {tournamentHistoryResultLabel(entry)}
+                      </td>
+                      <td className="r num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
+                        {entry.prizeMoney > 0 ? formatMoney(entry.prizeMoney) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
-      </div>
-    </AppFrame>
+      </PageShell>
+    </AppShell>
   );
 }

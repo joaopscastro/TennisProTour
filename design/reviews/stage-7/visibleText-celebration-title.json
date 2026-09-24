@@ -1,0 +1,168 @@
+{
+  "url": "http://localhost:3001/tournaments/bootstrap-demo-futures",
+  "title": "Grand Circuit",
+  "visibleText": "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W9 · DAY 2/7\nNEXT DAY\n7:39:24\nXP\n499\nFREE TIER\nCHAMPION\nOnyx Clay Open\nclay · Final\nDiego Silva\nDiego Silva lifts the trophy and takes the title.\nGRAND CIRCUIT\nShare\nCONTINUE\nOnyx Clay Open\nFUTURES · CLAY · 16 DRAW\nDiego Silva lifts the trophy.\nSingle elimination · 16/16 main-draw places filled (0 by managers, 16 free-agent fillers)\nScheduled S1 W1 · now S1 W9\nSTATUS\nCOMPLETE\nDRAW\n16/16 main · 0 by managers\nHOST\nIndia\nTOURNAMENT DETAILS\n16 draw\nCIRCUIT\nSenior tour\nLEVEL\nFutures\nSURFACE\nClay\nDRAW\n16 players\nHOST\nIndia\nSCHEDULED\nS1 W1\nRANKING POINTS BY RESULT\nSTAGE POINTS\nChampion 165 pts\nRunner-up 100 pts\nSemifinalist 50 pts\nQuarterfinalist 25 pts\nRound of 16 No points\nA ranking is earned by winning — a first-round loss pays no points.\nScoring & entry rules\nPRIZE MONEY BY RESULT\nSTAGE PRIZE\nChampion $17.5K\nRunner-up $9K\nSemifinalist $5K\nQuarterfinalist $2.8K\nRound of 16 $1.5K\nUnlike ranking points, a first-round loss still pays real prize money — you're paid to play, ranked to win.\nENTRY LIST\n0 entered by managers\nPlayers entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents. Those fillers are badged “Free agent” in the bracket.\nNo managers have entered a player yet — this draw is padded with unmanaged free agents, which is why the header still shows a full draw.\nDOUBLES\n0 entrants\n8-pair draw. Players sign up solo and are paired when the tournament starts — the top pairs by combined ranking make the cut.\nNo players have signed up for doubles yet.\nBRACKET\nRound of 16 → Final · 16 draw\nRound of 16\nDecided\n8 of 8 played\nSofia Okafor def. Kenji Kim\n6-3, 2-6, 6-4\n\nViktor Nakamura (DF6C) def. Ingrid Novak\n3-6, 6-1, 6-2\n\nLuca Dubois def. Lena Costa\n6-7, 6-3, 6-1\n\nDiego Silva def. Priya García\n7-6, 6-2\n\nViktor Nakamura (F00D) def. Rafael Larsson\n7-5, 2-6, 6-3\n\nKenji Okafor def. Noah Ivanova\n7-5, 6-3\n\nAisha Kim def. Priya Santos\n0-6, 6-1, 6-2\n\nPriya Rossi def. Yuki Andersson\n7-6, 6-3\nCollapses automatically once every match has aired — keeps large draws from growing the page taller.\nQuarterfinals\nDecided\n4 of 4 played\nViktor Nakamura (DF6C) def. Sofia Okafor\n6-2, 6-7, 7-5\n\nDiego Silva def. Luca Dubois\n1-6, 6-2, 7-5\n\nViktor Nakamura (F00D) def. Kenji Okafor\n7-5, 6-1\n\nAisha Kim def. Priya Rossi\n6-3, 7-5\nCollapses automatically once every match has aired — keeps large draws from growing the page taller.\nSemifinals\nDecided\n2 of 2 played\nDiego Silva def. Viktor Nakamura (DF6C)\n6-3, 7-6\n\nViktor Nakamura (F00D) def. Aisha Kim\n6-4, 4-6, 7-5\nCollapses automatically once every match has aired — keeps large draws from growing the page taller.\nFinal\nDecided\n1 of 1 played\nDiego Silva def. Viktor Nakamura (F00D)\n6-4, 6-0\nCollapses automatically once every match has aired — keeps large draws from growing the page taller.\nChampion\nCHAMPION\nDiego Silva\nDecided path\nPending / TBD\nFree agent\n= unmanaged draw filler\nAired results link to the replay →",
+  "elements": [
+    {
+      "ref": "e1sdkzas",
+      "kind": "link",
+      "label": "Grand Circuit TENNIS MANAGER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "ei11uag",
+      "kind": "link",
+      "label": "ROSTER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "e126y79p",
+      "kind": "link",
+      "label": "SCOUTING",
+      "disabled": false,
+      "href": "/scouting"
+    },
+    {
+      "ref": "e8tcjx5",
+      "kind": "link",
+      "label": "TOURNAMENTS",
+      "disabled": false,
+      "href": "/tournaments"
+    },
+    {
+      "ref": "e1fxu7qk",
+      "kind": "link",
+      "label": "RANKINGS",
+      "disabled": false,
+      "href": "/rankings"
+    },
+    {
+      "ref": "e1y4g63",
+      "kind": "link",
+      "label": "MANAGERS",
+      "disabled": false,
+      "href": "/managers"
+    },
+    {
+      "ref": "e8dvcy5",
+      "kind": "link",
+      "label": "MANAGER PRO",
+      "disabled": false,
+      "href": "/manager-pro"
+    },
+    {
+      "ref": "e52ckqa",
+      "kind": "button",
+      "label": "CONTINUE",
+      "disabled": false
+    },
+    {
+      "ref": "e165e12i",
+      "kind": "link",
+      "label": "Sofia Okafor def. Kenji Kim 6-3, 2-6, 6-4",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m0"
+    },
+    {
+      "ref": "eacb9pc",
+      "kind": "link",
+      "label": "Viktor Nakamura (DF6C) def. Ingrid Novak 3-6, 6-1, 6-2",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m1"
+    },
+    {
+      "ref": "e1uckgxb",
+      "kind": "link",
+      "label": "Luca Dubois def. Lena Costa 6-7, 6-3, 6-1",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m2"
+    },
+    {
+      "ref": "e1xzjzko",
+      "kind": "link",
+      "label": "Diego Silva def. Priya García 7-6, 6-2",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m3"
+    },
+    {
+      "ref": "e9d7itd",
+      "kind": "link",
+      "label": "Viktor Nakamura (F00D) def. Rafael Larsson 7-5, 2-6, 6-3",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m4"
+    },
+    {
+      "ref": "e6s8zn8",
+      "kind": "link",
+      "label": "Kenji Okafor def. Noah Ivanova 7-5, 6-3",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m5"
+    },
+    {
+      "ref": "eucfiys",
+      "kind": "link",
+      "label": "Aisha Kim def. Priya Santos 0-6, 6-1, 6-2",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m6"
+    },
+    {
+      "ref": "egohet4",
+      "kind": "link",
+      "label": "Priya Rossi def. Yuki Andersson 7-6, 6-3",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r1-m7"
+    },
+    {
+      "ref": "e1fukr7t",
+      "kind": "link",
+      "label": "Viktor Nakamura (DF6C) def. Sofia Okafor 6-2, 6-7, 7-5",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r2-m0"
+    },
+    {
+      "ref": "ex9t4ce",
+      "kind": "link",
+      "label": "Diego Silva def. Luca Dubois 1-6, 6-2, 7-5",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r2-m1"
+    },
+    {
+      "ref": "e1kk77ig",
+      "kind": "link",
+      "label": "Viktor Nakamura (F00D) def. Kenji Okafor 7-5, 6-1",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r2-m2"
+    },
+    {
+      "ref": "e1n2bi73",
+      "kind": "link",
+      "label": "Aisha Kim def. Priya Rossi 6-3, 7-5",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r2-m3"
+    },
+    {
+      "ref": "e122o5sg",
+      "kind": "link",
+      "label": "Diego Silva def. Viktor Nakamura (DF6C) 6-3, 7-6",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r3-m0"
+    },
+    {
+      "ref": "em2o6bw",
+      "kind": "link",
+      "label": "Viktor Nakamura (F00D) def. Aisha Kim 6-4, 4-6, 7-5",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r3-m1"
+    },
+    {
+      "ref": "e11po1px",
+      "kind": "link",
+      "label": "Diego Silva def. Viktor Nakamura (F00D) 6-4, 6-0",
+      "disabled": false,
+      "href": "/replay/bootstrap-demo-futures-r4-m0"
+    }
+  ],
+  "errorText": ""
+}

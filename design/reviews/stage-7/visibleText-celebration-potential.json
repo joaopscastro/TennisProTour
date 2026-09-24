@@ -1,0 +1,205 @@
+{
+  "url": "http://localhost:3001/players/fb384d8d-a047-453c-aae7-9d7a27bc841b",
+  "title": "Grand Circuit",
+  "visibleText": "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W9 · DAY 2/7\nNEXT DAY\n7:49:27\nXP\n499\nMANAGER PRO\nPOTENTIAL REALISED\n~71\nHigh\nCEILING\nMarta Kowalski\nThe scouting was right. Marta Kowalski has matured into the high-ceiling prospect the early reads only hinted at.\nGRAND CIRCUIT\nShare\nCONTINUE\n← Back to roster\nMarta Kowalski\nPrime\nBR\n·\nAge 26.5\nDoubles partner\nNoah Santos\n· 0% chemistry\nSENIOR\n#\n142\n250 pts\nCAREER EARNINGS\n$35K\nFORM\n1 career title and counting.\nMATCHES\nW\nvs\nAisha Ivanova\nFinal · Crest Vietnam Trophy\n4-6, 6-3, 6-1\nW\nvs\nYuki Rossi\nSemifinal · Crest Vietnam Trophy\n7-5, 7-6\nW\nvs\nLuca Rossi\nQuarterfinal · Crest Vietnam Trophy\n6-2, 6-1\nW\nvs\nDiego Brennan\nRound of 16 · Crest Vietnam Trophy\n4-6, 6-1, 6-4\nW\nvs\nLena Nakamura\nRound of 32 · Crest Vietnam Trophy\n7-6, 6-3\nATTRIBUTES & POTENTIAL\n61\nOVERALL\nObservable ability today — not a ceiling.\nSCOUT'S PROJECTION\n~71\nHigh ceiling\nDEVELOPED\n86%\nSlow burner\nScout confidence: Confirmed\nThe scout has seen enough — this read is who they are.\nTECHNICAL\nServe\n66\n~71\nForehand\n63\n~71\nBackhand\n59\n~71\nVolley\n56\n~71\nPHYSICAL\nSpeed\n66\n~96\nStamina\n48\n~73\nStrength\n63\n~82\nMENTAL\nConsistency\n70\n—\nClutch\n58\n—\nSURFACE AFFINITY\nClay\n28\nGrass\n17\nHard\n16\nIndoor\n14\nCURRENT STANDING\nSENIOR\n#142\n250 pts\nPEAK STANDING\nPEAK · SENIOR\n250 pts\nPeaked Season 1, Week 3\nTITLES\nCrest Vietnam Trophy\nfutures · S1 W3\nSCHEDULE\nPLANNER WINDOW\n6 weeks\nWEEK TOURNAMENT ENTRY TRAINING FOCUS\nS1 W9 + ENTER TOURNAMENT\nForehand\n\nS1 W10 + ENTER TOURNAMENT\nForehand\n\nS1 W11 + ENTER TOURNAMENT\nForehand\n\nS1 W12 + ENTER TOURNAMENT\nForehand\n\nS1 W13 + ENTER TOURNAMENT\nForehand\n\nS1 W14 + ENTER TOURNAMENT\nForehand\nTOURNAMENT HISTORY\nView all 1 →\nTOURNAMENT SURFACE STAGE RESULT PRIZE\nCrest Vietnam Trophy\nCLAY\nfutures · 32-draw · Season 1, Week 3 Champion $35K",
+  "elements": [
+    {
+      "ref": "e1sdkzas",
+      "kind": "link",
+      "label": "Grand Circuit TENNIS MANAGER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "ei11uag",
+      "kind": "link",
+      "label": "ROSTER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "e126y79p",
+      "kind": "link",
+      "label": "SCOUTING",
+      "disabled": false,
+      "href": "/scouting"
+    },
+    {
+      "ref": "e8tcjx5",
+      "kind": "link",
+      "label": "TOURNAMENTS",
+      "disabled": false,
+      "href": "/tournaments"
+    },
+    {
+      "ref": "e1fxu7qk",
+      "kind": "link",
+      "label": "RANKINGS",
+      "disabled": false,
+      "href": "/rankings"
+    },
+    {
+      "ref": "e1y4g63",
+      "kind": "link",
+      "label": "MANAGERS",
+      "disabled": false,
+      "href": "/managers"
+    },
+    {
+      "ref": "e8dvcy5",
+      "kind": "link",
+      "label": "MANAGER PRO",
+      "disabled": false,
+      "href": "/manager-pro"
+    },
+    {
+      "ref": "e52ckqa",
+      "kind": "button",
+      "label": "CONTINUE",
+      "disabled": false
+    },
+    {
+      "ref": "e1pz31d0",
+      "kind": "link",
+      "label": "← Back to roster",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "ewv0f6r",
+      "kind": "link",
+      "label": "Noah Santos",
+      "disabled": false,
+      "href": "/players/d5c59f5a-9c63-4c61-89ff-8805811fd89e"
+    },
+    {
+      "ref": "egxnxnp",
+      "kind": "link",
+      "label": "Aisha Ivanova",
+      "disabled": false,
+      "href": "/players/e41a5cd1-9dac-472e-8a46-5ee04047f489"
+    },
+    {
+      "ref": "e1qzrsot",
+      "kind": "link",
+      "label": "Yuki Rossi",
+      "disabled": false,
+      "href": "/players/71065af1-f8ab-4551-8ac5-ea1f7279a7c3"
+    },
+    {
+      "ref": "e1w2aps0",
+      "kind": "link",
+      "label": "Luca Rossi",
+      "disabled": false,
+      "href": "/players/9db303d9-9ba0-44ec-ac3d-2779b9f74b0e"
+    },
+    {
+      "ref": "e1auorr5",
+      "kind": "link",
+      "label": "Diego Brennan",
+      "disabled": false,
+      "href": "/players/8e1a0c86-dcb3-4969-9d38-9c667126b5b1"
+    },
+    {
+      "ref": "eqlfhn5",
+      "kind": "link",
+      "label": "Lena Nakamura",
+      "disabled": false,
+      "href": "/players/6b72030c-6e40-4f1b-b959-e9e4f094e99f"
+    },
+    {
+      "ref": "e14w6qbn",
+      "kind": "link",
+      "label": "Crest Vietnam Trophy futures · S1 W3",
+      "disabled": false,
+      "href": "/tournaments/fe790712-9a07-4bd5-9040-c655cc882430"
+    },
+    {
+      "ref": "e9sub99",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "esht6p8",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e9iupka",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "esrsse7",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e98v3vb",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "et1se36",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e8yvi6c",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "etbrzs5",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e8ovwhd",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "erdurxc",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e8ewase",
+      "kind": "button",
+      "label": "+ ENTER TOURNAMENT",
+      "disabled": false
+    },
+    {
+      "ref": "ernudmb",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "en6pma8",
+      "kind": "link",
+      "label": "View all 1 →",
+      "disabled": false,
+      "href": "/players/fb384d8d-a047-453c-aae7-9d7a27bc841b/history"
+    },
+    {
+      "ref": "ekj1eo8",
+      "kind": "link",
+      "label": "Crest Vietnam Trophy",
+      "disabled": false,
+      "href": "/tournaments/fe790712-9a07-4bd5-9040-c655cc882430"
+    }
+  ],
+  "errorText": ""
+}

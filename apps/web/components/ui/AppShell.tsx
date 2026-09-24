@@ -30,12 +30,11 @@ interface Props {
 /** Direction A chrome (design/prototypes/a-broadcast-telemetry.html): a flat
  *  56px topbar carrying the brand, the underline nav tabs and the broadcast
  *  strip (world clock + next-day countdown, XP, tier), with the page content
- *  in a column below. Same props as `Sidebar` so a screen can swap
- *  `<AppFrame><Sidebar …/></AppFrame>` for `<AppShell …>` one at a time.
+ *  in a column below. Every route renders its own `<AppShell>` + `PageShell`.
  *
- *  The clock logic is lifted verbatim from the Sidebar: fetch once, re-read
- *  on visibility, re-fetch when the countdown expires (compressed cadence
- *  would otherwise stick at zero), and the honest "World stalled" badge. */
+ *  The clock logic: fetch once, re-read on visibility, re-fetch when the
+ *  countdown expires (compressed cadence would otherwise stick at zero),
+ *  and the honest "World stalled" badge. */
 export function AppShell({ active, tier, xpBalance, children }: Props) {
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const loadClock = useCallback(() => {
@@ -117,7 +116,7 @@ export function AppShell({ active, tier, xpBalance, children }: Props) {
             </span>
           )}
 
-          {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <ClerkAuthControls variant="topbar" />}
+          {process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && <ClerkAuthControls />}
         </div>
       </header>
 

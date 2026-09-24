@@ -1,0 +1,29 @@
+ok   home: roster renders a managed player
+ok   home: no console/page errors
+ok   home: More actions control present
+ok   coach modal: "Convert to coach" menu item present
+ok   coach modal: title + permanence notice
+ok   coach modal: shows real XP cost and coach rating
+ok   coach modal: Esc closes
+ok   custom-player: Pro CTA visible (Pro-only; captured earlier with a Pro manager)  — free tier state
+ok   scouting: free-agent table
+ok   tournaments: browse renders
+ok   tournament-open: details + ladder
+ok   replay: scoreboard + controls
+ok   celebration: potential moment (already seen in this browser profile — title moment below)  — deduped in localStorage
+ok   player (owned): attributes + projection + schedule
+ok   player (owned): no raw hidden numbers leaked
+ok   player (owned): no console/page errors
+ok   player (committed free agent): lock + disabled sign
+ok   player (committed free agent): sign button disabled
+ok   history: table with prize column
+ok   rankings: standings render
+ok   managers: ladder renders
+ok   manager-pro: disclosure panels present
+ok   manager-pro: 2nd-coach disclosure verbatim
+ok   manager-pro: closing reasoning relocated into details
+ok   manager-pro: no console/page errors
+ok   celebration: title moment card fires on an aired final
+ok   tournament-demo: bracket + champion
+
+ALL LIVE ASSERTIONS PASSED

@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import { PlayerDto, createCustomPlayer } from '../lib/api';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/primitives';
 
 interface Props {
   managerId: string;
@@ -43,88 +45,75 @@ export function CreateCustomPlayerModal({ managerId, creditsRemaining, onClose, 
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(6,10,8,0.66)', backdropFilter: 'blur(3px)' }}
-      onClick={onClose}
+    <Modal
+      open
+      onClose={onClose}
+      title="Create a custom player"
+      width={440}
+      footer={
+        <>
+          <Button type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" variant="primary" form="create-custom-player" disabled={!canSubmit || submitting}>
+            {submitting ? 'Creating…' : 'Create player (1 credit)'}
+          </Button>
+        </>
+      }
     >
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-[420px] gc-card rounded-[14px] p-6"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="text-[16px] font-bold" style={{ color: 'var(--gc-ink)' }}>
-          Create a custom player
-        </div>
-        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'var(--gc-ink-mute)' }}>
+      <form id="create-custom-player" onSubmit={handleSubmit}>
+        <div className="t-body-sm" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
           Skip the talent pool and name your own player — attributes are still randomly generated the same way a pool
           candidate&apos;s are, no stat advantage.
         </div>
         <div
-          className="mb-4 text-[12px] font-semibold rounded-[6px] px-3 py-2 inline-block"
-          style={{ background: 'oklch(45% 0.13 80 / 0.28)', color: 'var(--gc-gold)' }}
+          className="gc-badge"
+          style={{ margin: '14px 0', color: 'var(--gold)', borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)' }}
         >
           {creditsRemaining} custom player credit{creditsRemaining === 1 ? '' : 's'} remaining
         </div>
 
         {error && (
-          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div
+            className="gc-notice"
+            style={{
+              marginBottom: 12,
+              color: 'var(--loss)',
+              borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+            }}
+          >
             {error}
           </div>
         )}
 
-        <label className="flex flex-col gap-[6px] mb-3">
-          <span className="text-[12px] font-semibold" style={{ color: 'var(--gc-ink-dim)' }}>
-            Name
-          </span>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+          <span className="t-label">Name</span>
           <input
             autoFocus
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="e.g. Marta Vukovic"
-            className="rounded-[6px] px-3 py-[9px] text-[13.5px]"
-            style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-bg-deep)', color: 'var(--gc-ink)' }}
+            className="gc-input"
+            style={{ fontSize: 13.5 }}
           />
         </label>
 
-        <label className="flex flex-col gap-[6px] mb-1">
-          <span className="text-[12px] font-semibold" style={{ color: 'var(--gc-ink-dim)' }}>
-            Nationality (2-letter code)
-          </span>
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <span className="t-label">Nationality (2-letter code)</span>
           <input
             value={nationality}
             onChange={(e) => setNationality(e.target.value.slice(0, 2).toUpperCase())}
             placeholder="e.g. BR"
             maxLength={2}
-            className="rounded-[6px] px-3 py-[9px] text-[13.5px] w-[100px] uppercase"
-            style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-bg-deep)', color: 'var(--gc-ink)' }}
+            className="gc-input"
+            style={{ fontSize: 13.5, width: 100, textTransform: 'uppercase' }}
           />
         </label>
         {nationality.length > 0 && !nationalityValid && (
-          <div className="text-[11.5px] mb-2" style={{ color: 'oklch(78% 0.14 35)' }}>
-            Enter exactly 2 letters, e.g. "BR" or "US".
+          <div style={{ fontSize: 11.5, marginTop: 6, color: 'var(--warn)' }}>
+            Enter exactly 2 letters, e.g. &quot;BR&quot; or &quot;US&quot;.
           </div>
         )}
-
-        <div className="flex justify-end gap-2 mt-5">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-[14px] py-[9px] rounded-[6px] bg-transparent text-[12.5px] font-semibold cursor-pointer"
-            style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={!canSubmit || submitting}
-            className="px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: 'var(--gc-ink)' }}
-          >
-            {submitting ? 'Creating…' : 'Create player (1 credit)'}
-          </button>
-        </div>
       </form>
-    </div>
+    </Modal>
   );
 }

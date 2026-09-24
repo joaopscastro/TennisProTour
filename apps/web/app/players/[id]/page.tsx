@@ -23,15 +23,15 @@ import {
   fetchTrainingSchedule,
   setTrainingScheduleEntry,
 } from '../../../lib/api';
-import { Sidebar } from '../../../components/Sidebar';
 import { useDevManagerId } from '../../../lib/managerContext';
 import { useEntitlement } from '../../../lib/entitlement';
 import { EnterTournamentModal } from '../../../components/EnterTournamentModal';
 import { useCountdown, formatCountdownClock } from '../../../lib/useCountdown';
-import { Avatar } from '../../../components/ui/Avatar';
+import { AppShell } from '../../../components/ui/AppShell';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
-import { AppFrame, Hero, Flag, StatBar, SurfaceBadge } from '../../../components/ui/primitives';
+import { PageShell, PanelHeader, SectionLabel, Button, Flag, StatBar, SurfaceBadge } from '../../../components/ui/primitives';
 import { FormDots, RankPill, ArchetypeBadge } from '../../../components/ui/PlayerCard';
+import { Icon } from '../../../components/ui/Icon';
 import {
   RANKING_EARNED_NOTE,
   WEEKS_PER_SEASON,
@@ -45,30 +45,7 @@ import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { stageLabel, stageMeta } from '../../../lib/ui/stage';
 import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../../../lib/ui/focus';
 
-const JUNIOR_BADGE = { bg: 'oklch(45% 0.1 240 / 0.35)', fg: 'oklch(85% 0.08 240)' };
-const ACHIEVEMENT_BADGE = { bg: 'oklch(45% 0.13 80 / 0.3)', fg: 'oklch(85% 0.14 85)' };
-
 const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' };
-
-function NetDivider({ className }: { className?: string }) {
-  return (
-    <div className={`flex items-center gap-0 my-[2px] ${className ?? 'mb-[18px]'}`}>
-      <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-      <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
-      <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-      <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
-      <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-    </div>
-  );
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="text-[13px] font-bold tracking-[0.2px] mb-[10px]" style={{ color: 'var(--gc-ink)' }}>
-      {children}
-    </div>
-  );
-}
 
 function overallOf(player: PlayerDto): number {
   const { technical, physical, mental } = player.attributes;
@@ -79,10 +56,8 @@ function overallOf(player: PlayerDto): number {
 function AttributeGroup({ label, entries }: { label: string; entries: Array<[string, number]> }) {
   return (
     <div>
-      <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase mb-[8px]" style={{ color: 'var(--gc-ink-mute)' }}>
-        {label}
-      </div>
-      <div className="flex flex-col gap-[7px]">
+      <div className="t-label" style={{ marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {entries.map(([name, value]) => (
           <StatBar key={name} label={name} value={value} />
         ))}
@@ -93,35 +68,46 @@ function AttributeGroup({ label, entries }: { label: string; entries: Array<[str
 
 type AttributeProjection = { current: number; projected: number; mature: boolean };
 
-/** A stat bar with a translucent "ghost cap" extension from the current
- * value out to the scout's projected ceiling — the projected headroom is
- * shown, never a hard promise. `mature` attributes (mental) have no
- * headroom, so they render as a plain solid bar. Respects
- * prefers-reduced-motion via the shared gc-bar transition (CSS-only). */
+/** A segmented stat bar with a translucent "ghost cap" extension from the
+ * current value out to the scout's projected ceiling — the projected
+ * headroom is shown, never a hard promise. `mature` attributes (mental)
+ * have no headroom, so they render as a plain solid bar. */
 function GhostStatBar({ label, proj }: { label: string; proj: AttributeProjection }) {
   const currentPct = Math.max(0, Math.min(100, proj.current));
   const projectedPct = Math.max(0, Math.min(100, proj.projected));
   const ghostPct = Math.max(0, projectedPct - currentPct);
-  const hue = 30 + (Math.min(100, proj.current) / 100) * 100;
-  const c = `oklch(70% 0.15 ${hue})`;
   const hasHeadroom = !proj.mature && ghostPct >= 1;
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: 68, fontSize: 11.5, color: 'var(--gc-ink-mute)', textTransform: 'capitalize' }}>{label}</span>
-      <div className="gc-bar" style={{ flex: 1, position: 'relative', display: 'flex' }}>
-        <i style={{ width: `${currentPct}%`, background: `linear-gradient(90deg, ${c}, color-mix(in oklch, ${c}, white 18%))` }} />
+      <span className="t-label" style={{ width: 68, textTransform: 'capitalize' }}>{label}</span>
+      <div style={{ position: 'relative', flex: 1, height: 9 }}>
+        <span
+          className="gc-seg"
+          style={{ width: '100%', ['--p' as string]: currentPct, ['--seg' as string]: 'var(--accent)' }}
+        />
         {hasHeadroom && (
-          <i
+          <span
             title="Projected headroom (scout's read)"
             style={{
+              position: 'absolute',
+              left: `${currentPct}%`,
               width: `${ghostPct}%`,
-              background: `repeating-linear-gradient(135deg, color-mix(in oklch, ${c}, transparent 62%) 0 5px, color-mix(in oklch, ${c}, transparent 82%) 5px 10px)`,
+              top: 0,
+              bottom: 0,
+              borderRadius: 'var(--r1)',
+              background:
+                'repeating-linear-gradient(135deg, color-mix(in srgb, var(--accent) 45%, transparent) 0 5px, color-mix(in srgb, var(--accent) 15%, transparent) 5px 10px)',
             }}
           />
         )}
       </div>
-      <span style={{ width: 26, textAlign: 'right', fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-dim)', fontVariantNumeric: 'tabular-nums' }}>{Math.round(proj.current)}</span>
-      <span style={{ width: 34, textAlign: 'right', fontSize: 11, fontWeight: 600, color: hasHeadroom ? 'var(--gc-ink-faint)' : 'transparent', fontVariantNumeric: 'tabular-nums' }}>
+      <span className="num" style={{ width: 26, textAlign: 'right', fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>
+        {Math.round(proj.current)}
+      </span>
+      <span
+        className="num"
+        style={{ width: 34, textAlign: 'right', fontSize: 11, fontWeight: 600, color: hasHeadroom ? 'var(--ink-4)' : 'transparent' }}
+      >
         {hasHeadroom ? `~${Math.round(proj.projected)}` : '—'}
       </span>
     </div>
@@ -131,10 +117,8 @@ function GhostStatBar({ label, proj }: { label: string; proj: AttributeProjectio
 function GhostAttributeGroup({ label, entries }: { label: string; entries: Array<[string, AttributeProjection]> }) {
   return (
     <div>
-      <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase mb-[8px]" style={{ color: 'var(--gc-ink-mute)' }}>
-        {label}
-      </div>
-      <div className="flex flex-col gap-[7px]">
+      <div className="t-label" style={{ marginBottom: 8 }}>{label}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
         {entries.map(([name, proj]) => (
           <GhostStatBar key={name} label={name} proj={proj} />
         ))}
@@ -150,10 +134,10 @@ const GROWTH_COPY: Record<'slow' | 'steady' | 'rapid', string> = {
 };
 
 const TIER_COPY: Record<'limited' | 'promising' | 'high' | 'elite', { label: string; color: string }> = {
-  limited: { label: 'Limited', color: 'var(--gc-ink-mute)' },
-  promising: { label: 'Promising', color: 'oklch(68% 0.13 145)' },
-  high: { label: 'High', color: 'oklch(70% 0.15 250)' },
-  elite: { label: 'Elite', color: 'oklch(72% 0.17 300)' },
+  limited: { label: 'Limited', color: 'var(--ink-3)' },
+  promising: { label: 'Promising', color: 'var(--win)' },
+  high: { label: 'High', color: 'var(--hard)' },
+  elite: { label: 'Elite', color: 'var(--gold)' },
 };
 
 function confidenceCopy(confidence: number, resolved: boolean): { label: string; note: string } {
@@ -169,29 +153,45 @@ function MatchResultRow({ m }: { m: PlayerMatchSummaryDto }) {
   const won = m.result === 'win';
   const roundLabel = matchRoundLabel(m.drawSize / 2 ** m.roundNumber);
   return (
-    <div className="flex items-center justify-between gap-[12px] gc-card rounded-[8px] px-[13px] py-[10px]" style={{ border: '1px solid var(--gc-line)' }}>
-      <div className="flex items-center gap-[11px] min-w-0">
-        <div
-          className="flex-none w-[24px] h-[24px] rounded-[5px] grid place-items-center text-[11px] font-extrabold text-white"
-          style={{ background: won ? 'oklch(58% 0.15 145)' : 'oklch(52% 0.16 25)' }}
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12,
+        background: 'var(--bg-3)', border: '1px solid var(--hair)', borderRadius: 'var(--r2)', padding: '10px 13px',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
+        <span
+          className="gc-wchip"
+          style={
+            won
+              ? { background: 'var(--win)', color: 'var(--accent-ink)' }
+              : { background: 'color-mix(in srgb, var(--loss) 25%, transparent)', color: 'var(--loss)' }
+          }
           title={won ? 'Win' : 'Loss'}
         >
           {won ? 'W' : 'L'}
-        </div>
-        <div className="min-w-0">
-          <div className="text-[13px] font-semibold flex items-center gap-[6px] min-w-0">
-            <span style={{ color: 'var(--gc-ink-mute)' }}>vs</span>
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+            <span style={{ color: 'var(--ink-3)' }}>vs</span>
             <Flag code={m.opponentNationality} size={13} />
-            <Link href={`/players/${m.opponentId}`} className="no-underline hover:underline overflow-hidden text-ellipsis whitespace-nowrap" style={{ color: 'var(--gc-ink)' }}>
+            <Link
+              href={`/players/${m.opponentId}`}
+              className="gc-identity-link"
+              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)' }}
+            >
               {m.opponentName}
             </Link>
           </div>
-          <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          <div className="t-mono-s" style={{ color: 'var(--ink-3)' }}>
             {roundLabel} · {m.tournamentName}
           </div>
         </div>
       </div>
-      <div className="flex-none text-[12.5px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: won ? 'oklch(72% 0.13 145)' : 'var(--gc-ink-mute)' }}>
+      <div
+        className="num"
+        style={{ flex: 'none', fontSize: 12.5, fontWeight: 600, color: won ? 'var(--win)' : 'var(--ink-3)' }}
+      >
         {m.setScores ? formatScoreline(m.setScores, won) : ''}
       </div>
     </div>
@@ -205,18 +205,20 @@ function MatchResultRow({ m }: { m: PlayerMatchSummaryDto }) {
 function NextMatchStatus({ m }: { m: PlayerMatchSummaryDto }) {
   const remainingMs = useCountdown(m.scheduledStartAt);
   if (!m.scheduledStartAt) {
-    return <div className="text-[10.5px] text-white/55 mt-[6px] italic">Awaiting simulation</div>;
+    return <div className="t-mono-s" style={{ marginTop: 6, fontStyle: 'italic', color: 'var(--ink-4)' }}>Awaiting simulation</div>;
   }
   if (remainingMs > 0) {
     return (
-      <div className="text-[10.5px] mt-[6px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(85% 0.09 200)' }}>
+      <div className="num" style={{ marginTop: 6, fontSize: 10.5, fontWeight: 600, color: 'var(--accent)' }}>
         Playing in {formatCountdownClock(remainingMs)}
       </div>
     );
   }
   return (
-    <div className="text-[10.5px] mt-[6px] font-bold flex items-center gap-[6px] justify-end" style={{ color: 'oklch(80% 0.16 45)' }}>
-      <span className="gc-live-dot" style={{ background: 'oklch(70% 0.17 45)' }} />
+    <div
+      style={{ marginTop: 6, fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end', color: 'var(--live)' }}
+    >
+      <span className="gc-live-dot" />
       Live now
     </div>
   );
@@ -414,25 +416,26 @@ export default function PlayerProfilePage() {
 
   if (error) {
     return (
-      <AppFrame>
-        <Sidebar active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-        <div className="flex-1 p-8">
-          <div className="text-[13px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)' }}>
+      <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div
+            className="gc-notice"
+            style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)', background: 'color-mix(in srgb, var(--loss) 10%, transparent)' }}
+          >
             {error}
           </div>
-        </div>
-      </AppFrame>
+        </PageShell>
+      </AppShell>
     );
   }
 
   if (!profile) {
     return (
-      <AppFrame>
-        <Sidebar active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-        <div className="flex-1 p-8 text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          Loading player…
-        </div>
-      </AppFrame>
+      <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div className="t-body-sm">Loading player…</div>
+        </PageShell>
+      </AppShell>
     );
   }
 
@@ -455,66 +458,62 @@ export default function PlayerProfilePage() {
       : 'Chasing a breakthrough result on tour.';
 
   return (
-    <AppFrame>
+    <AppShell active="roster" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
       {celebrations.length > 0 && (
         <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
       )}
-      <Sidebar active="roster" />
 
-      <div className="flex-1 p-8 max-w-[900px] min-w-0">
-        <Link href="/" className="text-[13px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+      <PageShell>
+        <Link href="/" className="t-body-sm" style={{ color: 'var(--accent)', fontWeight: 600 }}>
           ← Back to roster
         </Link>
 
-        {/* Header */}
-        <div className="mt-[14px] mb-[24px]">
-          <Hero surface={heroSurface} minHeight={168}>
-            <div className="flex items-end gap-[20px]">
-              <Avatar id={profile.playerId} name={profile.name} size={104} ring />
-              <div className="min-w-0 pb-[2px]">
-                <div className="flex items-center gap-[10px] flex-wrap">
-                  <div className="text-[30px] font-extrabold tracking-[-0.4px] text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.4)]">
-                    {profile.name}
-                  </div>
-                  <div
-                    className="inline-block px-[9px] py-[3px] rounded-[4px] text-[11px] font-bold tracking-[0.3px]"
-                    style={{ background: stg.bg, color: stg.fg }}
-                  >
+        {/* Identity band — flat panel with a 2px surface-coloured top rule
+            (Direction A), carrying the same identity facts as before. */}
+        <div style={{ marginTop: 14, marginBottom: 24 }}>
+          <div className="gc-band" style={{ ['--surf' as string]: heroSurface ? SURFACE_COLOR[heroSurface] : 'var(--hair-2)', minHeight: 150, padding: '22px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 20, width: '100%' }}>
+              <Flag code={profile.nationality} size={56} />
+              <div style={{ minWidth: 0, paddingBottom: 2 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                  <h1 className="t-h1" style={{ margin: 0 }}>{profile.name}</h1>
+                  <span className="gc-badge" style={{ background: stg.bg, color: stg.fg, border: '1px solid var(--hair)' }}>
                     {stageLabel(profile.stage)}
-                  </div>
+                  </span>
                 </div>
-                <div className="text-[14px] mt-[7px] flex items-center gap-[8px] text-white/85">
+                <div style={{ marginTop: 7, display: 'flex', alignItems: 'center', gap: 8 }} className="t-body-sm">
                   <Flag code={profile.nationality} size={16} />
-                  <span className="font-semibold">{profile.nationality}</span>
-                  <span className="text-white/45">·</span>
+                  <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{profile.nationality}</span>
+                  <span style={{ color: 'var(--ink-4)' }}>·</span>
                   <span>Age {(profile.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)}</span>
                 </div>
                 {profile.doublesPartner && (
-                  <div className="text-[13px] mt-[8px] flex items-center gap-[7px] text-white/90">
+                  <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}>
                     <span
-                      className="inline-block px-[7px] py-[2px] rounded-[4px] text-[9.5px] font-extrabold tracking-[0.5px] uppercase"
-                      style={{
-                        background: profile.doublesPartner.status === 'active' ? 'oklch(45% 0.13 150 / 0.45)' : 'oklch(45% 0.1 240 / 0.45)',
-                        color: profile.doublesPartner.status === 'active' ? 'oklch(88% 0.13 150)' : 'oklch(86% 0.1 240)',
-                      }}
+                      className="gc-badge"
+                      style={
+                        profile.doublesPartner.status === 'active'
+                          ? { color: 'var(--win)', borderColor: 'color-mix(in srgb, var(--win) 40%, transparent)' }
+                          : { color: 'var(--hard)', borderColor: 'color-mix(in srgb, var(--hard) 40%, transparent)' }
+                      }
                     >
                       {profile.doublesPartner.status === 'active' ? 'Doubles partner' : 'Pending partner'}
                     </span>
                     <Link
                       href={`/players/${profile.doublesPartner.playerId}`}
-                      className="no-underline hover:underline"
-                      style={{ color: 'white', display: 'flex', alignItems: 'center', gap: 6 }}
+                      className="gc-identity-link"
+                      style={{ color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}
                     >
                       <Flag code={profile.doublesPartner.nationality} size={14} />
-                      <span className="font-bold">{profile.doublesPartner.name}</span>
+                      <span style={{ fontWeight: 700 }}>{profile.doublesPartner.name}</span>
                     </Link>
                     {profile.doublesPartner.status === 'active' && (
-                      <span className="text-white/60">· {profile.doublesPartner.chemistry}% chemistry</span>
+                      <span style={{ color: 'var(--ink-3)' }}>· {profile.doublesPartner.chemistry}% chemistry</span>
                     )}
                   </div>
                 )}
-                <div className="mt-[11px] flex items-center gap-[16px] flex-wrap">
-                  <div style={{ padding: '5px 11px', borderRadius: 8, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.18)' }}>
+                <div style={{ marginTop: 11, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                  <div style={{ padding: '5px 11px', borderRadius: 'var(--r2)', background: 'var(--bg-3)', border: '1px solid var(--hair)' }}>
                     <RankPill
                       rank={topRankEntry ? topRankEntry.rank : null}
                       points={topRankEntry?.totalPoints}
@@ -523,67 +522,67 @@ export default function PlayerProfilePage() {
                   </div>
                   {profile.careerPrizeMoney > 0 && (
                     <div
-                      className="flex items-center gap-[6px]"
-                      style={{ padding: '5px 11px', borderRadius: 8, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.18)' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 11px', borderRadius: 'var(--r2)', background: 'var(--bg-3)', border: '1px solid var(--hair)' }}
                       title={`${formatMoney(profile.seasonPrizeMoney)} this season`}
                     >
-                      <span className="text-[9.5px] font-extrabold tracking-[0.5px] uppercase text-white/55">Career earnings</span>
-                      <span className="text-[13px] font-bold text-white">{formatMoney(profile.careerPrizeMoney)}</span>
+                      <span className="t-label" style={{ fontSize: 9.5 }}>Career earnings</span>
+                      <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{formatMoney(profile.careerPrizeMoney)}</span>
                     </div>
                   )}
                   {profile.tournamentHistory.some((h) => h.hasStarted && (h.won || h.eliminated)) && (
-                    <div className="flex items-center gap-[8px]">
-                      <span className="text-[9.5px] font-extrabold tracking-[0.5px] uppercase text-white/55">Form</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span className="t-label" style={{ fontSize: 9.5 }}>Form</span>
                       <FormDots history={profile.tournamentHistory} />
                     </div>
                   )}
                   {/* GC-10 archetype — degrades to nothing until the backend exposes it */}
                   <ArchetypeBadge archetype={(profile as { archetype?: string | null }).archetype ?? null} />
                 </div>
-                <div className="text-[13px] mt-[10px] text-white/70 italic">{heroTagline}</div>
+                <div className="t-body-sm" style={{ marginTop: 10, fontStyle: 'italic', color: 'var(--ink-3)' }}>{heroTagline}</div>
               </div>
             </div>
-          </Hero>
+          </div>
         </div>
 
         {/* Free-agent signing — any browsable free agent can be signed
             straight from their profile (same flow as Scouting). */}
         {isFreeAgent && (
-          <div
-            className="mb-[24px] rounded-[10px] p-[16px] flex items-center justify-between gap-[16px] flex-wrap"
-            style={{ background: 'linear-gradient(180deg, oklch(32% 0.09 265), oklch(24% 0.06 265))', border: '1px solid oklch(55% 0.11 265 / 0.4)' }}
-          >
-            <div className="min-w-0">
-              <div className="text-[11px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(82% 0.09 265)' }}>Free agent</div>
-              <div className="text-[14px] font-semibold text-white mt-[3px]">
-                Unsigned — no manager. Read the attributes, weigh the risk, and sign before a rival does.
+          <div className="gc-panel" style={{ marginBottom: 24, padding: 16, borderTop: '2px solid var(--hard)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ minWidth: 0 }}>
+                <div className="t-label" style={{ color: 'var(--hard)' }}>Free agent</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginTop: 3 }}>
+                  Unsigned — no manager. Read the attributes, weigh the risk, and sign before a rival does.
+                </div>
+                {profile.blockingCommitment && (
+                  <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="lock" size={12} />
+                    Committed to {profile.blockingCommitment.name} — a free agent with an unfinished tournament can&apos;t be signed until it concludes.
+                  </div>
+                )}
+                {!profile.blockingCommitment && matches?.next && (
+                  <div style={{ fontSize: 12.5, marginTop: 4, fontWeight: 600, color: 'var(--warn)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <span className="gc-live-dot" style={{ background: 'var(--warn)' }} />
+                    Currently competing in {matches.next.tournamentName}.
+                  </div>
+                )}
+                {entitlement && (
+                  <div style={{ fontSize: 12, marginTop: 4, color: 'var(--ink-3)' }}>
+                    Your XP: <span className="num" style={{ fontWeight: 700, color: 'var(--accent)' }}>{entitlement.xpBalance.toLocaleString()}</span>
+                  </div>
+                )}
+                {signError && <div style={{ fontSize: 12, marginTop: 4, color: 'var(--loss)' }}>{signError}</div>}
               </div>
-              {profile.blockingCommitment && (
-                <div className="text-[12.5px] mt-[4px] font-semibold" style={{ color: 'oklch(84% 0.13 40)' }}>
-                  🔒 Committed to {profile.blockingCommitment.name} — a free agent with an unfinished tournament can&apos;t be signed until it concludes.
-                </div>
-              )}
-              {!profile.blockingCommitment && matches?.next && (
-                <div className="text-[12.5px] mt-[4px] font-semibold" style={{ color: 'oklch(86% 0.13 55)' }}>
-                  ● Currently competing in {matches.next.tournamentName}.
-                </div>
-              )}
-              {entitlement && (
-                <div className="text-[12px] mt-[4px] text-white/70">
-                  Your XP: <span className="font-bold" style={{ color: 'var(--gc-ball)' }}>{entitlement.xpBalance.toLocaleString()}</span>
-                </div>
-              )}
-              {signError && <div className="text-[12px] mt-[4px]" style={{ color: 'oklch(80% 0.13 25)' }}>{signError}</div>}
+              <Button
+                variant="primary"
+                onClick={handleSign}
+                disabled={signing || Boolean(profile.blockingCommitment)}
+                title={profile.blockingCommitment ? `Committed to ${profile.blockingCommitment.name} — can't be signed until it concludes.` : undefined}
+                style={{ flex: 'none', padding: '11px 22px', fontSize: 13.5 }}
+              >
+                {signing ? 'Signing…' : profile.blockingCommitment ? 'Unavailable' : 'Sign this free agent'}
+              </Button>
             </div>
-            <button
-              onClick={handleSign}
-              disabled={signing || Boolean(profile.blockingCommitment)}
-              title={profile.blockingCommitment ? `Committed to ${profile.blockingCommitment.name} — can't be signed until it concludes.` : undefined}
-              className="flex-none rounded-[8px] px-[22px] py-[11px] text-[13.5px] font-extrabold cursor-pointer disabled:cursor-not-allowed disabled:opacity-60"
-              style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 265)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-            >
-              {signing ? 'Signing…' : profile.blockingCommitment ? 'Unavailable' : 'Sign this free agent'}
-            </button>
           </div>
         )}
 
@@ -591,30 +590,23 @@ export default function PlayerProfilePage() {
             owned by a DIFFERENT manager. Pull-based: the target manager
             accepts from their own board. */}
         {canInvite && (
-          <div
-            className="mb-[24px] rounded-[10px] p-[16px]"
-            style={{ background: 'linear-gradient(180deg, oklch(32% 0.06 150), oklch(24% 0.04 150))', border: '1px solid oklch(55% 0.1 150 / 0.4)' }}
-          >
+          <div className="gc-panel" style={{ marginBottom: 24, padding: 16 }}>
             {!inviteOpen ? (
-              <div className="flex items-center justify-between gap-[16px] flex-wrap">
-                <div className="min-w-0">
-                  <div className="text-[11px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(82% 0.09 150)' }}>Doubles</div>
-                  <div className="text-[14px] font-semibold text-white mt-[3px]">
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
+                <div style={{ minWidth: 0 }}>
+                  <div className="t-label" style={{ color: 'var(--win)' }}>Doubles</div>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginTop: 3 }}>
                     Invite this player to be one of your players&apos; doubles partner.
                   </div>
                 </div>
-                <button
-                  onClick={openInvite}
-                  className="flex-none rounded-[8px] px-[18px] py-[10px] text-[13px] font-extrabold cursor-pointer"
-                  style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-                >
+                <Button variant="primary" onClick={openInvite} style={{ flex: 'none', padding: '10px 18px' }}>
                   Invite as partner
-                </button>
+                </Button>
               </div>
             ) : (
               <div>
-                <div className="text-[11px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(82% 0.09 150)' }}>Pick your initiating player</div>
-                <div className="flex items-center gap-[10px] mt-[10px] flex-wrap">
+                <div className="t-label" style={{ color: 'var(--win)' }}>Pick your initiating player</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 10, flexWrap: 'wrap' }}>
                   <select
                     className="gc-select"
                     value={inviteInitiator ?? ''}
@@ -626,22 +618,15 @@ export default function PlayerProfilePage() {
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
-                  <button
-                    onClick={submitInvite}
-                    disabled={!inviteInitiator || inviteBusy}
-                    className="rounded-[8px] px-[16px] py-[9px] text-[13px] font-extrabold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                    style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-                  >
+                  <Button variant="primary" onClick={submitInvite} disabled={!inviteInitiator || inviteBusy} style={{ padding: '9px 16px' }}>
                     {inviteBusy ? 'Sending…' : 'Send invitation'}
-                  </button>
-                  <button onClick={() => setInviteOpen(false)} className="text-[12px] cursor-pointer" style={{ background: 'none', border: 'none', color: 'white', opacity: 0.7 }}>
-                    Cancel
-                  </button>
+                  </Button>
+                  <Button variant="ghost" onClick={() => setInviteOpen(false)}>Cancel</Button>
                 </div>
-                {inviteError && <div className="text-[12px] mt-[8px]" style={{ color: 'oklch(80% 0.13 25)' }}>{inviteError}</div>}
+                {inviteError && <div style={{ fontSize: 12, marginTop: 8, color: 'var(--loss)' }}>{inviteError}</div>}
               </div>
             )}
-            {inviteNotice && <div className="text-[12px] mt-[8px]" style={{ color: 'oklch(82% 0.11 150)' }}>{inviteNotice}</div>}
+            {inviteNotice && <div style={{ fontSize: 12, marginTop: 8, color: 'var(--win)' }}>{inviteNotice}</div>}
           </div>
         )}
 
@@ -650,38 +635,42 @@ export default function PlayerProfilePage() {
             a live "playing in X" countdown to its scheduled reveal start
             (see NextMatchStatus). */}
         {matches && (matches.recent.length > 0 || matches.next) && (
-          <div className="mb-[24px]">
+          <div style={{ marginBottom: 24 }}>
             <SectionLabel>Matches</SectionLabel>
             {matches.next && (
               <div
-                className="mb-[10px] rounded-[10px] p-[14px] flex items-center justify-between gap-[14px]"
-                style={{ background: 'linear-gradient(180deg, oklch(30% 0.05 200), oklch(23% 0.03 200))', border: '1px solid oklch(50% 0.08 200 / 0.4)' }}
+                className="gc-panel"
+                style={{
+                  marginBottom: 10, padding: 14, borderTop: '2px solid var(--surf, var(--hard))',
+                  ['--surf' as string]: SURFACE_COLOR[matches.next.surface] ?? 'var(--hard)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14,
+                }}
               >
-                <div className="flex items-center gap-[12px] min-w-0">
-                  <Avatar id={matches.next.opponentId} name={matches.next.opponentName} size={44} />
-                  <div className="min-w-0">
-                    <div className="text-[10px] font-extrabold tracking-[0.6px] uppercase" style={{ color: 'oklch(80% 0.09 200)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>
+                  <Flag code={matches.next.opponentNationality} size={30} />
+                  <div style={{ minWidth: 0 }}>
+                    <div className="t-label" style={{ fontSize: 10 }}>
                       Next up · {matchRoundLabel(matches.next.drawSize / 2 ** matches.next.roundNumber)}
                     </div>
-                    <div className="text-[14px] font-semibold text-white mt-[2px] flex items-center gap-[7px]">
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 7 }}>
                       vs <Flag code={matches.next.opponentNationality} size={14} />
-                      <Link href={`/players/${matches.next.opponentId}`} className="no-underline hover:underline" style={{ color: 'white' }}>
+                      <Link href={`/players/${matches.next.opponentId}`} className="gc-identity-link" style={{ color: 'var(--ink)' }}>
                         {matches.next.opponentName}
                       </Link>
                     </div>
-                    <div className="text-[11.5px] text-white/65 mt-[2px] overflow-hidden text-ellipsis whitespace-nowrap">
+                    <div style={{ fontSize: 11.5, marginTop: 2, color: 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {matches.next.tournamentName}
                     </div>
                   </div>
                 </div>
-                <div className="flex-none text-right">
+                <div style={{ flex: 'none', textAlign: 'right' }}>
                   <SurfaceBadge surface={matches.next.surface} />
                   <NextMatchStatus m={matches.next} />
                 </div>
               </div>
             )}
             {matches.recent.length > 0 && (
-              <div className="flex flex-col gap-[6px]">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {matches.recent.map((m) => (
                   <MatchResultRow key={`${m.tournamentId}-${m.roundNumber}`} m={m} />
                 ))}
@@ -697,14 +686,14 @@ export default function PlayerProfilePage() {
             read derived server-side from the hidden ceiling, never the
             raw number, and shown nowhere but here (see docs/CLAUDE.md). */}
         {player && (
-          <div className="mb-[24px]">
+          <div style={{ marginBottom: 24 }}>
             <SectionLabel>Attributes &amp; potential</SectionLabel>
-            <div className="gc-card rounded-[10px] p-[16px]" style={{ border: '1px solid var(--gc-line)' }}>
-              <div className="flex items-center gap-[14px] mb-[14px]">
+            <div className="gc-panel" style={{ padding: 16 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
                 <span className="num" style={{ fontSize: 40, fontWeight: 700, lineHeight: 1 }}>{overallOf(player)}</span>
                 <div>
-                  <div className="text-[11px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>Overall</div>
-                  <div className="text-[12px]" style={{ color: 'var(--gc-ink-faint)' }}>Observable ability today — not a ceiling.</div>
+                  <div className="t-label">Overall</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-4)' }}>Observable ability today — not a ceiling.</div>
                 </div>
               </div>
               {profile?.potential && (() => {
@@ -717,40 +706,40 @@ export default function PlayerProfilePage() {
                     : `${p.projectedOverallLow}–${p.projectedOverallHigh}`;
                 return (
                   <div
-                    className="rounded-[9px] p-[13px] mb-[16px]"
-                    style={{ background: 'color-mix(in oklch, var(--gc-surface), transparent 20%)', border: '1px dashed var(--gc-line)' }}
+                    style={{ borderRadius: 'var(--r2)', padding: 13, marginBottom: 16, background: 'var(--bg-3)', border: '1px dashed var(--hair-2)' }}
                   >
-                    <div className="flex items-center justify-between flex-wrap gap-[10px]">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
                       <div>
-                        <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase mb-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                          Scout&apos;s projection
-                        </div>
-                        <div className="flex items-baseline gap-[8px]">
-                          <span className="text-[22px] font-extrabold tracking-[-0.5px]" style={{ color: 'var(--gc-ink)' }}>~{band}</span>
-                          <span className="text-[12px] font-bold px-[7px] py-[2px] rounded-[4px]" style={{ color: tier.color, background: `color-mix(in oklch, ${tier.color}, transparent 86%)` }}>
+                        <div className="t-label" style={{ marginBottom: 3 }}>Scout&apos;s projection</div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                          <span className="num" style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--ink)' }}>~{band}</span>
+                          <span
+                            className="gc-badge"
+                            style={{ color: tier.color, borderColor: `color-mix(in srgb, ${tier.color} 40%, transparent)` }}
+                          >
                             {tier.label} ceiling
                           </span>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <div className="text-[10.5px] font-bold tracking-[0.5px] uppercase mb-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>Developed</div>
-                        <div className="text-[22px] font-extrabold tabular-nums" style={{ color: 'var(--gc-ink)' }}>{p.developmentPercent}%</div>
-                        <div className="text-[11px]" style={{ color: 'var(--gc-ink-faint)' }}>{GROWTH_COPY[p.growth]}</div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="t-label" style={{ marginBottom: 3 }}>Developed</div>
+                        <div className="num" style={{ fontSize: 22, fontWeight: 700, color: 'var(--ink)' }}>{p.developmentPercent}%</div>
+                        <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>{GROWTH_COPY[p.growth]}</div>
                       </div>
                     </div>
-                    <div className="mt-[10px] pt-[9px]" style={{ borderTop: '1px solid var(--gc-line)' }}>
-                      <div className="flex items-center gap-[8px] mb-[4px]">
-                        <span className="text-[11px] font-bold" style={{ color: 'var(--gc-ink-dim)' }}>Scout confidence: {conf.label}</span>
-                        <div className="gc-bar" style={{ flex: 1, maxWidth: 160 }}>
-                          <i style={{ width: `${Math.round(p.confidence * 100)}%`, background: 'linear-gradient(90deg, var(--gc-ink-mute), var(--gc-ink-dim))' }} />
-                        </div>
+                    <div style={{ marginTop: 10, paddingTop: 9, borderTop: '1px solid var(--hair)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-2)' }}>Scout confidence: {conf.label}</span>
+                        <span style={{ flex: 1, maxWidth: 160 }} className="gc-bar">
+                          <i style={{ width: `${Math.round(p.confidence * 100)}%`, background: 'var(--accent)' }} />
+                        </span>
                       </div>
-                      <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-faint)' }}>{conf.note}</div>
+                      <div style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>{conf.note}</div>
                     </div>
                   </div>
                 );
               })()}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-[24px] gap-y-[16px]">
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '16px 24px' }}>
                 {profile?.potential ? (
                   <>
                     <GhostAttributeGroup label="Technical" entries={Object.entries(profile.potential.attributes.technical)} />
@@ -770,33 +759,27 @@ export default function PlayerProfilePage() {
             </div>
           </div>
         )}
+
         <SectionLabel>Current standing</SectionLabel>
-        <div className="flex gap-[10px] mb-[22px]">
+        <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
           {currentBands.map((band) => {
             const entry = profile.currentRankings.find((r) => r.band === band)!;
             return (
-              <div key={band} className="flex-1 gc-card rounded-[8px] p-[14px]" style={{ border: '1px solid var(--gc-line)' }}>
-                <div className="flex items-center gap-[6px] mb-[6px]">
-                  <div className="text-[11px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>
-                    {BAND_LABEL[band]}
-                  </div>
+              <div key={band} className="gc-panel" style={{ flex: '1 1 160px', padding: 14 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                  <div className="t-label">{BAND_LABEL[band]}</div>
                   {band !== 'senior' && (
-                    <div
-                      className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px]"
-                      style={{ background: JUNIOR_BADGE.bg, color: JUNIOR_BADGE.fg }}
-                    >
-                      {band}
-                    </div>
+                    <span className="gc-badge gc-badge--band" style={{ fontSize: 9.5 }}>{band}</span>
                   )}
                 </div>
-                <div className="text-[24px] font-bold [font-variant-numeric:tabular-nums]">
+                <div className="num" style={{ fontSize: 24, fontWeight: 700 }}>
                   {entry.rank !== null ? `#${entry.rank}` : '—'}
                 </div>
-                <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
                   {entry.totalPoints} pts
                 </div>
                 {entry.rank === null && (
-                  <div className="text-[10px] mt-[4px] leading-[1.4]" style={{ color: 'var(--gc-ink-faint)' }}>
+                  <div style={{ fontSize: 10, marginTop: 4, lineHeight: 1.4, color: 'var(--ink-4)' }}>
                     {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
                   </div>
                 )}
@@ -808,26 +791,24 @@ export default function PlayerProfilePage() {
         {/* Peak standing */}
         <SectionLabel>Peak standing</SectionLabel>
         {profile.peakRankings.length === 0 ? (
-          <div className="text-[13px] mb-[22px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          <div className="t-body-sm" style={{ marginBottom: 22 }}>
             No peak ranking yet.
           </div>
         ) : (
-          <div className="flex gap-[10px] mb-[22px]">
+          <div style={{ display: 'flex', gap: 10, marginBottom: 22, flexWrap: 'wrap' }}>
             {profile.peakRankings.map((p) => (
               <div
                 key={p.band}
-                className="flex-1 rounded-[8px] p-[14px]"
-                style={{ background: 'linear-gradient(180deg, oklch(30% 0.06 85), oklch(22% 0.04 85))', border: '1px solid oklch(50% 0.08 85 / 0.4)' }}
+                className="gc-panel"
+                style={{ flex: '1 1 160px', padding: 14, borderTop: '2px solid var(--gold)' }}
               >
-                <div className="flex items-center gap-[6px] mb-[6px]">
-                  <div className="text-[11px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-gold)' }}>
-                    Peak · {BAND_LABEL[p.band]}
-                  </div>
+                <div className="t-label" style={{ marginBottom: 6, color: 'var(--gold)' }}>
+                  Peak · {BAND_LABEL[p.band]}
                 </div>
-                <div className="text-[24px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-gold)' }}>
+                <div className="num" style={{ fontSize: 24, fontWeight: 700, color: 'var(--gold)' }}>
                   {p.peakPoints} pts
                 </div>
-                <div className="text-[11.5px]" style={{ color: 'var(--gc-gold)' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
                   Peaked Season {p.peakAsOfWeek.season}, Week {p.peakAsOfWeek.week}
                 </div>
               </div>
@@ -838,31 +819,26 @@ export default function PlayerProfilePage() {
         {/* Titles */}
         <SectionLabel>Titles</SectionLabel>
         {profile.titles.length === 0 ? (
-          <div className="text-[13px] mb-[22px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          <div className="t-body-sm" style={{ marginBottom: 22 }}>
             No titles yet.
           </div>
         ) : (
-          <div className="flex flex-col gap-[8px] mb-[22px]">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 22 }}>
             {profile.titles.map((title) => (
               <Link
                 key={title.tournamentId}
                 href={`/tournaments/${title.tournamentId}`}
-                className="flex items-center justify-between rounded-[8px] px-[14px] py-[11px] no-underline hover:opacity-90"
-                style={{ background: ACHIEVEMENT_BADGE.bg, color: ACHIEVEMENT_BADGE.fg }}
+                className="gc-card"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', borderLeft: '3px solid var(--gold)' }}
               >
-                <div className="flex items-center gap-[10px] min-w-0">
-                  <span className="text-[16px]">🏆</span>
-                  <div className="font-semibold text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap">{title.name}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ color: 'var(--gold)', display: 'inline-flex' }}><Icon name="trophy" size={16} /></span>
+                  <span style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title.name}</span>
                   {title.ageBand && (
-                    <div
-                      className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px] flex-none"
-                      style={{ background: JUNIOR_BADGE.bg, color: JUNIOR_BADGE.fg }}
-                    >
-                      {title.ageBand}
-                    </div>
+                    <span className="gc-badge gc-badge--band" style={{ fontSize: 9.5, flex: 'none' }}>{title.ageBand}</span>
                   )}
                 </div>
-                <div className="text-[11.5px] font-semibold flex-none">
+                <div className="num" style={{ fontSize: 11.5, fontWeight: 600, flex: 'none', color: 'var(--ink-3)' }}>
                   {title.tier} · S{title.weekEarned.season} W{title.weekEarned.week}
                 </div>
               </Link>
@@ -877,18 +853,18 @@ export default function PlayerProfilePage() {
             {profile.doublesPeaks.map((peak) => (
               <div
                 key={peak.band}
-                className="flex items-center justify-between rounded-[8px] px-[14px] py-[11px] mb-[8px]"
-                style={{ background: 'linear-gradient(180deg, oklch(30% 0.06 150), oklch(22% 0.04 150))', border: '1px solid oklch(50% 0.08 150 / 0.4)' }}
+                className="gc-panel"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', marginBottom: 8, borderTop: '2px solid var(--win)' }}
               >
-                <div className="flex items-center gap-[8px]">
-                  <span className="text-[16px]">🎾</span>
-                  <div className="font-semibold text-[13.5px]" style={{ color: 'oklch(85% 0.11 150)' }}>Doubles peak · {BAND_LABEL[peak.band]}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ color: 'var(--win)', display: 'inline-flex' }}><Icon name="ball" size={16} /></span>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink-2)' }}>Doubles peak · {BAND_LABEL[peak.band]}</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-[18px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(85% 0.11 150)' }}>
+                <div style={{ textAlign: 'right' }}>
+                  <div className="num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--win)' }}>
                     {peak.peakPoints} pts
                   </div>
-                  <div className="text-[11px]" style={{ color: 'oklch(85% 0.11 150 / 0.7)' }}>
+                  <div className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
                     S{peak.peakAsOfWeek.season} W{peak.peakAsOfWeek.week}
                   </div>
                 </div>
@@ -898,16 +874,16 @@ export default function PlayerProfilePage() {
               <Link
                 key={title.tournamentId}
                 href={`/players/${title.partnerId}`}
-                className="flex items-center justify-between rounded-[8px] px-[14px] py-[11px] mb-[8px] no-underline hover:opacity-90"
-                style={{ background: ACHIEVEMENT_BADGE.bg, color: ACHIEVEMENT_BADGE.fg }}
+                className="gc-card"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', marginBottom: 8, borderLeft: '3px solid var(--gold)' }}
               >
-                <div className="flex items-center gap-[10px] min-w-0">
-                  <span className="text-[16px]">🏆</span>
-                  <div className="font-semibold text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+                  <span style={{ color: 'var(--gold)', display: 'inline-flex' }}><Icon name="trophy" size={16} /></span>
+                  <div style={{ fontWeight: 600, fontSize: 13.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     Doubles title with <Flag code={title.partnerNationality} size={13} /> {title.partnerName}
                   </div>
                 </div>
-                <div className="text-[11.5px] font-semibold flex-none">
+                <div className="num" style={{ fontSize: 11.5, fontWeight: 600, flex: 'none', color: 'var(--ink-3)' }}>
                   {title.tier} · S{title.weekEarned.season} W{title.weekEarned.week}
                 </div>
               </Link>
@@ -915,134 +891,135 @@ export default function PlayerProfilePage() {
           </>
         )}
 
-        <NetDivider />
-
         {/* Schedule — combined frontend view over two existing, separate
             backend reads (tournament entry planner + training schedule),
             not a new backend concept. Same lookahead window as the
             tournament planner elsewhere in this app. */}
         <SectionLabel>Schedule</SectionLabel>
         {!profile.managerId && (
-          <div className="text-[12px] mb-[10px]" style={{ color: 'var(--gc-ink-mute)' }}>
+          <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 10 }}>
             Free agent — no manager to schedule tournaments or training for.
           </div>
         )}
         {scheduleError && (
-          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)' }}>
+          <div
+            className="gc-notice"
+            style={{ marginBottom: 12, color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)', background: 'color-mix(in srgb, var(--loss) 10%, transparent)' }}
+          >
             {scheduleError}
           </div>
         )}
         {plannerWeeks === null && !scheduleError && (
-          <div className="text-[13px] mb-[22px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            Loading schedule…
-          </div>
+          <div className="t-body-sm" style={{ marginBottom: 22 }}>Loading schedule…</div>
         )}
         {plannerWeeks && (
-          <div className="flex flex-col gap-[8px] mb-[22px]">
-            {plannerWeeks.map((pw, i) => {
-              const weekKey = `${pw.week.season}-${pw.week.week}`;
-              const sw = scheduleByWeekKey.get(weekKey);
-              const busy = busyWeek === i;
-              return (
-                <div
-                  key={weekKey}
-                  className="flex items-center gap-[12px] gc-card gc-card--hover rounded-[8px] px-[14px] py-[11px]"
-                  style={{ border: '1px solid var(--gc-line)', opacity: busy ? 0.6 : 1 }}
-                >
-                  <div className="text-[11.5px] font-semibold flex-none" style={{ color: 'var(--gc-ink-mute)', width: 76 }}>
-                    S{pw.week.season} W{pw.week.week}
-                  </div>
-
-                  {/* Tournament entry — reuses the existing registration
-                      flow (EnterTournamentModal) rather than a new one. */}
-                  <div className="flex-1 min-w-0">
-                    {pw.entries.length > 0 ? (
-                      <div className="flex flex-col gap-[3px]">
-                        {pw.entries.map((t) => (
-                          <Link
-                            key={t.id}
-                            href={`/tournaments/${t.id}`}
-                            className="text-[12.5px] font-semibold no-underline hover:underline overflow-hidden text-ellipsis whitespace-nowrap block"
-                            style={{ color: 'var(--gc-ink)' }}
-                          >
-                            {t.name}
-                          </Link>
-                        ))}
-                      </div>
-                    ) : profile.managerId ? (
-                      <button
-                        onClick={() => setEnterModalWeek(i)}
-                        disabled={busy}
-                        className="text-[11.5px] font-semibold cursor-pointer rounded-[5px] px-[8px] py-[4px] disabled:cursor-not-allowed"
-                        style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                      >
-                        + Enter tournament
-                      </button>
-                    ) : (
-                      <span className="text-[11.5px]" style={{ color: 'var(--gc-ink-faint)' }}>
-                        —
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Training focus — resolved from the training
-                      schedule; editable inline via the same dropdown
-                      shape the roster dashboard already uses. */}
-                  <div className="relative flex-none" style={{ width: 150 }}>
-                    <button
-                      onClick={() => profile.managerId && setOpenFocusMenuWeek(openFocusMenuWeek === i ? null : i)}
-                      disabled={!profile.managerId || busy}
-                      className="w-full text-left rounded-[6px] px-[10px] py-[6px] text-[12px] font-semibold cursor-pointer flex items-center justify-between gap-[6px] disabled:cursor-not-allowed"
-                      style={{ background: 'var(--gc-s2)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink)' }}
-                    >
-                      <span className="flex items-center gap-[5px] overflow-hidden text-ellipsis whitespace-nowrap">
-                        {trainingFocusLabel(sw?.focus ?? null, 'No focus')}
-                        {sw?.isExplicit && (
-                          <span className="text-[9px] font-bold flex-none" style={{ color: 'var(--gc-ball)' }} title="Explicit entry for this week">
-                            ●
+          <div className="gc-panel" style={{ marginBottom: 22 }}>
+            <PanelHeader right={`${plannerWeeks.length} weeks`}>Planner window</PanelHeader>
+            <div className="gc-panel-bd flush">
+              <table className="gc-table gc-table--rows">
+                <thead>
+                  <tr>
+                    <th>Week</th>
+                    <th>Tournament entry</th>
+                    <th>Training focus</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {plannerWeeks.map((pw, i) => {
+                    const weekKey = `${pw.week.season}-${pw.week.week}`;
+                    const sw = scheduleByWeekKey.get(weekKey);
+                    const busy = busyWeek === i;
+                    return (
+                      <tr key={weekKey} style={{ opacity: busy ? 0.6 : 1 }}>
+                        <td>
+                          <span className="num" style={{ fontSize: 11.5, fontWeight: 600, color: 'var(--ink-3)' }}>
+                            S{pw.week.season} W{pw.week.week}
                           </span>
-                        )}
-                      </span>
-                      <span className="text-[10px] flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
-                        ▾
-                      </span>
-                    </button>
-                    {openFocusMenuWeek === i && (
-                      <div
-                        className="absolute top-[calc(100%+4px)] right-0 min-w-[170px] max-h-[260px] overflow-y-auto gc-card rounded-[6px] z-10 py-1"
-                        style={{ border: '1px solid var(--gc-line)', boxShadow: '0 4px 14px rgba(0,0,0,0.1)' }}
-                      >
-                        {FOCUS_GROUPS.map((grp, gi) => (
-                          <div key={grp.label} style={gi > 0 ? { borderTop: '1px solid var(--gc-line)' } : undefined}>
-                            <div
-                              className="px-[10px] pt-[6px] pb-[3px] text-[10px] font-bold tracking-[0.5px] uppercase"
-                              style={{ color: 'var(--gc-ink-mute)' }}
-                            >
-                              {grp.label}
+                        </td>
+
+                        {/* Tournament entry — reuses the existing registration
+                            flow (EnterTournamentModal) rather than a new one. */}
+                        <td>
+                          {pw.entries.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              {pw.entries.map((t) => (
+                                <Link
+                                  key={t.id}
+                                  href={`/tournaments/${t.id}`}
+                                  className="gc-identity-link"
+                                  style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', color: 'var(--ink)' }}
+                                >
+                                  {t.name}
+                                </Link>
+                              ))}
                             </div>
-                            {grp.options.map((opt) => (
-                              <div
-                                key={opt.label}
-                                onClick={() => handleSelectFocus(i, pw.week, opt.focus)}
-                                className="flex items-center justify-between px-[10px] py-[6px] text-[12px] cursor-pointer hover:bg-[var(--gc-s3)]"
-                                style={{ color: 'var(--gc-ink)' }}
-                              >
-                                {opt.label}
-                                {focusEquals(sw?.focus ?? null, opt.focus) && (
-                                  <span className="font-bold" style={{ color: 'var(--gc-ball)' }}>
-                                    ✓
+                          ) : profile.managerId ? (
+                            <Button variant="ghost" className="gc-btn--sm" onClick={() => setEnterModalWeek(i)} disabled={busy}>
+                              + Enter tournament
+                            </Button>
+                          ) : (
+                            <span style={{ fontSize: 11.5, color: 'var(--ink-4)' }}>—</span>
+                          )}
+                        </td>
+
+                        {/* Training focus — resolved from the training
+                            schedule; editable inline via the same dropdown
+                            shape the roster dashboard already uses. */}
+                        <td>
+                          <div style={{ position: 'relative', width: 150 }}>
+                            <button
+                              onClick={() => profile.managerId && setOpenFocusMenuWeek(openFocusMenuWeek === i ? null : i)}
+                              disabled={!profile.managerId || busy}
+                              className="gc-select"
+                              style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, backgroundImage: 'none', padding: '6px 10px', fontSize: 12, cursor: profile.managerId ? 'pointer' : 'not-allowed' }}
+                            >
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {trainingFocusLabel(sw?.focus ?? null, 'No focus')}
+                                {sw?.isExplicit && (
+                                  <span title="Explicit entry for this week" style={{ color: 'var(--accent)', display: 'inline-flex' }}>
+                                    <Icon name="check" size={10} />
                                   </span>
                                 )}
+                              </span>
+                              <Icon name="chevron-down" size={11} />
+                            </button>
+                            {openFocusMenuWeek === i && (
+                              <div
+                                className="gc-panel"
+                                style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, minWidth: 170, maxHeight: 260, overflowY: 'auto', zIndex: 10, padding: 4 }}
+                              >
+                                {FOCUS_GROUPS.map((grp, gi) => (
+                                  <div key={grp.label} style={gi > 0 ? { borderTop: '1px solid var(--hair)' } : undefined}>
+                                    <div className="t-label" style={{ padding: '6px 10px 3px', fontSize: 10 }}>
+                                      {grp.label}
+                                    </div>
+                                    {grp.options.map((opt) => (
+                                      <div
+                                        key={opt.label}
+                                        role="button"
+                                        onClick={() => handleSelectFocus(i, pw.week, opt.focus)}
+                                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 10px', fontSize: 12, cursor: 'pointer', borderRadius: 'var(--r1)', color: 'var(--ink-2)' }}
+                                      >
+                                        {opt.label}
+                                        {focusEquals(sw?.focus ?? null, opt.focus) && (
+                                          <span style={{ color: 'var(--accent)', display: 'inline-flex' }}>
+                                            <Icon name="check" size={12} />
+                                          </span>
+                                        )}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ))}
                               </div>
-                            ))}
+                            )}
                           </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -1069,68 +1046,65 @@ export default function PlayerProfilePage() {
           />
         )}
 
-        <NetDivider />
-
         {/* Tournament history — compact preview; the full, paginated
             history lives on its own subpage now (/players/[id]/history). */}
-        <div className="flex items-center justify-between mb-[10px]">
-          <div className="text-[13px] font-bold tracking-[0.2px]" style={{ color: 'var(--gc-ink)' }}>Tournament history</div>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+          <span className="t-label" style={{ fontSize: 12.5 }}>Tournament history</span>
           {profile.tournamentHistory.length > 0 && (
-            <Link href={`/players/${playerId}/history`} className="text-[12px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+            <Link href={`/players/${playerId}/history`} className="t-body-sm" style={{ fontWeight: 600, color: 'var(--accent)' }}>
               View all {profile.tournamentHistory.length} →
             </Link>
           )}
         </div>
         {profile.tournamentHistory.length === 0 ? (
-          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            No tournament entries yet.
-          </div>
+          <div className="t-body-sm">No tournament entries yet.</div>
         ) : (
-          <div className="flex flex-col gap-[8px]">
-            {profile.tournamentHistory.slice(0, 3).map((entry) => (
-              <Link
-                key={entry.tournamentId}
-                href={`/tournaments/${entry.tournamentId}`}
-                className="flex items-center justify-between gc-card gc-card--hover rounded-[8px] px-[14px] py-[11px] no-underline"
-                style={{ border: '1px solid var(--gc-line)', color: 'inherit' }}
-              >
-                <div className="flex items-center gap-[10px] min-w-0">
-                  <div
-                    className="text-[10px] font-bold tracking-[0.4px] uppercase px-[7px] py-[3px] rounded-[4px] text-white flex-none"
-                    style={{ background: SURFACE_COLOR[entry.surface] ?? 'var(--gc-line)' }}
-                  >
-                    {entry.surface}
-                  </div>
-                  {entry.ageBand && (
-                    <div
-                      className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[5px] py-[1.5px] rounded-[3px] flex-none"
-                      style={{ background: JUNIOR_BADGE.bg, color: JUNIOR_BADGE.fg }}
-                    >
-                      {entry.ageBand}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[13.5px] overflow-hidden text-ellipsis whitespace-nowrap">{entry.name}</div>
-                    <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                      {entry.tier} · {entry.drawSize}-draw · Season {entry.weekScheduled.season}, Week {entry.weekScheduled.week}
-                    </div>
-                  </div>
-                </div>
-                <div className="text-right flex-none">
-                  <div className="text-[12px] font-semibold" style={{ color: entry.won ? 'oklch(80% 0.14 85)' : 'var(--gc-ink-mute)' }}>
-                    {tournamentHistoryResultLabel(entry)}
-                  </div>
-                  {entry.prizeMoney > 0 && (
-                    <div className="text-[10.5px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
-                      {formatMoney(entry.prizeMoney)}
-                    </div>
-                  )}
-                </div>
-              </Link>
-            ))}
+          <div className="gc-panel">
+            <div className="gc-panel-bd flush">
+              <table className="gc-table gc-table--rows">
+                <thead>
+                  <tr>
+                    <th>Tournament</th>
+                    <th>Surface</th>
+                    <th>Stage</th>
+                    <th className="r">Result</th>
+                    <th className="r">Prize</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {profile.tournamentHistory.slice(0, 3).map((entry) => (
+                    <tr key={entry.tournamentId} className="gc-rowlink">
+                      <td style={{ position: 'relative' }}>
+                        <a href={`/tournaments/${entry.tournamentId}`} className="gc-rowcover" style={{ fontWeight: 600, color: 'var(--ink)' }}>
+                          {entry.name}
+                        </a>
+                        {entry.ageBand && (
+                          <span className="gc-badge gc-badge--band" style={{ fontSize: 9.5, marginLeft: 8 }}>{entry.ageBand}</span>
+                        )}
+                      </td>
+                      <td>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                          <span className="gc-dot" style={{ background: SURFACE_COLOR[entry.surface] ?? 'var(--ink-4)' }} />
+                          <span className="t-mono-s" style={{ textTransform: 'uppercase' }}>{entry.surface}</span>
+                        </span>
+                      </td>
+                      <td className="num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
+                        {entry.tier} · {entry.drawSize}-draw · Season {entry.weekScheduled.season}, Week {entry.weekScheduled.week}
+                      </td>
+                      <td className="r" style={{ color: entry.won ? 'var(--gold)' : 'var(--ink-3)', fontWeight: 600, fontSize: 12 }}>
+                        {tournamentHistoryResultLabel(entry)}
+                      </td>
+                      <td className="r num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
+                        {entry.prizeMoney > 0 ? formatMoney(entry.prizeMoney) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
-      </div>
-    </AppFrame>
+      </PageShell>
+    </AppShell>
   );
 }

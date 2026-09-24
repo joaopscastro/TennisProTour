@@ -1,12 +1,7 @@
 /** Surface (court) reference — the ONE source of truth for clay/grass/hard/
  *  indoor across every screen. Colour is a token value only (Direction A:
  *  colour encodes surface, never a page background), so the same key can
- *  drive a dot, a badge, a border or a chart with no gradient copies.
- *
- *  Replaces the old `lib/surfaces.ts` (deleted). `surfaceTheme` remains here
- *  as a flat compatibility shim for screens not yet migrated: it keeps the
- *  old shape but returns token colours / flat backgrounds instead of the
- *  removed surface gradients. Delete it once the last caller is rewritten. */
+ *  drive a dot, a badge, a border or a chart with no gradient copies. */
 
 export type SurfaceKey = 'clay' | 'grass' | 'hard' | 'indoor';
 
@@ -48,17 +43,3 @@ export function surfaceMeta(surface: string | null | undefined): SurfaceMeta {
   return SURFACE_META[surfaceKeyFor(surface)];
 }
 
-/** LEGACY SHIM (remove in a later stage): the old `SurfaceTheme` shape the
- *  not-yet-migrated screens still read. `deep` is the flat surface colour
- *  (so old gradients render flat), `gradient` is the panel background and
- *  `wash` is transparent — no surface atmosphere anywhere any more. */
-export interface SurfaceTheme extends SurfaceMeta {
-  deep: string;
-  gradient: string;
-  wash: string;
-}
-
-export function surfaceTheme(surface: string | null | undefined): SurfaceTheme {
-  const meta = surfaceMeta(surface);
-  return { ...meta, deep: meta.color, gradient: 'var(--bg-2)', wash: 'transparent' };
-}

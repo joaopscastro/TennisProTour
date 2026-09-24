@@ -32,6 +32,7 @@ import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, disambiguatedNa
 import { useDevManagerId } from '../lib/managerContext';
 import { refreshEntitlement, useEntitlement } from '../lib/entitlement';
 import { PageShell, PanelHeader, Button, SectionLabel, Flag } from '../components/ui/primitives';
+import { Icon } from '../components/ui/Icon';
 import { CelebrationMoment, CelebrationOverlay } from '../components/ui/Celebration';
 import { ALL_SURFACES, surfaceMeta } from '../lib/ui/surfaces';
 import { stageLabel, stageMeta } from '../lib/ui/stage';
@@ -47,20 +48,20 @@ import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../lib/ui/focus';
 // the real StandardAgingPolicy, not duplicated here.
 
 function fatigueMeta(f: number): { color: string; label: string } {
-  if (f >= 70) return { color: 'oklch(65% 0.18 25)', label: `${f}% · high, rest recommended` };
-  if (f >= 40) return { color: 'oklch(75% 0.15 85)', label: `${f}% · moderate` };
-  return { color: 'oklch(72% 0.15 150)', label: `${f}% · fresh` };
+  if (f >= 70) return { color: 'var(--loss)', label: `${f}% · high, rest recommended` };
+  if (f >= 40) return { color: 'var(--warn)', label: `${f}% · moderate` };
+  return { color: 'var(--win)', label: `${f}% · fresh` };
 }
 
 // Mirrors the domain form bands (see StatisticalMatchSimulator.formModifier
 // / Player.form): rusty < 8, warming 8–11, sharp 12–25, well-played 26–30,
 // overplayed > 30. Both extremes cost effective rating in the sim.
 function formMeta(f: number): { color: string; label: string } {
-  if (f > 30) return { color: 'oklch(65% 0.18 25)', label: `${f} · overplayed, needs rest` };
-  if (f >= 12 && f <= 25) return { color: 'oklch(72% 0.15 150)', label: `${f} · match sharp` };
-  if (f >= 26) return { color: 'oklch(75% 0.15 85)', label: `${f} · well-played` };
-  if (f >= 8) return { color: 'oklch(75% 0.15 85)', label: `${f} · warming up` };
-  return { color: 'oklch(70% 0.14 30)', label: `${f} · rusty, needs matches` };
+  if (f > 30) return { color: 'var(--loss)', label: `${f} · overplayed, needs rest` };
+  if (f >= 12 && f <= 25) return { color: 'var(--win)', label: `${f} · match sharp` };
+  if (f >= 26) return { color: 'var(--warn)', label: `${f} · well-played` };
+  if (f >= 8) return { color: 'var(--warn)', label: `${f} · warming up` };
+  return { color: 'var(--warn)', label: `${f} · rusty, needs matches` };
 }
 
 const STAGE_SORT_ORDER: Record<PlayerLifecycleStage, number> = { decline: 0, prime: 1, youth: 2, retired: 3 };
@@ -394,7 +395,7 @@ export default function RosterDashboardPage() {
     const queued: CelebrationMoment[] = [];
     for (const p of players) {
       // --- rank milestone ---
-      const mileKey = `gc-cele-rankmile-${p.id}`;
+      const mileKey = `gc-rank-milestone-${p.id}`;
       const storedMile = window.localStorage.getItem(mileKey);
       const prevBest = storedMile === null ? null : Number(storedMile);
       const curBest = p.rank == null ? 0 : p.rank <= 1 ? 1 : p.rank <= 10 ? 10 : p.rank <= 100 ? 100 : 0;
@@ -413,7 +414,7 @@ export default function RosterDashboardPage() {
       if (prevBest === null || curBest !== 0) window.localStorage.setItem(mileKey, String(curBest || prevBest || 0));
 
       // --- band graduation ---
-      const bandKey = `gc-cele-band-${p.id}`;
+      const bandKey = `gc-band-graduation-${p.id}`;
       const storedBand = window.localStorage.getItem(bandKey);
       if (storedBand !== null && storedBand !== p.rankBand && bandOrder[p.rankBand] > (bandOrder[storedBand] ?? 0)) {
         queued.push({
@@ -635,7 +636,7 @@ export default function RosterDashboardPage() {
                                   <span style={{ width: 6, height: 6, borderRadius: 999, background: p.trainingFocus ? 'var(--accent)' : 'var(--ink-4)' }} />
                                   {trainingFocusLabel(p.trainingFocus)}
                                 </span>
-                                <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>▾</span>
+                                <span style={{ fontSize: 10, color: 'var(--ink-3)' }}><Icon name="chevron-down" size={11} /></span>
                               </button>
                               {openFocusMenu === p.id && (
                                 <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 190, maxHeight: 320, overflowY: 'auto', zIndex: 20, padding: 5 }}>
@@ -647,7 +648,7 @@ export default function RosterDashboardPage() {
                                         return (
                                           <div key={opt.label} role="button" onClick={() => handleSelectFocus(p.id, opt.focus)}
                                             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--r2)', color: 'var(--ink-2)', background: on ? 'var(--bg-4)' : 'transparent' }}>
-                                            {opt.label}{on && <span style={{ color: 'var(--accent)', fontWeight: 800 }}>✓</span>}
+                                            {opt.label}{on && <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="check" size={12} /></span>}
                                           </div>
                                         );
                                       })}

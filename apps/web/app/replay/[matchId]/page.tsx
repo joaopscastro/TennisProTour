@@ -275,19 +275,19 @@ export default function ReplayPage() {
     <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
       <PageShell>
         <div style={{ maxWidth: 1040 }}>
-          <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--gc-ink-mute)' }}>
-            <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+          <div className="flex items-center gap-2 text-[13px] mb-[16px] flex-wrap" style={{ color: 'var(--ink-3)' }}>
+            <Link href={context ? `/tournaments/${context.tournament.id}` : '/tournaments'} className="font-semibold no-underline hover:underline" style={{ color: 'var(--accent)' }}>
               ← Back to bracket
             </Link>
             {context && (
               <>
                 <span>·</span>
-                <span style={{ color: 'var(--gc-ink-dim)' }}>{context.tournament.name}</span>
+                <span style={{ color: 'var(--ink-2)' }}>{context.tournament.name}</span>
                 <span>·</span>
                 <span>{context.roundLabel}</span>
                 <div
                   className="text-[11px] font-bold tracking-[0.4px] uppercase px-2 py-[3px] rounded-[4px] text-white ml-[2px]"
-                  style={{ background: accent ?? 'var(--gc-s3)' }}
+                  style={{ background: accent ?? 'var(--bg-3)' }}
                 >
                   {context.tournament.surface}
                 </div>
@@ -322,7 +322,7 @@ export default function ReplayPage() {
               <div className="flex items-center justify-center px-[6px]">
                 <span
                   className="text-[13px] font-black tracking-[1px] uppercase"
-                  style={{ color: 'var(--gc-ink-mute)' }}
+                  style={{ color: 'var(--ink-3)' }}
                 >
                   vs
                 </span>

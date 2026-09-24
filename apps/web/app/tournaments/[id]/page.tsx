@@ -21,7 +21,7 @@ import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
 import { Badge, Button, Flag, PageShell, Panel, PanelHeader } from '../../../components/ui/primitives';
 import { Icon } from '../../../components/ui/Icon';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
-import { surfaceTheme, SURFACE_COLOR } from '../../../lib/ui/surfaces';
+import { surfaceMeta, SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { disambiguatedNames, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle, tournamentHeadline } from '../../../lib/bracketStatus';
 import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
@@ -162,7 +162,7 @@ function ResultList({ children }: { children: React.ReactNode }) {
  * made (in place of the useless blank bracket) and alongside it during
  * play, so the profile is always available. Pure presentation. */
 function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
-  const th = surfaceTheme(tournament.surface);
+  const th = surfaceMeta(tournament.surface);
   const facts: Array<{ label: string; value: React.ReactNode }> = [
     { label: 'Circuit', value: tournament.circuit === 'junior' ? `Junior${tournament.ageBand ? ` · ${tournament.ageBand.toUpperCase()}` : ''}` : 'Senior tour' },
     { label: 'Level', value: tierLabel(tournament.tier) },
@@ -856,7 +856,7 @@ export default function TournamentBracketPage() {
   const finalTop = positions[rounds.length - 1]?.[0] ?? 0;
   const finalMid = finalTop + CARD_H / 2;
 
-  const th = surfaceTheme(tournament.surface);
+  const th = surfaceMeta(tournament.surface);
   // Main-draw entrants alone under-counts a qualifying-tier event: its
   // below-cutoff field sits in the 'qualifying' draw, so the hero used to
   // read "0 players" while the qualifying entry list showed one. Count both

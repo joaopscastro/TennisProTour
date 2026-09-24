@@ -8,8 +8,9 @@ import {
 } from '../../lib/api';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
-import { Sidebar } from '../../components/Sidebar';
-import { AppFrame, Hero, SectionLabel } from '../../components/ui/primitives';
+import { AppShell } from '../../components/ui/AppShell';
+import { PageShell, SectionLabel, Button } from '../../components/ui/primitives';
+import { Icon } from '../../components/ui/Icon';
 
 const CONVENIENCE_PERKS = [
   {
@@ -86,22 +87,21 @@ export default function ManagerProPage() {
   }, [managerId]);
 
   return (
-    <AppFrame>
-      <Sidebar active="manager-pro" tier={tier} xpBalance={entitlement?.xpBalance} />
-
-      <div className="flex-1 p-8 max-w-[1080px] min-w-0">
-        {/* Hero */}
-        <Hero minHeight={190}>
-          <div className="flex items-end justify-between gap-6 flex-wrap">
-            <div className="max-w-[660px]">
-              <div className="inline-flex items-center gap-2 px-[10px] py-[4px] rounded-full text-[11px] font-bold tracking-[0.6px] uppercase mb-[14px]"
-                style={{ background: 'oklch(88% 0.19 122 / 0.16)', color: 'var(--gc-ball)', border: '1px solid oklch(88% 0.19 122 / 0.3)' }}>
-                ◆ Membership
-              </div>
-              <div className="text-[34px] font-extrabold tracking-[-0.5px] text-white [text-shadow:0_1px_4px_rgba(0,0,0,0.4)]">
-                Manager Pro
-              </div>
-              <div className="text-[14px] mt-[10px] leading-[1.6] text-white/80">
+    <AppShell active="manager-pro" tier={tier} xpBalance={entitlement?.xpBalance}>
+      <PageShell>
+        {/* Hero band — flat panel, 2px accent top rule. */}
+        <div className="gc-band" style={{ ['--surf' as string]: 'var(--accent)', minHeight: 140, padding: '22px 24px', alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap', width: '100%' }}>
+            <div style={{ maxWidth: 660 }}>
+              <span
+                className="gc-badge"
+                style={{ color: 'var(--accent)', borderColor: 'color-mix(in srgb, var(--accent) 45%, transparent)', marginBottom: 14 }}
+              >
+                <Icon name="diamond" size={11} />
+                Membership
+              </span>
+              <h1 className="t-h1" style={{ margin: 0 }}>Manager Pro</h1>
+              <div className="t-body-sm" style={{ marginTop: 10, lineHeight: 1.6 }}>
                 More room to manage, less upkeep, and a modest coaching edge — never a better formula.
                 The coaching system works identically for every manager; Pro just gets a second slot to run
                 it with. Every perk that touches competitiveness is spelled out below in plain sight — nothing
@@ -110,7 +110,7 @@ export default function ManagerProPage() {
             </div>
             {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
               <form
-                className="flex items-center gap-[6px] text-[11.5px] flex-none text-white/70"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11.5, flex: 'none', color: 'var(--ink-3)' }}
                 onSubmit={(e) => {
                   e.preventDefault();
                   setManagerId(managerIdInput.trim() || managerId);
@@ -120,128 +120,128 @@ export default function ManagerProPage() {
                 <input
                   value={managerIdInput}
                   onChange={(e) => setManagerIdInput(e.target.value)}
-                  className="gc-input rounded px-2 py-1 text-[12px]"
-                  style={{ width: 110 }}
+                  className="gc-input"
+                  style={{ width: 110, padding: '5px 9px', fontSize: 12 }}
                 />
               </form>
             )}
           </div>
-        </Hero>
+        </div>
 
         {error && (
           <div
-            className="mt-5 text-[13px] rounded-[6px] px-3 py-2"
-            style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}
+            className="gc-notice"
+            style={{ marginTop: 20, color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)', background: 'color-mix(in srgb, var(--loss) 10%, transparent)' }}
           >
             {error}
           </div>
         )}
 
         {/* TIER CARDS */}
-        <div className="grid grid-cols-2 gap-4 mt-7 mb-8">
-          <div className="gc-card rounded-[12px] p-[24px]">
-            <div className="text-[12px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ink-mute)' }}>
-              Free
-            </div>
-            <div className="text-[30px] font-extrabold mt-2" style={{ color: 'var(--gc-ink)' }}>$0</div>
-            <div className="text-[13px] mt-[6px] leading-[1.55]" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16, margin: '28px 0 32px' }}>
+          <div className="gc-panel" style={{ padding: 24 }}>
+            <div className="t-label">Free</div>
+            <div className="num" style={{ fontSize: 30, fontWeight: 700, marginTop: 8, color: 'var(--ink)' }}>$0</div>
+            <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.55 }}>
               Fully playable. Every tournament, every match sim, every core system — no crippled trial, no paywalled
               mechanics.
             </div>
-            <div className="h-px my-5" style={{ background: 'var(--gc-line)' }} />
-            <div className="text-[13px] flex items-center gap-2" style={{ color: 'var(--gc-ink-dim)' }}>
-              <span className="font-bold" style={{ color: 'var(--gc-ball)' }}>✓</span>
+            <div style={{ height: 1, margin: '20px 0', background: 'var(--hair)' }} />
+            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8, color: 'var(--ink-2)' }}>
+              <span style={{ color: 'var(--accent)', display: 'inline-flex' }}><Icon name="check" size={13} /></span>
               2 roster slots, full decay rate
             </div>
             {tier === 'free' && (
-              <div className="mt-4 text-[11.5px] font-semibold px-[10px] py-[6px] rounded-[6px] inline-block"
-                style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink-dim)' }}>
+              <div className="gc-badge" style={{ marginTop: 16, color: 'var(--ink-2)' }}>
                 Your current plan
               </div>
             )}
           </div>
 
-          <div className="gc-card rounded-[12px] p-[24px] relative overflow-hidden"
-            style={{ border: '1.5px solid oklch(88% 0.19 122 / 0.4)' }}>
-            <div className="absolute top-0 right-0 h-[3px] w-full"
-              style={{ background: 'linear-gradient(90deg, var(--gc-ball), transparent)' }} />
-            <div className="text-[12px] font-bold tracking-[0.5px] uppercase" style={{ color: 'var(--gc-ball)' }}>
-              Manager Pro
+          <div className="gc-panel" style={{ padding: 24, border: '1px solid color-mix(in srgb, var(--accent) 40%, transparent)', borderTop: '2px solid var(--accent)' }}>
+            <div className="t-label" style={{ color: 'var(--accent)' }}>Manager Pro</div>
+            <div className="num" style={{ fontSize: 30, fontWeight: 700, marginTop: 8, color: 'var(--ink)' }}>
+              $4.99<span style={{ fontSize: 15, fontWeight: 500, color: 'var(--ink-3)' }}>/mo</span>
             </div>
-            <div className="text-[30px] font-extrabold mt-2" style={{ color: 'var(--gc-ink)' }}>
-              $4.99<span className="text-[15px] font-medium" style={{ color: 'var(--gc-ink-mute)' }}>/mo</span>
-            </div>
-            <div className="text-[13px] mt-[6px] leading-[1.55]" style={{ color: 'var(--gc-ink-mute)' }}>
+            <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.55 }}>
               More room to manage, less upkeep — and one honest tradeoff on the one perk that matters competitively.
             </div>
-            <div className="h-px my-5" style={{ background: 'var(--gc-line)' }} />
+            <div style={{ height: 1, margin: '20px 0', background: 'var(--hair)' }} />
             {tier === 'pro' ? (
-              <div className="w-full text-center py-[12px] rounded-[8px] text-[13.5px] font-bold"
-                style={{ background: 'oklch(88% 0.19 122 / 0.16)', color: 'var(--gc-ball)', border: '1px solid oklch(88% 0.19 122 / 0.3)' }}>
+              <div
+                style={{
+                  width: '100%', textAlign: 'center', padding: '12px 0', borderRadius: 'var(--r2)',
+                  fontSize: 13.5, fontWeight: 700, color: 'var(--accent)',
+                  background: 'color-mix(in srgb, var(--accent) 14%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+                }}
+              >
                 You&rsquo;re on Manager Pro
               </div>
             ) : (
-              <button
+              <Button
+                variant="primary"
                 onClick={handleUpgrade}
                 disabled={checkingOut}
-                className="gc-btn gc-btn--primary w-full justify-center py-[12px] text-[13.5px] font-bold disabled:opacity-60"
+                style={{ width: '100%', padding: '12px 0', fontSize: 13.5, justifyContent: 'center' }}
               >
                 {checkingOut ? 'Redirecting to checkout…' : 'Upgrade to Manager Pro'}
-              </button>
+              </Button>
             )}
           </div>
         </div>
 
         {/* EMAIL NOTIFICATIONS */}
         <SectionLabel>Email notifications</SectionLabel>
-        <div className="text-[12.5px] mb-3 -mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 12 }}>
           Your weekly results digest — a short recap of your players&rsquo; results, titles, and next matches.
         </div>
-        <div className="gc-card rounded-[12px] p-[18px_20px] mb-8 flex items-center justify-between gap-6 flex-wrap">
-          <div className="min-w-0">
-            <div className="text-[14.5px] font-semibold" style={{ color: 'var(--gc-ink)' }}>
+        <div className="gc-panel" style={{ padding: '18px 20px', marginBottom: 32, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, flexWrap: 'wrap' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14.5, fontWeight: 600, color: 'var(--ink)' }}>
               Weekly results digest
             </div>
-            <div className="text-[12.5px] mt-1 leading-[1.55]" style={{ color: 'var(--gc-ink-mute)' }}>
+            <div className="t-body-sm" style={{ marginTop: 4, lineHeight: 1.55 }}>
               On by default. Every email carries a one-click unsubscribe link, and you can turn it off here any time.
             </div>
           </div>
-          <button
+          <Button
             type="button"
             role="switch"
             aria-checked={digestOptOut === false}
             aria-label="Weekly results digest"
             onClick={handleToggleDigest}
             disabled={digestOptOut === null || savingPreference}
-            className="gc-btn flex-none justify-center disabled:opacity-60"
             style={{
               minWidth: 96,
-              background: digestOptOut === false ? 'oklch(88% 0.19 122 / 0.18)' : 'var(--gc-s3)',
-              color: digestOptOut === false ? 'var(--gc-ball)' : 'var(--gc-ink-dim)',
-              border: '1px solid var(--gc-line)',
+              flex: 'none',
+              justifyContent: 'center',
+              background: digestOptOut === false ? 'color-mix(in srgb, var(--accent) 14%, transparent)' : 'var(--bg-3)',
+              color: digestOptOut === false ? 'var(--accent)' : 'var(--ink-2)',
+              border: '1px solid var(--hair)',
             }}
           >
             {digestOptOut === null ? 'Loading…' : digestOptOut ? 'Off' : 'On'}
-          </button>
+          </Button>
         </div>
 
         {/* THE ONE PERK WITH A REAL EDGE */}
         <SectionLabel>The one perk with a real edge</SectionLabel>
-        <div className="text-[12.5px] mb-3 -mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 12 }}>
           This does affect competitiveness — here&rsquo;s exactly what it is and why it&rsquo;s still fair.
         </div>
         <div
-          className="rounded-[12px] p-[22px_24px] mb-8"
-          style={{ border: '1px solid oklch(64% 0.14 245 / 0.4)', background: 'linear-gradient(180deg, oklch(30% 0.06 245 / 0.5), oklch(22% 0.03 245 / 0.3))' }}
+          className="gc-panel"
+          style={{ padding: '22px 24px', marginBottom: 32, borderTop: '2px solid var(--hard)' }}
         >
-          <div className="text-[15.5px] font-bold" style={{ color: 'var(--gc-ink)' }}>
+          <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)' }}>
             A 2nd coach slot
           </div>
-          <div className="text-[13px] mt-[6px] leading-[1.55]" style={{ color: 'var(--gc-ink-dim)' }}>
+          <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.55 }}>
             Run two coaches training two players at once instead of one. This is a real training-efficiency edge
             over a single-coach roster — not a hidden one, and not a bigger one than that.
           </div>
-          <div className="text-[13px] mt-[10px] leading-[1.55]" style={{ color: 'var(--gc-ink-dim)' }}>
+          <div className="t-body-sm" style={{ marginTop: 10, lineHeight: 1.55 }}>
             The coaching system itself is identical for every manager: same formulas, same training gains per coach,
             free or Pro. Manager Pro doesn&rsquo;t get a better coach — it gets a second one.
           </div>
@@ -249,28 +249,29 @@ export default function ManagerProPage() {
 
         {/* THE ONE PERK WITH A COST */}
         <SectionLabel>The one perk with a cost</SectionLabel>
-        <div className="text-[12.5px] mb-3 -mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 12 }}>
           The only part of Manager Pro with a real cost attached to it — and it&rsquo;s not a flat unlock.
         </div>
         <div
-          className="rounded-[12px] p-[22px_24px] mb-8"
-          style={{ border: '1px solid oklch(64% 0.155 46 / 0.4)', background: 'linear-gradient(180deg, oklch(32% 0.08 46 / 0.5), oklch(22% 0.04 46 / 0.3))' }}
+          className="gc-panel"
+          style={{ padding: '22px 24px', marginBottom: 32, borderTop: '2px solid var(--clay)' }}
         >
-          <div className="flex items-start gap-[22px]">
-            <div className="flex-1">
-              <div className="text-[15.5px] font-bold" style={{ color: 'var(--gc-ink)' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 22, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 700, color: 'var(--ink)' }}>
                 4 roster slots instead of 2
               </div>
-              <div className="text-[13px] mt-[6px] leading-[1.55]" style={{ color: 'var(--gc-ink-dim)' }}>
+              <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.55 }}>
                 Manage twice the players and enter twice the tournaments at once.
               </div>
             </div>
-            <div className="w-px self-stretch" style={{ background: 'var(--gc-line-hi)' }} />
-            <div className="flex-1">
-              <div className="flex items-center gap-[6px] text-[15.5px] font-bold" style={{ color: 'var(--sf-clay)' }}>
-                <span>&#9888;</span>Faster point decay on those slots
+            <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--hair-2)' }} />
+            <div style={{ flex: 1, minWidth: 220 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 15.5, fontWeight: 700, color: 'var(--clay)' }}>
+                <Icon name="alert" size={15} />
+                Faster point decay on those slots
               </div>
-              <div className="text-[13px] mt-[6px] leading-[1.55]" style={{ color: 'var(--gc-ink-dim)' }}>
+              <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.55 }}>
                 Your 2 extra slots lose ranking points faster between tournaments than your base 2. More roster, more
                 decay — not a free power gain.
               </div>
@@ -280,28 +281,31 @@ export default function ManagerProPage() {
 
         {/* PURE CONVENIENCE */}
         <SectionLabel>Everything else is convenience</SectionLabel>
-        <div className="text-[12.5px] mb-3 -mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 12 }}>
           Zero effect on competitiveness — quality-of-life for managers who play a lot, not an edge for managers who
           pay.
         </div>
-        <div className="grid grid-cols-2 gap-3">
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 12 }}>
           {CONVENIENCE_PERKS.map((perk) => (
-            <div key={perk.title} className="gc-card gc-card--hover rounded-[10px] p-[18px_20px]">
-              <div className="text-[14px] font-semibold" style={{ color: 'var(--gc-ink)' }}>{perk.title}</div>
-              <div className="text-[12.5px] mt-1 leading-[1.55]" style={{ color: 'var(--gc-ink-mute)' }}>
+            <div key={perk.title} className="gc-card" style={{ padding: '18px 20px' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{perk.title}</div>
+              <div className="t-body-sm" style={{ marginTop: 4, lineHeight: 1.55 }}>
                 {perk.body}
               </div>
             </div>
           ))}
         </div>
 
-        <div className="mt-8 text-[12px] leading-[1.65] max-w-[660px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          We built Manager Pro this way on purpose: of the two perks that touch competitiveness, one (roster slots)
-          carries an equal and opposite cost, so paying never buys a stronger roster — only a bigger, faster-aging
-          one. The other (a 2nd coach slot) is a modest, fully disclosed training-efficiency edge running the same
-          coaching system every manager uses — not a better version of it.
-        </div>
-      </div>
-    </AppFrame>
+        <details className="gc-details" style={{ marginTop: 28, maxWidth: 660 }}>
+          <summary>Why Manager Pro is priced this way</summary>
+          <div className="t-body-sm" style={{ marginTop: 8, lineHeight: 1.65 }}>
+            We built Manager Pro this way on purpose: of the two perks that touch competitiveness, one (roster slots)
+            carries an equal and opposite cost, so paying never buys a stronger roster — only a bigger, faster-aging
+            one. The other (a 2nd coach slot) is a modest, fully disclosed training-efficiency edge running the same
+            coaching system every manager uses — not a better version of it.
+          </div>
+        </details>
+      </PageShell>
+    </AppShell>
   );
 }

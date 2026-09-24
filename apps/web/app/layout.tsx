@@ -52,8 +52,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" className={`${displayFont.variable} ${monoFont.variable} ${bodyFont.variable}`}>
       {/* No shared nav/main wrapper here — every route renders its own
-         full-bleed Sidebar + content layout (components/Sidebar.tsx),
-         so a second top nav bar here would just duplicate it. */}
+         full-bleed AppShell chrome (components/ui/AppShell.tsx), so a
+         second top nav bar here would just duplicate it. */}
       <body>{content}</body>
     </html>
   );

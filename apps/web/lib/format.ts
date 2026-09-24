@@ -1,6 +1,7 @@
 /** Presentation-only helpers shared across screens — nationality
- * flags and tennis scoreline formatting. None of this is domain logic;
- * it's derived purely from DTOs already fetched. Stage metadata lives in
+ * flags (components/ui/Flag.tsx, the hand-authored 16×12 SVG set) and
+ * tennis scoreline formatting. None of this is domain logic; it's
+ * derived purely from DTOs already fetched. Stage metadata lives in
  * `lib/ui/stage.ts` and surface colours in `lib/ui/surfaces.ts` (the
  * copies that used to live here / per screen are deleted). */
 
@@ -15,20 +16,6 @@ export function formatMoney(amount: number): string {
     notation: 'compact',
     maximumFractionDigits: 1,
   }).format(amount);
-}
-
-/** A flat flag glyph from any 2-letter nationality code.
- * STAGE 8: replace every caller with `<Flag code={...} />`
- * (components/ui/Flag.tsx, the hand-authored 16×12 SVG set) and delete
- * this emoji helper — screens still on the old look import it. */
-export function flagFor(nationality: string): string {
-  if (!/^[A-Za-z]{2}$/.test(nationality)) return '\u{1F3F3}\u{FE0F}';
-  const base = 0x1f1e6;
-  return nationality
-    .toUpperCase()
-    .split('')
-    .map((c) => String.fromCodePoint(base + c.charCodeAt(0) - 65))
-    .join('');
 }
 
 export const WEEKS_PER_SEASON = 52;

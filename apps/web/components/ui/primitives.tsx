@@ -6,8 +6,8 @@ import { surfaceMeta } from '../../lib/ui/surfaces';
 export { Flag } from './Flag';
 
 /* ---- Layout shell ---------------------------------------------------------- */
-/** Every screen renders its own Sidebar + content; this wraps the content
- *  column so the background and max-width are consistent. */
+/** Wraps a screen's content column inside the persistent `AppShell` chrome so
+ *  the max-width and page padding are consistent across every route. */
 export function PageShell({ children, wash }: { children: React.ReactNode; wash?: string }) {
   return (
     <div style={{ flex: 1, minWidth: 0, position: 'relative', background: 'var(--bg)' }}>
@@ -15,10 +15,6 @@ export function PageShell({ children, wash }: { children: React.ReactNode; wash?
       <div className="gc-container" style={{ position: 'relative', padding: '30px 24px 80px' }}>{children}</div>
     </div>
   );
-}
-
-export function AppFrame({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg)' }}>{children}</div>;
 }
 
 /* ---- Panel ----------------------------------------------------------------- */
@@ -86,20 +82,6 @@ export function AgeBandBadge({ band }: { band: 'u14' | 'u16' | 'u18' | null | un
   return <span className="gc-badge gc-badge--band">{band.toUpperCase()}</span>;
 }
 
-/** Rank as a compact mono plate: band label + rank figure, no gold. */
-export function RankBadge({ rank, points, band }: { rank: number | null; points: number; band?: string }) {
-  const nr = rank == null;
-  return (
-    <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-      {band && <span className="t-label" style={{ fontSize: 10 }}>{band}</span>}
-      <span className="mono" style={{ fontSize: 13, fontWeight: 600, color: nr ? 'var(--ink-4)' : 'var(--ink)' }}>
-        {nr ? 'NR' : `#${rank}`}
-      </span>
-      {!nr && <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{points.toLocaleString()} pts</span>}
-    </div>
-  );
-}
-
 /* ---- Stat bar (segmented 10-block) ----------------------------------------- */
 export function StatBar({ label, value, max = 100, color }: { label?: string; value: number; max?: number; color?: string }) {
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
@@ -109,27 +91,6 @@ export function StatBar({ label, value, max = 100, color }: { label?: string; va
       {label && <span className="t-label" style={{ width: 68, textTransform: 'capitalize' }}>{label}</span>}
       <span className="gc-seg" style={{ flex: 1, ['--p' as string]: pct, ['--seg' as string]: c }} />
       <span className="gc-seg-val" style={{ width: 26, fontWeight: 600, color: 'var(--ink)' }}>{Math.round(value)}</span>
-    </div>
-  );
-}
-
-/* ---- Hero band ------------------------------------------------------------- */
-/** Flat page-top band: panel surface, hairline border, a 2px surface-coloured
- *  top edge. No surface gradient, no grain. */
-export function Hero({ surface, children, minHeight = 150 }: { surface?: string | null; children: React.ReactNode; minHeight?: number }) {
-  const meta = surfaceMeta(surface);
-  return (
-    <div style={{
-      background: 'var(--bg-2)',
-      border: '1px solid var(--hair)',
-      borderTop: `2px solid ${surface ? meta.color : 'var(--hair-2)'}`,
-      borderRadius: 'var(--r3)',
-      minHeight,
-      padding: '26px 30px',
-      display: 'flex',
-      alignItems: 'flex-end',
-    }}>
-      <div style={{ width: '100%' }}>{children}</div>
     </div>
   );
 }

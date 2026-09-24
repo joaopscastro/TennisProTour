@@ -1,0 +1,242 @@
+{
+  "url": "http://localhost:3001/",
+  "title": "Grand Circuit",
+  "visibleText": "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W9 · DAY 2/7\nNEXT DAY\n7:45:43\nXP\n499\nMANAGER PRO\nYOUR ACADEMY\nRoster\nShape careers, set training, and send your players onto the circuit.\nManager ID (dev)\nROSTER SLOTS\n3/4 SLOTS\n4 roster slots · faster point decay applies\nCREATE CUSTOM PLAYER (1)\n+ CLAIM FREE AGENT\nSQUAD\n3 players · cap 4\nNext day in 7h 45m\nSort: Fatigue\nSort: Nearest decline\nSort: Overall rating\nSort: Name\nPLAYER STAGE OVR RANK PTS FATIGUE FORM SURFACES C·G·H·I FOCUS NEXT ACTIONS\n\nMarta Kowalski\n26.5\nW 7-6, 6-3\n\nPrime\nDecline in ~4 seasons\n61 SENIOR #142 250\n0\n\n3\n\nC\n28\nG\n17\nH\n16\nI\n14\n\nForehand\n\nNo match scheduled\n\nENTER\nPRACTICE\nMORE ···\n\nLuca Moreau\n12.3\nW 4-6, 6-2, 6-1\n\nYouth\nPrime in ~8 seasons\n37 U14 #13 1\n0\n\n4\n\nC\n25\nG\n15\nH\n18\nI\n13\n\nSet focus\n\nNo match scheduled\n\nENTER\nPRACTICE\nMORE ···\n\nNoah Santos\n12.2\nL 3-6, 1-6\n\nYouth\nPrime in ~8 seasons\n42 U14 #10 2\n0\n\n3\n\nC\n20\nG\n25\nH\n29\nI\n22\n\nSet focus\n\nNo match scheduled\n\nENTER\nPRACTICE\nMORE ···\n\n+ Open roster slot — add a player\nSurfaces: C Clay · G Grass · H Hard · I Indoor\nForm sweet spot 12–25 = match sharp. Fatigue is a sim modifier, not a hard block.\nHow to read fatigue and form\nDOUBLES\n1 open\nForm a doubles pair\nSelect player…\nMarta Kowalski\nLuca Moreau\nNoah Santos\n+\nSelect player…\nMarta Kowalski\nLuca Moreau\nNoah Santos\nFORM PAIR\nPAIR CHEMISTRY STATUS ACTION\nNoah Santos · Marta Kowalski\n0\nActive\nDISSOLVE\nCREATE A CUSTOM PLAYER\nSkip the talent pool and name your own player — attributes are still randomly generated the same way a pool candidate's are, no stat advantage.\n1 custom player credit remaining\nNAME\nNATIONALITY (2-LETTER CODE)\nCANCEL\nCREATE PLAYER (1 CREDIT)",
+  "elements": [
+    {
+      "ref": "e1sdkzas",
+      "kind": "link",
+      "label": "Grand Circuit TENNIS MANAGER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "ei11uag",
+      "kind": "link",
+      "label": "ROSTER",
+      "disabled": false,
+      "href": "/"
+    },
+    {
+      "ref": "e126y79p",
+      "kind": "link",
+      "label": "SCOUTING",
+      "disabled": false,
+      "href": "/scouting"
+    },
+    {
+      "ref": "e8tcjx5",
+      "kind": "link",
+      "label": "TOURNAMENTS",
+      "disabled": false,
+      "href": "/tournaments"
+    },
+    {
+      "ref": "e1fxu7qk",
+      "kind": "link",
+      "label": "RANKINGS",
+      "disabled": false,
+      "href": "/rankings"
+    },
+    {
+      "ref": "e1y4g63",
+      "kind": "link",
+      "label": "MANAGERS",
+      "disabled": false,
+      "href": "/managers"
+    },
+    {
+      "ref": "e8dvcy5",
+      "kind": "link",
+      "label": "MANAGER PRO",
+      "disabled": false,
+      "href": "/manager-pro"
+    },
+    {
+      "ref": "e3jovap",
+      "kind": "textbox",
+      "label": "",
+      "value": "ux-agent-1",
+      "disabled": false
+    },
+    {
+      "ref": "e11soi35",
+      "kind": "button",
+      "label": "CREATE CUSTOM PLAYER (1)",
+      "disabled": false
+    },
+    {
+      "ref": "eb34qhv",
+      "kind": "link",
+      "label": "+ CLAIM FREE AGENT",
+      "disabled": false,
+      "href": "/scouting"
+    },
+    {
+      "ref": "e15l8ave",
+      "kind": "combobox",
+      "label": "",
+      "value": "fatigue",
+      "disabled": false
+    },
+    {
+      "ref": "ek43rm5",
+      "kind": "link",
+      "label": "Marta Kowalski",
+      "disabled": false,
+      "href": "/players/fb384d8d-a047-453c-aae7-9d7a27bc841b"
+    },
+    {
+      "ref": "esht6p8",
+      "kind": "button",
+      "label": "Forehand",
+      "disabled": false
+    },
+    {
+      "ref": "e1fgg4w7",
+      "kind": "button",
+      "label": "ENTER",
+      "disabled": false
+    },
+    {
+      "ref": "e179gapu",
+      "kind": "button",
+      "label": "PRACTICE",
+      "disabled": false
+    },
+    {
+      "ref": "et706bp",
+      "kind": "button",
+      "label": "MORE ···",
+      "disabled": false
+    },
+    {
+      "ref": "e1crpxqf",
+      "kind": "link",
+      "label": "Luca Moreau",
+      "disabled": false,
+      "href": "/players/c67544e6-9d6f-4bb8-8967-340890a51ebd"
+    },
+    {
+      "ref": "e1i6zyzh",
+      "kind": "button",
+      "label": "Set focus",
+      "disabled": false
+    },
+    {
+      "ref": "e1f6gj78",
+      "kind": "button",
+      "label": "ENTER",
+      "disabled": false
+    },
+    {
+      "ref": "e17jfwet",
+      "kind": "button",
+      "label": "PRACTICE",
+      "disabled": false
+    },
+    {
+      "ref": "esx0kmq",
+      "kind": "button",
+      "label": "MORE ···",
+      "disabled": false
+    },
+    {
+      "ref": "ewv0f6r",
+      "kind": "link",
+      "label": "Noah Santos",
+      "disabled": false,
+      "href": "/players/d5c59f5a-9c63-4c61-89ff-8805811fd89e"
+    },
+    {
+      "ref": "e1hx0dai",
+      "kind": "button",
+      "label": "Set focus",
+      "disabled": false
+    },
+    {
+      "ref": "e1g0fca5",
+      "kind": "button",
+      "label": "ENTER",
+      "disabled": false
+    },
+    {
+      "ref": "e16ph3bw",
+      "kind": "button",
+      "label": "PRACTICE",
+      "disabled": false
+    },
+    {
+      "ref": "esn0yxr",
+      "kind": "button",
+      "label": "MORE ···",
+      "disabled": false
+    },
+    {
+      "ref": "e1qrkvqy",
+      "kind": "link",
+      "label": "+ Open roster slot — add a player",
+      "disabled": false,
+      "href": "/scouting"
+    },
+    {
+      "ref": "e15v7wkd",
+      "kind": "combobox",
+      "label": "",
+      "value": "",
+      "disabled": false
+    },
+    {
+      "ref": "e15193hg",
+      "kind": "combobox",
+      "label": "",
+      "value": "",
+      "disabled": false
+    },
+    {
+      "ref": "e9wbxc3",
+      "kind": "button",
+      "label": "FORM PAIR",
+      "disabled": true
+    },
+    {
+      "ref": "e9zs140",
+      "kind": "button",
+      "label": "DISSOLVE",
+      "disabled": false
+    },
+    {
+      "ref": "eopnwh5",
+      "kind": "button",
+      "label": "Close",
+      "disabled": false
+    },
+    {
+      "ref": "e102qz4q",
+      "kind": "textbox",
+      "label": "NAME",
+      "value": "",
+      "disabled": false
+    },
+    {
+      "ref": "eeene78",
+      "kind": "textbox",
+      "label": "NATIONALITY (2-LETTER CODE)",
+      "value": "",
+      "disabled": false
+    },
+    {
+      "ref": "ez9lfyd",
+      "kind": "button",
+      "label": "CANCEL",
+      "disabled": false
+    },
+    {
+      "ref": "e10q8mfz",
+      "kind": "button",
+      "label": "CREATE PLAYER (1 CREDIT)",
+      "disabled": true
+    }
+  ],
+  "errorText": ""
+}

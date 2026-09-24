@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import { CoachConversionPreviewDto, CoachDto, convertPlayerToCoach, fetchCoachConversionPreview } from '../lib/api';
+import { Modal } from './ui/Modal';
+import { Button } from './ui/primitives';
 
 interface Props {
   playerId: string;
@@ -48,107 +50,100 @@ export function CoachConversionModal({ playerId, playerName, managerId, tier, on
     }
   }
 
+  const warningStyle = {
+    color: 'var(--loss)',
+    background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+    border: '1px solid color-mix(in srgb, var(--loss) 35%, transparent)',
+  } as const;
+
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(6,10,8,0.66)', backdropFilter: 'blur(3px)' }}
-      onClick={onClose}
-    >
-      <div className="w-full max-w-[440px] gc-card rounded-[14px] p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="text-[16px] font-bold" style={{ color: 'var(--gc-ink)' }}>
-          Convert {playerName} to a coach
-        </div>
-        <div className="text-[12.5px] mt-1 mb-4" style={{ color: 'var(--gc-ink-mute)' }}>
-          Their playing career ends here — this frees the roster slot but cannot be undone.
-        </div>
-
-        {error && (
-          <div className="mb-3 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
-            {error}
-          </div>
-        )}
-
-        {preview === null && !error && (
-          <div className="text-[13px] py-3" style={{ color: 'var(--gc-ink-mute)' }}>
-            Calculating cost and coach rating…
-          </div>
-        )}
-
-        {preview && (
-          <>
-            <div className="grid grid-cols-2 gap-[10px] mb-4">
-              <div className="rounded-[8px] px-[14px] py-[12px]" style={{ background: 'var(--gc-s3)' }}>
-                <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'var(--gc-ink-mute)' }}>
-                  XP cost
-                </div>
-                <div className="text-[19px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: canAfford ? 'oklch(30% 0.006 75)' : 'oklch(55% 0.16 25)' }}>
-                  {preview.xpCost}
-                </div>
-                <div className="text-[11px] mt-[2px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                  You have {preview.xpBalance} XP
-                </div>
-              </div>
-              <div className="rounded-[8px] px-[14px] py-[12px]" style={{ background: 'var(--gc-s3)' }}>
-                <div className="text-[10px] font-bold tracking-[0.4px] uppercase mb-1" style={{ color: 'var(--gc-ink-mute)' }}>
-                  Resulting coach rating
-                </div>
-                <div className="text-[19px] font-bold [font-variant-numeric:tabular-nums]" style={{ color: 'oklch(30% 0.006 75)' }}>
-                  {preview.coachRating}
-                </div>
-                <div className="text-[11px] mt-[2px]" style={{ color: 'var(--gc-ink-mute)' }}>
-                  Applies a training-speed bonus
-                </div>
-              </div>
-            </div>
-
-            {/* Warning-tinted permanence notice — same treatment
-                docs/ui-direction.md reserves for "the one perk with a
-                cost" on Manager Pro: a consequential fact stated
-                plainly, not buried after the numbers. */}
-            <div
-              className="mb-4 text-[12px] leading-[1.5] rounded-[6px] px-3 py-2"
-              style={{ background: 'oklch(45% 0.13 80 / 0.28)', color: 'var(--gc-gold)' }}
-            >
-              Permanent: {playerName} leaves your roster the moment you confirm, freeing their slot. There is no undo
-              and no release-back-to-player path.
-            </div>
-
-            {preview.atCap && (
-              <div className="mb-4 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
-                You already have {preview.coachCount}/{preview.coachCap} coaches
-                {tier === 'pro' ? '' : ' (free tier)'}.
-                {tier === 'pro'
-                  ? ' You are at the Manager Pro coach limit.'
-                  : ' Upgrade to Manager Pro for a second coach slot.'}
-              </div>
-            )}
-
-            {!preview.atCap && !canAfford && (
-              <div className="mb-4 text-[12.5px] rounded-[6px] px-3 py-2" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
-                Need {preview.xpCost - preview.xpBalance} more XP to convert this player.
-              </div>
-            )}
-          </>
-        )}
-
-        <div className="flex justify-end gap-2 mt-2">
-          <button
-            onClick={onClose}
-            className="px-[14px] py-[9px] rounded-[6px] bg-transparent text-[12.5px] font-semibold cursor-pointer"
-            style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleConfirm}
-            disabled={!canConvert || submitting}
-            className="px-[16px] py-[9px] rounded-[6px] text-white border-none text-[12.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ background: 'var(--gc-ink)' }}
-          >
+    <Modal
+      open
+      onClose={onClose}
+      title={`Convert ${playerName} to a coach`}
+      width={460}
+      footer={
+        <>
+          <Button type="button" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="primary" onClick={handleConfirm} disabled={!canConvert || submitting}>
             {submitting ? 'Converting…' : 'Confirm — convert permanently'}
-          </button>
-        </div>
+          </Button>
+        </>
+      }
+    >
+      <div className="t-body-sm" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+        Their playing career ends here — this frees the roster slot but cannot be undone.
       </div>
-    </div>
+
+      {error && (
+        <div className="gc-notice" style={{ ...warningStyle, marginTop: 12 }}>{error}</div>
+      )}
+
+      {preview === null && !error && (
+        <div style={{ fontSize: 13, padding: '12px 0', color: 'var(--ink-3)' }}>
+          Calculating cost and coach rating…
+        </div>
+      )}
+
+      {preview && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, margin: '16px 0' }}>
+            <div style={{ background: 'var(--bg-3)', borderRadius: 'var(--r2)', padding: '12px 14px' }}>
+              <div className="t-label" style={{ marginBottom: 4 }}>XP cost</div>
+              <div className="num" style={{ fontSize: 19, fontWeight: 700, color: canAfford ? 'var(--ink)' : 'var(--loss)' }}>
+                {preview.xpCost}
+              </div>
+              <div style={{ fontSize: 11, marginTop: 2, color: 'var(--ink-3)' }}>
+                You have {preview.xpBalance} XP
+              </div>
+            </div>
+            <div style={{ background: 'var(--bg-3)', borderRadius: 'var(--r2)', padding: '12px 14px' }}>
+              <div className="t-label" style={{ marginBottom: 4 }}>Resulting coach rating</div>
+              <div className="num" style={{ fontSize: 19, fontWeight: 700, color: 'var(--ink)' }}>
+                {preview.coachRating}
+              </div>
+              <div style={{ fontSize: 11, marginTop: 2, color: 'var(--ink-3)' }}>
+                Applies a training-speed bonus
+              </div>
+            </div>
+          </div>
+
+          {/* Warning-tinted permanence notice — same treatment
+              docs/ui-direction.md reserves for "the one perk with a
+              cost" on Manager Pro: a consequential fact stated
+              plainly, not buried after the numbers. */}
+          <div
+            className="gc-notice"
+            style={{
+              marginBottom: 16,
+              fontSize: 12,
+              lineHeight: 1.5,
+              color: 'var(--gold)',
+              borderColor: 'color-mix(in srgb, var(--gold) 40%, transparent)',
+              background: 'color-mix(in srgb, var(--gold) 12%, transparent)',
+            }}
+          >
+            Permanent: {playerName} leaves your roster the moment you confirm, freeing their slot. There is no undo
+            and no release-back-to-player path.
+          </div>
+
+          {preview.atCap && (
+            <div className="gc-notice" style={{ ...warningStyle, marginBottom: 16 }}>
+              You already have {preview.coachCount}/{preview.coachCap} coaches
+              {tier === 'pro' ? '' : ' (free tier)'}.
+              {tier === 'pro'
+                ? ' You are at the Manager Pro coach limit.'
+                : ' Upgrade to Manager Pro for a second coach slot.'}
+            </div>
+          )}
+
+          {!preview.atCap && !canAfford && (
+            <div className="gc-notice" style={{ ...warningStyle, marginBottom: 16 }}>
+              Need {preview.xpCost - preview.xpBalance} more XP to convert this player.
+            </div>
+          )}
+        </>
+      )}
+    </Modal>
   );
 }

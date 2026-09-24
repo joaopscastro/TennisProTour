@@ -1,18 +1,17 @@
 'use client';
 
-import { Avatar } from './Avatar';
-import { Flag } from './primitives';
+import { Flag } from './Flag';
+import { Icon } from './Icon';
 import type { PlayerTournamentHistoryEntryDto } from '../../lib/api';
 import { tournamentHistoryResultLabel } from '../../lib/format';
 
 /* ============================================================================
-   Player cards (GC-17, docs/ui-direction-v2-game-feel.md)
-   Where the player is the SUBJECT (scouting, profile header, replay
-   participants) they should read as character cards — prominent avatar,
-   identity, rank, recent form, archetype (GC-10), head-to-head (GC-6) — not
-   as a row in a data table. Archetype and H2H are not built yet; every piece
-   here degrades to nothing when its data is absent, so this is the seam those
-   features slot into later without a rewrite.
+   Player identity blocks (Direction A: broadcast telemetry)
+   Where the player is the SUBJECT (profile hero, replay participants) they
+   read as a flat identity plate — flag, name, rank — not as a row in a data
+   table. Archetype and H2H are not built yet; every piece here degrades to
+   nothing when its data is absent, so this is the seam those features slot
+   into later without a rewrite.
    ============================================================================ */
 
 /* ---- Recent form -----------------------------------------------------------
@@ -37,12 +36,12 @@ export function FormDots({
         const totalRounds = Math.max(1, Math.round(Math.log2(h.drawSize || 2)));
         const frac = h.roundsWon / totalRounds;
         const color = h.won
-          ? 'var(--gc-gold)'
+          ? 'var(--gold)'
           : h.roundsWon === 0
-            ? 'oklch(62% 0.17 25)'
+            ? 'var(--loss)'
             : frac >= 0.5
-              ? 'oklch(68% 0.15 148)'
-              : 'oklch(72% 0.12 70)';
+              ? 'var(--win)'
+              : 'var(--warn)';
         return (
           <span
             key={`${h.tournamentId}-${i}`}
@@ -52,7 +51,6 @@ export function FormDots({
               height: size,
               borderRadius: 999,
               background: color,
-              boxShadow: h.won ? `0 0 7px ${color}` : 'none',
               flex: 'none',
             }}
           />
@@ -76,12 +74,12 @@ export function ArchetypeBadge({ archetype }: { archetype?: string | null }) {
         fontSize: 11,
         fontWeight: 750,
         letterSpacing: '0.3px',
-        color: 'oklch(86% 0.1 265)',
-        background: 'oklch(45% 0.11 265 / 0.3)',
-        border: '1px solid oklch(60% 0.12 265 / 0.4)',
+        color: 'var(--hard)',
+        background: 'color-mix(in srgb, var(--hard) 20%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--hard) 35%, transparent)',
       }}
     >
-      <span style={{ width: 5, height: 5, borderRadius: 999, background: 'oklch(78% 0.13 265)' }} />
+      <span style={{ width: 5, height: 5, borderRadius: 999, background: 'var(--hard)' }} />
       {archetype}
     </span>
   );
@@ -101,25 +99,25 @@ export function RankPill({
   return (
     <span style={{ display: 'inline-flex', alignItems: 'baseline', gap: 5 }}>
       {bandLabel && (
-        <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>
+        <span className="t-label" style={{ fontSize: 9.5 }}>
           {bandLabel}
         </span>
       )}
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>#</span>
+      <span className="num" style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-4)' }}>#</span>
       <span
+        className="num"
         style={{
           fontSize: 19,
-          fontWeight: 850,
+          fontWeight: 700,
           lineHeight: 1,
           letterSpacing: '-0.4px',
-          color: nr ? 'var(--gc-ink-faint)' : 'var(--gc-gold)',
-          fontVariantNumeric: 'tabular-nums',
+          color: nr ? 'var(--ink-4)' : 'var(--ink)',
         }}
       >
         {nr ? 'NR' : rank}
       </span>
       {!nr && points != null && (
-        <span style={{ fontSize: 11, color: 'var(--gc-ink-mute)', fontVariantNumeric: 'tabular-nums' }}>{points.toLocaleString()} pts</span>
+        <span className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>{points.toLocaleString()} pts</span>
       )}
     </span>
   );
@@ -131,12 +129,11 @@ export interface PlayerCardRank {
   bandLabel?: string;
 }
 
-/* ---- Versus card (match replay participants) ------------------------------
-   A facing pair reads as two players squaring off, not two rows of a table.
-   The set-by-set scoreboard stays a grid below (comparison is its actual job);
-   this is purely the identity band above it. */
+/* ---- Versus plate (match replay participants) ------------------------------
+   A facing pair reads as two broadcast identity plates, not two rows of a
+   table. The set-by-set scoreboard stays a grid below (comparison is its
+   actual job); this is purely the identity band above it. */
 export function VersusPlayer({
-  id,
   name,
   nationality,
   rank,
@@ -145,7 +142,6 @@ export function VersusPlayer({
   winner,
   decided,
   mirror,
-  accent,
 }: {
   id: string;
   name: string;
@@ -169,43 +165,14 @@ export function VersusPlayer({
         alignItems: 'center',
         gap: 14,
         padding: '14px 16px',
-        borderRadius: 12,
-        background: winner
-          ? `linear-gradient(${mirror ? '270deg' : '90deg'}, oklch(100% 0 0 / 0.06), transparent)`
-          : 'transparent',
+        borderRadius: 'var(--r2)',
+        background: winner ? 'color-mix(in srgb, var(--win) 8%, transparent)' : 'transparent',
         border: '1px solid',
-        borderColor: winner ? (accent ?? 'var(--gc-gold)') : 'var(--gc-line)',
-        boxShadow: winner ? `0 0 22px -6px ${accent ?? 'var(--gc-gold)'}` : 'none',
+        borderColor: winner ? 'color-mix(in srgb, var(--win) 35%, transparent)' : 'var(--hair)',
         opacity: dim ? 0.62 : 1,
-        transition: 'opacity 0.4s ease',
       }}
     >
-      <div style={{ position: 'relative', flex: 'none' }}>
-        <Avatar id={id} name={name} size={62} ring={!!winner} />
-        {winner && (
-          <span
-            style={{
-              position: 'absolute',
-              bottom: -6,
-              [mirror ? 'left' : 'right']: -6,
-              width: 24,
-              height: 24,
-              borderRadius: 999,
-              display: 'grid',
-              placeItems: 'center',
-              background: 'radial-gradient(circle at 35% 30%, oklch(92% 0.15 92), oklch(74% 0.15 88))',
-              border: '2px solid var(--gc-s1)',
-              boxShadow: '0 2px 6px oklch(0% 0 0 / 0.5)',
-            }}
-            title="Winner"
-          >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden>
-              <path d="M6 4h12v3a6 6 0 0 1-12 0z" fill="oklch(30% 0.06 90)" />
-              <path d="M9.5 15.5h5l.6 3.5h-6.2zM8.5 19h7" stroke="oklch(30% 0.06 90)" strokeWidth="1.4" strokeLinecap="round" />
-            </svg>
-          </span>
-        )}
-      </div>
+      <Flag code={nationality} size={26} />
       <div style={{ minWidth: 0, flex: 1, textAlign: mirror ? 'right' : 'left' }}>
         <div
           style={{
@@ -213,13 +180,17 @@ export function VersusPlayer({
             flexDirection: mirror ? 'row-reverse' : 'row',
             alignItems: 'center',
             gap: 8,
-            fontWeight: winner ? 850 : 750,
+            fontWeight: winner ? 800 : 700,
             fontSize: 17,
             letterSpacing: '-0.2px',
-            color: 'var(--gc-ink)',
+            color: 'var(--ink)',
           }}
         >
-          <Flag code={nationality} size={16} />
+          {winner && (
+            <span style={{ display: 'inline-flex', color: 'var(--gold)' }} title="Winner">
+              <Icon name="trophy" size={14} />
+            </span>
+          )}
           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
         </div>
         <div
