@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import {
   RosterDashboardEntryDto,
   TournamentDto,
@@ -10,7 +9,8 @@ import {
   registerEntrant,
 } from '../lib/api';
 import { entryPlacement, tournamentRefusalReason } from '../lib/tournamentPick';
-import { Panel, SectionLabel } from './ui/primitives';
+import { Button, Panel, PanelHeader } from './ui/primitives';
+import { Icon } from './ui/Icon';
 
 interface Props {
   tournamentId: string;
@@ -107,94 +107,91 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
   }
 
   return (
-    <Panel style={{ padding: 18 }}>
-      <SectionLabel>Enter singles</SectionLabel>
-      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
-        Register one of your players into this tournament&apos;s main draw. Below the direct-acceptance cutoff you&apos;ll
-        enter through qualifying.
-      </div>
-
-      <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
-        <button
-          onClick={openPicker}
-          className="rounded-[8px] px-[14px] py-[8px] text-[12.5px] font-extrabold cursor-pointer"
-          style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-        >
-          {roster === null ? 'Enter a player' : 'Choose a player'}
-        </button>
-        <button
-          onClick={submit}
-          disabled={!pick || busy || checking || refusal !== null}
-          className="rounded-[8px] px-[12px] py-[8px] text-[12px] font-extrabold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink)', border: '1px solid var(--gc-line)' }}
-        >
-          {busy ? 'Entering…' : 'Enter'}
-        </button>
-      </div>
-
-      {/* A visible option list, deliberately NOT a native <select>: a naive
-          walkthrough found the select offered no on-screen options — a user
-          needed ArrowDown then Enter to pick, so entering a player was
-          impossible with a mouse or touch. Each roster player is its own
-          clickable row; the roster cap is tiny (2 free / 4 Pro), so showing
-          them all is cheap. */}
-      {roster !== null && activeRoster.length > 0 && (
-        <div className="flex flex-col gap-[6px]" style={{ marginBottom: 10 }} role="radiogroup" aria-label="Player to enter in singles">
-          {activeRoster.map((p) => {
-            const selected = pick === p.id;
-            return (
-              <button
-                key={p.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => void onPick(p.id)}
-                className="text-left rounded-[7px] px-[10px] py-[8px] text-[12.5px] font-semibold cursor-pointer"
-                style={{
-                  border: selected ? '2px solid var(--gc-ball)' : '1px solid var(--gc-line)',
-                  background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
-                  color: 'var(--gc-ink)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                }}
-              >
-                <span>{p.name}</span>
-                {selected && <span style={{ color: 'oklch(80% 0.16 145)', fontWeight: 800 }}>✓ Selected</span>}
-              </button>
-            );
-          })}
+    <Panel style={{ overflow: 'hidden' }}>
+      <PanelHeader>Enter singles</PanelHeader>
+      <div style={{ padding: 16 }}>
+        <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+          Register one of your players into this tournament&apos;s main draw. Below the direct-acceptance cutoff you&apos;ll
+          enter through qualifying.
         </div>
-      )}
 
-      {/* Say WHY Enter is disabled: nothing picked yet (an eligibility
-          refusal is shown separately below). */}
-      {roster !== null && activeRoster.length > 0 && !pick && (
-        <div className="text-[11.5px] mb-[8px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          Select a player above to enable Enter.
+        <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
+          <Button variant="primary" onClick={openPicker}>
+            {roster === null ? 'Enter a player' : 'Choose a player'}
+          </Button>
+          <Button onClick={submit} disabled={!pick || busy || checking || refusal !== null}>
+            {busy ? 'Entering…' : 'Enter'}
+          </Button>
         </div>
-      )}
 
-      {roster !== null && activeRoster.length === 0 && (
-        <div className="text-[12px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          This manager has no active roster players to enter.
-        </div>
-      )}
-      {checking && (
-        <div className="text-[12px]" style={{ color: 'var(--gc-ink-mute)' }}>
-          Checking eligibility…
-        </div>
-      )}
-      {refusal && <div className="text-[12px] mb-[8px] font-semibold" style={{ color: 'oklch(75% 0.14 25)' }}>Can&apos;t enter: {refusal}</div>}
-      {error && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.14 25)' }}>{error}</div>}
-      {notice && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.12 150)' }}>{notice}</div>}
+        {/* A visible option list, deliberately NOT a native <select>: a naive
+            walkthrough found the select offered no on-screen options — a user
+            needed ArrowDown then Enter to pick, so entering a player was
+            impossible with a mouse or touch. Each roster player is its own
+            clickable row; the roster cap is tiny (2 free / 4 Pro), so showing
+            them all is cheap. */}
+        {roster !== null && activeRoster.length > 0 && (
+          <div className="flex flex-col gap-[6px]" style={{ marginBottom: 10 }} role="radiogroup" aria-label="Player to enter in singles">
+            {activeRoster.map((p) => {
+              const selected = pick === p.id;
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => void onPick(p.id)}
+                  className="text-left rounded-[6px] px-[10px] py-[8px] text-[12.5px] font-semibold cursor-pointer"
+                  style={{
+                    border: selected ? '2px solid var(--accent)' : '1px solid var(--hair)',
+                    background: selected ? 'var(--bg-3)' : 'var(--bg-2)',
+                    color: 'var(--ink)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 8,
+                  }}
+                >
+                  <span>{p.name}</span>
+                  {selected && (
+                    <span className="inline-flex items-center gap-[4px]" style={{ color: 'var(--accent)', fontWeight: 800 }}>
+                      <Icon name="check" size={11} /> Selected
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
-      <div className="text-[11.5px] mt-2" style={{ color: 'var(--gc-ink-mute)' }}>
-        Planning across several weeks?{' '}
-        <Link href="/tournaments#planner" style={{ color: 'var(--gc-ball)', fontWeight: 700 }}>
-          Open the Planner →
-        </Link>
+        {/* Say WHY Enter is disabled: nothing picked yet (an eligibility
+            refusal is shown separately below). */}
+        {roster !== null && activeRoster.length > 0 && !pick && (
+          <div className="text-[11.5px] mb-[8px]" style={{ color: 'var(--ink-3)' }}>
+            Select a player above to enable Enter.
+          </div>
+        )}
+
+        {roster !== null && activeRoster.length === 0 && (
+          <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+            This manager has no active roster players to enter.
+          </div>
+        )}
+        {checking && (
+          <div className="text-[12px]" style={{ color: 'var(--ink-3)' }}>
+            Checking eligibility…
+          </div>
+        )}
+        {refusal && <div className="text-[12px] mb-[8px] font-semibold" style={{ color: 'var(--loss)' }}>Can&apos;t enter: {refusal}</div>}
+        {error && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--loss)' }}>{error}</div>}
+        {notice && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--win)' }}>{notice}</div>}
+
+        <div className="text-[11.5px] mt-2" style={{ color: 'var(--ink-3)' }}>
+          Planning across several weeks?{' '}
+          <a href="/tournaments#planner" style={{ color: 'var(--accent)', fontWeight: 700 }}>
+            Open the Planner →
+          </a>
+        </div>
       </div>
     </Panel>
   );

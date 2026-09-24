@@ -11,16 +11,25 @@ import {
   fetchStartedTournaments,
   registerEntrant,
 } from '../../lib/api';
-import { Sidebar } from '../../components/Sidebar';
+import { AppShell } from '../../components/ui/AppShell';
 import { SeasonEvents } from '../../components/SeasonEvents';
 import { TournamentRewardSummary } from '../../components/TournamentRewards';
-import { AppFrame, PageShell, Hero, SectionLabel } from '../../components/ui/primitives';
-import { SURFACE_COLOR, surfaceTheme } from '../../lib/ui/surfaces';
+import {
+  AgeBandBadge,
+  Badge,
+  Button,
+  PageShell,
+  Panel,
+  SectionLabel,
+  SurfaceBadge,
+} from '../../components/ui/primitives';
+import { Icon } from '../../components/ui/Icon';
+import { Tabs } from '../../components/ui/Tabs';
+import { surfaceMeta } from '../../lib/ui/surfaces';
+import { formatMoney } from '../../lib/format';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { describeBrowseFilters, isTournamentFinished, managerEntrantLabel, plannerWeekBlockReason, pruneTiersForCategory, sortTournamentsForPicker, tierChipAppliesToCategory, tournamentHasRoom } from '../../lib/tournamentPick';
-
-const AGE_BAND_BADGE = { background: 'oklch(45% 0.1 240 / 0.35)', color: 'oklch(85% 0.08 240)' };
 
 const PLANNER_WEEKS = 6;
 
@@ -142,82 +151,98 @@ function toggleInSet<T>(set: ReadonlySet<T>, value: T): Set<T> {
   return next;
 }
 
-function chipStyle(active: boolean) {
-  return active
-    ? { background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)', border: '1px solid var(--gc-ball)', fontWeight: 750 }
-    : { background: 'var(--gc-s2)', color: 'var(--gc-ink-dim)', border: '1px solid var(--gc-line)' };
-}
-
+/** One dense list row per tournament (Direction A: a table row, right-aligned
+ * mono figures). The `gc-rowcover` anchor covers the whole `<tr>` — a table
+ * row cannot itself be an anchor, and a plain `<a>` (never next/link) keeps
+ * the immediate-URL-change behaviour the earlier dead-click fix required. */
 function TournamentRow({ t, cta }: { t: TournamentDto; cta: string }) {
-  const th = surfaceTheme(t.surface);
-  // Main draw only — `t.entrants.length` also counts the qualifying field,
-  // so it could read "88/64". See TournamentDto.mainDrawEntrants.
-  const fillPct = Math.round((t.mainDrawEntrants / t.drawSize) * 100);
+  const meta = surfaceMeta(t.surface);
   // Distinguish a finished bracket from one still being played, so a user
   // looking for played results can tell them apart without opening each one.
   const finished = t.hasStarted && isTournamentFinished(t);
   const managersLabel = managerEntrantLabel(t.managerEntrants);
+  const championPoints = t.pointsBreakdown[0]?.points ?? 0;
+  const championPrize = t.prizeMoneyBreakdown[0]?.prizeMoney ?? 0;
   return (
-    // A plain `<a>`, deliberately NOT next/link: the App Router intercepts
-    // the click and does not update the URL until the destination's RSC
-    // payload resolves, so on a cold dev route a row click read as dead
-    // ("View draw →" and the list stayed). A native anchor changes the URL
-    // the instant it is activated — the same fix already applied to the
-    // bracket's decided-replay cards.
-    <a
-      href={`/tournaments/${t.id}`}
-      className="gc-card gc-card--hover"
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 16px', textDecoration: 'none', color: 'inherit', position: 'relative', overflow: 'hidden' }}
-    >
-      <div style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, background: `linear-gradient(180deg, ${th.color}, ${th.deep})` }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 13, paddingLeft: 6 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.4px', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 5, color: 'white', background: `linear-gradient(180deg, ${th.color}, ${th.deep})` }}>
-          {t.surface}
-        </div>
-        {t.ageBand && (
-          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: '0.4px', textTransform: 'uppercase', padding: '4px 9px', borderRadius: 5, ...AGE_BAND_BADGE }}>
-            {t.ageBand}
-          </div>
-        )}
-        {t.hasStarted && (
-          <div
-            title={finished ? 'This bracket has been played to its final — open it to watch any match replay' : 'This bracket is still being played'}
-            style={{
-              fontSize: 10,
-              fontWeight: 800,
-              letterSpacing: '0.4px',
-              textTransform: 'uppercase',
-              padding: '4px 9px',
-              borderRadius: 5,
-              ...(finished
-                ? { background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }
-                : { background: 'oklch(50% 0.1 60 / 0.3)', color: 'oklch(82% 0.12 70)' }),
-            }}
-          >
-            {finished ? '✓ Finished' : 'In progress'}
-          </div>
-        )}
-        <div>
-          <div style={{ fontSize: 14.5, fontWeight: 750 }}>{t.name}</div>
-          <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 1 }}>
-            {t.tier} · {t.drawSize}-draw · <span style={{ color: fillPct >= 100 ? 'var(--gc-ball)' : 'var(--gc-ink-dim)' }}>{t.mainDrawEntrants}/{t.drawSize}</span> · S{t.weekScheduled.season} W{t.weekScheduled.week}{t.hostCountry ? ` · 🏠 ${t.hostCountry}` : ''}{managersLabel ? ` · ${managersLabel}` : ''}
+    <tr className="gc-rowlink">
+      <td>
+        <div className="gc-pcell">
+          <span className="gc-surf4">
+            <span className="s" title={meta.label}>
+              <span className="gc-dot" style={{ background: meta.color }} />
+              <span className="letter">{meta.letter}</span>
+            </span>
+          </span>
+          <div className="min-w-0">
+            <div className="flex items-center gap-[6px] flex-wrap">
+              <a className="gc-rowcover" style={{ fontWeight: 600 }} href={`/tournaments/${t.id}`}>
+                {t.name}
+              </a>
+              <AgeBandBadge band={t.ageBand} />
+              {t.hasStarted && (
+                <Badge
+                  title={finished ? 'This bracket has been played to its final — open it to watch any match replay' : 'This bracket is still being played'}
+                  style={finished
+                    ? { color: 'var(--win)', borderColor: 'color-mix(in srgb, var(--win) 45%, transparent)' }
+                    : { color: 'var(--warn)', borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' }}
+                >
+                  {finished && <Icon name="check" size={10} />}
+                  {finished ? 'Finished' : 'In progress'}
+                </Badge>
+              )}
+            </div>
+            <div className="t-body-sm" style={{ fontSize: 11 }}>
+              {t.tier} · {meta.label}
+              {t.hostCountry && (
+                <>
+                  {' · '}
+                  <Icon name="house" size={11} title="Host country — a player of this nationality has home advantage here" style={{ verticalAlign: 'text-bottom' }} />
+                  {' '}{t.hostCountry}
+                </>
+              )}
+              {managersLabel ? ` · ${managersLabel}` : ''}
+            </div>
           </div>
         </div>
-      </div>
-      <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gc-ball)' }}>
-        {cta} →
-      </div>
-    </a>
+      </td>
+      <td className="r num">{t.drawSize}</td>
+      <td className="r num">{t.mainDrawEntrants}/{t.drawSize}</td>
+      <td className="r num">{championPoints.toLocaleString()}</td>
+      <td className="r num">{championPrize > 0 ? formatMoney(championPrize) : t.circuit === 'junior' ? '—' : formatMoney(0)}</td>
+      <td className="num" style={{ color: 'var(--ink-3)' }}>S{t.weekScheduled.season} W{t.weekScheduled.week}</td>
+      <td className="r" style={{ color: 'var(--ink-3)' }}>{cta} →</td>
+    </tr>
+  );
+}
+
+/** The dense list table chrome the two Browse sections share. */
+function TournamentTable({ children }: { children: React.ReactNode }) {
+  return (
+    <Panel style={{ overflow: 'visible' }}>
+      <table className="gc-table gc-table--dense">
+        <thead>
+          <tr>
+            <th>Tournament</th>
+            <th className="r">Draw</th>
+            <th className="r">Entrants</th>
+            <th className="r">Points</th>
+            <th className="r">Prize</th>
+            <th>Week</th>
+            <th className="r">Open</th>
+          </tr>
+        </thead>
+        <tbody>{children}</tbody>
+      </table>
+    </Panel>
   );
 }
 
 /**
- * The category/tier/surface filter bar — the same toggle-chip pattern
- * established on the Scouting page's rarity/potential badges (distinct
- * colors per axis, never hidden/removed, just visually
- * active-vs-inactive) adapted into an interactive filter control,
- * since Scouting itself doesn't yet have its own filter bar to lift
- * markup from directly.
+ * The category/tier/surface filter bar — `.gc-chip` toggle chips (the
+ * Direction A filter control), the same "empty selection in a group means
+ * no restriction" convention as before. The "Showing …" line is the
+ * honesty fix for the "All selected but only Tour shown" finding: it names
+ * the applied filters so the displayed state can never contradict the list.
  */
 function FilterBar({
   category,
@@ -243,10 +268,12 @@ function FilterBar({
         {(['all', 'senior', 'junior'] as const).map((c) => (
           <button
             key={c}
+            type="button"
             onClick={() => onCategory(c)}
+            aria-pressed={category === c}
+            data-active={category === c}
             title={c === 'all' ? 'Both the senior tour and the junior circuit' : c === 'senior' ? 'Senior tour only' : 'Junior circuit only'}
-            className="px-[12px] py-[6px] rounded-[6px] text-[12.5px] font-semibold cursor-pointer"
-            style={chipStyle(category === c)}
+            className="gc-chip"
           >
             {/* "All" here means all CIRCUITS, not "no filter" — the old bare
                 "All" label read as "showing everything" while a tier filter
@@ -255,37 +282,35 @@ function FilterBar({
           </button>
         ))}
         {anyActive && (
-          <button
-            onClick={onClear}
-            className="ml-1 px-[10px] py-[6px] rounded-[6px] text-[12px] font-semibold cursor-pointer bg-transparent"
-            style={{ color: 'var(--gc-ink-mute)', border: 'none' }}
-          >
+          <button type="button" onClick={onClear} className="gc-chip">
             Clear filters
           </button>
         )}
       </div>
       <div className="flex flex-wrap items-center gap-[6px]">
-        <span className="text-[10.5px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>Tier</span>
+        <span className="t-label">Tier</span>
         {TIER_CHIPS.filter((chip) => tierChipAppliesToCategory(chip.value, category)).map((chip) => (
           <button
             key={chip.value}
+            type="button"
             onClick={() => onToggleTier(chip.value)}
             aria-pressed={tiers.has(chip.value)}
-            className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
-            style={chipStyle(tiers.has(chip.value))}
+            data-active={tiers.has(chip.value)}
+            className="gc-chip"
           >
             {chip.label}
           </button>
         ))}
-        <div className="w-px h-4 mx-1" style={{ background: 'var(--gc-line)' }} />
-        <span className="text-[10.5px] font-bold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>Surface</span>
+        <div className="w-px h-4 mx-1" style={{ background: 'var(--hair)' }} />
+        <span className="t-label">Surface</span>
         {SURFACE_CHIPS.map((chip) => (
           <button
             key={chip.value}
+            type="button"
             onClick={() => onToggleSurface(chip.value)}
             aria-pressed={surfaces.has(chip.value)}
-            className="px-[10px] py-[5px] rounded-[5px] text-[11.5px] font-semibold cursor-pointer"
-            style={chipStyle(surfaces.has(chip.value))}
+            data-active={surfaces.has(chip.value)}
+            className="gc-chip"
           >
             {chip.label}
           </button>
@@ -294,7 +319,7 @@ function FilterBar({
       {/* Names the applied filters explicitly, so the displayed state can
           never contradict the list (the "All selected but only Tour shown"
           finding). */}
-      <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+      <div className="gc-tbl-note" style={{ padding: 0 }}>
         Showing {describeBrowseFilters(category, tiers, surfaces)}.
       </div>
     </div>
@@ -340,9 +365,9 @@ function WeekRegisterPicker({
 
   if (candidates.length === 0) {
     return (
-      <div className="mt-2 text-[11.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+      <div className="mt-2 text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
         Nothing open this week to register into.{' '}
-        <button onClick={onCancel} className="cursor-pointer bg-transparent border-none underline p-0" style={{ color: 'var(--gc-ball)' }}>
+        <button onClick={onCancel} className="cursor-pointer bg-transparent border-none underline p-0" style={{ color: 'var(--accent)' }}>
           Close
         </button>
       </div>
@@ -352,7 +377,7 @@ function WeekRegisterPicker({
   return (
     <div className="mt-2 flex flex-col gap-[6px]">
       {error && (
-        <div className="text-[11px] rounded-[5px] px-2 py-[6px]" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.25)' }}>
+        <div className="gc-notice" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
           {error}
         </div>
       )}
@@ -372,63 +397,47 @@ function WeekRegisterPicker({
             data-selected={selected}
             className="text-left rounded-[6px] px-[10px] py-[7px] cursor-pointer disabled:cursor-not-allowed"
             style={{
-              border: selected ? '2px solid var(--gc-ball)' : '1px solid var(--gc-line)',
-              background: selected ? 'var(--gc-s3)' : 'var(--gc-s2)',
-              boxShadow: selected ? '0 0 0 2px oklch(78% 0.16 145 / 0.28)' : undefined,
+              border: selected ? '2px solid var(--accent)' : '1px solid var(--hair)',
+              background: selected ? 'var(--bg-3)' : 'var(--bg-2)',
+              boxShadow: selected ? '0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent)' : undefined,
               opacity: blocked ? 0.55 : 1,
             }}
           >
             <div className="flex items-center gap-[6px] min-w-0">
-              <div
-                className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] text-white flex-none"
-                style={{ background: SURFACE_COLOR[t.surface] ?? 'oklch(50% 0.006 75)' }}
-              >
-                {t.surface}
-              </div>
-              {t.ageBand && (
-                <div className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] flex-none" style={AGE_BAND_BADGE}>
-                  {t.ageBand}
-                </div>
-              )}
-              {t.entryViaQualifying && (
-                <div
-                  className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] flex-none"
-                  style={{ background: 'oklch(45% 0.12 45 / 0.35)', color: 'oklch(85% 0.1 45)' }}
-                >
-                  [Q]
-                </div>
-              )}
+              <SurfaceBadge surface={t.surface} size="sm" />
+              <AgeBandBadge band={t.ageBand} />
+              {t.entryViaQualifying && <Badge className="gc-badge--q">[Q]</Badge>}
               <div className="text-[12px] font-semibold truncate">{t.name}</div>
               {selected && (
-                <span className="flex-none text-[10px] font-extrabold" style={{ color: 'oklch(80% 0.16 145)' }} aria-hidden>
-                  ✓
+                <span className="flex-none text-[10px] font-extrabold inline-flex items-center gap-[3px]" style={{ color: 'var(--accent)' }} aria-hidden>
+                  <Icon name="check" size={11} /> Selected
                 </span>
               )}
             </div>
             {t.entryViaQualifying && !qualifyingFull && (
-              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
+              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--ink-3)' }}>
                 Qualifying — {t.qualifyingFieldTaken}/{t.qualifyingFieldSize} spots taken
               </div>
             )}
             {managerEntrantLabel(t.managerEntrants) && (
-              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--gc-ink-mute)' }}>
+              <div className="text-[10px] mt-[3px]" style={{ color: 'var(--ink-3)' }}>
                 {managerEntrantLabel(t.managerEntrants)}
               </div>
             )}
             {ageIneligible && (
-              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'var(--loss)' }}>
                 Too old for this {t.ageBand} draw
               </div>
             )}
             {!ageIneligible && overCap && (
-              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'var(--loss)' }}>
                 {t.weeklyEntryCapThisWeek === 1
                   ? 'Already entered a tournament this week'
                   : `Already at ${t.weeklyEntryCountThisWeek}/${t.weeklyEntryCapThisWeek} tournaments this week`}
               </div>
             )}
             {!ageIneligible && !overCap && qualifyingFull && (
-              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'oklch(50% 0.16 30)' }}>
+              <div className="text-[10px] font-semibold mt-[3px]" style={{ color: 'var(--loss)' }}>
                 Qualifying field full ({t.qualifyingFieldTaken}/{t.qualifyingFieldSize})
               </div>
             )}
@@ -442,32 +451,21 @@ function WeekRegisterPicker({
           target="_blank"
           rel="noreferrer"
           className="text-[11px] font-semibold no-underline hover:underline mt-1"
-          style={{ color: 'var(--gc-ball)' }}
+          style={{ color: 'var(--accent)' }}
         >
           See who&apos;s already entered →
         </a>
       )}
       {!selectedId && (
-        <div className="text-[11px] mt-1" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="text-[11px] mt-1" style={{ color: 'var(--ink-3)' }}>
           Select a tournament above to enable Register.
         </div>
       )}
       <div className="flex gap-[6px] mt-1">
-        <button
-          onClick={confirm}
-          disabled={!selectedId || submitting}
-          className="flex-1 px-[10px] py-[7px] rounded-[6px] border-none text-[11.5px] font-semibold cursor-pointer hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
-          style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
-        >
+        <Button variant="primary" className="flex-1" onClick={confirm} disabled={!selectedId || submitting}>
           {submitting ? 'Registering…' : 'Register'}
-        </button>
-        <button
-          onClick={onCancel}
-          className="px-[10px] py-[7px] rounded-[6px] bg-transparent text-[11.5px] font-semibold cursor-pointer"
-          style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
-        >
-          Cancel
-        </button>
+        </Button>
+        <Button onClick={onCancel}>Cancel</Button>
       </div>
     </div>
   );
@@ -546,7 +544,7 @@ function PlannerView() {
   return (
     <div>
       <div className="flex items-end justify-between gap-4 mb-5 flex-wrap">
-        <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="t-body-sm">
           Plan several weeks of entries for one roster player in a single sitting — pick a week below and register
           directly, no need to come back later.
         </div>
@@ -554,7 +552,7 @@ function PlannerView() {
           {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
             <form
               className="flex items-center gap-[6px] text-[11.5px]"
-              style={{ color: 'var(--gc-ink-mute)' }}
+              style={{ color: 'var(--ink-3)' }}
               onSubmit={(e) => {
                 e.preventDefault();
                 setManagerId(managerIdInput.trim() || managerId);
@@ -569,7 +567,7 @@ function PlannerView() {
             </form>
           )}
           <div className="flex flex-col gap-[3px]">
-            <label className="text-[11px] font-semibold" style={{ color: 'var(--gc-ink-mute)' }}>
+            <label className="text-[11px] font-semibold" style={{ color: 'var(--ink-3)' }}>
               Player
             </label>
             <select
@@ -589,19 +587,19 @@ function PlannerView() {
       </div>
 
       {error && (
-        <div className="mb-4 text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+        <div className="gc-notice mb-4" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
           {error}
         </div>
       )}
 
       {roster?.length === 0 && (
-        <div className="text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="t-body-sm">
           This manager has no roster players yet — nothing to plan for.
         </div>
       )}
 
       {selectedPlayer && planner === null && !error && (
-        <div className="text-[13.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+        <div className="t-body-sm">
           Loading {selectedPlayer.name}&apos;s planner…
         </div>
       )}
@@ -628,15 +626,15 @@ function PlannerView() {
               return (
                 <div
                   key={weekKey}
-                  className="flex-none w-[200px] rounded-[10px] gc-card p-[12px] flex flex-col"
+                  className="flex-none w-[200px] gc-card p-[12px] flex flex-col"
                 >
-                  <div className="text-[11px] font-bold tracking-[0.4px] uppercase mb-2" style={{ color: 'var(--gc-ink-mute)' }}>
+                  <div className="t-label mb-2">
                     Season {week.week.season} · Week {week.week.week}
                   </div>
 
                   <div className="flex flex-col gap-[6px]">
                     {week.entries.length === 0 && (
-                      <div className="text-[11.5px]" style={{ color: 'var(--gc-ink-faint)' }}>
+                      <div className="text-[11.5px]" style={{ color: 'var(--ink-4)' }}>
                         No entry yet
                       </div>
                     )}
@@ -647,23 +645,14 @@ function PlannerView() {
                         key={t.id}
                         href={`/tournaments/${t.id}`}
                         className="rounded-[6px] px-[9px] py-[7px] no-underline block"
-                        style={{ background: 'oklch(40% 0.06 145 / 0.22)', border: '1px solid oklch(50% 0.08 145 / 0.3)', color: 'inherit' }}
+                        style={{ background: 'color-mix(in srgb, var(--accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', color: 'inherit' }}
                       >
                         <div className="flex items-center gap-[5px] min-w-0">
-                          <div
-                            className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] text-white flex-none"
-                            style={{ background: SURFACE_COLOR[t.surface] ?? 'oklch(50% 0.006 75)' }}
-                          >
-                            {t.surface}
-                          </div>
-                          {t.ageBand && (
-                            <div className="text-[9.5px] font-bold tracking-[0.3px] uppercase px-[6px] py-[2px] rounded-[4px] flex-none" style={AGE_BAND_BADGE}>
-                              {t.ageBand}
-                            </div>
-                          )}
+                          <SurfaceBadge surface={t.surface} size="sm" />
+                          <AgeBandBadge band={t.ageBand} />
                         </div>
                         <div className="text-[12px] font-semibold mt-[3px] truncate">{t.name}</div>
-                        <div className="text-[10.5px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                        <div className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
                           {t.hasStarted ? 'Started' : `${t.mainDrawEntrants}/${t.drawSize} entrants`}
                         </div>
                       </a>
@@ -679,17 +668,13 @@ function PlannerView() {
                       onCancel={() => setOpenWeekKey(null)}
                     />
                   ) : blockReason ? (
-                    <div className="mt-[8px] text-[11px] leading-[1.4]" style={{ color: 'var(--gc-ink-mute)' }}>
+                    <div className="mt-[8px] text-[11px] leading-[1.4]" style={{ color: 'var(--ink-3)' }}>
                       {blockReason}
                     </div>
                   ) : (
-                    <button
-                      onClick={() => setOpenWeekKey(weekKey)}
-                      className="mt-[8px] px-[10px] py-[7px] rounded-[6px] text-[11.5px] font-semibold cursor-pointer"
-                      style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-dim)' }}
-                    >
+                    <Button className="mt-[8px]" onClick={() => setOpenWeekKey(weekKey)}>
                       + Register
-                    </button>
+                    </Button>
                   )}
                 </div>
               );
@@ -700,8 +685,8 @@ function PlannerView() {
 
       {notice && (
         <div
-          className="gc-panel gc-pop fixed bottom-6 right-6 z-40 text-[13px] font-semibold px-4 py-3"
-          style={{ borderColor: 'var(--gc-ball-d)' }}
+          className="gc-panel fixed bottom-6 right-6 z-40 text-[13px] font-semibold px-4 py-3"
+          style={{ borderColor: 'var(--accent)' }}
         >
           {notice}
         </div>
@@ -793,7 +778,7 @@ export default function TournamentsIndexPage() {
       <SectionLabel
         right={
           hasStartedBrackets ? (
-            <a href="#brackets-underway" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+            <a href="#brackets-underway" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--accent)' }}>
               Results &amp; live brackets ↑
             </a>
           ) : undefined
@@ -801,17 +786,19 @@ export default function TournamentsIndexPage() {
       >
         Open for entries{filteredOpen ? ` · ${filteredOpen.length}` : ''}
       </SectionLabel>
-      <div className="flex flex-col gap-2">
-        {open === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
-        {open && filteredOpen?.length === 0 && (
-          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            {open.length === 0 ? 'Nothing open right now.' : 'No open tournaments match your filters.'}
-          </div>
-        )}
-        {filteredOpen?.map((t) => (
-          <TournamentRow key={t.id} t={t} cta="View draw" />
-        ))}
-      </div>
+      {open === null && !error && <div className="t-body-sm">Loading…</div>}
+      {open && filteredOpen?.length === 0 && (
+        <div className="t-body-sm">
+          {open.length === 0 ? 'Nothing open right now.' : 'No open tournaments match your filters.'}
+        </div>
+      )}
+      {filteredOpen && filteredOpen.length > 0 && (
+        <TournamentTable>
+          {filteredOpen.map((t) => (
+            <TournamentRow key={t.id} t={t} cta="View draw" />
+          ))}
+        </TournamentTable>
+      )}
     </div>
   );
   const startedSection = (
@@ -819,7 +806,7 @@ export default function TournamentsIndexPage() {
       <SectionLabel
         right={
           !hasStartedBrackets && (filteredOpen?.length ?? 0) > 0 ? (
-            <a href="#open-entries" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--gc-ball)' }}>
+            <a href="#open-entries" className="text-[11.5px] font-semibold no-underline hover:underline" style={{ color: 'var(--accent)' }}>
               Open for entries ↓
             </a>
           ) : undefined
@@ -830,60 +817,51 @@ export default function TournamentsIndexPage() {
       {/* Say plainly what lives here: played results (watch the replay) and
           brackets still in progress. A naive walkthrough reported having to
           GUESS that "Brackets underway" were the played ones. */}
-      <div className="text-[11.5px] mb-2 -mt-1" style={{ color: 'var(--gc-ink-mute)' }}>
+      <div className="gc-tbl-note" style={{ padding: '0 0 6px' }}>
         Finished brackets and ones still being played. Open any bracket to watch its match replays — a
-        <span style={{ color: 'oklch(85% 0.12 150)' }}> ✓ Finished</span> badge means every result is in.
+        <span style={{ color: 'var(--win)' }}> <Icon name="check" size={10} /> Finished</span> badge means every result is in.
       </div>
-      <div className="flex flex-col gap-2">
-        {started === null && !error && <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>Loading…</div>}
-        {started && filteredStarted?.length === 0 && (
-          <div className="text-[13px]" style={{ color: 'var(--gc-ink-mute)' }}>
-            {started.length === 0 ? 'No results or live brackets yet.' : 'No results or live brackets match your filters.'}
-          </div>
-        )}
-        {filteredStarted?.map((t) => (
-          <TournamentRow key={t.id} t={t} cta="Open bracket" />
-        ))}
-      </div>
+      {started === null && !error && <div className="t-body-sm">Loading…</div>}
+      {started && filteredStarted?.length === 0 && (
+        <div className="t-body-sm">
+          {started.length === 0 ? 'No results or live brackets yet.' : 'No results or live brackets match your filters.'}
+        </div>
+      )}
+      {filteredStarted && filteredStarted.length > 0 && (
+        <TournamentTable>
+          {filteredStarted.map((t) => (
+            <TournamentRow key={t.id} t={t} cta="Open bracket" />
+          ))}
+        </TournamentTable>
+      )}
     </div>
   );
 
   return (
-    <AppFrame>
-      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-
-      <PageShell wash="radial-gradient(120% 55% at 12% -10%, oklch(45% 0.1 45 / 0.13), transparent 60%)">
-        <Hero minHeight={130}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(90% 0.02 150)', opacity: 0.85 }}>The Circuit</div>
-              <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Tournaments</div>
-              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 150)', opacity: 0.82, marginTop: 4, maxWidth: 520, lineHeight: 1.5 }}>
-                Open draws still taking entrants, brackets already in full swing, and a planner to map out the weeks ahead.
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 3, borderRadius: 10, padding: 3, background: 'oklch(100% 0 0 / 0.12)', border: '1px solid oklch(100% 0 0 / 0.16)' }}>
-              {(['browse', 'planner', 'events'] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setView(v)}
-                  style={{
-                    padding: '7px 16px', borderRadius: 7, fontSize: 12.5, fontWeight: 700, cursor: 'pointer', border: 'none',
-                    background: view === v ? 'white' : 'transparent',
-                    color: view === v ? 'oklch(22% 0.03 150)' : 'oklch(94% 0.01 150)',
-                  }}
-                >
-                  {v === 'browse' ? 'Browse' : v === 'planner' ? 'Planner' : 'Season events'}
-                </button>
-              ))}
-            </div>
+    <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+      <PageShell>
+        {/* Page header — flat (Direction A), then the underline view tabs. */}
+        <div>
+          <div className="t-label">The Circuit</div>
+          <h1 className="t-h1" style={{ margin: '4px 0 0' }}>Tournaments</h1>
+          <div className="t-body-sm" style={{ marginTop: 4 }}>
+            Open draws still taking entrants, brackets already in full swing, and a planner to map out the weeks ahead.
           </div>
-        </Hero>
+        </div>
 
-        <div className="h-5" />
+        <Tabs
+          items={[
+            { id: 'browse', label: 'Browse' },
+            { id: 'planner', label: 'Planner' },
+            { id: 'events', label: 'Season events' },
+          ]}
+          active={view}
+          onSelect={(id) => setView(id as 'browse' | 'planner' | 'events')}
+          className="mt-2 mb-4"
+        />
 
         {error && (
-          <div className="mb-4 text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div className="gc-notice mb-4" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
             {error}
           </div>
         )}
@@ -929,6 +907,6 @@ export default function TournamentsIndexPage() {
           <SeasonEvents />
         )}
       </PageShell>
-    </AppFrame>
+    </AppShell>
   );
 }

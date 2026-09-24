@@ -32,7 +32,11 @@ export function Modal({ open, onClose, title, children, footer, width = 520, cla
   if (!open) return null;
 
   return (
-    <div className="gc-modal-backdrop" onClick={onClose}>
+    /* The utility classes mirror `.gc-modal-backdrop`'s own geometry
+       (fixed / inset-0 / above page chrome) and keep the long-standing
+       `div.fixed.inset-0.z-50` locator the live first-session suite uses
+       pointing at the same backdrop element. */
+    <div className="gc-modal-backdrop fixed inset-0 z-50" onClick={onClose}>
       <div
         className={`gc-modal ${className ?? ''}`}
         style={{ width }}

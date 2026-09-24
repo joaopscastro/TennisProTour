@@ -1,0 +1,139 @@
+ Grand Circuit
+ TENNIS MANAGER
+-Roster
+-Scouting
+-Tournaments
+-Rankings
+-Managers
+-Manager Pro
+-Social
+-SOON
+-SEASON 1 · WEEK 3
+-Day
+-7 / 7
+-Next day
+-14h 27m
+-XP BALANCE
+-494
++ROSTER
++SCOUTING
++TOURNAMENTS
++RANKINGS
++MANAGERS
++MANAGER PRO
++SOCIAL SOON
++WORLD CLOCK
++S1 � W7 � DAY 1/7
++NEXT DAY
++11:10:18
++XP
++499
+ FREE TIER
+-2 roster slots · upgrade for more room
+-HARD
+-🏠 Mexico
+ Granite Classic
+-Single elimination · 0/32 main-draw places filled · Registration open — draw not yet made
+-Scheduled S1 W9 · now S1 W3
+-Decided path
+-Pending / TBD
+-FREE AGENT
+-= unmanaged draw filler
+-Decided cards link to replay →
++FUTURES � HARD � 32 DRAW
++Registration open � draw not yet made
++Single elimination � 0/32 main-draw places filled
++Scheduled S1 W9 � now S1 W7
++STATUS
++REGISTRATION OPEN
++DRAW
++0/32 main � 0 by managers
++HOST
++Mexico
+ ENTER SINGLES
+ Register one of your players into this tournament's main draw. Below the direct-acceptance cutoff you'll enter through qualifying.
+-Enter a player
+-Enter
+-Planning across several weeks? Open the Planner →
++ENTER A PLAYER
++ENTER
++Planning across several weeks? Open the Planner ?
+ TOURNAMENT DETAILS
++32 draw
+ CIRCUIT
+ Senior tour
+ LEVEL
+ Futures
+ SURFACE
+ Hard
+ DRAW
+ 32 players
+ HOST
+-🏠 Mexico
++Mexico
+ SCHEDULED
+ S1 W9
+ RANKING POINTS BY RESULT
+-★ Champion
+-250 pts
+-Runner-up
+-165 pts
+-Semifinalist
+-100 pts
+-Quarterfinalist
+-50 pts
+-Round of 16
+-25 pts
+-Round of 32
+-No points
+-Points scale to this tournament's 32-player draw. A first-round loss earns nothing — a ranking is earned by winning.
++STAGE POINTS
++Champion 250 pts
++Runner-up 165 pts
++Semifinalist 100 pts
++Quarterfinalist 50 pts
++Round of 16 25 pts
++Round of 32 No points
++A ranking is earned by winning � a first-round loss pays no points.
++Scoring & entry rules
+ PRIZE MONEY BY RESULT
+-★ Champion
+-$35K
+-Runner-up
+-$17.5K
+-Semifinalist
+-$9K
+-Quarterfinalist
+-$5K
+-Round of 16
+-$2.8K
+-Round of 32
+-$1.5K
+-Unlike ranking points, a first-round loss still pays real prize money — you're paid to play, ranked to win.
++STAGE PRIZE
++Champion $35K
++Runner-up $17.5K
++Semifinalist $9K
++Quarterfinalist $5K
++Round of 16 $2.8K
++Round of 32 $1.5K
++Unlike ranking points, a first-round loss still pays real prize money � you're paid to play, ranked to win.
+ ENTRY LIST
+ 0 entered by managers
+-Players entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents.
++Players entered by managers. This is a separate figure from the draw's fill below � once a tournament starts, its bracket is padded to full with unmanaged free agents.
+ No managers have entered a player yet.
+ DOUBLES
+ 0 entrants
+-16-pair draw. Players sign up solo and are paired when the tournament starts — the top pairs by combined ranking make the cut.
+-Enter a player in doubles
++16-pair draw. Players sign up solo and are paired when the tournament starts � the top pairs by combined ranking make the cut.
++ENTER A PLAYER IN DOUBLES
+ No players have signed up for doubles yet.
+-DOUBLES QUALIFYING · 2 MAIN-DRAW PLACE(S) AT STAKE
++DOUBLES QUALIFYING � 2 MAIN-DRAW PLACE(S) AT STAKE
+ Qualifying pairs are formed when the tournament starts.
+-🎾
+ The draw hasn't been made yet
+-Seeding happens when the tournament starts — S1 W9 (now S1 W3). Until then, managers can keep entering players above.
++Seeding happens when the tournament starts � S1 W9 (now S1 W7). Until then, managers can keep entering players above.

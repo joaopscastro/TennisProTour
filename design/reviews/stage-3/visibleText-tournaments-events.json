@@ -1,0 +1,14 @@
+{
+    "route":  "http://localhost:3001/tournaments (Season events tab)",
+    "resultUrl":  "http://localhost:3001/tournaments#events",
+    "title":  "Grand Circuit",
+    "errorText":  "",
+    "consoleErrors":  [
+                          "Failed to load resource: the server responded with a status of 404 (Not Found)",
+                          "Failed to load resource: the server responded with a status of 404 (Not Found)"
+                      ],
+    "pageErrors":  [
+
+                   ],
+    "visibleText":  "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W7 · DAY 6/7\nNEXT DAY\n10:54:41\nXP\n499\nFREE TIER\nTHE CIRCUIT\nTournaments\nOpen draws still taking entrants, brackets already in full swing, and a planner to map out the weeks ahead.\nBROWSE\nPLANNER\nSEASON EVENTS\nMASTERS CUP\nNo Masters Cup has been generated for this season yet.\nWORLD TEAM CUP\nNo World Team Cup has been generated for this season yet."
+}

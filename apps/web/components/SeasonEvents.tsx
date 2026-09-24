@@ -11,8 +11,8 @@ import {
   fetchWorldClock,
   fetchWorldTeamCup,
 } from '../lib/api';
-import { Panel, SectionLabel } from './ui/primitives';
-import { flagFor, formatScoreline } from '../lib/format';
+import { Panel, SectionLabel, Flag } from './ui/primitives';
+import { formatScoreline } from '../lib/format';
 
 /**
  * The season capstones — Masters Cup (P8b) and World Team Cup (P8c) —
@@ -22,6 +22,9 @@ import { flagFor, formatScoreline } from '../lib/format';
  * a separate top-level area. Both fetch their current season's cup off
  * the world clock, so a season with no generated cup shows the honest
  * "not generated yet" empty state rather than a fabricated bracket.
+ *
+ * Direction A: results are dense table rows with mono figures; team/
+ * group cards stay flat panels.
  */
 export function SeasonEvents() {
   const [clock, setClock] = useState<WorldClockDto | null>(null);
@@ -75,12 +78,34 @@ export function SeasonEvents() {
   return (
     <div className="flex flex-col gap-6">
       {error && (
-        <Panel style={{ padding: 16, borderColor: 'oklch(60% 0.15 25 / 0.4)' }}>
-          <div style={{ fontSize: 13, color: 'oklch(85% 0.12 25)' }}>{error}</div>
+        <Panel style={{ padding: 16, borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
+          <div style={{ fontSize: 13, color: 'var(--loss)' }}>{error}</div>
         </Panel>
       )}
       <MastersCupSection cup={masters} players={mastersPlayers} hasClock={clock != null} />
       <WorldTeamCupSection cup={wtc} players={wtcPlayers} hasClock={clock != null} />
+    </div>
+  );
+}
+
+/** A compact result table (one row per fixture) shared by the cup panels. */
+function ResultTable({ rows }: { rows: Array<{ key: number; text: string; score: string; decided: boolean }> }) {
+  return (
+    <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+      <table className="gc-table gc-table--dense gc-table--fixed">
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td className="gc-flushcell" colSpan={2} style={{ color: row.decided ? 'var(--ink-2)' : 'var(--ink-4)' }}>
+                <div className="gc-rowlink-inner">
+                  <span className="gc-result-text">{row.text}</span>
+                  <span className="gc-result-score">{row.score}</span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -97,22 +122,22 @@ function MastersCupSection({ cup, players, hasClock }: { cup: MastersCupDto | nu
       <SectionLabel>Masters Cup</SectionLabel>
       {cup === null && hasClock && (
         <Panel style={{ padding: 22, textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)' }}>No Masters Cup has been generated for this season yet.</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>No Masters Cup has been generated for this season yet.</div>
         </Panel>
       )}
       {cup && (
         <>
           {(cup.singlesChampion || cup.doublesChampion) && (
-            <Panel style={{ padding: 16, textAlign: 'center', borderColor: 'var(--gc-gold)' }}>
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--gc-ink-mute)' }}>Champions</div>
+            <Panel style={{ padding: 16, textAlign: 'center', borderTop: '2px solid var(--gold)' }}>
+              <div className="t-label">Champions</div>
               {cup.singlesChampion && (
-                <div style={{ fontSize: 19, fontWeight: 850, color: 'var(--gc-gold)', marginTop: 5 }}>
-                  {name(cup.singlesChampion)} <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--gc-ink-mute)' }}>· Singles</span>
+                <div style={{ fontSize: 19, fontWeight: 850, color: 'var(--gold)', marginTop: 5 }}>
+                  {name(cup.singlesChampion)} <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--ink-3)' }}>· Singles</span>
                 </div>
               )}
               {cup.doublesChampion && (
-                <div style={{ fontSize: 19, fontWeight: 850, color: 'var(--gc-gold)', marginTop: 2 }}>
-                  {pairName(cup.doublesChampion)} <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--gc-ink-mute)' }}>· Doubles</span>
+                <div style={{ fontSize: 19, fontWeight: 850, color: 'var(--gold)', marginTop: 2 }}>
+                  {pairName(cup.doublesChampion)} <span style={{ fontSize: 12, fontWeight: 650, color: 'var(--ink-3)' }}>· Doubles</span>
                 </div>
               )}
             </Panel>
@@ -123,7 +148,7 @@ function MastersCupSection({ cup, players, hasClock }: { cup: MastersCupDto | nu
             const labelOf = discipline === 'singles' ? name : pairName;
             return (
               <div key={discipline} style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink)', textTransform: 'capitalize', marginBottom: 8 }}>{discipline}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', textTransform: 'capitalize', marginBottom: 8 }}>{discipline}</div>
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                   {groups.map((group, gi) => {
                     const wins = new Map<string, number>();
@@ -132,22 +157,27 @@ function MastersCupSection({ cup, players, hasClock }: { cup: MastersCupDto | nu
                     const ordered = [...group.entrants].sort((a, b) => (wins.get(b) ?? 0) - (wins.get(a) ?? 0));
                     return (
                       <Panel key={gi} style={{ padding: 14 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>Group {gi + 1}</div>
-                        {ordered.map((e) => (
-                          <div key={e} className="flex justify-between px-[8px] py-[4px] text-[13px]" style={{ color: 'var(--gc-ink)' }}>
-                            <span className="truncate">{labelOf(e)}</span>
-                            <span className="flex-none text-[12px]" style={{ color: 'var(--gc-ink-mute)' }}>{wins.get(e)} W</span>
-                          </div>
-                        ))}
-                        <div style={{ borderTop: '1px solid var(--gc-line)', margin: '8px 0', opacity: 0.6 }} />
-                        {group.matches.map((m, mi) => (
-                          <div key={mi} className="flex justify-between gap-2 px-[8px] py-[3px] text-[11.5px]" style={{ color: m.outcome ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-                            <span className="truncate">
-                              {m.outcome ? `${labelOf(m.outcome.winner)} def. ${labelOf(m.outcome.loser)}` : `${labelOf(m.entrantA)} v ${labelOf(m.entrantB)}`}
-                            </span>
-                            <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{m.outcome ? formatScoreline(m.outcome.setScores, true) : ''}</span>
-                          </div>
-                        ))}
+                        <div className="t-label" style={{ marginBottom: 8 }}>Group {gi + 1}</div>
+                        <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)', marginBottom: 8 }}>
+                          <table className="gc-table gc-table--dense gc-table--fixed">
+                            <tbody>
+                              {ordered.map((e) => (
+                                <tr key={e}>
+                                  <td className="truncate">{labelOf(e)}</td>
+                                  <td className="r num" style={{ width: 48, color: 'var(--ink-3)' }}>{wins.get(e)} W</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        <ResultTable
+                          rows={group.matches.map((m, mi) => ({
+                            key: mi,
+                            text: m.outcome ? `${labelOf(m.outcome.winner)} def. ${labelOf(m.outcome.loser)}` : `${labelOf(m.entrantA)} v ${labelOf(m.entrantB)}`,
+                            score: m.outcome ? formatScoreline(m.outcome.setScores, true) : '',
+                            decided: m.outcome != null,
+                          }))}
+                        />
                       </Panel>
                     );
                   })}
@@ -156,17 +186,17 @@ function MastersCupSection({ cup, players, hasClock }: { cup: MastersCupDto | nu
                   <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', marginTop: 12 }}>
                     {knockout.map((round) => (
                       <Panel key={round.roundNumber} style={{ padding: 14 }}>
-                        <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+                        <div className="t-label" style={{ marginBottom: 8 }}>
                           {round.roundNumber === 1 ? 'Semifinals' : 'Final'}
                         </div>
-                        {round.matches.map((m, mi) => (
-                          <div key={mi} className="flex justify-between gap-2 px-[8px] py-[4px] text-[12px]" style={{ color: m.outcome ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-                            <span className="truncate">
-                              {m.outcome ? `${labelOf(m.outcome.winner)} def. ${labelOf(m.outcome.loser)}` : `${labelOf(m.entrantA)} v ${labelOf(m.entrantB)}`}
-                            </span>
-                            <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{m.outcome ? formatScoreline(m.outcome.setScores, true) : ''}</span>
-                          </div>
-                        ))}
+                        <ResultTable
+                          rows={round.matches.map((m, mi) => ({
+                            key: mi,
+                            text: m.outcome ? `${labelOf(m.outcome.winner)} def. ${labelOf(m.outcome.loser)}` : `${labelOf(m.entrantA)} v ${labelOf(m.entrantB)}`,
+                            score: m.outcome ? formatScoreline(m.outcome.setScores, true) : '',
+                            decided: m.outcome != null,
+                          }))}
+                        />
                       </Panel>
                     ))}
                   </div>
@@ -197,18 +227,28 @@ function WorldTeamCupSection({ cup, players, hasClock }: { cup: WorldTeamCupDto 
   };
 
   const renderTie = (tie: WorldTeamCupDto['groups'][0]['ties'][0]) => (
-    <div style={{ border: '1px solid var(--gc-line)', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
-      <div className="flex justify-between text-[12px] font-bold" style={{ color: 'var(--gc-ink)' }}>
-        <span>{flagFor(tie.teamA)} {tie.teamA}</span>
-        <span style={{ color: 'var(--gc-ink-mute)' }}>{tie.winner ? `won by ${flagFor(tie.winner)} ${tie.winner}` : 'in progress'}</span>
-        <span>{tie.teamB} {flagFor(tie.teamB)}</span>
+    <div style={{ border: '1px solid var(--hair)', borderRadius: 6, marginBottom: 8 }}>
+      <div className="flex justify-between text-[12px] font-bold px-[10px] py-[7px]" style={{ color: 'var(--ink)', background: 'var(--bg-3)' }}>
+        <span><Flag code={tie.teamA} title={tie.teamA} /> {tie.teamA}</span>
+        <span style={{ color: 'var(--ink-3)', fontWeight: 600 }}>{tie.winner ? <>won by <Flag code={tie.winner} title={tie.winner} /> {tie.winner}</> : 'in progress'}</span>
+        <span>{tie.teamB} <Flag code={tie.teamB} title={tie.teamB} /></span>
       </div>
-      {tie.rubbers.map((r, i) => (
-        <div key={i} className="flex justify-between text-[11.5px]" style={{ color: r.outcome ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-          <span className="truncate">{r.kind === 'doubles' ? 'Doubles · ' : `Singles ${i + 1} · `}{rubberLabel(r, tie.teamA, tie.teamB)}</span>
-          <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{r.outcome ? formatScoreline(r.outcome.setScores, true) : ''}</span>
-        </div>
-      ))}
+      <table className="gc-table gc-table--dense">
+        <tbody>
+          {tie.rubbers.map((r, i) => (
+            <tr key={i}>
+              <td className="gc-flushcell" colSpan={2} style={{ color: r.outcome ? 'var(--ink-2)' : 'var(--ink-4)' }}>
+                <div className="gc-rowlink-inner">
+                  <span className="gc-result-text">
+                    {r.kind === 'doubles' ? 'Doubles · ' : `Singles ${i + 1} · `}{rubberLabel(r, tie.teamA, tie.teamB)}
+                  </span>
+                  <span className="gc-result-score">{r.outcome ? formatScoreline(r.outcome.setScores, true) : ''}</span>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 
@@ -217,23 +257,23 @@ function WorldTeamCupSection({ cup, players, hasClock }: { cup: WorldTeamCupDto 
       <SectionLabel>World Team Cup</SectionLabel>
       {cup === null && hasClock && (
         <Panel style={{ padding: 22, textAlign: 'center' }}>
-          <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)' }}>No World Team Cup has been generated for this season yet.</div>
+          <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>No World Team Cup has been generated for this season yet.</div>
         </Panel>
       )}
       {cup && (
         <>
           {cup.champion && (
-            <Panel style={{ padding: 16, textAlign: 'center', borderColor: 'var(--gc-gold)' }}>
-              <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1.5px', color: 'var(--gc-ink-mute)' }}>Champion</div>
-              <div style={{ fontSize: 21, fontWeight: 850, color: 'var(--gc-gold)', marginTop: 5 }}>
-                {flagFor(cup.champion)} {cup.champion}
+            <Panel style={{ padding: 16, textAlign: 'center', borderTop: '2px solid var(--gold)' }}>
+              <div className="t-label">Champion</div>
+              <div style={{ fontSize: 21, fontWeight: 850, color: 'var(--gold)', marginTop: 5 }}>
+                <Flag code={cup.champion} title={cup.champion} /> {cup.champion}
               </div>
             </Panel>
           )}
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', marginTop: 16 }}>
             {cup.groups.map((group, gi) => (
               <Panel key={gi} style={{ padding: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>Group {gi + 1}</div>
+                <div className="t-label" style={{ marginBottom: 8 }}>Group {gi + 1}</div>
                 {group.ties.map((tie) => renderTie(tie))}
               </Panel>
             ))}
@@ -242,7 +282,7 @@ function WorldTeamCupSection({ cup, players, hasClock }: { cup: WorldTeamCupDto 
             <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', marginTop: 12 }}>
               {cup.knockout.map((round, ri) => (
                 <Panel key={ri} style={{ padding: 14 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>{ri === 0 ? 'Semifinals' : 'Final'}</div>
+                  <div className="t-label" style={{ marginBottom: 8 }}>{ri === 0 ? 'Semifinals' : 'Final'}</div>
                   {round.map((tie) => renderTie(tie))}
                 </Panel>
               ))}

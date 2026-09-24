@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import {
   MatchOutcomeDto,
@@ -17,24 +16,43 @@ import {
   matchIdForSlot,
   registerDoublesEntrant,
 } from '../../../lib/api';
-import { Sidebar } from '../../../components/Sidebar';
+import { AppShell } from '../../../components/ui/AppShell';
 import { SinglesEntryPanel } from '../../../components/SinglesEntryPanel';
-import { AppFrame, Hero, Panel, SectionLabel } from '../../../components/ui/primitives';
+import { Badge, Button, Flag, PageShell, Panel, PanelHeader } from '../../../components/ui/primitives';
+import { Icon } from '../../../components/ui/Icon';
 import { CelebrationMoment, CelebrationOverlay } from '../../../components/ui/Celebration';
 import { surfaceTheme, SURFACE_COLOR } from '../../../lib/ui/surfaces';
-import { disambiguatedNames, flagFor, formatMoney, formatScoreline } from '../../../lib/format';
+import { disambiguatedNames, formatMoney, formatScoreline } from '../../../lib/format';
 import { roundCollapsed, roundStatus, roundSubtitle, tournamentHeadline } from '../../../lib/bracketStatus';
 import { championRevealed, matchAirState, matchAirStateForDto, matchState } from '../../../lib/matchAir';
 import { useDevManagerId } from '../../../lib/managerContext';
 import { useEntitlement } from '../../../lib/entitlement';
 
-const MUTED = 'oklch(42% 0.008 75)';
+const MUTED = 'var(--ink-4)';
 
+// ---------------------------------------------------------------------------
+// Bracket geometry. These four constants ARE the layout: computeGeometry
+// below turns them into absolute card positions, and they are also injected
+// as CSS custom properties on the bracket container (BRACKET_VARS) so the
+// `.gc-match` card's own width/height/row metrics can never drift from the
+// math that positions it.
+// ---------------------------------------------------------------------------
 const CARD_H = 84;
 const GAP0 = 14;
 const COL_W = 232;
 const GUT_W = 40;
 const COLLAPSED_W = 210;
+const MROW_H = 30;
+const MFOOT_H = 26;
+
+/** The geometry constants, published to CSS on the bracket container. */
+const BRACKET_VARS = {
+  ['--bracket-card-h' as string]: `${CARD_H}px`,
+  ['--bracket-col-w' as string]: `${COL_W}px`,
+  ['--bracket-gut-w' as string]: `${GUT_W}px`,
+  ['--bracket-mrow-h' as string]: `${MROW_H}px`,
+  ['--bracket-mfoot-h' as string]: `${MFOOT_H}px`,
+};
 
 // ---------------------------------------------------------------------------
 // Bracket-shape math — mirrors BracketGenerator.seedSlotOrder/orderBySeed
@@ -84,8 +102,63 @@ function tierLabel(tier: string): string {
   return tier.charAt(0).toUpperCase() + tier.slice(1);
 }
 
-/** Tournament "profile" details — circuit, level, points-per-round
- * ladder, and the logistical facts. Rendered both before the draw is
+/** One result line inside a compact results list (qualifying, doubles,
+ * doubles qualifying, collapsed bracket rounds) — the ONE row renderer for
+ * all four panels. The "what does this row say / is it a link" decision
+ * stays with the caller (each caller keeps its own air-state predicate);
+ * this component only draws the row. An aired row is a replay link; a row
+ * that has not aired is never a link (see lib/matchAir). */
+function MatchResultRow({
+  text,
+  score,
+  aired,
+  href = null,
+  suffix,
+}: {
+  text: string;
+  score: string;
+  aired: boolean;
+  href?: string | null;
+  suffix?: React.ReactNode;
+}) {
+  return (
+    <tr className={href ? 'gc-rowlink' : undefined}>
+      <td className="gc-flushcell" colSpan={2} style={{ color: aired ? 'var(--ink-2)' : 'var(--ink-4)' }}>
+        {href ? (
+          <a className="gc-rowlink-inner" href={href}>
+            <span className="gc-result-text">
+              {text}
+              {suffix}
+            </span>
+            <span className="gc-result-score">{score}</span>
+          </a>
+        ) : (
+          <div className="gc-rowlink-inner">
+            <span className="gc-result-text">
+              {text}
+              {suffix}
+            </span>
+            <span className="gc-result-score">{score}</span>
+          </div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+/** A compact result list (one table per round) built from MatchResultRow. */
+function ResultList({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+      <table className="gc-table gc-table--dense gc-table--fixed">
+        <tbody>{children}</tbody>
+      </table>
+    </div>
+  );
+}
+
+/** Tournament "profile" details — circuit, level, the points and prize
+ * ladders, and the logistical facts. Rendered both before the draw is
  * made (in place of the useless blank bracket) and alongside it during
  * play, so the profile is always available. Pure presentation. */
 function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
@@ -95,7 +168,12 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
     { label: 'Level', value: tierLabel(tournament.tier) },
     { label: 'Surface', value: <span style={{ textTransform: 'capitalize' }}>{tournament.surface}</span> },
     { label: 'Draw', value: `${tournament.drawSize} players` },
-    { label: 'Host', value: tournament.hostCountry ? `🏠 ${tournament.hostCountry}` : '—' },
+    { label: 'Host', value: tournament.hostCountry ? (
+      <>
+        <Icon name="house" size={12} title="Host country — a player of this nationality has home advantage here" style={{ verticalAlign: 'text-bottom' }} />
+        {' '}{tournament.hostCountry}
+      </>
+    ) : '—' },
     { label: 'Scheduled', value: `S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}` },
   ];
   if (tournament.qualifierSlots > 0) {
@@ -106,90 +184,112 @@ function TournamentDetailsPanel({ tournament }: { tournament: TournamentDto }) {
     });
   }
   return (
-    <Panel style={{ padding: 18 }}>
-      <SectionLabel>Tournament details</SectionLabel>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 12, marginTop: 12 }}>
-        {facts.map((f) => (
-          <div key={f.label}>
-            <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)' }}>{f.label}</div>
-            <div style={{ fontSize: 14, fontWeight: 650, marginTop: 2, color: 'var(--gc-ink)' }}>{f.value}</div>
-          </div>
-        ))}
-      </div>
+    <Panel style={{ overflow: 'hidden' }}>
+      <PanelHeader right={`${tournament.drawSize} draw`}>Tournament details</PanelHeader>
+      <div style={{ padding: 16 }}>
+        <dl className="gc-dl">
+          {facts.map((f) => (
+            <FragmentRow key={f.label} label={f.label} value={f.value} />
+          ))}
+        </dl>
 
-      <div style={{ marginTop: 18 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+        <div className="t-label" style={{ margin: '16px 0 6px' }}>
           Ranking points by result
         </div>
-        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-          {tournament.pointsBreakdown.map((row, i) => {
-            const isChampion = row.stageLabel === 'Champion';
-            const zero = row.points === 0;
-            return (
-              <div
-                key={row.matchesWon}
-                className="flex items-center justify-between px-[12px] py-[7px]"
-                style={{
-                  borderBottom: i < tournament.pointsBreakdown.length - 1 ? '1px solid var(--gc-line)' : undefined,
-                  background: isChampion ? 'linear-gradient(90deg, oklch(92% 0.09 85 / 0.5), transparent)' : undefined,
-                }}
-              >
-                <div style={{ fontSize: 12.5, fontWeight: isChampion ? 800 : 550, color: zero ? 'var(--gc-ink-faint)' : 'var(--gc-ink)' }}>
-                  {isChampion ? '★ ' : ''}{row.stageLabel}
-                </div>
-                <div className="[font-variant-numeric:tabular-nums]" style={{ fontSize: 12.5, fontWeight: 750, color: zero ? 'var(--gc-ink-faint)' : th.deep }}>
-                  {zero ? 'No points' : `${row.points.toLocaleString()} pts`}
-                </div>
-              </div>
-            );
-          })}
+        <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+          <table className="gc-table gc-table--dense gc-table--static">
+            <thead>
+              <tr>
+                <th>Stage</th>
+                <th className="r">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tournament.pointsBreakdown.map((row) => {
+                const isChampion = row.stageLabel === 'Champion';
+                const zero = row.points === 0;
+                return (
+                  <tr key={row.matchesWon} style={isChampion ? { background: 'var(--bg-3)' } : undefined}>
+                    <td style={{ color: zero ? 'var(--ink-4)' : 'var(--ink-2)', fontWeight: isChampion ? 700 : undefined }}>
+                      {isChampion && <Icon name="star" size={11} style={{ color: 'var(--accent)' }} />}
+                      {isChampion ? ' ' : ''}{row.stageLabel}
+                    </td>
+                    <td className="r num" style={{ fontWeight: 600, color: zero ? 'var(--ink-4)' : 'var(--ink)' }}>
+                      {zero ? 'No points' : `${row.points.toLocaleString()} pts`}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 7, lineHeight: 1.5 }}>
-          Points scale to this tournament's {tournament.drawSize}-player draw. A first-round loss earns nothing — a ranking is earned by winning.
-          {tournament.pointsArePlaceholder && ' Note: this tier\u2019s point values are a provisional placeholder, not a sourced figure.'}
-          {tournament.obligatory
-            ? ' This is a mandatory event: a top-100 player counts it toward their ranking even if they skip it \u2014 a skipped edition records a zero that still uses one of their counted results.'
-            : ''}
-          {tournament.qualifierSlots > 0
-            ? ` Players outside the top 100 aren\u2019t accepted directly here \u2014 they enter the ${tournament.qualifyingDrawSize}-player qualifying draw and must win ${tournament.qualifyingRoundCount} rounds to claim one of the ${tournament.qualifierSlots} reserved main-draw places. Qualifying wins pay only a small amount of points; the real prize is the main-draw place.`
-            : ''}
+        <div className="gc-tbl-note" style={{ padding: '8px 0 0' }}>
+          A ranking is earned by winning — a first-round loss pays no points.
         </div>
-      </div>
+        {/* Prose-as-UI: the rule one-liner stays visible above; the longer
+            scoring/entry explanation lives here, directly under the table it
+            explains, openable without a hover. */}
+        <details className="gc-details" style={{ marginTop: 8 }}>
+          <summary>Scoring &amp; entry rules</summary>
+          <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.6 }}>
+            Points scale to this tournament&apos;s {tournament.drawSize}-player draw.
+            {tournament.pointsArePlaceholder && ' Note: this tier\u2019s point values are a provisional placeholder, not a sourced figure.'}
+            {tournament.obligatory
+              ? ' This is a mandatory event: a top-100 player counts it toward their ranking even if they skip it \u2014 a skipped edition records a zero that still uses one of their counted results.'
+              : ''}
+            {tournament.qualifierSlots > 0
+              ? ` Players outside the top 100 aren\u2019t accepted directly here \u2014 they enter the ${tournament.qualifyingDrawSize}-player qualifying draw and must win ${tournament.qualifyingRoundCount} rounds to claim one of the ${tournament.qualifierSlots} reserved main-draw places. Qualifying wins pay only a small amount of points; the real prize is the main-draw place.`
+              : ''}
+          </div>
+        </details>
 
-      <div style={{ marginTop: 18 }}>
-        <div style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.4px', textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
+        <div className="t-label" style={{ margin: '16px 0 6px' }}>
           Prize money by result
         </div>
-        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-          {tournament.prizeMoneyBreakdown.map((row, i) => {
-            const isChampion = row.stageLabel === 'Champion';
-            const zero = row.prizeMoney === 0;
-            return (
-              <div
-                key={row.matchesWon}
-                className="flex items-center justify-between px-[12px] py-[7px]"
-                style={{
-                  borderBottom: i < tournament.prizeMoneyBreakdown.length - 1 ? '1px solid var(--gc-line)' : undefined,
-                  background: isChampion ? 'linear-gradient(90deg, oklch(92% 0.09 85 / 0.5), transparent)' : undefined,
-                }}
-              >
-                <div style={{ fontSize: 12.5, fontWeight: isChampion ? 800 : 550, color: zero ? 'var(--gc-ink-faint)' : 'var(--gc-ink)' }}>
-                  {isChampion ? '\u2605 ' : ''}{row.stageLabel}
-                </div>
-                <div className="[font-variant-numeric:tabular-nums]" style={{ fontSize: 12.5, fontWeight: 750, color: zero ? 'var(--gc-ink-faint)' : th.deep }}>
-                  {zero ? 'No prize money' : formatMoney(row.prizeMoney)}
-                </div>
-              </div>
-            );
-          })}
+        <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+          <table className="gc-table gc-table--dense gc-table--static">
+            <thead>
+              <tr>
+                <th>Stage</th>
+                <th className="r">Prize</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tournament.prizeMoneyBreakdown.map((row) => {
+                const isChampion = row.stageLabel === 'Champion';
+                const zero = row.prizeMoney === 0;
+                return (
+                  <tr key={row.matchesWon} style={isChampion ? { background: 'var(--bg-3)' } : undefined}>
+                    <td style={{ color: zero ? 'var(--ink-4)' : 'var(--ink-2)', fontWeight: isChampion ? 700 : undefined }}>
+                      {isChampion && <Icon name="star" size={11} style={{ color: 'var(--accent)' }} />}
+                      {isChampion ? ' ' : ''}{row.stageLabel}
+                    </td>
+                    <td className="r num" style={{ fontWeight: 600, color: zero ? 'var(--ink-4)' : 'var(--ink)' }}>
+                      {zero ? 'No prize money' : formatMoney(row.prizeMoney)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 7, lineHeight: 1.5 }}>
+        <div className="gc-tbl-note" style={{ padding: '8px 0 0' }}>
           {tournament.circuit === 'junior'
             ? 'Junior events are an amateur development circuit and do not pay cash prize money.'
             : "Unlike ranking points, a first-round loss still pays real prize money \u2014 you're paid to play, ranked to win."}
         </div>
       </div>
     </Panel>
+  );
+}
+
+/** One `<dt>/<dd>` pair (a fragment, so the `.gc-dl` grid spans both). */
+function FragmentRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <>
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </>
   );
 }
 
@@ -221,71 +321,71 @@ function EntryList({
     });
 
   return (
-    <Panel style={{ padding: 18 }}>
-      <SectionLabel
-        right={
-          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
-            {humanEntrants.length} entered by manager{humanEntrants.length === 1 ? '' : 's'}
-          </span>
-        }
-      >
+    <Panel style={{ overflow: 'hidden' }}>
+      <PanelHeader right={`${humanEntrants.length} entered by manager${humanEntrants.length === 1 ? '' : 's'}`}>
         {draw === 'qualifying' ? 'Qualifying entry list' : 'Entry list'}
-      </SectionLabel>
-      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
-        {draw === 'qualifying'
-          ? `Players competing for ${tournament.qualifierSlots} main-draw place(s). This list is separate from the draw's fill.`
-          : "Players entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents."}
-        {tournament.hasStarted && ' Those fillers are badged “Free agent” in the bracket.'}
+      </PanelHeader>
+      <div style={{ padding: 16 }}>
+        <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+          {draw === 'qualifying'
+            ? `Players competing for ${tournament.qualifierSlots} main-draw place(s). This list is separate from the draw's fill.`
+            : "Players entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents."}
+          {tournament.hasStarted && ' Those fillers are badged “Free agent” in the bracket.'}
+        </div>
+        {humanEntrants.length === 0 ? (
+          <div className="text-[13px]" style={{ color: 'var(--ink-4)', padding: '14px 4px', lineHeight: 1.5 }}>
+            {tournament.hasStarted
+              ? 'No managers have entered a player yet — this draw is padded with unmanaged free agents, which is why the header still shows a full draw.'
+              : 'No managers have entered a player yet.'}
+          </div>
+        ) : (
+          <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+            <table className="gc-table gc-table--dense gc-table--static gc-table--fixed">
+              <thead>
+                <tr>
+                  <th className="r" style={{ width: 52 }}>Seed</th>
+                  <th>Player</th>
+                  <th style={{ width: 72 }}>Entry</th>
+                  <th className="r" style={{ width: 64 }}>Open</th>
+                </tr>
+              </thead>
+              <tbody>
+                {humanEntrants.map(({ entrant, player }) => (
+                  <tr key={entrant.playerId} className="gc-rowlink">
+                    <td className="r num" style={{ width: 52, color: 'var(--ink-3)' }}>
+                      {entrant.seed ? `#${entrant.seed}` : '—'}
+                    </td>
+                    <td>
+                      {/* Plain `<a>` for immediate navigation (the dead-click
+                          fix); the anchor covers the whole row. */}
+                      <a className="gc-pcell gc-rowcover" href={`/players/${encodeURIComponent(entrant.playerId)}`}>
+                        <Flag code={player.nationality} title={player.nationality} />
+                        <span className="nm">{player.name}</span>
+                      </a>
+                    </td>
+                    <td>
+                      {entrant.entryType === 'Q' && (
+                        <Badge className="gc-badge--q" title="Qualifier — came through qualifying rather than being accepted directly by ranking">[Q]</Badge>
+                      )}
+                      {entrant.entryType === 'WC' && (
+                        <Badge className="gc-badge--wc" title="Wild card — awarded a main-draw place independent of ranking">[WC]</Badge>
+                      )}
+                      {entrant.entryType === 'DA' && <Badge className="gc-badge--da">DA</Badge>}
+                    </td>
+                    <td className="r" style={{ color: 'var(--ink-4)' }}>View →</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
-      {humanEntrants.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '14px 4px', lineHeight: 1.5 }}>
-          {tournament.hasStarted
-            ? 'No managers have entered a player yet — this draw is padded with unmanaged free agents, which is why the header still shows a full draw.'
-            : 'No managers have entered a player yet.'}
-        </div>
-      ) : (
-        <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-          {humanEntrants.map(({ entrant, player }, i) => (
-            <Link
-              key={entrant.playerId}
-              href={`/players/${encodeURIComponent(entrant.playerId)}`}
-              className="flex items-center gap-[10px] px-[12px] py-[8px] no-underline hover:bg-[var(--gc-s3)]"
-              style={{ borderBottom: i < humanEntrants.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'inherit' }}
-            >
-              <div className="[font-variant-numeric:tabular-nums] flex-none" style={{ width: 26, fontSize: 11, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
-                {entrant.seed ? `#${entrant.seed}` : ''}
-              </div>
-              <span className="flex-none">{flagFor(player.nationality)}</span>
-              <div className="text-[13.5px] font-semibold min-w-0 flex-1 truncate" style={{ color: 'var(--gc-ink)' }}>
-                {player.name}
-                {entrant.entryType === 'Q' && (
-                  <span
-                    title="Qualifier — came through qualifying rather than being accepted directly by ranking"
-                    style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: 'var(--gc-ink-mute)' }}
-                  >
-                    [Q]
-                  </span>
-                )}
-                {entrant.entryType === 'WC' && (
-                  <span
-                    title="Wild card — awarded a main-draw place independent of ranking"
-                    style={{ marginLeft: 6, fontSize: 10.5, fontWeight: 800, color: 'oklch(55% 0.14 145)' }}
-                  >
-                    [WC]
-                  </span>
-                )}
-              </div>
-              <div className="text-[11px] flex-none" style={{ color: 'var(--gc-ink-faint)' }}>View →</div>
-            </Link>
-          ))}
-        </div>
-      )}
     </Panel>
   );
 }
 
 
-/** The qualifying draw, as a compact results list rather than a second
+/** The qualifying draw, as a compact results grid rather than a second
  * graphical bracket: a qualifying event is a preliminary, and its only
  * outcome that matters to the main draw is WHO came through. Rows link
  * to the replay exactly like a decided main-draw match does, so nothing
@@ -316,101 +416,75 @@ function QualifyingPanel({
   );
 
   return (
-    <Panel style={{ padding: 18, marginBottom: 24 }}>
-      <SectionLabel
+    <Panel style={{ overflow: 'hidden', marginBottom: 24 }}>
+      <PanelHeader
         right={
-          <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+          <span style={{ color: tournament.qualifyingComplete ? 'var(--win)' : 'var(--warn)' }}>
             {tournament.qualifyingComplete ? 'Complete' : 'In progress'}
           </span>
         }
       >
         Qualifying
-      </SectionLabel>
-      <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
-        {tournament.qualifyingDrawSize} players, {tournament.qualifyingRoundCount} rounds, for{' '}
-        {tournament.qualifierSlots} main-draw place(s). Played on the tournament's opening days, before the main draw is
-        made.
-      </div>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-        {tournament.qualifyingRounds.map((round) => {
-          const isFinalQualifyingRound = round.roundNumber === tournament.qualifyingRoundCount;
-          return (
-            <div key={round.roundNumber}>
-              <div
-                style={{
-                  fontSize: 10.5,
-                  fontWeight: 700,
-                  letterSpacing: '0.4px',
-                  textTransform: 'uppercase',
-                  color: 'var(--gc-ink-mute)',
-                  marginBottom: 6,
-                }}
-              >
-                {isFinalQualifyingRound ? 'Final qualifying round' : `Qualifying round ${round.roundNumber}`}
-              </div>
-              <div className="rounded-[8px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-                {round.matches.map((match, i) => {
-                  // One shared air predicate for every draw (lib/matchAir) —
-                  // the score is only shown once the match has actually aired;
-                  // until then the row reads "v" (or a countdown) exactly like
-                  // the main bracket, so the bracket and the replay page can
-                  // never disagree about whether this match has premiered.
-                  const airState = matchAirStateForDto(match, now);
-                  const aired = airState === 'aired' && match.outcome != null;
-                  const winner = aired ? match.outcome!.winner : null;
-                  const loser = aired ? match.outcome!.loser : null;
-                  const text = aired
-                    ? `${nameOf(winner!)} def. ${nameOf(loser!)}`
-                    : `${nameOf(match.entrantA)} v ${nameOf(match.entrantB)}`;
-                  const score = aired
-                    ? formatScoreline(match.outcome!.setScores, true)
-                    : !match.outcome
-                      ? 'Pending'
-                      : airState === 'live'
-                        ? 'Live now'
-                        : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
-                  const cameThrough = aired && winner !== null && qualifiers.has(winner);
-                  const row = (
-                    <div
-                      className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2 whitespace-nowrap overflow-hidden"
-                      style={{
-                        borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined,
-                        color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)',
-                      }}
-                    >
-                      <span className="overflow-hidden text-ellipsis">
-                        {text}
-                        {cameThrough && (
+      </PanelHeader>
+      <div style={{ padding: 16 }}>
+        <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+          {tournament.qualifyingDrawSize} players, {tournament.qualifyingRoundCount} rounds, for{' '}
+          {tournament.qualifierSlots} main-draw place(s). Played on the tournament's opening days, before the main draw is
+          made.
+        </div>
+        <div className="gc-qgrid">
+          {tournament.qualifyingRounds.map((round) => {
+            const isFinalQualifyingRound = round.roundNumber === tournament.qualifyingRoundCount;
+            return (
+              <div key={round.roundNumber}>
+                <div className="t-label" style={{ marginBottom: 6 }}>
+                  {isFinalQualifyingRound ? 'Final qualifying round' : `Qualifying round ${round.roundNumber}`}
+                </div>
+                <ResultList>
+                  {round.matches.map((match, i) => {
+                    // One shared air predicate for every draw (lib/matchAir) —
+                    // the score is only shown once the match has actually aired;
+                    // until then the row reads "v" (or a countdown) exactly like
+                    // the main bracket, so the bracket and the replay page can
+                    // never disagree about whether this match has premiered.
+                    const airState = matchAirStateForDto(match, now);
+                    const aired = airState === 'aired' && match.outcome != null;
+                    const winner = aired ? match.outcome!.winner : null;
+                    const loser = aired ? match.outcome!.loser : null;
+                    const text = aired
+                      ? `${nameOf(winner!)} def. ${nameOf(loser!)}`
+                      : `${nameOf(match.entrantA)} v ${nameOf(match.entrantB)}`;
+                    const score = aired
+                      ? formatScoreline(match.outcome!.setScores, true)
+                      : !match.outcome
+                        ? 'Pending'
+                        : airState === 'live'
+                          ? 'Live now'
+                          : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
+                    const cameThrough = aired && winner !== null && qualifiers.has(winner);
+                    return (
+                      <MatchResultRow
+                        key={i}
+                        text={text}
+                        score={score}
+                        aired={aired}
+                        href={aired ? `/replay/${matchIdForSlot(tournamentId, round.roundNumber, i, 'qualifying')}` : null}
+                        suffix={cameThrough && (
                           <span
                             title="Came through qualifying \u2014 promoted into the main draw"
-                            style={{ marginLeft: 6, fontWeight: 800, color: 'var(--gc-ink-mute)' }}
+                            style={{ marginLeft: 6, fontWeight: 800, color: 'var(--ink-3)' }}
                           >
                             [Q]
                           </span>
                         )}
-                      </span>
-                      <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
-                        {score}
-                      </span>
-                    </div>
-                  );
-                  return aired ? (
-                    <Link
-                      key={i}
-                      href={`/replay/${matchIdForSlot(tournamentId, round.roundNumber, i, 'qualifying')}`}
-                      className="block no-underline hover:bg-[var(--gc-s3)]"
-                      style={{ color: 'inherit' }}
-                    >
-                      {row}
-                    </Link>
-                  ) : (
-                    <div key={i}>{row}</div>
-                  );
-                })}
+                      />
+                    );
+                  })}
+                </ResultList>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </Panel>
   );
@@ -667,7 +741,7 @@ export default function TournamentBracketPage() {
   // are the "Amara Yamamoto v Amara Yamamoto" ambiguity, fixed by a short
   // stable suffix on the colliding names only.
   const displayNames = useMemo(() => disambiguatedNames(players.values()), [players]);
-  const accent = tournament ? (SURFACE_COLOR[tournament.surface] ?? 'oklch(50% 0.006 75)') : MUTED;
+  const accent = tournament ? (SURFACE_COLOR[tournament.surface] ?? MUTED) : MUTED;
 
   const counts = rounds.map((r) => r.matches.length);
   const { steps, top0s } = computeGeometry(counts);
@@ -733,12 +807,12 @@ export default function TournamentBracketPage() {
     if (champDecided) void detectTitle();
   }, [champDecided, detectTitle]);
 
-  function playerLabel(entrant: Entrant | null): { name: string; flag: string; seedLabel: string; fillOnly: boolean } {
-    if (!entrant) return { name: '', flag: '', seedLabel: '', fillOnly: false };
+  function playerLabel(entrant: Entrant | null): { name: string; flag: React.ReactNode; seedLabel: string; fillOnly: boolean } {
+    if (!entrant) return { name: '', flag: null, seedLabel: '', fillOnly: false };
     const p = players.get(entrant.playerId);
     return {
       name: displayNames.get(entrant.playerId) ?? p?.name ?? entrant.playerId,
-      flag: p ? flagFor(p.nationality) : '',
+      flag: p ? <Flag code={p.nationality} title={p.nationality} /> : null,
       seedLabel: entrant.seed ? `(${entrant.seed})` : '',
       fillOnly: p?.fillOnly ?? false,
     };
@@ -755,24 +829,22 @@ export default function TournamentBracketPage() {
 
   if (error && !tournament) {
     return (
-      <AppFrame>
-        <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-        <div className="flex-1 p-8" style={{ background: 'var(--gc-bg)' }}>
-          <div className="text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+      <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div className="gc-notice" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
             {error}
           </div>
-        </div>
-      </AppFrame>
+        </PageShell>
+      </AppShell>
     );
   }
   if (!tournament) {
     return (
-      <AppFrame>
-        <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
-        <div className="flex-1 p-8 text-[13.5px]" style={{ background: 'var(--gc-bg)', color: 'var(--gc-ink-mute)' }}>
-          Loading bracket…
-        </div>
-      </AppFrame>
+      <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
+        <PageShell>
+          <div className="t-body-sm">Loading bracket…</div>
+        </PageShell>
+      </AppShell>
     );
   }
 
@@ -802,81 +874,93 @@ export default function TournamentBracketPage() {
   const championCopy = champDecided && champLabel
     ? `${champLabel.name} lifts the trophy.`
     : overallStatus;
+  // The compact hero chip, derived from the SAME `overallStatus` string
+  // (itself the one `roundStatus`/`matchState` predicate the round badges
+  // read) — never a second notion of "under way".
+  const statusChip = !tournament.hasStarted
+    ? 'REGISTRATION OPEN'
+    : overallStatus === 'Tournament complete' || overallStatus.endsWith(' complete')
+      ? 'COMPLETE'
+      : overallStatus === 'Results airing'
+        ? 'RESULTS AIRING'
+        : overallStatus === 'Awaiting entrants'
+          ? 'AWAITING ENTRANTS'
+          : overallStatus.endsWith(' upcoming')
+            ? overallStatus.toUpperCase()
+            : overallStatus.endsWith(' in progress')
+              ? 'LIVE'
+              : overallStatus.toUpperCase();
 
   return (
-    <AppFrame>
+    <AppShell active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
       {celebrations.length > 0 && (
         <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
       )}
-      <Sidebar active="tournaments" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance} />
 
-      <div className="flex-1 min-w-0" style={{ background: 'var(--gc-bg)', position: 'relative' }}>
-        <div style={{ position: 'relative', padding: '30px 34px 60px', maxWidth: 1400, margin: '0 auto' }}>
-          <Hero surface={tournament.surface} minHeight={148}>
-            <div className="flex items-start justify-between gap-4 flex-wrap">
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '1.5px', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 6, color: 'white', background: `linear-gradient(180deg, ${th.color}, ${th.deep})`, boxShadow: '0 2px 8px oklch(0% 0 0 / 0.3)' }}>
-                    {tournament.surface}
-                  </div>
-                  {tournament.ageBand && (
-                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 6, background: 'oklch(100% 0 0 / 0.16)', color: 'white' }}>
-                      {tournament.ageBand}
-                    </div>
-                  )}
-                  {tournament.hostCountry && (
-                    <div title="Host country — a player of this nationality has home advantage here" style={{ fontSize: 11, fontWeight: 800, letterSpacing: '0.5px', padding: '4px 10px', borderRadius: 6, background: 'oklch(100% 0 0 / 0.16)', color: 'white' }}>
-                      🏠 {tournament.hostCountry}
-                    </div>
-                  )}
-                </div>
-                <div style={{ fontSize: 30, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 8, textShadow: '0 2px 10px oklch(0% 0 0 / 0.45)' }}>{tournament.name}</div>
-                <div style={{ fontSize: 13.5, color: 'white', opacity: 0.85, marginTop: 4 }}>
-                  Single elimination · {tournament.mainDrawEntrants}/{tournament.drawSize} main-draw places filled
-                  {unmanagedMainEntrants > 0 ? ` (${managerMainEntrants} by managers, ${unmanagedMainEntrants} free-agent fillers)` : ''}
-                  {qualifyingEntrants > 0 ? ` · ${qualifyingEntrants} in qualifying` : ''} · {championCopy}
-                </div>
-                {worldClock && (
-                  <div style={{ fontSize: 12, color: 'white', opacity: 0.6, marginTop: 3 }}>
-                    Scheduled S{tournament.weekScheduled.season} W{tournament.weekScheduled.week} · now S{worldClock.currentWeek.season} W{worldClock.currentWeek.week}
-                  </div>
-                )}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, fontSize: 12, color: 'white', opacity: 0.9, alignItems: 'flex-end' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: th.color }} /> Decided path
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.75 }}>
-                  <div style={{ width: 10, height: 10, borderRadius: 2, background: 'oklch(100% 0 0 / 0.4)' }} /> Pending / TBD
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, opacity: 0.75 }}>
-                  <span
-                    className="text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
-                    style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                  >
-                    Free agent
-                  </span>
-                  = unmanaged draw filler
-                </div>
-                <div style={{ opacity: 0.75 }}>Decided cards link to replay →</div>
-              </div>
+      <PageShell>
+        {/* Hero band — flat, 2px surface-coloured top rule (Direction A). */}
+        <div className="gc-band" style={{ ['--surf' as string]: th.color }}>
+          <div style={{ minWidth: 260 }}>
+            <h1 className="t-h2" style={{ margin: 0 }}>{tournament.name}</h1>
+            <div className="t-label" style={{ marginTop: 6 }}>
+              {tierLabel(tournament.tier)} · {tournament.surface} · {tournament.drawSize} draw
+              {tournament.ageBand ? ` · ${tournament.ageBand.toUpperCase()}` : ''}
             </div>
-          </Hero>
+            <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>{championCopy}</div>
+            <div className="t-body-sm" style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)', lineHeight: 1.5 }}>
+              Single elimination · {tournament.mainDrawEntrants}/{tournament.drawSize} main-draw places filled
+              {unmanagedMainEntrants > 0 ? ` (${managerMainEntrants} by managers, ${unmanagedMainEntrants} free-agent fillers)` : ''}
+              {qualifyingEntrants > 0 ? ` · ${qualifyingEntrants} in qualifying` : ''}
+            </div>
+            {worldClock && (
+              <div className="t-body-sm" style={{ marginTop: 2, fontSize: 11, color: 'var(--ink-4)' }}>
+                Scheduled S{tournament.weekScheduled.season} W{tournament.weekScheduled.week} · now S{worldClock.currentWeek.season} W{worldClock.currentWeek.week}
+              </div>
+            )}
+          </div>
+          <div className="gc-band-meta">
+            <div className="gc-topbar-kv">
+              <span className="k">Status</span>
+              <span className="v">
+                <Badge
+                  style={statusChip === 'LIVE'
+                    ? { color: 'var(--live)', borderColor: 'color-mix(in srgb, var(--live) 50%, transparent)' }
+                    : statusChip === 'COMPLETE'
+                      ? { color: 'var(--win)', borderColor: 'color-mix(in srgb, var(--win) 45%, transparent)' }
+                      : undefined}
+                >
+                  {statusChip === 'LIVE' && <span className="gc-live-dot" style={{ width: 6, height: 6 }} />}
+                  {statusChip}
+                </Badge>
+              </span>
+            </div>
+            <div className="gc-topbar-kv">
+              <span className="k">Draw</span>
+              <span className="v num">
+                {tournament.mainDrawEntrants}/{tournament.drawSize} main · {managerMainEntrants} by managers
+              </span>
+            </div>
+            <div className="gc-topbar-kv">
+              <span className="k">Host</span>
+              <span className="v">
+                {tournament.hostCountry ? (
+                  <>
+                    <Icon name="house" size={12} title="Host country — a player of this nationality has home advantage here" style={{ verticalAlign: 'text-bottom' }} />
+                    {' '}{tournament.hostCountry}
+                  </>
+                ) : '—'}
+              </span>
+            </div>
+          </div>
+        </div>
 
         {error && (
-          <div className="mt-3 text-[13px] rounded-[10px] px-4 py-3" style={{ color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div className="gc-notice mt-3" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
             {error}
           </div>
         )}
 
-        {/* Net-line motif divider */}
-        <div className="flex items-center gap-0 my-[18px] mb-[22px]">
-          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-          <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
-          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-          <div className="flex-1 h-[1.5px]" style={{ background: 'var(--gc-line)' }} />
-          <div className="w-px h-[9px]" style={{ background: 'var(--gc-line-hi)' }} />
-        </div>
+        <div className="mt-6" />
 
         {/* Singles entry — the tournament page's own entry control, the
             counterpart to the doubles one below. Previously an open
@@ -911,152 +995,91 @@ export default function TournamentBracketPage() {
             Compact, like the qualifying panel: the pair list + the
             pair-keyed bracket. */}
         {tournament.doublesDrawSize > 0 && (
-          <Panel style={{ padding: 18, marginBottom: 24 }}>
-            <SectionLabel
+          <Panel style={{ overflow: 'hidden', marginBottom: 24 }}>
+            <PanelHeader
               right={
-                <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
-                  {tournament.doublesComplete
-                    ? 'Complete'
-                    : tournament.doublesPairs.length > 0
-                      ? `${tournament.doublesPairs.length} pairs`
-                      : `${tournament.doublesEntrants.length} entrants`}
-                </span>
+                tournament.doublesComplete
+                  ? 'Complete'
+                  : tournament.doublesPairs.length > 0
+                    ? `${tournament.doublesPairs.length} pairs`
+                    : `${tournament.doublesEntrants.length} entrants`
               }
             >
               Doubles
-            </SectionLabel>
-            <div style={{ fontSize: 11, color: 'var(--gc-ink-mute)', marginTop: 4, marginBottom: 10, lineHeight: 1.5 }}>
-              {tournament.doublesDrawSize}-pair draw. Players sign up solo and are paired when the tournament starts — the
-              top pairs by combined ranking make the cut.
-            </div>
-            {!tournament.hasStarted && (
-              <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
-                <button
-                  onClick={openDoublesEntry}
-                  className="rounded-[8px] px-[14px] py-[8px] text-[12.5px] font-extrabold cursor-pointer"
-                  style={{ background: 'linear-gradient(180deg, var(--gc-ball), var(--gc-ball-d))', color: 'oklch(22% 0.05 150)', border: '1px solid oklch(100% 0 0 / 0.2)' }}
-                >
-                  {doublesRoster === null ? 'Enter a player in doubles' : 'Choose a player'}
-                </button>
-                {doublesRoster !== null && (
-                  <>
-                    <select className="gc-select" value={doublesPick ?? ''} onChange={(e) => setDoublesPick(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
-                      <option value="">Select player…</option>
-                      {(doublesRoster ?? []).map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={submitDoublesEntry}
-                      disabled={!doublesPick || doublesBusy}
-                      className="rounded-[8px] px-[12px] py-[8px] text-[12px] font-extrabold cursor-pointer disabled:opacity-50"
-                      style={{ background: 'var(--gc-s3)', color: 'var(--gc-ink)', border: '1px solid var(--gc-line)' }}
-                    >
-                      {doublesBusy ? 'Signing up…' : 'Sign up'}
-                    </button>
-                  </>
-                )}
+            </PanelHeader>
+            <div style={{ padding: 16 }}>
+              <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+                {tournament.doublesDrawSize}-pair draw. Players sign up solo and are paired when the tournament starts — the
+                top pairs by combined ranking make the cut.
               </div>
-            )}
-            {doublesError && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.14 25)' }}>{doublesError}</div>}
-            {doublesNotice && <div className="text-[12px] mb-[8px]" style={{ color: 'oklch(75% 0.12 150)' }}>{doublesNotice}</div>}
-            {tournament.doublesPairs.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--gc-ink-faint)', padding: '10px 4px' }}>
-                {tournament.doublesEntrants.length > 0
-                  ? `${tournament.doublesEntrants.length} player${tournament.doublesEntrants.length === 1 ? '' : 's'} signed up — the draw is paired when the tournament starts.`
-                  : 'No players have signed up for doubles yet.'}
-              </div>
-            ) : (
-              <div className="flex flex-col gap-[6px]">
-                {tournament.doublesPairs.map((p) => {
-                  const a = displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA;
-                  const b = displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB;
-                  const ca = players.get(p.playerA);
-                  const cb = players.get(p.playerB);
-                  return (
-                    <div key={p.pairId} className="flex items-center gap-[7px] px-[12px] py-[7px] rounded-[7px] text-[13px]" style={{ border: '1px solid var(--gc-line)', color: 'var(--gc-ink)' }}>
-                      {ca && <span className="flex-none">{flagFor(ca.nationality)}</span>} <span className="font-semibold">{a}</span>
-                      <span style={{ color: 'var(--gc-ink-mute)' }}>+</span>
-                      {cb && <span className="flex-none">{flagFor(cb.nationality)}</span>} <span className="font-semibold">{b}</span>
-                      {p.chemistry > 0 && (
-                        <span className="ml-auto text-[10.5px] font-bold px-[6px] py-[2px] rounded-[4px]" style={{ background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }} title="Pair chemistry (built by playing together)">
-                          chem {p.chemistry}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {tournament.doublesRounds.length > 0 && (
-              <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', marginTop: 12 }}>
-                {tournament.doublesRounds.map((round) => {
-                  const pairName = (pairId: string) => {
-                    const p = tournament.doublesPairs.find((pp) => pp.pairId === pairId);
-                    if (!p) return pairId;
-                    return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
-                  };
-                  return (
-                    <div key={round.roundNumber}>
-                      <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 6 }}>
-                        {round.roundNumber === tournament.doublesRounds.length ? 'Doubles final' : `Doubles round ${round.roundNumber}`}
-                      </div>
-                      {round.matches.map((match, i) => {
-                        // Same shared air predicate as every other draw — a
-                        // doubles result is hidden until its premiere (and the
-                        // qualifying-pair names are not needed to render "v").
-                        const airState = matchAirStateForDto(match, now);
-                        const aired = airState === 'aired' && match.outcome != null;
-                        const winner = aired ? match.outcome!.winner : null;
-                        const text = aired
-                          ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
-                          : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
-                        const score = aired
-                          ? formatScoreline(match.outcome!.setScores, true)
-                          : !match.outcome
-                            ? 'Pending'
-                            : airState === 'live'
-                              ? 'Live now'
-                              : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
-                        return (
-                          <div key={i} className="px-[10px] py-[6px] text-[11.5px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-                            <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
-                            <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Doubles qualifying (P8) — the small bracket played on the
-                opening days for the reserved main-draw places. */}
-            {tournament.doublesQualifyingDrawSize > 0 && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-mute)', marginBottom: 8 }}>
-                  Doubles qualifying · {tournament.doublesQualifierSlots} main-draw place(s) at stake
-                  {tournament.doublesQualifyingComplete ? ' · complete' : ''}
+              {!tournament.hasStarted && (
+                <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
+                  <Button variant="primary" onClick={openDoublesEntry}>
+                    {doublesRoster === null ? 'Enter a player in doubles' : 'Choose a player'}
+                  </Button>
+                  {doublesRoster !== null && (
+                    <>
+                      <select className="gc-select" value={doublesPick ?? ''} onChange={(e) => setDoublesPick(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
+                        <option value="">Select player…</option>
+                        {(doublesRoster ?? []).map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select>
+                      <Button onClick={submitDoublesEntry} disabled={!doublesPick || doublesBusy}>
+                        {doublesBusy ? 'Signing up…' : 'Sign up'}
+                      </Button>
+                    </>
+                  )}
                 </div>
-                {tournament.doublesQualifyingPairs.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: 'var(--gc-ink-faint)', padding: '6px 2px' }}>
-                    Qualifying pairs are formed when the tournament starts.
-                  </div>
-                ) : (
-                  <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
-                    {tournament.doublesQualifyingRounds.map((round) => {
-                      const pairName = (pairId: string) => {
-                        const p = tournament.doublesQualifyingPairs.find((pp) => pp.pairId === pairId);
-                        if (!p) return pairId;
-                        return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
-                      };
-                      return (
-                        <div key={round.roundNumber}>
-                          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', color: 'var(--gc-ink-faint)', marginBottom: 5 }}>
-                            Q{round.roundNumber}
-                          </div>
+              )}
+              {doublesError && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--loss)' }}>{doublesError}</div>}
+              {doublesNotice && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--win)' }}>{doublesNotice}</div>}
+              {tournament.doublesPairs.length === 0 ? (
+                <div className="text-[13px]" style={{ color: 'var(--ink-4)', padding: '10px 4px' }}>
+                  {tournament.doublesEntrants.length > 0
+                    ? `${tournament.doublesEntrants.length} player${tournament.doublesEntrants.length === 1 ? '' : 's'} signed up — the draw is paired when the tournament starts.`
+                    : 'No players have signed up for doubles yet.'}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-[6px]">
+                  {tournament.doublesPairs.map((p) => {
+                    const a = displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA;
+                    const b = displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB;
+                    const ca = players.get(p.playerA);
+                    const cb = players.get(p.playerB);
+                    return (
+                      <div key={p.pairId} className="flex items-center gap-[7px] px-[12px] py-[7px] rounded-[6px] text-[13px]" style={{ border: '1px solid var(--hair)', color: 'var(--ink)' }}>
+                        {ca && <span className="flex-none"><Flag code={ca.nationality} title={ca.nationality} /></span>} <span className="font-semibold">{a}</span>
+                        <span style={{ color: 'var(--ink-3)' }}>+</span>
+                        {cb && <span className="flex-none"><Flag code={cb.nationality} title={cb.nationality} /></span>} <span className="font-semibold">{b}</span>
+                        {p.chemistry > 0 && (
+                          <Badge className="gc-badge--win" title="Pair chemistry (built by playing together)">
+                            <span className="ml-auto">chem {p.chemistry}</span>
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {tournament.doublesRounds.length > 0 && (
+                <div className="gc-qgrid" style={{ marginTop: 12 }}>
+                  {tournament.doublesRounds.map((round) => {
+                    const pairName = (pairId: string) => {
+                      const p = tournament.doublesPairs.find((pp) => pp.pairId === pairId);
+                      if (!p) return pairId;
+                      return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
+                    };
+                    return (
+                      <div key={round.roundNumber}>
+                        <div className="t-label" style={{ marginBottom: 6 }}>
+                          {round.roundNumber === tournament.doublesRounds.length ? 'Doubles final' : `Doubles round ${round.roundNumber}`}
+                        </div>
+                        <ResultList>
                           {round.matches.map((match, i) => {
+                            // Same shared air predicate as every other draw — a
+                            // doubles result is hidden until its premiere (and the
+                            // qualifying-pair names are not needed to render "v").
                             const airState = matchAirStateForDto(match, now);
                             const aired = airState === 'aired' && match.outcome != null;
                             const winner = aired ? match.outcome!.winner : null;
@@ -1070,28 +1093,74 @@ export default function TournamentBracketPage() {
                                 : airState === 'live'
                                   ? 'Live now'
                                   : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
-                            return (
-                              <div key={i} className="px-[8px] py-[5px] text-[11px] flex justify-between gap-2" style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: aired ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-                                <span className="overflow-hidden text-ellipsis whitespace-nowrap">{text}</span>
-                                <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>{score}</span>
-                              </div>
-                            );
+                            return <MatchResultRow key={i} text={text} score={score} aired={aired} />;
                           })}
-                        </div>
-                      );
-                    })}
+                        </ResultList>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Doubles qualifying (P8) — the small bracket played on the
+                  opening days for the reserved main-draw places. */}
+              {tournament.doublesQualifyingDrawSize > 0 && (
+                <div style={{ marginTop: 16 }}>
+                  <div className="t-label" style={{ marginBottom: 8 }}>
+                    Doubles qualifying · {tournament.doublesQualifierSlots} main-draw place(s) at stake
+                    {tournament.doublesQualifyingComplete ? ' · complete' : ''}
                   </div>
-                )}
-              </div>
-            )}
+                  {tournament.doublesQualifyingPairs.length === 0 ? (
+                    <div className="text-[12.5px]" style={{ color: 'var(--ink-4)', padding: '6px 2px' }}>
+                      Qualifying pairs are formed when the tournament starts.
+                    </div>
+                  ) : (
+                    <div className="gc-qgrid">
+                      {tournament.doublesQualifyingRounds.map((round) => {
+                        const pairName = (pairId: string) => {
+                          const p = tournament.doublesQualifyingPairs.find((pp) => pp.pairId === pairId);
+                          if (!p) return pairId;
+                          return `${displayNames.get(p.playerA) ?? players.get(p.playerA)?.name ?? p.playerA} + ${displayNames.get(p.playerB) ?? players.get(p.playerB)?.name ?? p.playerB}`;
+                        };
+                        return (
+                          <div key={round.roundNumber}>
+                            <div className="t-label" style={{ marginBottom: 5, color: 'var(--ink-4)' }}>
+                              Q{round.roundNumber}
+                            </div>
+                            <ResultList>
+                              {round.matches.map((match, i) => {
+                                const airState = matchAirStateForDto(match, now);
+                                const aired = airState === 'aired' && match.outcome != null;
+                                const winner = aired ? match.outcome!.winner : null;
+                                const text = aired
+                                  ? `${pairName(winner!)} def. ${pairName(match.outcome!.loser)}`
+                                  : `${pairName(match.entrantA)} v ${pairName(match.entrantB)}`;
+                                const score = aired
+                                  ? formatScoreline(match.outcome!.setScores, true)
+                                  : !match.outcome
+                                    ? 'Pending'
+                                    : airState === 'live'
+                                      ? 'Live now'
+                                      : `Starts in ${formatCountdown(new Date(match.scheduledStartAt!).getTime() - now)}`;
+                                return <MatchResultRow key={i} text={text} score={score} aired={aired} />;
+                              })}
+                            </ResultList>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </Panel>
         )}
 
         {!tournament.hasStarted ? (
           <Panel style={{ padding: 28, textAlign: 'center' }}>
-            <div style={{ fontSize: 22, marginBottom: 6 }}>🎾</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--gc-ink)' }}>The draw hasn&apos;t been made yet</div>
-            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', marginTop: 6, lineHeight: 1.5 }}>
+            <Icon name="ball" size={22} style={{ color: 'var(--ink-3)' }} />
+            <div className="text-[15px] font-bold" style={{ color: 'var(--ink)', marginTop: 6 }}>The draw hasn&apos;t been made yet</div>
+            <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>
               Seeding happens when the tournament starts
               {` — S${tournament.weekScheduled.season} W${tournament.weekScheduled.week}`}
               {worldClock ? ` (now S${worldClock.currentWeek.season} W${worldClock.currentWeek.week})` : ''}.
@@ -1100,17 +1169,21 @@ export default function TournamentBracketPage() {
           </Panel>
         ) : !tournament.hasMainDraw ? (
           <Panel style={{ padding: 28, textAlign: 'center' }}>
-            <div style={{ fontSize: 22, marginBottom: 6 }}>🎾</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--gc-ink)' }}>Qualifying in progress</div>
-            <div style={{ fontSize: 13, color: 'var(--gc-ink-mute)', marginTop: 6, lineHeight: 1.5 }}>
+            <Icon name="ball" size={22} style={{ color: 'var(--ink-3)' }} />
+            <div className="text-[15px] font-bold" style={{ color: 'var(--ink)', marginTop: 6 }}>Qualifying in progress</div>
+            <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>
               {tournament.qualifyingRoundCount} rounds of qualifying decide who claims the{' '}
               {tournament.qualifierSlots} reserved main-draw place(s). The main draw is made once qualifying is
               complete.
             </div>
           </Panel>
         ) : (
-        <div className="overflow-x-auto pb-4">
-          <div className="flex items-start" style={{ width: 'max-content' }}>
+        <Panel style={{ overflow: 'hidden' }}>
+          <PanelHeader right={`${rounds[0]?.label ?? ''} → ${rounds[rounds.length - 1]?.label ?? ''} · ${tournament.drawSize} draw`}>
+            Bracket
+          </PanelHeader>
+          <div className="overflow-x-auto" style={{ padding: 16 }}>
+            <div className="gc-bracket" style={BRACKET_VARS as React.CSSProperties}>
             {rounds.map((round, ri) => {
               const airs = round.matches.map((m) => ({ decided: m.decided, airState: matchAirState(m, now) }));
               const decidedCount = airs.filter((a) => a.decided).length;
@@ -1122,8 +1195,8 @@ export default function TournamentBracketPage() {
               // because an undecided match counts as "aired".
               const statusLabel = roundStatus(round.generated, airs);
               const collapsed = roundCollapsed(round.generated, airs);
-              const statusBg = statusLabel === 'Decided' ? 'var(--gc-ball)' : noneDecided ? 'transparent' : 'oklch(50% 0.1 60 / 0.3)';
-              const statusFg = statusLabel === 'Decided' ? 'oklch(22% 0.05 140)' : noneDecided ? 'var(--gc-ink-mute)' : 'oklch(82% 0.12 70)';
+              const statusBg = statusLabel === 'Decided' ? 'var(--accent)' : noneDecided ? 'transparent' : 'color-mix(in srgb, var(--warn) 25%, transparent)';
+              const statusFg = statusLabel === 'Decided' ? 'var(--accent-ink)' : noneDecided ? 'var(--ink-3)' : 'var(--warn)';
               // Derived from the SAME per-match air states the cards below
               // use — never from a separately-counted "decided" total, which
               // used to read "8 of 8 played" while cards still said "starts in".
@@ -1136,18 +1209,15 @@ export default function TournamentBracketPage() {
                       <div className="h-14 flex flex-col gap-[5px] px-1">
                         <div className="flex items-center gap-2">
                           <div className="text-[13px] font-bold">{round.label}</div>
-                          <div
-                            className="text-[10.5px] font-bold tracking-[0.3px] px-[7px] py-[2px] rounded-[4px]"
-                            style={{ background: statusBg, color: statusFg }}
-                          >
+                          <Badge style={noneDecided ? { border: '1px solid var(--hair)', color: statusFg } : { background: statusBg, color: statusFg, borderColor: 'transparent' }}>
                             {statusLabel}
-                          </div>
+                          </Badge>
                         </div>
-                        <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                        <div className="text-[11px]" style={{ color: 'var(--ink-3)' }}>
                           {subtitle}
                         </div>
                       </div>
-                      <div className="rounded-[8px] overflow-hidden" style={{ background: 'var(--gc-s1)', border: '1px solid var(--gc-line)' }}>
+                      <ResultList>
                         {round.matches.map((m, i) => {
                           // A bye has no outcome, so neither side is flagged
                           // `isWinner`; the advancing entrant sits on side `a`
@@ -1160,17 +1230,6 @@ export default function TournamentBracketPage() {
                           const text = m.isBye ? winnerLabel.name : `${winnerLabel.name} def. ${loserLabel.name}`;
                           const score = m.isBye ? 'Bye' : (m.a.isWinner ? m.a.scoreline : m.b.scoreline) ?? '';
                           const slot = m.matchIndex !== null ? matchIdForSlot(tournamentId, round.roundNumber, m.matchIndex) : null;
-                          const row = (
-                            <div
-                              className="px-[10px] py-[6px] text-[11px] flex justify-between gap-2 whitespace-nowrap overflow-hidden"
-                              style={{ borderBottom: i < round.matches.length - 1 ? '1px solid var(--gc-line)' : undefined, color: 'var(--gc-ink-dim)' }}
-                            >
-                              <span className="overflow-hidden text-ellipsis">{text}</span>
-                              <span className="flex-none" style={{ color: 'var(--gc-ink-mute)' }}>
-                                {score}
-                              </span>
-                            </div>
-                          );
                           // A plain `<a>`, deliberately NOT next/link:
                           // next's App Router intercepts the click and does
                           // not update the URL until the destination's RSC
@@ -1182,17 +1241,19 @@ export default function TournamentBracketPage() {
                           // Only an AIRED match is a replay link — a decided
                           // but not-yet-aired match still shows a countdown
                           // ("Starts in …") and must not be clickable, matching
-                          // the bracket legend's "Decided cards link to replay".
-                          return slot && airs[i].airState === 'aired' ? (
-                            <a key={i} href={`/replay/${slot}`} className="block no-underline hover:bg-[var(--gc-s3)]" style={{ color: 'inherit' }}>
-                              {row}
-                            </a>
-                          ) : (
-                            <div key={i}>{row}</div>
+                          // the bracket legend.
+                          return (
+                            <MatchResultRow
+                              key={i}
+                              text={text}
+                              score={score}
+                              aired
+                              href={slot && airs[i].airState === 'aired' ? `/replay/${slot}` : null}
+                            />
                           );
                         })}
-                      </div>
-                      <div className="text-[10.5px] mt-[6px] px-1" style={{ color: 'var(--gc-ink-faint)' }}>
+                      </ResultList>
+                      <div className="text-[10.5px] mt-[6px] px-1" style={{ color: 'var(--ink-4)' }}>
                         Collapses automatically once every match has aired — keeps large draws from growing the page taller.
                       </div>
                     </div>
@@ -1201,14 +1262,11 @@ export default function TournamentBracketPage() {
                       <div className="h-14 flex flex-col gap-[5px] px-1">
                         <div className="flex items-center gap-2">
                           <div className="text-[13px] font-bold">{round.label}</div>
-                          <div
-                            className="text-[10.5px] font-bold tracking-[0.3px] px-[7px] py-[2px] rounded-[4px]"
-                            style={noneDecided ? { border: '1px solid var(--gc-line)', color: statusFg } : { background: statusBg, color: statusFg }}
-                          >
+                          <Badge style={noneDecided ? { border: '1px solid var(--hair)', color: statusFg } : { background: statusBg, color: statusFg, borderColor: 'transparent' }}>
                             {statusLabel}
-                          </div>
+                          </Badge>
                         </div>
-                        <div className="text-[11px]" style={{ color: 'var(--gc-ink-mute)' }}>
+                        <div className="text-[11px]" style={{ color: 'var(--ink-3)' }}>
                           {subtitle}
                         </div>
                       </div>
@@ -1231,123 +1289,120 @@ export default function TournamentBracketPage() {
                             revealed && m.outcome
                               ? `${aLabel.name} def. ${bLabel.name}, ${formatScoreline(m.outcome.setScores, true)}`
                               : undefined;
+                          const winnerName = m.a.isWinner ? aLabel.name : bLabel.name;
 
                           const cardInner = (
                             <>
                               {m.isBye && (
                                 <div
-                                  className="absolute -top-2 right-2 text-[9px] font-bold tracking-[0.4px] uppercase px-[6px] py-[1px] rounded-[3px]"
-                                  style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
+                                  style={{ position: 'absolute', top: -8, right: 8, zIndex: 1 }}
                                 >
-                                  Bye
+                                  <Badge>Bye</Badge>
                                 </div>
                               )}
-                              <div className="flex items-center justify-between px-[10px] py-[7px] flex-1">
-                                <div className="flex items-center gap-[7px] min-w-0">
-                                  {m.a.entrant ? (
-                                    <>
-                                      <span className="flex-none">{aLabel.flag}</span>
-                                      <div
-                                        className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
+                              <div className={`gc-mrow${m.a.isWinner && revealed ? ' is-win' : ''}`}>
+                                {m.a.entrant ? (
+                                  <>
+                                    <span className="flex-none">{aLabel.flag}</span>
+                                    <span className="gc-mrow-name">
+                                      <span
+                                        className="name"
                                         style={{
-                                          fontWeight: m.a.isWinner && revealed ? 700 : 500,
-                                          color: m.a.isWinner && revealed ? 'var(--gc-ink)' : m.a.isLoser && revealed ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
+                                          fontWeight: m.a.isWinner && revealed ? 600 : 400,
+                                          color: m.a.isWinner && revealed ? 'var(--ink)' : m.a.isLoser && revealed ? 'var(--ink-4)' : 'var(--ink-2)',
                                         }}
                                       >
-                                        {aLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{aLabel.seedLabel}</span>
-                                        {aLabel.fillOnly && (
-                                          <span
-                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
-                                            style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                                            title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
-                                          >
-                                            Free agent
-                                          </span>
-                                        )}
-                                        {m.a.isWinner && revealed && (
-                                          <span
-                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
-                                            style={{ background: 'oklch(45% 0.1 150 / 0.35)', color: 'oklch(85% 0.12 150)' }}
-                                            title="Winner of this match"
-                                          >
-                                            Winner
-                                          </span>
-                                        )}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="text-[13px]" style={{ color: 'var(--gc-ink-faint)' }}>
+                                        {aLabel.name}
+                                      </span>
+                                      {aLabel.seedLabel && <span className="gc-mrow-seed">{aLabel.seedLabel}</span>}
+                                      {m.a.isWinner && revealed && (
+                                        <Badge className="gc-badge--win" title="Winner of this match">Winner</Badge>
+                                      )}
+                                      {aLabel.fillOnly && (
+                                        <Badge title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player">
+                                          Free agent
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="gc-mrow-name">
+                                    <span className="name" style={{ color: 'var(--ink-4)' }}>
                                       {m.isBye ? '— No opponent —' : 'TBD'}
-                                    </div>
-                                  )}
-                                </div>
+                                    </span>
+                                  </span>
+                                )}
                                 {m.a.isWinner && revealed && m.a.scoreline && (
-                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
-                                    {m.a.scoreline}
-                                  </div>
+                                  <span className="gc-mrow-sets">{m.a.scoreline}</span>
                                 )}
                               </div>
-                              <div className="h-px mx-[10px]" style={{ background: 'var(--gc-line)' }} />
-                              <div className="flex items-center justify-between px-[10px] py-[7px] flex-1">
-                                <div className="flex items-center gap-[7px] min-w-0">
-                                  {m.b.entrant ? (
-                                    <>
-                                      <span className="flex-none">{bLabel.flag}</span>
-                                      <div
-                                        className="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
+                              <div className={`gc-mrow${m.b.isWinner && revealed ? ' is-win' : ''}`}>
+                                {m.b.entrant ? (
+                                  <>
+                                    <span className="flex-none">{bLabel.flag}</span>
+                                    <span className="gc-mrow-name">
+                                      <span
+                                        className="name"
                                         style={{
-                                          fontWeight: m.b.isWinner && revealed ? 700 : 500,
-                                          color: m.b.isWinner && revealed ? 'var(--gc-ink)' : m.b.isLoser && revealed ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)',
+                                          fontWeight: m.b.isWinner && revealed ? 600 : 400,
+                                          color: m.b.isWinner && revealed ? 'var(--ink)' : m.b.isLoser && revealed ? 'var(--ink-4)' : 'var(--ink-2)',
                                         }}
                                       >
-                                        {bLabel.name} <span style={{ color: 'var(--gc-ink-mute)', fontWeight: 400 }}>{bLabel.seedLabel}</span>
-                                        {bLabel.fillOnly && (
-                                          <span
-                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
-                                            style={{ background: 'var(--gc-s3)', border: '1px solid var(--gc-line)', color: 'var(--gc-ink-mute)' }}
-                                            title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player"
-                                          >
-                                            Free agent
-                                          </span>
-                                        )}
-                                        {m.b.isWinner && revealed && (
-                                          <span
-                                            className="ml-1 text-[9px] font-bold uppercase tracking-[0.3px] px-[5px] py-[1px] rounded-[3px]"
-                                            style={{ background: 'oklch(45% 0.1 150 / 0.35)', color: 'oklch(85% 0.12 150)' }}
-                                            title="Winner of this match"
-                                          >
-                                            Winner
-                                          </span>
-                                        )}
-                                      </div>
-                                    </>
-                                  ) : (
-                                    <div className="text-[13px]" style={{ color: 'var(--gc-ink-faint)' }}>
+                                        {bLabel.name}
+                                      </span>
+                                      {bLabel.seedLabel && <span className="gc-mrow-seed">{bLabel.seedLabel}</span>}
+                                      {m.b.isWinner && revealed && (
+                                        <Badge className="gc-badge--win" title="Winner of this match">Winner</Badge>
+                                      )}
+                                      {bLabel.fillOnly && (
+                                        <Badge title="An unmanaged free agent padding the draw to a full bracket — not a manager's rostered player">
+                                          Free agent
+                                        </Badge>
+                                      )}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span className="gc-mrow-name">
+                                    <span className="name" style={{ color: 'var(--ink-4)' }}>
                                       {m.isBye ? '— No opponent —' : 'TBD'}
-                                    </div>
-                                  )}
-                                </div>
+                                    </span>
+                                  </span>
+                                )}
                                 {m.b.isWinner && revealed && m.b.scoreline && (
-                                  <div className="text-[11px] font-semibold [font-variant-numeric:tabular-nums]" style={{ color: 'var(--gc-ink)' }}>
-                                    {m.b.scoreline}
-                                  </div>
+                                  <span className="gc-mrow-sets">{m.b.scoreline}</span>
                                 )}
                               </div>
-                              {airState !== 'aired' && m.decided && (
-                                <div
-                                  className="flex items-center justify-center gap-[6px] px-[10px] pb-[8px] text-[10.5px] font-bold"
-                                  style={{ color: airState === 'live' ? 'oklch(80% 0.16 45)' : 'var(--gc-ink-mute)' }}
-                                >
-                                  {airState === 'live' ? (
-                                    <>
-                                      <span className="gc-live-dot" style={{ background: 'oklch(70% 0.17 45)' }} />
-                                      Live now — follow
-                                    </>
+                              {/* Footer — 1:1 with the old card's states:
+                                   aired → W chip + replay link text; decided
+                                   but not yet aired → LIVE / STARTS IN; a
+                                   bye → BYE; otherwise PENDING (a real
+                                   scheduled match) or TBD (future round). */}
+                              <div className={`gc-mfoot${airState === 'live' ? ' is-live' : ''}`}>
+                                {m.isBye ? (
+                                  <span>BYE</span>
+                                ) : revealed && m.outcome ? (
+                                  <>
+                                    <span className="flex items-center gap-[5px] min-w-0">
+                                      <span className="gc-wchip gc-wchip--w">W</span>
+                                      <span className="truncate">{winnerName}</span>
+                                    </span>
+                                    <span className="flex-none">Watch replay »</span>
+                                  </>
+                                ) : m.decided ? (
+                                  airState === 'live' ? (
+                                    <span className="flex items-center gap-[6px]">
+                                      <span className="gc-live-dot" /> LIVE
+                                    </span>
                                   ) : (
-                                    <>Starts in {formatCountdown(new Date(m.scheduledStartAt!).getTime() - now)}</>
-                                  )}
-                                </div>
-                              )}
+                                    <span className="flex items-center gap-[6px]">
+                                      <Icon name="stopwatch" size={11} />
+                                      <span>STARTS IN {formatCountdown(new Date(m.scheduledStartAt!).getTime() - now)}</span>
+                                    </span>
+                                  )
+                                ) : (
+                                  <span>{m.matchIndex !== null ? 'PENDING' : 'TBD'}</span>
+                                )}
+                              </div>
                             </>
                           );
 
@@ -1355,15 +1410,6 @@ export default function TournamentBracketPage() {
                             position: 'absolute',
                             top,
                             left: 0,
-                            width: COL_W,
-                            minHeight: CARD_H,
-                            background: 'var(--gc-s1)',
-                            border: '1px solid var(--gc-line)',
-                            borderTop: `3px solid ${accent}`,
-                            borderRadius: 8,
-                            display: 'flex',
-                            flexDirection: 'column',
-                            justifyContent: 'center',
                           };
 
                           // Plain `<a>` for the same reason as the collapsed
@@ -1376,13 +1422,17 @@ export default function TournamentBracketPage() {
                               key={i}
                               href={`/replay/${slot}`}
                               aria-label={cardAriaLabel}
-                              className="block no-underline hover:opacity-95"
-                              style={{ ...cardStyle, color: 'inherit', cursor: 'pointer' }}
+                              className="gc-match is-decided"
+                              style={{ ...cardStyle, ['--surf' as string]: accent, color: 'inherit', cursor: 'pointer' }}
                             >
                               {cardInner}
                             </a>
                           ) : (
-                            <div key={i} className="relative" style={cardStyle}>
+                            <div
+                              key={i}
+                              className={`gc-match${airState === 'live' ? ' is-live' : ''}`}
+                              style={{ ...cardStyle, ['--surf' as string]: airState === 'live' ? 'var(--live)' : accent }}
+                            >
                               {cardInner}
                             </div>
                           );
@@ -1396,20 +1446,7 @@ export default function TournamentBracketPage() {
                     <div style={{ width: GUT_W, flexShrink: 0 }}>
                       <div className="h-14" />
                       <div className="relative" style={{ height: totalHeight }}>
-                        {collapsed || !rounds[ri + 1].generated ? (
-                          <div
-                            style={{
-                              position: 'absolute',
-                              top: 0,
-                              left: 0,
-                              width: GUT_W,
-                              height: totalHeight,
-                              background: accent,
-                              opacity: 0.35,
-                              clipPath: 'polygon(0 8%, 100% 38%, 100% 62%, 0 92%)',
-                            }}
-                          />
-                        ) : (
+                        {!(collapsed || !rounds[ri + 1].generated) && (
                           round.matches.map((_, i) => {
                             if (i % 2 !== 0) return null;
                             const midA = positions[ri][i] + CARD_H / 2;
@@ -1468,25 +1505,27 @@ export default function TournamentBracketPage() {
                         left: 0,
                         width: COL_W,
                         minHeight: CARD_H,
-                        background: champDecided ? 'linear-gradient(135deg, oklch(35% 0.06 85), oklch(24% 0.04 85))' : 'var(--gc-s1)',
-                        borderRadius: 8,
+                        background: champDecided ? 'var(--bg-3)' : 'var(--bg-2)',
+                        borderRadius: 'var(--r2)',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        border: champDecided ? `1px solid var(--gc-gold)` : '1.5px dashed var(--gc-line)',
-                        boxShadow: champDecided ? '0 6px 20px oklch(0% 0 0 / 0.4)' : 'none',
+                        border: champDecided ? '1px solid var(--hair)' : '1px dashed var(--hair-2)',
+                        borderTop: `2px solid ${champDecided ? 'var(--accent)' : 'var(--hair-2)'}`,
                       }}
                     >
                       {champDecided && champLabel ? (
                         <div className="flex flex-col items-center gap-1 p-3 text-center">
-                          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '1px', textTransform: 'uppercase', color: 'var(--gc-gold)' }}>★ Champion</div>
+                          <div className="t-label inline-flex items-center gap-[5px]" style={{ color: 'var(--accent)' }}>
+                            <Icon name="star" size={11} /> Champion
+                          </div>
                           <div className="flex items-center gap-2">
                             <span>{champLabel.flag}</span>
-                            <div className="font-bold text-[15px]" style={{ color: 'white' }}>{champLabel.name}</div>
+                            <div className="font-bold text-[15px]" style={{ color: 'var(--ink)' }}>{champLabel.name}</div>
                           </div>
                         </div>
                       ) : (
-                        <div className="text-[12px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'var(--gc-ink-faint)' }}>
+                        <div className="text-[12px] font-semibold tracking-[0.4px] uppercase" style={{ color: 'var(--ink-4)' }}>
                           TBD
                         </div>
                       )}
@@ -1495,11 +1534,24 @@ export default function TournamentBracketPage() {
                 </div>
               </div>
             )}
+            </div>
           </div>
-        </div>
+          {/* Bracket legend — the same four keys the colours/badges encode. */}
+          <div className="gc-tbl-note flex items-center gap-[16px] flex-wrap" style={{ borderTop: '1px solid var(--hair)' }}>
+            <span className="flex items-center gap-[6px]">
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: accent, display: 'inline-block' }} /> Decided path
+            </span>
+            <span className="flex items-center gap-[6px]">
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'var(--ink-4)', display: 'inline-block' }} /> Pending / TBD
+            </span>
+            <span className="flex items-center gap-[6px]">
+              <Badge>Free agent</Badge> = unmanaged draw filler
+            </span>
+            <span>Aired results link to the replay →</span>
+          </div>
+        </Panel>
         )}
-        </div>
-      </div>
-    </AppFrame>
+      </PageShell>
+    </AppShell>
   );
 }

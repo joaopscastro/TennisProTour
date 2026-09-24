@@ -2,6 +2,7 @@
 
 import { TournamentDto } from '../lib/api';
 import { formatMoney } from '../lib/format';
+import { Icon } from './ui/Icon';
 
 /**
  * Tournament rewards rendering — the entry decision used to be made
@@ -15,9 +16,9 @@ import { formatMoney } from '../lib/format';
  * Two shapes, deliberately:
  *  - `TournamentRewardSummary` — one scannable line per candidate, for
  *    the entry picker's list and the narrow planner columns.
- *  - `TournamentRewardsLadder` — the full compact ladder, for the
- *    selected tournament so a manager can see every stage, not just the
- *    two endpoints.
+ *  - `TournamentRewardsLadder` — the full compact ladder (a table, mono
+ *    figures), for the selected tournament so a manager can see every
+ *    stage, not just the two endpoints.
  *
  * The zero-points note is a real rule, not a UI quirk: a first-round
  * loss earns 0 ranking points at every tier (the same "a ranking is
@@ -35,12 +36,14 @@ export function TournamentRewardSummary({ tournament }: { tournament: Tournament
   const championPrize = tournament.prizeMoneyBreakdown[0]?.prizeMoney ?? 0;
   const firstRoundPrize = tournament.prizeMoneyBreakdown[tournament.prizeMoneyBreakdown.length - 1]?.prizeMoney ?? 0;
   return (
-    <div className="text-[10.5px] mt-[5px] leading-[1.5]" style={{ color: 'var(--gc-ink-mute)' }}>
-      <span style={{ color: 'var(--gc-gold)', fontWeight: 700 }}>★ Champion</span>{' '}
+    <div className="text-[10.5px] mt-[5px] leading-[1.5]" style={{ color: 'var(--ink-3)' }}>
+      <span style={{ color: 'var(--gold)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+        <Icon name="star" size={10} /> Champion
+      </span>{' '}
       {champion.points > 0 ? `${champion.points.toLocaleString()} pts` : 'no points'}
       {championPrize > 0 ? ` · ${formatMoney(championPrize)}` : ''}
       {' — '}
-      <span style={{ color: 'var(--gc-ink-faint)' }}>
+      <span style={{ color: 'var(--ink-4)' }}>
         first round: {firstRound.points > 0 ? `${firstRound.points.toLocaleString()} pts` : 'no pts'}
         {firstRoundPrize > 0 ? `, ${formatMoney(firstRoundPrize)}` : ''}
       </span>
@@ -48,52 +51,48 @@ export function TournamentRewardSummary({ tournament }: { tournament: Tournament
   );
 }
 
-/** The full, compact ladder — stage, ranking points, prize money, from
- *  Champion down to a first-round loss. Read straight off the DTO's two
- *  breakdown arrays, joined by `matchesWon`. */
+/** The full, compact ladder as a table — stage, ranking points, prize
+ *  money, from Champion down to a first-round loss. Read straight off the
+ *  DTO's two breakdown arrays, joined by `matchesWon`. */
 export function TournamentRewardsLadder({ tournament }: { tournament: TournamentDto }) {
   if (tournament.pointsBreakdown.length === 0 && tournament.prizeMoneyBreakdown.length === 0) return null;
   const prizeByMatches = new Map(tournament.prizeMoneyBreakdown.map((r) => [r.matchesWon, r.prizeMoney]));
   const junior = tournament.circuit === 'junior';
   return (
     <div>
-      <div className="flex items-center justify-between text-[9.5px] font-bold tracking-[0.5px] uppercase px-[2px] mb-[4px]" style={{ color: 'var(--gc-ink-faint)' }}>
-        <span>Result</span>
-        <span className="flex gap-[14px]">
-          <span style={{ width: 58, textAlign: 'right' }}>Points</span>
-          <span style={{ width: 58, textAlign: 'right' }}>Prize</span>
-        </span>
+      <div className="rounded-[6px] overflow-hidden" style={{ border: '1px solid var(--hair)' }}>
+        <table className="gc-table gc-table--dense gc-table--static">
+          <thead>
+            <tr>
+              <th>Result</th>
+              <th className="r">Points</th>
+              <th className="r">Prize</th>
+            </tr>
+          </thead>
+          <tbody>
+            {tournament.pointsBreakdown.map((row) => {
+              const isChampion = row.stageLabel === 'Champion';
+              const prize = prizeByMatches.get(row.matchesWon) ?? 0;
+              const zeroPoints = row.points === 0;
+              return (
+                <tr key={row.matchesWon} style={isChampion ? { background: 'var(--bg-3)' } : undefined}>
+                  <td style={{ color: zeroPoints ? 'var(--ink-4)' : 'var(--ink-2)', fontWeight: isChampion ? 700 : undefined }}>
+                    {isChampion && <Icon name="star" size={10} style={{ color: 'var(--accent)' }} />}
+                    {isChampion ? ' ' : ''}{row.stageLabel}
+                  </td>
+                  <td className="r num" style={{ fontWeight: 600, color: zeroPoints ? 'var(--ink-4)' : 'var(--ink-2)' }}>
+                    {zeroPoints ? 'no pts' : `${row.points.toLocaleString()} pts`}
+                  </td>
+                  <td className="r num" style={{ fontWeight: 600, color: prize > 0 ? 'var(--ink-2)' : 'var(--ink-4)' }}>
+                    {prize > 0 ? formatMoney(prize) : junior ? '—' : formatMoney(0)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
-      <div className="rounded-[7px] overflow-hidden" style={{ border: '1px solid var(--gc-line)' }}>
-        {tournament.pointsBreakdown.map((row, i) => {
-          const isChampion = row.stageLabel === 'Champion';
-          const prize = prizeByMatches.get(row.matchesWon) ?? 0;
-          const zeroPoints = row.points === 0;
-          return (
-            <div
-              key={row.matchesWon}
-              className="flex items-center justify-between px-[10px] py-[5px]"
-              style={{
-                borderBottom: i < tournament.pointsBreakdown.length - 1 ? '1px solid var(--gc-line)' : undefined,
-                background: isChampion ? 'linear-gradient(90deg, oklch(92% 0.09 85 / 0.4), transparent)' : undefined,
-              }}
-            >
-              <span className="text-[11.5px]" style={{ fontWeight: isChampion ? 800 : 550, color: zeroPoints ? 'var(--gc-ink-faint)' : 'var(--gc-ink)' }}>
-                {isChampion ? '★ ' : ''}{row.stageLabel}
-              </span>
-              <span className="flex gap-[14px] text-[11.5px] [font-variant-numeric:tabular-nums]">
-                <span style={{ width: 58, textAlign: 'right', fontWeight: 700, color: zeroPoints ? 'var(--gc-ink-faint)' : 'var(--gc-ink-dim)' }}>
-                  {zeroPoints ? 'no pts' : `${row.points.toLocaleString()} pts`}
-                </span>
-                <span style={{ width: 58, textAlign: 'right', fontWeight: 700, color: prize > 0 ? 'var(--gc-ink-dim)' : 'var(--gc-ink-faint)' }}>
-                  {prize > 0 ? formatMoney(prize) : junior ? '—' : formatMoney(0)}
-                </span>
-              </span>
-            </div>
-          );
-        })}
-      </div>
-      <div className="text-[10.5px] mt-[6px] leading-[1.5]" style={{ color: 'var(--gc-ink-mute)' }}>
+      <div className="gc-tbl-note" style={{ padding: '6px 0 0' }}>
         A first-round loss earns no ranking points — a ranking is earned by winning.
         {junior
           ? ' Junior events are an amateur circuit and pay no cash prize money.'

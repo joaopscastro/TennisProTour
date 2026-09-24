@@ -236,6 +236,13 @@ a { color: inherit; text-decoration: none; }
 .gc-table tbody tr:hover td { background: var(--bg-4); }
 .gc-table tbody tr.is-selected td { box-shadow: inset 2px 0 0 var(--accent); background: var(--bg-3); }
 .gc-table td.r, .gc-table th.r { text-align: right; }
+/* A table inside a non-scrolling `overflow: hidden` wrapper must not use the
+   sticky header (the 56px `top` would push it down over the first rows). */
+.gc-table--static thead th { position: static; }
+/* For tables whose cells hold nowrap text (result rows): fixed layout keeps
+   the table at the container width so the text ellipsizes and a trailing
+   score/flag cell is never pushed out of the visible area. */
+.gc-table--fixed { table-layout: fixed; }
 .gc-table--dense tbody td { height: 28px; }
 .gc-table--tall tbody td { height: 40px; }
 .gc-tbl-note { padding: 8px 12px; font-size: 11px; color: var(--ink-3); }
@@ -322,8 +329,22 @@ a { color: inherit; text-decoration: none; }
 .gc-qcard .l .sc { font-family: var(--mono); font-size: 13px; }
 .gc-qcard .l.is-win .nm { font-weight: 600; color: var(--ink); }
 
-/* ---- Projection band ------------------------------------------------------- */
-.gc-band { display: flex; align-items: center; gap: 12px; }
+/* ---- Band (page hero + projection band) ------------------------------------ */
+/* The page hero: a flat band with a 2px surface-coloured top rule. The
+   projection band's track/fill reuse the same name prefix. */
+.gc-band {
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+  border-top: 2px solid var(--surf, var(--hair-2));
+  border-radius: var(--r3);
+  min-height: 72px;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.gc-band-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-left: auto; }
 .gc-band-track { position: relative; flex: 1; height: 8px; background: var(--bg-4); border-radius: var(--r1); }
 .gc-band-fill { position: absolute; top: 0; bottom: 0; background: var(--accent); border-radius: var(--r1); }
 
@@ -405,7 +426,7 @@ a { color: inherit; text-decoration: none; }
 
 /* ---- Roster table cells ---------------------------------------------------- */
 .gc-pcell { display: flex; align-items: center; gap: 10px; min-width: 150px; }
-.gc-pcell .nm { font-weight: 600; color: var(--ink); }
+.gc-pcell .nm { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gc-pcell .ag { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
 .gc-ovr { font-family: var(--mono); font-weight: 600; font-size: 20px; }
 .gc-rank { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
@@ -414,6 +435,79 @@ a { color: inherit; text-decoration: none; }
 .gc-surf4 .s { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
 .gc-surf4 .letter { font-weight: 600; color: var(--ink-3); }
 .gc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+/* ---- Bracket --------------------------------------------------------------- */
+/* The bracket's geometry constants (card height, column/gutter widths, row and
+   footer heights) are set as custom properties ON the container from the SAME
+   TS constants the absolute-position math uses (app/tournaments/[id]/page.tsx)
+   — so a card can never render a different size than the positions assume. */
+.gc-bracket { display: flex; align-items: flex-start; width: max-content; }
+.gc-match {
+  width: var(--bracket-col-w, 232px);
+  min-height: var(--bracket-card-h, 84px);
+  background: var(--bg-2);
+  border: 1px solid var(--hair);
+  border-left: 3px solid var(--surf, var(--ink-4));
+  border-radius: var(--r2);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.gc-match.is-live {
+  border-color: color-mix(in srgb, var(--live) 50%, transparent);
+  border-left-color: var(--live);
+}
+.gc-mrow {
+  display: flex; align-items: center; gap: 8px;
+  height: var(--bracket-mrow-h, 30px);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--hair);
+}
+.gc-mrow-name {
+  flex: 1 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 13px; color: var(--ink-2);
+}
+/* The name/seed/badges live inside ONE truncating box (the pre-restyle card's
+   behaviour): the name is leftmost and always visible; a badge that doesn't
+   fit is clipped at the row edge rather than squeezing the name to nothing. */
+.gc-mrow-name .gc-badge { font-size: 9px; padding: 0 4px; line-height: 14px; margin-left: 4px; vertical-align: middle; }
+.gc-mrow-name > .name { color: inherit; }
+.gc-mrow-seed { font-family: var(--mono); font-size: 11px; color: var(--ink-4); margin-left: 4px; }
+.gc-mrow-sets { flex: none; display: flex; gap: 6px; font-family: var(--mono); font-size: 13px; color: var(--ink-2); }
+.gc-mrow.is-win .gc-mrow-name > .name { color: var(--ink); font-weight: 600; }
+.gc-mrow.is-win .gc-mrow-sets { color: var(--ink); font-weight: 600; }
+.gc-mfoot {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--bracket-mfoot-h, 26px);
+  padding: 0 10px;
+  background: var(--bg-3);
+  border-radius: 0 0 calc(var(--r2) - 1px) calc(var(--r2) - 1px);
+  font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+}
+.gc-mfoot.is-live { color: var(--live); }
+.gc-match[href]:hover .gc-mfoot { color: var(--accent); }
+.gc-wchip {
+  font-family: var(--mono); font-size: 10px; font-weight: 600;
+  border-radius: var(--r1); padding: 0 4px; line-height: 16px;
+  background: var(--bg-4); color: var(--ink-2); display: inline-block;
+}
+.gc-wchip--w { background: var(--accent); color: var(--accent-ink); }
+
+/* ---- Whole-row links in .gc-table rows ------------------------------------- */
+/* A `<tr>` cannot be an `<a>`, so a row wraps its anchor text and lets an
+   absolutely-positioned ::after cover the row (the `tr` is the positioning
+   ancestor). Same immediate-navigation behaviour as every other row link. */
+.gc-table tbody tr.gc-rowlink { position: relative; cursor: pointer; }
+.gc-rowcover::after { content: ""; position: absolute; inset: 0; }
+.gc-table tbody td.gc-flushcell { padding: 0; }
+.gc-rowlink-inner {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: 32px; padding: 0 12px; color: inherit; text-decoration: none;
+}
+.gc-table--dense .gc-rowlink-inner { height: 28px; }
+.gc-result-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-result-score { flex: none; font-family: var(--mono); color: var(--ink-3); }
 
 /* ---- Modal ----------------------------------------------------------------- */
 .gc-modal-backdrop {

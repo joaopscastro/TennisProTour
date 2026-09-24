@@ -1,0 +1,13 @@
+{
+    "route":  "http://localhost:3001/tournaments#planner",
+    "resultUrl":  "http://localhost:3001/tournaments#planner",
+    "title":  "Grand Circuit",
+    "errorText":  "",
+    "consoleErrors":  [
+
+                      ],
+    "pageErrors":  [
+
+                   ],
+    "visibleText":  "Grand Circuit\nTENNIS MANAGER\nROSTER\nSCOUTING\nTOURNAMENTS\nRANKINGS\nMANAGERS\nMANAGER PRO\nSOCIAL SOON\nWORLD CLOCK\nS1 · W7 · DAY 6/7\nNEXT DAY\n10:56:26\nXP\n499\nFREE TIER\nTHE CIRCUIT\nTournaments\nOpen draws still taking entrants, brackets already in full swing, and a planner to map out the weeks ahead.\nBROWSE\nPLANNER\nSEASON EVENTS\nPlan several weeks of entries for one roster player in a single sitting — pick a week below and register directly, no need to come back later.\nManager ID (dev)\nPlayer\nMarta Kowalski\nLuca Moreau\nNoah Santos\nSEASON 1 · WEEK 7\nNo entry yet\nNo events this player can enter this week.\nSEASON 1 · WEEK 8\nNo entry yet\n+ REGISTER\nSEASON 1 · WEEK 9\nNo entry yet\n+ REGISTER\nSEASON 1 · WEEK 10\nNo entry yet\n+ REGISTER\nSEASON 1 · WEEK 11\nNo entry yet\n+ REGISTER\nSEASON 1 · WEEK 12\nNo entry yet\n+ REGISTER"
+}

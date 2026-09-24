@@ -65,8 +65,10 @@ export function Button({ variant = 'default', className = '', ...rest }: React.B
 }
 
 /* ---- Badges ---------------------------------------------------------------- */
-export function Badge({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {
-  return <span className="gc-badge" style={style}>{children}</span>;
+export function Badge({ children, style, title, className = '' }: {
+  children: React.ReactNode; style?: React.CSSProperties; title?: string; className?: string;
+}) {
+  return <span className={`gc-badge ${className}`} style={style} title={title}>{children}</span>;
 }
 
 export function SurfaceBadge({ surface, size = 'md' }: { surface: string; size?: 'sm' | 'md' }) {
