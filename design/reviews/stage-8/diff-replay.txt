@@ -1,0 +1,120 @@
+baseline: design/reviews/stage-0-baseline/visibleText-replay.json  (/replay/bootstrap-demo-futures-r1-m0)
+final   : design/reviews/stage-8/visibleText-replay.json  (/replay/bootstrap-demo-futures-r1-m0)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:39:04
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  ← Back to bracket
+  ·
+  Onyx Clay Open
+  ·
+  Round of 16
+  CLAY
+- 🇯🇵
+  Sofia Okafor
+  SENIOR
+  #
+- 172
+- 25 pts
++ 145
++ 238 pts
+  VS
+- 🇫🇷
+  Kenji Kim
+- WHAT DECIDED IT
+- CLAY
+- Host: India
+- SOFIA OKAFOR
+- KENJI KIM
+- Home / away
+- stable for this match
+- Away
+- Away
+- Fatigue
+- at match time
+- 0/100
+- 0/100
+- Form
+- at match time
+- 0 · rusty
+- 0 · rusty
+- Surface affinity (clay)
+- at match time
+- 19
+- 27
+- These are the exact numbers that decided this match — each player's fatigue, form and surface affinity at the moment it was simulated, plus whether the home bonus applied.
++ SENIOR
++ #
++ 220
++ 108 pts
++ WHAT DECIDED IT — AT MATCH TIME
++ Surface
++ clay · host India
++ Home / away stable for this match
++ away · away
++ Sofia Okafor — fatigue / form / affinity / venue · at match time
++ 0/100 / 0 · rusty / 12 / away
++ Kenji Kim — fatigue / form / affinity / venue · at match time
++ 0/100 / 0 · rusty / 14 / away
++ How these numbers were read
+  Ready to watch
+- 27 games simulated
+- 🇯🇵
++ 24 games simulated
+  Sofia Okafor
++ 1
++ 6
+  SET 1
+  6
++ 4
+  SET 2
+- 2
+- SET 3
++ 1
+  6
+- 🇫🇷
++ SET 3
+  Kenji Kim
+- 3
+- 6
+- 4
++ Winner
+  AIRED AT 14:22
+  Result already decided
+- Sofia Okafor won 6-3, 2-6, 6-4
++ Kenji Kim won 6-1, 4-6, 6-1
+  This match was simulated in full ahead of time and has already aired. Press play to watch it from the start — or skip ahead any time.
+- Watch replay
+- Commentary
++ WATCH REPLAY
++ COMMENTARY
+  Commentary will appear here once you press play.

@@ -1,0 +1,59 @@
+baseline: design/reviews/stage-0-baseline/visibleText-scouting.json  (/scouting)
+final   : design/reviews/stage-8/visibleText-scouting.json  (/scouting)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 27m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:39:17
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  THE TALENT POOL
+  Scouting
+- One shared pool of free agents — from raw teenagers to established, match-hardened players of every age. They keep training and competing while unsigned, so some are committed to a tournament right now and can't be signed until it concludes. Every manager sees the same faces and races to sign them first. Fresh young talent arrives in 14h 27m.
+- YOUR XP
+- 494
++ One shared pool of free agents — from raw teenagers to established, match-hardened players of every age. Every manager sees the same faces and races to sign them first.
+  Manager ID (dev)
+- A scout can tell you what a free agent can do today — never how high they'll climb. There are no rarity labels and no potential grades here: read the raw attributes yourself, weigh the risk, and sign before a rival does. Free agents range from raw teenagers to established players with titles and career earnings — a career record on the card is exactly that, not a scouting grade. Anyone marked In a draw is committed to a tournament that hasn't concluded and can't be signed until it does — a signing is always clean, never inheriting an in-progress draw. Open a player's profile to study the full breakdown.
+- 0 AVAILABLE OF 300 FREE AGENTS
+- Available only
+- All
++ 0 AVAILABLE OF 328 FREE AGENTS
++ AVAILABLE ONLY
++ ALL
+  Sort: Youngest
+  Sort: Overall rating
+  Sort: Cheapest to sign
+  No free agents available to sign right now
+- All 300 free agents in the pool are committed to a tournament that hasn't concluded. They become signable once it does.
+- Show everyone (300)
++ All 328 free agents in the pool are committed to a tournament that hasn't concluded. They become signable once it does.
++ SHOW EVERYONE (328)
++ They keep training and competing while unsigned, so some are committed to a tournament right now and can't be signed until it concludes. Fresh young talent arrives in 5d 7h 39m.
++ How signing works

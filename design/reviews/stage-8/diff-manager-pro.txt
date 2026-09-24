@@ -1,0 +1,81 @@
+baseline: design/reviews/stage-0-baseline/visibleText-manager-pro.json  (/manager-pro)
+final   : design/reviews/stage-8/visibleText-manager-pro.json  (/manager-pro)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:38:52
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+- ◆ MEMBERSHIP
++ Membership
+  Manager Pro
+  More room to manage, less upkeep, and a modest coaching edge — never a better formula. The coaching system works identically for every manager; Pro just gets a second slot to run it with. Every perk that touches competitiveness is spelled out below in plain sight — nothing hidden in fine print.
+  Manager ID (dev)
+  FREE
+  $0
+  Fully playable. Every tournament, every match sim, every core system — no crippled trial, no paywalled mechanics.
+- ✓
+  2 roster slots, full decay rate
+  Your current plan
+  MANAGER PRO
+  $4.99/mo
+  More room to manage, less upkeep — and one honest tradeoff on the one perk that matters competitively.
+- Upgrade to Manager Pro
++ UPGRADE TO MANAGER PRO
+  EMAIL NOTIFICATIONS
+  Your weekly results digest — a short recap of your players’ results, titles, and next matches.
+  Weekly results digest
+  On by default. Every email carries a one-click unsubscribe link, and you can turn it off here any time.
+- On
++ ON
+  THE ONE PERK WITH A REAL EDGE
+  This does affect competitiveness — here’s exactly what it is and why it’s still fair.
+  A 2nd coach slot
+  Run two coaches training two players at once instead of one. This is a real training-efficiency edge over a single-coach roster — not a hidden one, and not a bigger one than that.
+  The coaching system itself is identical for every manager: same formulas, same training gains per coach, free or Pro. Manager Pro doesn’t get a better coach — it gets a second one.
+  THE ONE PERK WITH A COST
+  The only part of Manager Pro with a real cost attached to it — and it’s not a flat unlock.
+  4 roster slots instead of 2
+  Manage twice the players and enter twice the tournaments at once.
+- ⚠
+  Faster point decay on those slots
+  Your 2 extra slots lose ranking points faster between tournaments than your base 2. More roster, more decay — not a free power gain.
+  EVERYTHING ELSE IS CONVENIENCE
+  Zero effect on competitiveness — quality-of-life for managers who play a lot, not an edge for managers who pay.
+  Longer registration windows
+  More time to enter tournaments around your schedule — the entry requirements and field are identical.
+  Extra stats & history pages
+  Deeper match history and long-run performance charts. Nothing here changes a single simulation.
+  Vacation delegate
+  Hand your roster to another Pro manager while you're away, so fatigue and entries don't pile up untouched.
+  No banners
+  Removes ad banners from your dashboard. That's it — no simulation changes.
+- We built Manager Pro this way on purpose: of the two perks that touch competitiveness, one (roster slots) carries an equal and opposite cost, so paying never buys a stronger roster — only a bigger, faster-aging one. The other (a 2nd coach slot) is a modest, fully disclosed training-efficiency edge running the same coaching system every manager uses — not a better version of it.
++ Why Manager Pro is priced this way

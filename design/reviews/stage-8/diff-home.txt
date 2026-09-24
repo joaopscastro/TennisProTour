@@ -1,0 +1,179 @@
+baseline: design/reviews/stage-0-baseline/visibleText-home.json  (/)
+final   : design/reviews/stage-8/visibleText-home.json  (/)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 27m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:39:19
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  YOUR ACADEMY
+  Roster
+  Shape careers, set training, and send your players onto the circuit.
+- Browse talent pool →
+- 1 / 2 slots
+  Manager ID (dev)
+- SQUAD · 1 PLAYER
+- Next day in 14h 27m
++ ROSTER SLOTS
++ 3/2 SLOTS
++ 2 roster slots · upgrade for more room
++ + CLAIM FREE AGENT
++ SQUAD
++ 3 players · cap 2
++ Next day in 7h 39m
+  Sort: Fatigue
+  Sort: Nearest decline
+  Sort: Overall rating
+  Sort: Name
+- Surfaces: C Clay · G Grass · H Hard · I Indoor
+- 🇧🇷
++ PLAYER STAGE OVR RANK PTS FATIGUE FORM SURFACES C·G·H·I FOCUS NEXT ACTIONS
++ 
+  Marta Kowalski
+- Age 26.4 · W 7-6, 6-3
+- No match scheduled
+- 61
+- OVR
+- SENIOR RANKING
+- #
+- 39
+- 250 pts
++ 26.5
++ W 7-6, 6-3
++ 
+  Prime
+- 12% · fresh
+- Form 5 · rusty, needs matches
++ Decline in ~4 seasons
++ 61 SENIOR #142 250
++ 0
++ 
++ 3
++ 
+  C
++ 28
+  G
++ 17
+  H
++ 16
+  I
++ 14
++ 
++ Forehand
++ 
++ No match scheduled
++ 
++ ENTER
++ PRACTICE
++ MORE ···
++ 
++ Luca Moreau
++ 12.3
++ W 4-6, 6-2, 6-1
++ 
++ Youth
++ Prime in ~8 seasons
++ 37 U14 #13 1
++ 0
++ 
++ 4
++ 
++ C
++ 25
++ G
++ 15
++ H
++ 18
++ I
++ 13
++ 
+  Set focus
+- ▾
+- Enter
+- Practice
+- More ···
+- + Open roster slot — add a player
++ 
++ No match scheduled
++ 
++ ENTER
++ PRACTICE
++ MORE ···
++ 
++ Noah Santos
++ 12.2
++ L 3-6, 1-6
++ 
++ Youth
++ Prime in ~8 seasons
++ 42 U14 #10 2
++ 0
++ 
++ 3
++ 
++ C
++ 20
++ G
++ 25
++ H
++ 29
++ I
++ 22
++ 
++ Set focus
++ 
++ No match scheduled
++ 
++ ENTER
++ PRACTICE
++ MORE ···
++ Surfaces: C Clay · G Grass · H Hard · I Indoor
++ Form sweet spot 12–25 = match sharp. Fatigue is a sim modifier, not a hard block.
++ How to read fatigue and form
+  DOUBLES
+- 0 open
+- No pairs yet — form one above, or invite a rival's player from their profile.
++ 1 open
++ Form a doubles pair
++ Select player…
++ Marta Kowalski
++ Luca Moreau
++ Noah Santos
++ +
++ Select player…
++ Marta Kowalski
++ Luca Moreau
++ Noah Santos
++ FORM PAIR
++ PAIR CHEMISTRY STATUS ACTION
++ Noah Santos · Marta Kowalski
++ 0
++ Active
++ DISSOLVE

@@ -1,0 +1,58 @@
+baseline: design/reviews/stage-0-baseline/visibleText-player-history.json  (/players/00ac1c81-9fb6-4e8f-8402-2cbd0cd17f1d/history)
+final   : design/reviews/stage-8/visibleText-player-history.json  (/players/fb384d8d-a047-453c-aae7-9d7a27bc841b/history)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:38:59
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  ← Back to profile
+  TOURNAMENT HISTORY
+- 🇯🇵
+- Sofia Okafor
+- 3 tournaments entered
+- HARD
+- Argentina Championship
+- tour · 64-draw · Season 1, Week 3
+- Lost — Round of 64
+- $8K
+- HARD
+- Cobalt Hardcourt Classic
+- futures · 32-draw · Season 1, Week 2
+- Lost — Round of 32
+- $1.5K
++ Marta Kowalski
++ 1 tournament entered · 1
++ TOURNAMENT SURFACE STAGE RESULT PRIZE MONEY
++ Crest Vietnam Trophy
+  CLAY
+- Onyx Clay Open
+- futures · 16-draw · Season 1, Week 1
+- Lost — Quarterfinal
+- $2.8K
++ futures · 32-draw · Season 1, Week 3 Champion $35K

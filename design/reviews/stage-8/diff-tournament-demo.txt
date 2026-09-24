@@ -1,0 +1,194 @@
+baseline: design/reviews/stage-0-baseline/visibleText-tournament-demo.json  (/tournaments/bootstrap-demo-futures)
+final   : design/reviews/stage-8/visibleText-tournament-demo.json  (/tournaments/bootstrap-demo-futures)
+
+- CHAMPION
+- 🇦🇺
+- Diego Silva
+- Onyx Clay Open
+- CLAY · FINAL
+- Diego Silva lifts the trophy and takes the title.
+- GRAND CIRCUIT
+- Share
+- Continue
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 27m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:39:06
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+- CLAY
+- 🏠 India
+  Onyx Clay Open
+- Single elimination · 16/16 main-draw places filled (0 by managers, 16 free-agent fillers) · Diego Silva lifts the trophy.
+- Scheduled S1 W1 · now S1 W3
+- Decided path
+- Pending / TBD
+- FREE AGENT
+- = unmanaged draw filler
+- Decided cards link to replay →
++ FUTURES · CLAY · 16 DRAW
++ Diego Silva lifts the trophy.
++ Single elimination · 16/16 main-draw places filled (0 by managers, 16 free-agent fillers)
++ Scheduled S1 W1 · now S1 W9
++ STATUS
++ COMPLETE
++ DRAW
++ 16/16 main · 0 by managers
++ HOST
++ India
+  TOURNAMENT DETAILS
++ 16 draw
+  CIRCUIT
+  Senior tour
+  LEVEL
+  Futures
+  SURFACE
+  Clay
+  DRAW
+  16 players
+  HOST
+- 🏠 India
++ India
+  SCHEDULED
+  S1 W1
+  RANKING POINTS BY RESULT
+- ★ Champion
+- 165 pts
+- Runner-up
+- 100 pts
+- Semifinalist
+- 50 pts
+- Quarterfinalist
+- 25 pts
+- Round of 16
+- No points
+- Points scale to this tournament's 16-player draw. A first-round loss earns nothing — a ranking is earned by winning.
++ STAGE POINTS
++ Champion 165 pts
++ Runner-up 100 pts
++ Semifinalist 50 pts
++ Quarterfinalist 25 pts
++ Round of 16 No points
++ A ranking is earned by winning — a first-round loss pays no points.
++ Scoring & entry rules
+  PRIZE MONEY BY RESULT
+- ★ Champion
+- $17.5K
+- Runner-up
+- $9K
+- Semifinalist
+- $5K
+- Quarterfinalist
+- $2.8K
+- Round of 16
+- $1.5K
++ STAGE PRIZE
++ Champion $17.5K
++ Runner-up $9K
++ Semifinalist $5K
++ Quarterfinalist $2.8K
++ Round of 16 $1.5K
+  Unlike ranking points, a first-round loss still pays real prize money — you're paid to play, ranked to win.
+  ENTRY LIST
+  0 entered by managers
+  Players entered by managers. This is a separate figure from the draw's fill below — once a tournament starts, its bracket is padded to full with unmanaged free agents. Those fillers are badged “Free agent” in the bracket.
+  No managers have entered a player yet — this draw is padded with unmanaged free agents, which is why the header still shows a full draw.
+  DOUBLES
+  0 entrants
+  8-pair draw. Players sign up solo and are paired when the tournament starts — the top pairs by combined ranking make the cut.
+  No players have signed up for doubles yet.
++ BRACKET
++ Round of 16 → Final · 16 draw
+  Round of 16
+  Decided
+  8 of 8 played
+  Sofia Okafor def. Kenji Kim
+  6-3, 2-6, 6-4
++ 
+  Viktor Nakamura (DF6C) def. Ingrid Novak
+  3-6, 6-1, 6-2
++ 
+  Luca Dubois def. Lena Costa
+  6-7, 6-3, 6-1
++ 
+  Diego Silva def. Priya García
+  7-6, 6-2
++ 
+  Viktor Nakamura (F00D) def. Rafael Larsson
+  7-5, 2-6, 6-3
++ 
+  Kenji Okafor def. Noah Ivanova
+  7-5, 6-3
++ 
+  Aisha Kim def. Priya Santos
+  0-6, 6-1, 6-2
++ 
+  Priya Rossi def. Yuki Andersson
+  7-6, 6-3
+  Collapses automatically once every match has aired — keeps large draws from growing the page taller.
+  Quarterfinals
+  Decided
+  4 of 4 played
+  Viktor Nakamura (DF6C) def. Sofia Okafor
+  6-2, 6-7, 7-5
++ 
+  Diego Silva def. Luca Dubois
+  1-6, 6-2, 7-5
++ 
+  Viktor Nakamura (F00D) def. Kenji Okafor
+  7-5, 6-1
++ 
+  Aisha Kim def. Priya Rossi
+  6-3, 7-5
+  Collapses automatically once every match has aired — keeps large draws from growing the page taller.
+  Semifinals
+  Decided
+  2 of 2 played
+  Diego Silva def. Viktor Nakamura (DF6C)
+  6-3, 7-6
++ 
+  Viktor Nakamura (F00D) def. Aisha Kim
+  6-4, 4-6, 7-5
+  Collapses automatically once every match has aired — keeps large draws from growing the page taller.
+  Final
+  Decided
+  1 of 1 played
+  Diego Silva def. Viktor Nakamura (F00D)
+  6-4, 6-0
+  Collapses automatically once every match has aired — keeps large draws from growing the page taller.
+  Champion
+- ★ CHAMPION
+- 🇦🇺
++ CHAMPION
+  Diego Silva
++ Decided path
++ Pending / TBD
++ Free agent
++ = unmanaged draw filler
++ Aired results link to the replay →

@@ -1,0 +1,51 @@
+baseline: design/reviews/stage-0-baseline/visibleText-managers.json  (/managers)
+final   : design/reviews/stage-8/visibleText-managers.json  (/managers)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:38:56
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  THE TOUR STANDINGS
+  Manager Rankings
+  Every ranking point your players earn banks onto your ladder — but it erodes a little each week. Stand still and you slide. This is the number that never stops moving.
+  YOUR POSITION
+  #1
+- 250 pts
++ 155 pts
+  RANK MANAGER LADDER SCORE
+- ● #1 ux-agent-1YOU 250
+- ● #2 ux-agent-2 250
+- ● #3 ux-agent-3 165
+- #4 ux-agent-4 100
++ #1 ux-agent-1You 155
++ #2 ux-agent-2 104
++ #3 ux-agent-3 69
++ #4 ux-agent-4 42

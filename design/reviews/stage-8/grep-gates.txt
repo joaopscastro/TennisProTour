@@ -1,0 +1,30 @@
+Stage 8 grep gates — every command must return EMPTY (exit 1).
+Run at 2026-09-24T18:22:32.767Z
+
+## emoji in apps/web/**/*.tsx
+$ git grep -nP "[\x{1F000}-\x{1FAFF}]" -- "apps/web/**/*.tsx"
+(no matches)
+exit 1 — EMPTY (PASS)
+
+## raw oklch(/rgba( outside globals.css and lib/ui/
+$ git grep -nE "oklch\(|rgba\(" -- "apps/web" ":(exclude)apps/web/app/globals.css" ":(exclude)apps/web/lib/ui/*"
+(no matches)
+exit 1 — EMPTY (PASS)
+
+## legacy class/module names
+$ git grep -nE "gc-grain|gc-rise|gc-delta|gc-cele-|gc-confetti|gc-slam|gc-trophy-rise|gc-seal-pop|gc-spotlight|gc-step-fill|gc-net|gc-hero|gc-surface-chip|gc-shadow" -- "apps/web"
+(no matches)
+exit 1 — EMPTY (PASS)
+
+## legacy --gc-* / --sf-* custom properties
+$ git grep -nE -- "--gc-|--sf-" -- "apps/web"
+(no matches)
+exit 1 — EMPTY (PASS)
+
+## deleted modules (all must be absent)
+apps/web/components/ui/motion.tsx: absent (PASS)
+apps/web/components/ui/Avatar.tsx: absent (PASS)
+apps/web/components/Sidebar.tsx: absent (PASS)
+
+export surfaceTheme: absent (PASS)
+export flagFor: absent (PASS)

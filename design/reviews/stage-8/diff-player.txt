@@ -1,0 +1,274 @@
+baseline: design/reviews/stage-0-baseline/visibleText-player.json  (/players/00ac1c81-9fb6-4e8f-8402-2cbd0cd17f1d)
+final   : design/reviews/stage-8/visibleText-player.json  (/players/fb384d8d-a047-453c-aae7-9d7a27bc841b)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:39:02
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  ← Back to roster
+- Sofia Okafor
++ Marta Kowalski
+  Prime
+- 🇯🇵
+- JP
++ BR
+  ·
+- Age 23.0
++ Age 26.5
++ Doubles partner
++ Noah Santos
++ · 0% chemistry
+  SENIOR
+  #
+- 172
+- 25 pts
++ 142
++ 250 pts
+  CAREER EARNINGS
+- $12.3K
++ $35K
+  FORM
+- Chasing a breakthrough result on tour.
+- FREE AGENT
+- Unsigned — no manager. Read the attributes, weigh the risk, and sign before a rival does.
+- 🔒 Committed to Argentina Championship — a free agent with an unfinished tournament can't be signed until it concludes.
+- Your XP: 494
+- Unavailable
+- Matches
+- L
++ 1 career title and counting.
++ MATCHES
++ W
+  vs
+- 🇩🇪
+- João Santos
+- Round of 64 · Argentina Championship
+- 6-4, 2-6, 6-7
+- L
++ Aisha Ivanova
++ Final · Crest Vietnam Trophy
++ 4-6, 6-3, 6-1
++ W
+  vs
+- 🇯🇵
+- Yuki Yamamoto
+- Round of 32 · Cobalt Hardcourt Classic
+- 6-4, 2-6, 3-6
+- L
++ Yuki Rossi
++ Semifinal · Crest Vietnam Trophy
++ 7-5, 7-6
++ W
+  vs
+- 🇺🇸
+- Viktor Nakamura
+- Quarterfinal · Onyx Clay Open
+- 2-6, 7-6, 5-7
++ Luca Rossi
++ Quarterfinal · Crest Vietnam Trophy
++ 6-2, 6-1
+  W
+  vs
+- 🇫🇷
+- Kenji Kim
+- Round of 16 · Onyx Clay Open
+- 6-3, 2-6, 6-4
+- Attributes & potential
+- 40
++ Diego Brennan
++ Round of 16 · Crest Vietnam Trophy
++ 4-6, 6-1, 6-4
++ W
++ vs
++ Lena Nakamura
++ Round of 32 · Crest Vietnam Trophy
++ 7-6, 6-3
++ ATTRIBUTES & POTENTIAL
++ 61
+  OVERALL
+  Observable ability today — not a ceiling.
+  SCOUT'S PROJECTION
+- ~61–63
+- Promising ceiling
++ ~71
++ High ceiling
+  DEVELOPED
+- 65%
+- Rapid developer
++ 86%
++ Slow burner
+  Scout confidence: Confirmed
+  The scout has seen enough — this read is who they are.
+  TECHNICAL
+  Serve
+- 35
+- ~62
++ 66
++ ~71
+  Forehand
+- 30
+- ~62
++ 63
++ ~71
+  Backhand
+- 37
+- ~62
++ 59
++ ~71
+  Volley
+- 41
+- ~62
++ 56
++ ~71
+  PHYSICAL
+  Speed
+- 35
+- ~49
++ 66
++ ~96
+  Stamina
+- 28
+- ~51
++ 48
++ ~73
+  Strength
+- 24
+- ~26
++ 63
++ ~82
+  MENTAL
+  Consistency
+- 56
++ 70
+  —
+  Clutch
+- 75
++ 58
+  —
+  SURFACE AFFINITY
+  Clay
+- 21
++ 28
+  Grass
+- 24
++ 17
+  Hard
+- 23
++ 16
+  Indoor
+- 17
+- Current standing
++ 14
++ CURRENT STANDING
+  SENIOR
+- #172
+- 25 pts
+- Peak standing
++ #142
++ 250 pts
++ PEAK STANDING
+  PEAK · SENIOR
+- 25 pts
+- Peaked Season 1, Week 1
+- Titles
+- No titles yet.
+- Schedule
+- Free agent — no manager to schedule tournaments or training for.
+- S1 W3
+- Argentina Championship
+- No focus
+- ▾
+- S1 W4
+- —
+- No focus
+- ▾
+- S1 W5
+- —
+- No focus
+- ▾
+- S1 W6
+- —
+- No focus
+- ▾
+- S1 W7
+- —
+- No focus
+- ▾
+- S1 W8
+- —
+- No focus
+- ▾
+- Tournament history
+- View all 3 →
+- HARD
+- Argentina Championship
+- tour · 64-draw · Season 1, Week 3
+- Lost — Round of 64
+- $8K
+- HARD
+- Cobalt Hardcourt Classic
+- futures · 32-draw · Season 1, Week 2
+- Lost — Round of 32
+- $1.5K
++ 250 pts
++ Peaked Season 1, Week 3
++ TITLES
++ Crest Vietnam Trophy
++ futures · S1 W3
++ SCHEDULE
++ PLANNER WINDOW
++ 6 weeks
++ WEEK TOURNAMENT ENTRY TRAINING FOCUS
++ S1 W9 + ENTER TOURNAMENT
++ Forehand
++ 
++ S1 W10 + ENTER TOURNAMENT
++ Forehand
++ 
++ S1 W11 + ENTER TOURNAMENT
++ Forehand
++ 
++ S1 W12 + ENTER TOURNAMENT
++ Forehand
++ 
++ S1 W13 + ENTER TOURNAMENT
++ Forehand
++ 
++ S1 W14 + ENTER TOURNAMENT
++ Forehand
++ TOURNAMENT HISTORY
++ View all 1 →
++ TOURNAMENT SURFACE STAGE RESULT PRIZE
++ Crest Vietnam Trophy
+  CLAY
+- Onyx Clay Open
+- futures · 16-draw · Season 1, Week 1
+- Lost — Quarterfinal
+- $2.8K
++ futures · 32-draw · Season 1, Week 3 Champion $35K

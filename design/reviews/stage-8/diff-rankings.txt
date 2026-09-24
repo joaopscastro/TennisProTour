@@ -1,0 +1,247 @@
+baseline: design/reviews/stage-0-baseline/visibleText-rankings.json  (/rankings)
+final   : design/reviews/stage-8/visibleText-rankings.json  (/rankings)
+
+  Grand Circuit
+  TENNIS MANAGER
+- Roster
+- Scouting
+- Tournaments
+- Rankings
+- Managers
+- Manager Pro
+- Social
+- SOON
+- SEASON 1 · WEEK 3
+- Day
+- 7 / 7
+- Next day
+- 14h 26m
+- XP BALANCE
+- 494
++ ROSTER
++ SCOUTING
++ TOURNAMENTS
++ RANKINGS
++ MANAGERS
++ MANAGER PRO
++ SOCIAL SOON
++ WORLD CLOCK
++ S1 · W9 · DAY 2/7
++ NEXT DAY
++ 7:38:57
++ XP
++ 499
+  FREE TIER
+- 2 roster slots · upgrade for more room
+  THE FULL TABLE
+  Player Rankings
+  Senior, U18, U16, and U14 are four separate ladders — each only counts results from its own events, and a player is ranked on whichever ladders their age and results qualify them for. Winning a senior event earns Senior points, not junior ones.
+- Senior
++ SENIOR
+  U18
+  U16
+  U14
+- You have 1 player in this top-100 table, best #39.
+- Show only my players
++ None of your players is in the top 100 of the Senior ladder yet. A ranking is earned by winning — a first-round loss pays no points. Only senior-tour results count toward the Senior ranking.
+  RANK · SENIOR PLAYER NATIONALITY POINTS
+- ● #1 Priya Kim SE 1600
+- ● #2 Kenji Costa ES 1413
+- ● #3 Marta Vukovic CA 1050
+- #4 João Okafor BR 1030
+- #5 Viktor Brennan CZ 1000
+- #6 João Brennan GB 900
+- #7 João Silva CA 830
+- #8 Priya Santos RS 760
+- #9 Rafael Kowalski PT 750
+- #10 Sofia Vukovic SE 663
+- #11 Diego Dubois (FE67) AR 600
+- #12 Diego García GB 450
+- #13 Noah Santos (9165) AR 450
+- #14 João Ivanova DE 443
+- #15 Kenji Vukovic (4DD2) GB 430
+- #16 Priya Rossi (0F8C) CZ 416
+- #17 Diego Silva AU 415
+- #18 Mateus Andersson AU 415
+- #19 Aisha Nakamura GB 400
+- #20 Mateus Nakamura (1E16) CA 400
+- #21 Kenji Müller (9652) US 378
+- #22 Yuki Kowalski (3069) CZ 350
+- #23 Ingrid Silva ES 350
+- #24 Lena Petrov IT 313
+- #25 Diego Novak RS 300
+- #26 Marta García (07A8) IT 300
+- #27 Yuki Dubois (7F62) AR 300
+- #28 Marta Okafor RS 300
+- #29 Aisha Santos BR 300
+- #30 Tomás Costa CA 250
+- #31 Aisha García JP 250
+- #32 Sofia Ivanova CZ 250
+- #33 Chloe Kim FR 250
+- #34 Tomás Yamamoto CA 250
+- #35 Elena García JP 250
+- #36 João Müller (F919) ES 250
+- #37 Zara Silva BR 250
+- #38 Noah Okafor AU 250
+- #39 Marta KowalskiYOUR PLAYER BR 250
+- #40 Diego Vukovic US 225
+- #41 Mateus Moreau CA 215
+- #42 Ingrid Moreau SE 208
+- #43 Mateus Yamamoto FR 200
+- #44 Priya Novak US 200
+- #45 Mateus Ivanova IT 200
+- #46 Aisha Larsson CA 200
+- #47 Rafael Rossi CA 200
+- #48 Luca Moreau ES 200
+- #49 Zara Dubois JP 175
+- #50 Kenji Müller (551B) FR 165
+- #51 Luca Okafor JP 165
+- #52 Aisha Ivanova IT 165
+- #53 Yuki Müller US 165
+- #54 Priya Dubois (B0B1) SE 158
+- #55 Tomás Andersson FR 150
+- #56 Marta Silva DE 150
+- #57 Marta García (6EEC) GB 150
+- #58 Kenji Vukovic (A553) CZ 150
+- #59 Priya Nakamura (75B4) GB 150
+- #60 Rafael Brennan FR 150
+- #61 Yuki Dubois (4BB7) RS 150
+- #62 Diego Kowalski SE 150
+- #63 Sofia Andersson BR 150
+- #64 João Novak AR 150
+- #65 Zara Costa ES 150
+- #66 João Santos DE 150
+- #67 Diego Yamamoto FR 150
+- #68 Amara Nakamura ES 150
+- #69 Lena Dubois CZ 150
+- #70 Luca Dubois SE 125
+- #71 Viktor Nakamura (F00D) JP 113
+- #72 Diego Dubois (BB26) SE 113
+- #73 Priya Rossi (1F3F) CA 113
+- #74 Lena Brennan GB 113
+- #75 Noah Yamamoto SE 113
+- #76 Yuki Santos CA 113
+- #77 Sofia Kowalski FR 113
+- #78 Priya Nakamura (8868) PT 108
+- #79 Rafael Larsson ES 100
+- #80 Yuki Andersson FR 100
+- #81 Viktor Nakamura (DF6C) US 100
+- #82 Aisha Kim CZ 100
+- #83 Yuki Novak JP 100
+- #84 Priya Müller AU 100
+- #85 Diego Moreau ES 100
+- #86 Tomás Okafor US 100
+- #87 Lena Santos JP 100
+- #88 Priya Dubois (F4EE) GB 100
+- #89 Yuki Kowalski (21B3) CZ 100
+- #90 Yuki Rossi ES 100
+- #91 Marta Andersson RS 100
+- #92 Aisha Silva DE 100
+- #93 João Müller (E90E) DE 100
+- #94 Mateus Nakamura (3292) AU 100
+- #95 Viktor Petrov CZ 100
+- #96 Viktor García BR 100
+- #97 Marta Larsson RS 100
+- #98 Noah Santos (7433) AU 100
+- #99 Zara Larsson DE 100
+- #100 Ingrid Petrov PT 100
++ #1 Priya Kim SE 2065
++ #2 Marta Andersson FR 2050
++ #3 Marta Vukovic CA 1930
++ #4 Rafael Andersson PT 1725
++ #5 Lena Okafor JP 1700
++ #6 Kenji Costa ES 1538
++ #7 João Okafor BR 1405
++ #8 João Silva CA 1345
++ #9 Viktor Brennan CZ 1315
++ #10 Rafael Dubois BR 1200
++ #11 Diego Petrov RS 1165
++ #12 Sofia Vukovic SE 1138
++ #13 João Brennan GB 1050
++ #14 Rafael Kowalski PT 1025
++ #15 Priya Santos (DA04) RS 910
++ #16 Mateus Brennan DE 875
++ #17 Luca Okafor US 758
++ #18 Mateus Yamamoto FR 750
++ #19 Noah Brennan GB 750
++ #20 Marta García (6EEC) GB 738
++ #21 Mateus Moreau CA 730
++ #22 Amara Novak US 708
++ #23 Priya Rossi CZ 706
++ #24 Noah Santos (7433) AU 700
++ #25 Priya Novak US 700
++ #26 Diego Yamamoto FR 700
++ #27 Marta Okafor RS 700
++ #28 Diego Dubois (FE67) AR 700
++ #29 Viktor Santos US 683
++ #30 Sofia Ivanova (1643) CZ 680
++ #31 Lena Nakamura BR 670
++ #32 Tomás Andersson FR 650
++ #33 Rafael Brennan FR 650
++ #34 Zara Larsson DE 650
++ #35 Luca Moreau ES 643
++ #36 Ingrid Silva ES 640
++ #37 Diego Ivanova IT 625
++ #38 Priya Dubois SE 613
++ #39 Noah Yamamoto SE 613
++ #40 Elena García JP 600
++ #41 Tomás Yamamoto CA 600
++ #42 Zara Silva BR 600
++ #43 Kenji Müller (9652) US 578
++ #44 Lena Petrov IT 578
++ #45 Diego Novak RS 575
++ #46 Aisha Nakamura GB 575
++ #47 Rafael Rossi CA 575
++ #48 João Ivanova (8C4F) DE 568
++ #49 Yuki Rossi ES 568
++ #50 Kenji Vukovic GB 555
++ #51 Diego Rossi DE 550
++ #52 Diego Silva AU 540
++ #53 Mateus Andersson AU 540
++ #54 Lena Brennan GB 521
++ #55 Yuki Novak JP 513
++ #56 Priya García US 508
++ #57 João Nakamura (215A) FR 501
++ #58 Kenji Kim DE 500
++ #59 Diego García GB 500
++ #60 Noah Santos (9165) AR 500
++ #61 Marta Brennan CA 500
++ #62 Luca Dubois SE 493
++ #63 Elena Kim AR 483
++ #64 Yuki Dubois AR 475
++ #65 Viktor Dubois SE 450
++ #66 Sofia Ivanova (1715) RS 450
++ #67 Noah Vukovic SE 450
++ #68 Priya Andersson (7992) BR 438
++ #69 Tomás Okafor US 430
++ #70 Priya Andersson (AC72) CZ 430
++ #71 Aisha Santos BR 426
++ #72 Lena Santos JP 425
++ #73 Mateus Nakamura CA 425
++ #74 João Müller ES 425
++ #75 Mateus Vukovic CZ 421
++ #76 Aisha Müller RS 418
++ #77 Marta García (07A8) IT 413
++ #78 Yuki Santos CA 413
++ #79 Marta Silva DE 408
++ #80 Yuki Müller US 403
++ #81 Yuki Kowalski CZ 400
++ #82 João Ivanova (5A91) FR 376
++ #83 João Nakamura (3E05) BR 375
++ #84 João Novak AR 375
++ #85 Kenji Müller (551B) FR 365
++ #86 Viktor Nakamura (DF6C) US 363
++ #87 Diego Dubois (BB26) SE 363
++ #88 Sofia Andersson BR 363
++ #89 Chloe Kim FR 363
++ #90 Viktor Petrov CZ 363
++ #91 Elena Yamamoto AR 363
++ #92 Viktor Yamamoto SE 363
++ #93 Ingrid Moreau SE 358
++ #94 Priya Santos (B9BF) CA 350
++ #95 Marta Larsson RS 350
++ #96 Rafael Vukovic SE 350
++ #97 Zara Dubois JP 338
++ #98 Viktor Nakamura (F00D) JP 326
++ #99 Amara Costa AU 325
++ #100 Yuki Petrov ES 325
