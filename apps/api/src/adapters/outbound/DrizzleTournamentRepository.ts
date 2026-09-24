@@ -204,6 +204,24 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   /**
+   * The SET form of `findByPlayerAndWeek(playerId, week).length === 0` —
+   * one DISTINCT query per week instead of one round trip per fill
+   * candidate (see the port's doc comment). Singles-only by design,
+   * matching the old per-candidate predicate exactly: a player registered
+   * only in a doubles field was never considered "committed" by the
+   * draw-fill checks, and still isn't. No aggregate `load()` here — the
+   * caller only needs the ids.
+   */
+  async findEnteredPlayerIdsForWeek(week: GameWeek): Promise<PlayerId[]> {
+    const rows = await this.db
+      .selectDistinct({ playerId: tournamentEntries.playerId })
+      .from(tournamentEntries)
+      .innerJoin(tournaments, eq(tournamentEntries.tournamentId, tournaments.id))
+      .where(and(eq(tournaments.seasonScheduled, week.season), eq(tournaments.weekScheduled, week.week)));
+    return rows.map((row) => PlayerId(row.playerId));
+  }
+
+  /**
    * How many of each given tournament's singles entrants belong to a real
    * manager — one grouped query joining `tournament_entries` to `players`,
    * never a per-tournament read. This is the exact condition the tournament

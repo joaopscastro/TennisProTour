@@ -1,4 +1,5 @@
 import { WorldId } from '@tennis-manager/domain';
+import { TickProfiler } from '@tennis-manager/application';
 import { Dependencies } from '@tennis-manager/api';
 import { intervalTickKey, isoDayTickKey } from '../tickKey';
 
@@ -34,9 +35,14 @@ export interface AdvanceWorldJobData {
  */
 export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: number | null) {
   return async (data: AdvanceWorldJobData) => {
+    // WORLD_TICK_PROFILE=1 phase timing (no-op otherwise) — one line per
+    // system below, in the exact order they run. This does NOT change the
+    // ordering itself; the marks are only wrappers around the same awaits.
+    const profiler = new TickProfiler('advanceWorldDayHandler');
     const tickKey = data.tickKey ?? (tickIntervalMs !== null ? intervalTickKey(new Date(), tickIntervalMs) : isoDayTickKey(new Date()));
     const worldId = WorldId(data.worldId);
     const result = await deps.advanceWorldWeek.execute({ worldId, tickKey });
+    profiler.mark('advanceWorldWeek', { advanced: result.advanced, weekRolledOver: result.weekRolledOver });
 
     // Weekly systems fire ONLY on a week rollover (day 7 -> 1). A
     // mid-week day tick still advances the clock (result.advanced) but
@@ -48,19 +54,23 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // aging, gated on `weekRolledOver` rather than carrying its own
       // idempotency key. See RefreshTalentPoolUseCase's doc comment.
       await deps.refreshTalentPool.execute({ worldId });
+      profiler.mark('refreshTalentPool');
       // Weekly junior-tournament generation, same rollover/gate.
       await deps.generateJuniorTournaments.execute({ worldId });
+      profiler.mark('generateJuniorTournaments');
       // Weekly SENIOR-tour generation, same rollover/gate — the senior
       // analogue of the junior ladder above (see
       // GenerateSeniorTournamentsUseCase: before it, nothing ever
       // created a senior tournament automatically and the tour ran dry).
       await deps.generateSeniorTournaments.execute({ worldId });
+      profiler.mark('generateSeniorTournaments');
       // The recurring fill-only safe guard — tops the draw-filler
       // population up to its per-band floor BEFORE start-due below, so a
       // tournament about to be started always has age-appropriate
       // fillers to pad an empty draw with (see
       // EnsureFillOnlyPopulationUseCase).
       await deps.ensureFillOnlyPopulation.execute({ worldId });
+      profiler.mark('ensureFillOnlyPopulation');
       // Runs AFTER junior generation, same rollover/gate, for a
       // load-bearing reason: StartDueTournamentsUseCase's due check is
       // strictly `weeksBetween(weekScheduled, currentWeek) > 0` so a
@@ -68,6 +78,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // (weekScheduled: currentWeek) is never force-started before any
       // manager had a chance to register — see that use case's doc.
       await deps.startDueTournaments.execute({ worldId });
+      profiler.mark('startDueTournaments');
       // The obligatory-tournament ranking rule (P9 —
       // docs/ranking-realism-proposal.md §4), LAST of the weekly
       // systems and deliberately so: it reads every concluded
@@ -77,6 +88,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // skip-zero is itself a ledger row for that player+tournament),
       // so it carries no tick key of its own — see the use case.
       await deps.applyObligatoryTournamentZeros.execute({ worldId });
+      profiler.mark('applyObligatoryTournamentZeros');
 
       // The season-end bonus pool (Chapter 1 §1.08.G/H — see
       // PaySeasonBonusPoolUseCase/StandardSeasonBonusPoolPolicy) fires
@@ -87,6 +99,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // ledger standings to pay out on.
       if (result.seasonRolledOver && result.concludedSeason !== undefined) {
         await deps.paySeasonBonusPool.execute({ worldId, season: result.concludedSeason });
+        profiler.mark('paySeasonBonusPool');
       }
 
       // The Masters Cup (P8b) is generated once per season, on its
@@ -100,6 +113,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
           weekScheduled: { ...world.currentWeek },
           surface: 'hard',
         });
+        profiler.mark('generateMastersCup');
       }
       if (world && world.currentWeek.week === WORLD_TEAM_CUP_WEEK) {
         await deps.generateWorldTeamCup.execute({
@@ -108,6 +122,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
           weekScheduled: { ...world.currentWeek },
           surface: 'clay',
         });
+        profiler.mark('generateWorldTeamCup');
       }
     }
 
@@ -121,6 +136,7 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // prod — the use case defaults to the latter when undefined).
       const dayWindowSeconds = tickIntervalMs !== null ? tickIntervalMs / 1000 : undefined;
       const sim = await deps.simulateDueMatches.execute({ worldId, dayWindowSeconds });
+      profiler.mark('simulateDueMatches', { simulated: sim.simulated.length, failed: sim.failed.length });
       // Straight after the sweep, on the SAME day tick: any tournament
       // whose qualifying draw just finished gets its main draw seeded
       // from the qualifiers who came through (deferred main-draw
@@ -129,15 +145,22 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // nothing is played too early either way, since the main draw's
       // own first round is scheduled for a later day.
       const promoted = await deps.promoteQualifiers.execute({ worldId });
+      profiler.mark('promoteQualifiers', { promoted: promoted.promoted, mainDrawsSeeded: promoted.mainDrawsSeeded });
       const doublesPromoted = await deps.promoteDoublesQualifiers.execute({ worldId });
+      profiler.mark('promoteDoublesQualifiers', {
+        promoted: doublesPromoted.promoted,
+        mainDrawsSeeded: doublesPromoted.mainDrawsSeeded,
+      });
       const world = await deps.worlds.findById(worldId);
       if (world) {
         // The Masters Cup's own sweep + group→knockout advancement, on the
         // same day tick (its matches are paced day-by-day).
         await deps.simulateDueMastersCupMatches.execute({ season: world.currentWeek.season, worldId });
         await deps.advanceMastersCup.execute({ season: world.currentWeek.season });
+        profiler.mark('mastersCup');
         await deps.simulateDueWorldTeamCupRubbers.execute({ season: world.currentWeek.season, worldId });
         await deps.advanceWorldTeamCup.execute({ season: world.currentWeek.season });
+        profiler.mark('worldTeamCup');
       }
       return {
         ...result,

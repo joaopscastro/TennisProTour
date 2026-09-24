@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, ne } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
@@ -40,6 +40,24 @@ export class DrizzlePlayerRepository implements PlayerRepository {
       .where(and(isNull(players.managerId), ne(players.stage, 'retired')))
       .orderBy(asc(players.ageInWeeks));
     return rows.map(toDomain);
+  }
+
+  /**
+   * The bulk daily-fatigue recovery — ONE statement instead of a
+   * findAll() + one upsert per tired player on every day tick. See
+   * PlayerRepository.recoverFatigueForAll's doc comment for why this is
+   * exactly equivalent to the per-player loop it replaces:
+   * `GREATEST(0, fatigue - amount)` is `Player.recoverFatigue`'s
+   * `max(0, min(100, fatigue - amount))` under the game's invariant that
+   * fatigue never exceeds 100, and `WHERE fatigue > 0` is the loop's
+   * `if (player.fatigue === 0) continue;` skip. `updated_at` is touched
+   * the same way a save would.
+   */
+  async recoverFatigueForAll(amount: number): Promise<void> {
+    await this.db
+      .update(players)
+      .set({ fatigue: sql`GREATEST(0, ${players.fatigue} - ${amount})`, updatedAt: sql`now()` })
+      .where(sql`${players.fatigue} > 0`);
   }
 
   async save(player: Player): Promise<void> {

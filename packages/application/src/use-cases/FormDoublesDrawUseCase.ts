@@ -1,7 +1,28 @@
 import { BracketGenerator, DoublesPairingService, RandomSource, Tournament, RankingBand, PairId, doublesEntryRanking, isAgeEligibleForTournamentBand } from '@tennis-manager/domain';
-import { PlayerId } from '@tennis-manager/domain';
+import { Player, PlayerId } from '@tennis-manager/domain';
 import { DoublesPairRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
-import { RankPositionQuery } from '../queries/RankPositionQuery';
+import { RankedPlayer, RankPositionQuery } from '../queries/RankPositionQuery';
+
+/**
+ * Run-wide inputs a caller that forms SEVERAL doubles draws in one
+ * execution (StartDueTournamentsUseCase) can load once and share,
+ * instead of re-reading rankings + the free-agent pool per draw (the
+ * profile's per-tournament hot spot). Every field is OPTIONAL and falls
+ * back to today's per-call read, so existing callers (the
+ * RegisterEntrantUseCase auto-start path) and the unit tests are
+ * unchanged.
+ *
+ * `freeAgents` must be `players.findFreeAgents()`'s own result — the
+ * SAME query and ordering — and `enteredPlayerIdsForWeek` the set form
+ * of `findByPlayerAndWeek(...).length > 0`, so the padding below picks
+ * the same fillers in the same order it always did.
+ */
+export interface FormDoublesDrawPreloaded {
+  singlesRanked?: ReadonlyArray<RankedPlayer>;
+  doublesRanked?: ReadonlyArray<RankedPlayer>;
+  freeAgents?: ReadonlyArray<Player>;
+  enteredPlayerIdsForWeek?: Set<PlayerId>;
+}
 
 /**
  * Forms a tournament's doubles draw (P7b) from its solo entrants — the
@@ -41,7 +62,7 @@ export class FormDoublesDrawUseCase {
     private readonly random: RandomSource,
   ) {}
 
-  async form(tournament: Tournament): Promise<void> {
+  async form(tournament: Tournament, preloaded: FormDoublesDrawPreloaded = {}): Promise<void> {
     if (!tournament.hasDoubles || tournament.hasDoublesDrawStarted) return;
     let entrants = [...tournament.doublesEntrants];
     if (entrants.length === 0) return;
@@ -52,9 +73,9 @@ export class FormDoublesDrawUseCase {
     const band: RankingBand = tournament.ageBand ?? 'senior';
 
     const [doublesRanked, singlesRanked, freeAgents] = await Promise.all([
-      this.doublesRankByBand[band].sortedRankings(),
-      this.singlesRankByBand[band].sortedRankings(),
-      this.players.findFreeAgents(),
+      preloaded.doublesRanked ? Promise.resolve(preloaded.doublesRanked) : this.doublesRankByBand[band].sortedRankings(),
+      preloaded.singlesRanked ? Promise.resolve(preloaded.singlesRanked) : this.singlesRankByBand[band].sortedRankings(),
+      preloaded.freeAgents ? Promise.resolve(preloaded.freeAgents) : this.players.findFreeAgents(),
     ]);
     const doublesTotals = new Map(doublesRanked.map((r) => [r.playerId, r.totalPoints]));
     const singlesTotals = new Map(singlesRanked.map((r) => [r.playerId, r.totalPoints]));
@@ -98,10 +119,13 @@ export class FormDoublesDrawUseCase {
     const targetFieldSize = tournament.doublesDrawSize * 2;
     if (entrants.length < targetFieldSize) {
       const padded: PlayerId[] = [];
+      const enteredThisWeek = preloaded.enteredPlayerIdsForWeek;
       for (const id of fillerIds) {
         if (entrants.length + padded.length >= targetFieldSize) break;
-        const committedElsewhere = await this.tournaments.findByPlayerAndWeek(id, tournament.weekScheduled);
-        if (committedElsewhere.length === 0) padded.push(id);
+        const committedElsewhere = enteredThisWeek
+          ? enteredThisWeek.has(id)
+          : (await this.tournaments.findByPlayerAndWeek(id, tournament.weekScheduled)).length > 0;
+        if (!committedElsewhere) padded.push(id);
       }
       entrants = [...entrants, ...padded];
       fillerIds = fillerIds.filter((id) => !padded.includes(id));

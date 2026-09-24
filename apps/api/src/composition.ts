@@ -663,6 +663,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       bracketGenerator,
       rankPositionByBand,
       formDoublesDraw,
+      // Used only to resolve the doubles ranking lists once per run (see
+      // the run-wide preload in StartDueTournamentsUseCase.execute).
+      doublesRankByBand,
     ),
     applyObligatoryTournamentZeros: new ApplyObligatoryTournamentZerosUseCase(
       worlds,

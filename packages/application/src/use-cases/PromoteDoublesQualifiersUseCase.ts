@@ -1,5 +1,6 @@
 import { BracketGenerator, isAgeEligibleForTournamentBand, PairId, PlayerId, Tournament, WorldId } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
+import { TickProfiler } from '../profiling/tickProfile';
 
 export interface PromoteDoublesQualifiersCommand {
   worldId: WorldId;
@@ -45,11 +46,15 @@ export class PromoteDoublesQualifiersUseCase {
 
   async execute(_command: PromoteDoublesQualifiersCommand): Promise<PromoteDoublesQualifiersResult> {
     const result: PromoteDoublesQualifiersResult = { mainDrawsSeeded: 0, promoted: 0 };
+    // WORLD_TICK_PROFILE=1 phase timing (no-op otherwise) — see TickProfiler.
+    const profiler = new TickProfiler('promoteDoublesQualifiers');
 
     // Bounded live set — see TournamentRepository.findStartedLive and
     // PromoteQualifiersUseCase's identical note.
     const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
-    for (const tournament of await liveTournaments) {
+    const tournamentsToScan = await liveTournaments;
+    profiler.mark('liveSet', { liveTournaments: tournamentsToScan.length });
+    for (const tournament of tournamentsToScan) {
       if (!tournament.hasDoublesQualifying) continue;
       if (tournament.hasDoublesDrawStarted) continue;
       if (!tournament.isDoublesQualifyingComplete()) continue;

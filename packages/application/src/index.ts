@@ -1,4 +1,5 @@
 export * from './ports/ports';
+export * from './profiling/tickProfile';
 export * from './use-cases/rosterCap';
 export * from './use-cases/talentPoolAgeRange';
 export * from './use-cases/ClaimTalentPoolCandidateUseCase';

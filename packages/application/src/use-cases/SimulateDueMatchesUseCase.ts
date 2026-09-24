@@ -3,6 +3,7 @@ import { GameWorldRepository, TournamentRepository } from '../ports/ports';
 import { matchIdForSlot, SimulateMatchUseCase } from './SimulateMatchUseCase';
 import { doublesMatchIdForSlot, SimulateDoublesMatchUseCase } from './SimulateDoublesMatchUseCase';
 import { DEFAULT_DAY_WINDOW_SECONDS, revealWindowSecondsFor, scheduledStartAtFor } from './matchSchedule';
+import { TickProfiler } from '../profiling/tickProfile';
 
 export interface SimulateDueMatchesCommand {
   worldId: WorldId;
@@ -57,6 +58,8 @@ export class SimulateDueMatchesUseCase {
 
   async execute(command: SimulateDueMatchesCommand): Promise<SimulateDueMatchesResult> {
     const result: SimulateDueMatchesResult = { simulated: [], failed: [] };
+    // WORLD_TICK_PROFILE=1 phase timing (no-op otherwise) — see TickProfiler.
+    const profiler = new TickProfiler('simulateDueMatches');
 
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
@@ -74,7 +77,25 @@ export class SimulateDueMatchesUseCase {
     // 52-week window of decided events. The optional method keeps the
     // pre-existing in-memory fakes (which lack it) on the old behaviour.
     const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
-    for (const tournament of await liveTournaments) {
+    const tournamentsToSweep = await liveTournaments;
+    profiler.mark('liveSet', { liveTournaments: tournamentsToSweep.length });
+
+    // Aggregated per-match timing (only touched while profiling — the
+    // disabled path is a plain await, no Date.now(), no counter).
+    let matchMs = 0;
+    let matchCount = 0;
+    const timedMatch = async <T>(run: () => Promise<T>): Promise<T> => {
+      if (!profiler.profiling) return run();
+      const start = Date.now();
+      try {
+        return await run();
+      } finally {
+        matchMs += Date.now() - start;
+        matchCount += 1;
+      }
+    };
+
+    for (const tournament of tournamentsToSweep) {
       // A tournament that holds qualifying plays THAT bracket first, on
       // its opening days, and its main draw does not exist at all until
       // PromoteQualifiersUseCase seeds it (deferred main-draw seeding —
@@ -115,15 +136,17 @@ export class SimulateDueMatchesUseCase {
               if (currentRound.matches[matchIndex].outcome !== null) continue;
               const matchId = matchIdForSlot(tournament.id, currentRound.roundNumber, matchIndex, draw);
               try {
-                await this.simulateMatch.execute({
-                  matchId,
-                  tournamentId: tournament.id,
-                  roundNumber: currentRound.roundNumber,
-                  matchIndex,
-                  draw,
-                  scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
-                  revealDurationSeconds: revealSeconds,
-                });
+                await timedMatch(() =>
+                  this.simulateMatch.execute({
+                    matchId,
+                    tournamentId: tournament.id,
+                    roundNumber: currentRound.roundNumber,
+                    matchIndex,
+                    draw,
+                    scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
+                    revealDurationSeconds: revealSeconds,
+                  }),
+                );
                 result.simulated.push(matchId);
               } catch (error) {
                 result.failed.push({ matchId, reason: error instanceof Error ? error.message : String(error) });
@@ -137,8 +160,21 @@ export class SimulateDueMatchesUseCase {
       // the same days — sweep it independently of whichever singles draw
       // is currently live.
       if (this.simulateDoublesMatch) {
-        await this.sweepDoubles(tournament, today, anchorMs, dayWindowSeconds, result, this.simulateDoublesMatch);
+        await this.sweepDoubles(
+          tournament,
+          today,
+          anchorMs,
+          dayWindowSeconds,
+          result,
+          this.simulateDoublesMatch,
+          timedMatch,
+        );
       }
+    }
+
+    profiler.mark('sweep', { liveTournaments: tournamentsToSweep.length });
+    if (profiler.profiling) {
+      profiler.mark('matchSimulation', { matches: matchCount, totalMatchMs: matchMs });
     }
 
     return result;
@@ -151,6 +187,7 @@ export class SimulateDueMatchesUseCase {
     dayWindowSeconds: number,
     result: SimulateDueMatchesResult,
     simulateDoublesMatch: SimulateDoublesMatchUseCase,
+    timedMatch: <T>(run: () => Promise<T>) => Promise<T>,
   ): Promise<void> {
     if (!tournament.hasDoubles) return;
 
@@ -190,15 +227,17 @@ export class SimulateDueMatchesUseCase {
       if (currentRound.matches[matchIndex].outcome !== null) continue;
       const matchId = doublesMatchIdForSlot(tournament.id, currentRound.roundNumber, matchIndex, draw);
       try {
-        await simulateDoublesMatch.execute({
-          matchId,
-          tournamentId: tournament.id,
-          roundNumber: currentRound.roundNumber,
-          matchIndex,
-          draw,
-          scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
-          revealDurationSeconds: revealSeconds,
-        });
+        await timedMatch(() =>
+          simulateDoublesMatch.execute({
+            matchId,
+            tournamentId: tournament.id,
+            roundNumber: currentRound.roundNumber,
+            matchIndex,
+            draw,
+            scheduledStartAt: scheduledStartAtFor(matchIndex, revealSeconds, anchorMs),
+            revealDurationSeconds: revealSeconds,
+          }),
+        );
         result.simulated.push(matchId);
       } catch (error) {
         result.failed.push({ matchId, reason: error instanceof Error ? error.message : String(error) });

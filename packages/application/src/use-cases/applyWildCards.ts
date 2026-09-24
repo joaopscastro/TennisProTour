@@ -1,6 +1,18 @@
-import { selectWildCards, Tournament, WildCardCandidate, wildCardSlotsFor } from '@tennis-manager/domain';
+import { PlayerId, selectWildCards, Tournament, WildCardCandidate, wildCardSlotsFor } from '@tennis-manager/domain';
 import { PlayerRepository } from '../ports/ports';
-import { RankPositionQuery } from '../queries/RankPositionQuery';
+import { RankedPlayer, RankPositionQuery } from '../queries/RankPositionQuery';
+
+/**
+ * Whether the automatic wild card algorithm has anything to do for this
+ * tournament AT ALL — the tier awards slots and a host country is
+ * recorded. Exported so a caller processing many tournaments in one run
+ * (StartDueTournamentsUseCase) can decide whether it is worth resolving
+ * the (now once-per-run) senior ranking list before calling in; the
+ * function itself re-checks, so correctness never depends on the caller.
+ */
+export function wildCardsApplicableTo(tournament: Tournament): boolean {
+  return wildCardSlotsFor(tournament.tier) > 0 && tournament.hostCountry !== null;
+}
 
 /**
  * Applies the automatic wild card algorithm (see WildCardPolicy) to a
@@ -36,15 +48,32 @@ export async function applyWildCards(
    * candidate is treated as unranked (still eligible, just tie-broken
    * by playerId — the rule stays correct, just less merit-ordered). */
   seniorRankPosition?: RankPositionQuery,
+  /** The senior band's `sortedRankings()` list, resolved ONCE by a
+   * caller that processes many tournaments in one run. When supplied,
+   * each candidate's rank is an index lookup in this list instead of a
+   * fresh `rankFor()` — which re-ran the whole cross-player ranking
+   * query per candidate (the profile's ~120-200 full ledger scans per
+   * rollover). The list is exactly what `rankFor()` would read, and
+   * nothing writes the ledger during that caller's run, so the ranks
+   * are identical. */
+  preloadedSeniorRanked?: ReadonlyArray<RankedPlayer>,
 ): Promise<number> {
   const slots = wildCardSlotsFor(tournament.tier);
   if (slots === 0 || !tournament.hostCountry) return 0;
+
+  const rankByPlayer = preloadedSeniorRanked
+    ? new Map<PlayerId, number>(preloadedSeniorRanked.map((r, index) => [r.playerId, index + 1]))
+    : null;
 
   const candidates: WildCardCandidate[] = [];
   for (const entrant of tournament.qualifyingEntrants) {
     const player = await players.findById(entrant.playerId);
     if (!player) continue;
-    const rank = seniorRankPosition ? (await seniorRankPosition.rankFor(entrant.playerId)).rank : null;
+    const rank = rankByPlayer
+      ? (rankByPlayer.get(entrant.playerId) ?? null)
+      : seniorRankPosition
+        ? (await seniorRankPosition.rankFor(entrant.playerId)).rank
+        : null;
     candidates.push({ playerId: entrant.playerId, nationality: player.nationality, rank });
   }
   if (candidates.length === 0) return 0;

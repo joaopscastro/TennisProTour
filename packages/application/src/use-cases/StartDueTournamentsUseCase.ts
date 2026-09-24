@@ -1,6 +1,9 @@
 import {
   BracketGenerator,
   DrawPhase,
+  GameWeek,
+  Player,
+  PlayerId,
   RankingBand,
   Tournament,
   TournamentEntrant,
@@ -8,10 +11,10 @@ import {
   WorldId,
 } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
-import { RankPositionQuery } from '../queries/RankPositionQuery';
-import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
-import { applyWildCards } from './applyWildCards';
-import { fillDrawSlots } from './fillDrawSlots';
+import { RankedPlayer, RankPositionQuery } from '../queries/RankPositionQuery';
+import { FormDoublesDrawPreloaded, FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
+import { applyWildCards, wildCardsApplicableTo } from './applyWildCards';
+import { FillDrawSlotsPreloaded, fillDrawSlots } from './fillDrawSlots';
 
 export interface StartDueTournamentsCommand {
   worldId: WorldId;
@@ -143,6 +146,12 @@ export class StartDueTournamentsUseCase {
      * (the pre-P7b unit tests construct this use case without one);
      * the composition root always passes it. */
     private readonly formDoublesDraw?: FormDoublesDrawUseCase,
+    /** The DOUBLES rank queries, one per band. Used ONLY to resolve the
+     * precomputed doubles ranking lists once per run (see the run-wide
+     * preload in execute()) — without it, each doubles draw's formation
+     * falls back to loading both rankings itself. Optional for test
+     * compatibility; the composition root always passes it. */
+    private readonly doublesRankByBand?: Record<RankingBand, RankPositionQuery>,
   ) {}
 
   async execute(command: StartDueTournamentsCommand): Promise<StartDueTournamentsResult> {
@@ -209,15 +218,96 @@ export class StartDueTournamentsUseCase {
     let started = 0;
     let filled = 0;
 
+    // -----------------------------------------------------------------
+    // Run-wide preloads (performance pass — see AGENTS.md). Everything
+    // below used to be re-read per fill / per doubles draw / per
+    // wild-card candidate: every `fillSlots()` did a fresh
+    // `players.findAll()`, every `form()` re-loaded both band rankings
+    // and the free-agent pool, and every wild-card candidate re-ran the
+    // whole cross-player senior ranking query. With dozens of due
+    // tournaments that is hundreds of full reads per rollover. Loading
+    // them ONCE here and threading them down keeps the exact same
+    // content AND ordering (see FillDrawSlotsPreloaded/
+    // FormDoublesDrawPreloaded's doc comments).
+    //
+    // SAFE ONLY BECAUSE NOTHING IN THIS METHOD WRITES THE LEDGER OR
+    // PLAYER ROWS: the only writes below are tournament saves (plus the
+    // expiry deletes above), so a list read once at the start of the run
+    // is byte-identical to what each fill would have read moments later.
+    // The one thing that DOES change within the run — who is entered in
+    // a tournament this week — is handled by mutating the week's entered
+    // set as fills land (see fillDrawSlots), exactly mirroring the old
+    // per-candidate DB read seeing earlier fills in the same run.
+    // -----------------------------------------------------------------
+    const fillOnlyPool = (await this.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
+    const freeAgents = this.formDoublesDraw ? await this.players.findFreeAgents() : undefined;
+
+    // One `sortedRankings()` per band per RUN, resolved lazily on first
+    // use. The ledger is never written below, so the cached list is what
+    // every later call would have re-computed.
+    const singlesRankedByBand = new Map<RankingBand, Promise<RankedPlayer[]>>();
+    const singlesRankedFor = (band: RankingBand): Promise<RankedPlayer[]> => {
+      const cached = singlesRankedByBand.get(band);
+      if (cached) return cached;
+      const pending = this.rankPositionByBand[band].sortedRankings();
+      singlesRankedByBand.set(band, pending);
+      return pending;
+    };
+    const doublesRankedByBand = new Map<RankingBand, Promise<RankedPlayer[]>>();
+    const doublesRankedFor = (band: RankingBand): Promise<RankedPlayer[]> => {
+      const cached = doublesRankedByBand.get(band);
+      if (cached) return cached;
+      if (!this.doublesRankByBand) return Promise.resolve([]);
+      const pending = this.doublesRankByBand[band].sortedRankings();
+      doublesRankedByBand.set(band, pending);
+      return pending;
+    };
+
+    // The week's "already entered somewhere" set, loaded once per
+    // DISTINCT scheduled week among the due tournaments (due can span
+    // more than one week when an old draw was left open). Absent when
+    // the repository doesn't implement the set read — the fill helpers
+    // then keep today's per-candidate findByPlayerAndWeek check.
+    const weekKey = (week: GameWeek): string => `${week.season}:${week.week}`;
+    const enteredByWeek = new Map<string, Set<PlayerId>>();
+    if (this.tournaments.findEnteredPlayerIdsForWeek) {
+      for (const tournament of due) {
+        const key = weekKey(tournament.weekScheduled);
+        if (enteredByWeek.has(key)) continue;
+        enteredByWeek.set(key, new Set(await this.tournaments.findEnteredPlayerIdsForWeek(tournament.weekScheduled)));
+      }
+    }
+
     for (const tournament of due) {
+      const band: RankingBand = tournament.ageBand ?? 'senior';
+      const enteredPlayerIdsForWeek = enteredByWeek.get(weekKey(tournament.weekScheduled));
+      const fillPreloaded: FillDrawSlotsPreloaded = {
+        fillOnlyPool,
+        ranked: await singlesRankedFor(band),
+        enteredPlayerIdsForWeek,
+      };
+      const doublesPreloaded: FormDoublesDrawPreloaded = {
+        singlesRanked: await singlesRankedFor(band),
+        doublesRanked: this.doublesRankByBand ? await doublesRankedFor(band) : undefined,
+        freeAgents,
+        enteredPlayerIdsForWeek,
+      };
+
       // The automatic wild card algorithm (see WildCardPolicy/
       // applyWildCards) runs FIRST, before the qualifying field is
       // padded with fillers below — it must only ever consider REAL,
       // manager-registered qualifying entrants (a filler has no
       // manager and shouldn't get a "break"), and it must run before
       // the qualifying bracket is ever seeded, same requirement
-      // RegisterEntrantUseCase's own auto-start path has.
-      await applyWildCards(tournament, this.players, this.rankPositionByBand.senior);
+      // RegisterEntrantUseCase's own auto-start path has. The senior
+      // ranking list is resolved only for a tournament that can
+      // actually award one (tier has slots + a host country recorded).
+      await applyWildCards(
+        tournament,
+        this.players,
+        this.rankPositionByBand.senior,
+        wildCardsApplicableTo(tournament) ? await singlesRankedFor('senior') : undefined,
+      );
 
       // At a tournament that holds qualifying, the QUALIFYING field is
       // filled from free agents too, alongside the human registrants
@@ -229,7 +319,7 @@ export class StartDueTournamentsUseCase {
       if (tournament.hasQualifying) {
         const qualifyingNeeded = tournament.qualifyingDrawSize - tournament.qualifyingEntrants.length;
         if (qualifyingNeeded > 0) {
-          filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying');
+          filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying', fillPreloaded);
         }
       }
       // The main draw's fill target. Wild cards actually AWARDED (by
@@ -249,7 +339,7 @@ export class StartDueTournamentsUseCase {
       const directlyFilled = tournament.mainEntrants.length - wildCardsTaken;
       const needed = mainDrawFillTarget - directlyFilled;
       if (needed > 0) {
-        filled += await this.fillSlots(tournament, needed);
+        filled += await this.fillSlots(tournament, needed, 'main', fillPreloaded);
       }
       // A tournament that stayed at zero SINGLES entrants has nothing to
       // seed for the singles/qualifying bracket — but may still have a
@@ -270,13 +360,13 @@ export class StartDueTournamentsUseCase {
             tournament.qualifyingDrawSize,
           );
           if (qualifyingBracket[0].matches.length === 0) {
-            await this.formDoublesDraw?.form(tournament);
+            await this.formDoublesDraw?.form(tournament, doublesPreloaded);
             continue;
           }
           tournament.startQualifyingWithBracket(qualifyingBracket);
           await this.tournaments.save(tournament);
           started += 1;
-          await this.formDoublesDraw?.form(tournament);
+          await this.formDoublesDraw?.form(tournament, doublesPreloaded);
           continue;
         }
 
@@ -293,7 +383,7 @@ export class StartDueTournamentsUseCase {
         // tick — with more fillers generated/converted by then — try
         // again, exactly like the zero-entrants case above.
         if (bracket[0].matches.length === 0) {
-          await this.formDoublesDraw?.form(tournament);
+          await this.formDoublesDraw?.form(tournament, doublesPreloaded);
           continue;
         }
         tournament.startWithBracket(bracket);
@@ -302,7 +392,7 @@ export class StartDueTournamentsUseCase {
       }
 
       // The doubles draw (P7b) forms independently of the singles one.
-      await this.formDoublesDraw?.form(tournament);
+      await this.formDoublesDraw?.form(tournament, doublesPreloaded);
     }
 
     return { started, filled, expired: expiredIds.size };
@@ -312,10 +402,16 @@ export class StartDueTournamentsUseCase {
    * `tournament` (mutating it in place, same as RegisterEntrantUseCase
    * does). Thin delegation to the shared fillDrawSlots helper — the
    * exact same selection this class used before, now reused by
-   * PromoteQualifiersUseCase too (see that file). Returns how many were
-   * actually added — may be fewer than `needed` if the eligible pool
-   * runs out. */
-  private async fillSlots(tournament: Tournament, needed: number, draw: DrawPhase = 'main'): Promise<number> {
+   * PromoteQualifiersUseCase too (see that file). `preloaded` carries the
+   * run-wide pool/rankings/commitment set (see execute()). Returns how
+   * many were actually added — may be fewer than `needed` if the
+   * eligible pool runs out. */
+  private async fillSlots(
+    tournament: Tournament,
+    needed: number,
+    draw: DrawPhase = 'main',
+    preloaded: FillDrawSlotsPreloaded = {},
+  ): Promise<number> {
     const band: RankingBand = tournament.ageBand ?? 'senior';
     return fillDrawSlots(
       { players: this.players, tournaments: this.tournaments, rankQuery: this.rankPositionByBand[band] },
@@ -325,6 +421,7 @@ export class StartDueTournamentsUseCase {
       draw === 'qualifying'
         ? (entrant) => tournament.registerEntrant(entrant)
         : (entrant) => this.addMainDrawEntrant(tournament, entrant),
+      preloaded,
     );
   }
 

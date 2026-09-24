@@ -80,6 +80,18 @@ export interface PlayerRepository {
    * generated player lives in the world for their whole career whether
    * or not a manager ever signs them, so they never "expire" or vanish. */
   findFreeAgents(): Promise<Player[]>;
+  /** Recovers `amount` fatigue from EVERY player carrying any, in ONE
+   * statement — the bulk counterpart to `save(player)` in the daily
+   * recovery loop (AdvanceWorldWeekUseCase.recoverDailyFatigue), which
+   * otherwise reads every player and issues one single-row upsert per
+   * tired player on every day tick. Semantically identical to calling
+   * `Player.recoverFatigue(amount)` (max(0, min(100, fatigue - amount)))
+   * for each player with `fatigue > 0`, then saving: the `fatigue === 0`
+   * skip the loop applies is exactly the `WHERE fatigue > 0` filter, and
+   * fatigue can never exceed the 100 cap the loop would clamp to.
+   * Optional for test compatibility (an in-memory fake may omit it); the
+   * use case falls back to the per-player loop when absent. */
+  recoverFatigueForAll?(amount: number): Promise<void>;
   save(player: Player): Promise<void>;
 }
 
@@ -194,6 +206,22 @@ export interface TournamentRepository {
    * together (a player can't play two tournaments' doubles on the same
    * days they're playing singles), so the cap helper reads BOTH. */
   findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]>;
+
+  /** Every player id entered in ANY tournament's SINGLES field for
+   * exactly this GameWeek, in ONE query — the set form of
+   * `findByPlayerAndWeek(playerId, week).length === 0`, which the draw
+   * fillers used to ask once PER CANDIDATE (the fill N+1: with hundreds
+   * of eligible fill-only players per fill, each fill issued hundreds of
+   * single-player round trips). A caller that fills several draws for the
+   * same week — StartDueTournamentsUseCase — loads this once per distinct
+   * week and threads it into fillDrawSlots/FormDoublesDrawUseCase, which
+   * skip the id inside the returned set exactly as they used to skip a
+   * non-empty findByPlayerAndWeek result. DELIBERATELY singles-only,
+   * matching the old predicate byte-for-byte (a doubles entrant was
+   * never "committed" for this check). Optional for test compatibility
+   * (an in-memory fake may omit it); callers fall back to the
+   * per-candidate findByPlayerAndWeek check when absent. */
+  findEnteredPlayerIdsForWeek?(week: GameWeek): Promise<PlayerId[]>;
 
   /** For each of the given tournaments, how many of its SINGLES entrants
    * are owned by a real manager (`players.manager_id IS NOT NULL`) — the
@@ -394,6 +422,22 @@ export interface RankingLedgerRepository {
    * to read in one call, same assumption RosterDashboardQuery already
    * makes about tournament_matches. */
   findAll(): Promise<RankingLedgerEntry[]>;
+
+  /** The WINDOWED counterpart to `findAll()` — only rows whose earned
+   * week falls inside the rolling `weeks`-week window ENDING at
+   * `currentWeek`: `currentWeek - weeks <= seasonEarned * 52 + weekEarned
+   * <= currentWeek` (inclusive both ends, the exact absolute-week
+   * arithmetic `weeksBetween`/`RankingCalculationService` already use,
+   * with the same `age >= 0 && age <= RANKING_WINDOW_WEEKS` semantics).
+   * This is what stops `RankPositionQuery.sortedRankings()` — called
+   * dozens of times per weekly rollover by StartDueTournamentsUseCase/
+   * FormDoublesDrawUseCase — from re-reading and re-processing every
+   * ledger row ever written; a result outside the window can never
+   * contribute points, so excluding it in SQL is behaviour-identical.
+   * Optional for test compatibility (an in-memory fake may omit it);
+   * `RankPositionQuery` falls back to `findAll()` + its own in-memory
+   * window filter when absent, so behaviour is unchanged either way. */
+  findAllWithinWindow?(currentWeek: GameWeek, weeks: number): Promise<RankingLedgerEntry[]>;
 }
 
 /**

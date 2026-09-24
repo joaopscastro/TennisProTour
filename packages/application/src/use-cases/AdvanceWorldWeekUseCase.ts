@@ -27,6 +27,7 @@ import {
   TournamentRepository,
   TrainingScheduleRepository,
 } from '../ports/ports';
+import { TickProfiler } from '../profiling/tickProfile';
 
 export interface AdvanceWorldWeekCommand {
   worldId: WorldId;
@@ -179,6 +180,8 @@ export class AdvanceWorldWeekUseCase {
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
+    // WORLD_TICK_PROFILE=1 phase timing (no-op otherwise) — see TickProfiler.
+    const profiler = new TickProfiler('advanceWorldWeek');
     const world = await this.worlds.findById(command.worldId);
     if (!world) throw new Error(`Game world ${command.worldId} not found`);
 
@@ -191,6 +194,7 @@ export class AdvanceWorldWeekUseCase {
     // The clock advances (idempotency aside); the heavy weekly work
     // below runs ONLY when the day rolled over into a new week.
     const { advanced, weekRolledOver } = world.advanceDay(command.tickKey);
+    profiler.mark('clock');
     if (!advanced) {
       return { advanced: false, weekRolledOver: false, playersAged: 0, seasonRolledOver: false };
     }
@@ -203,7 +207,9 @@ export class AdvanceWorldWeekUseCase {
       // and must not fire today; form decays only on the weekly rollover
       // below, not mid-week.
       await this.recoverDailyFatigue();
+      profiler.mark('fatigueRecovery');
       await this.worlds.save(world);
+      profiler.mark('worldSave');
       return { advanced: true, weekRolledOver: false, playersAged: 0, seasonRolledOver: false };
     }
 
@@ -235,6 +241,7 @@ export class AdvanceWorldWeekUseCase {
     };
 
     const allPlayers = await this.players.findAll();
+    profiler.mark('playersFindAll', { players: allPlayers.length });
     for (const player of allPlayers) {
       // The weekly rollover is itself one day passing, so it recovers
       // that day's fatigue too (same amount every advanced day); form
@@ -310,6 +317,7 @@ export class AdvanceWorldWeekUseCase {
       await this.players.save(player);
       await this.events.publish(player.pullDomainEvents());
     }
+    profiler.mark('playerLoop', { players: allPlayers.length });
 
     // The decaying manager ladder erodes once per weekly rollover (never
     // mid-week) — a single whole-table multiply, cost independent of how
@@ -317,6 +325,7 @@ export class AdvanceWorldWeekUseCase {
     // score you must keep earning against or watch slide (see
     // docs/rocking-rackets-competitive-analysis.md §1d).
     await this.managerLadder.decayAll(this.managerLadderPolicy.weeklyDecayFactor());
+    profiler.mark('ladderDecay');
 
     // The EXTRA inactivity penalty (see ManagerLadderPolicy.inactivityPenaltyFactor's
     // doc comment): a manager whose WHOLE roster registered zero entries
@@ -347,8 +356,10 @@ export class AdvanceWorldWeekUseCase {
       if (!active) inactiveManagerIds.push(managerId);
     }
     await this.managerLadder.decayManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyFactor());
+    profiler.mark('inactivityPenalty', { inactiveManagers: inactiveManagerIds.length });
 
     await this.worlds.save(world);
+    profiler.mark('worldSave');
     return {
       advanced: true,
       weekRolledOver: true,
@@ -363,8 +374,19 @@ export class AdvanceWorldWeekUseCase {
    * 0) so writes stay proportional to how many players are actually
    * tired, not the whole population, every day. Deliberately does NOT
    * touch form, aging, or training — those are weekly-rollover concerns
-   * (see execute()). */
+   * (see execute()).
+   *
+   * Uses the repository's bulk `recoverFatigueForAll` when available —
+   * one `UPDATE ... SET fatigue = GREATEST(0, fatigue - n) WHERE fatigue > 0`
+   * instead of a findAll() plus one single-row upsert per tired player
+   * (the profile's per-day hot spot). Semantically identical: the same
+   * skip for fatigue 0, the same clamp, the same recovered amount; the
+   * in-memory fakes used by unit tests omit it and keep the loop. */
   private async recoverDailyFatigue(): Promise<void> {
+    if (this.players.recoverFatigueForAll) {
+      await this.players.recoverFatigueForAll(FATIGUE_RECOVERY_PER_DAY);
+      return;
+    }
     const allPlayers = await this.players.findAll();
     for (const player of allPlayers) {
       if (player.fatigue === 0) continue;

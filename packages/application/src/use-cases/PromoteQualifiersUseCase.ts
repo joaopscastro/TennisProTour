@@ -1,6 +1,7 @@
 import { BracketGenerator, WorldId } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
 import { fillDrawSlots } from './fillDrawSlots';
+import { TickProfiler } from '../profiling/tickProfile';
 
 export interface PromoteQualifiersCommand {
   worldId: WorldId;
@@ -71,6 +72,8 @@ export class PromoteQualifiersUseCase {
   // SimulateDueMatchesUseCase.
   async execute(_command: PromoteQualifiersCommand): Promise<PromoteQualifiersResult> {
     const result: PromoteQualifiersResult = { mainDrawsSeeded: 0, promoted: 0 };
+    // WORLD_TICK_PROFILE=1 phase timing (no-op otherwise) — see TickProfiler.
+    const profiler = new TickProfiler('promoteQualifiers');
 
     // The bounded live set (see TournamentRepository.findStartedLive):
     // a qualifying-complete / main-draw-unseeded tournament is included
@@ -78,7 +81,9 @@ export class PromoteQualifiersUseCase {
     // drops out — so this daily use case stops reconstituting the whole
     // tournament history.
     const liveTournaments = this.tournaments.findStartedLive?.() ?? this.tournaments.findStarted();
-    for (const tournament of await liveTournaments) {
+    const tournamentsToScan = await liveTournaments;
+    profiler.mark('liveSet', { liveTournaments: tournamentsToScan.length });
+    for (const tournament of tournamentsToScan) {
       if (!tournament.hasQualifying) continue;
       if (tournament.hasMainDraw) continue;
       if (!tournament.isQualifyingComplete()) continue;

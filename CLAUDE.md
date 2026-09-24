@@ -2389,3 +2389,81 @@ over-engineering and unnecessary complexity**, which is why principles
 #2, #3, and #4 above exist: each one is a deliberate reaction against a
 genuinely tempting but wrong level of scope (Football Manager's depth,
 Tribal Wars' systems sprawl, real-time infrastructure).
+
+## Performance pass — bounded ranking reads, preloaded fills, bulk daily fatigue
+
+The day tick's fixed cost used to grow with world size. On the 4-season
+`soak3` world (1,096 players, ~101k `ranking_ledger` rows, 27 live
+tournaments) a weekly rollover took ~70s, dominated by
+`StartDueTournamentsUseCase` (53.8s): dozens of full `ranking_ledger`
+scans (`RankPositionQuery.sortedRankings()` re-reads the whole ledger, and
+`StartDueTournamentsUseCase` triggered one per fill / per doubles draw /
+per wild-card candidate), an N+1 `findByPlayerAndWeek` loop per fill, and
+a fresh `players.findAll()` per fill; a daily `players.findAll()` + one
+upsert per tired player in `recoverDailyFatigue` was the per-day hot spot.
+Three behaviour-identical fixes, each optional/fallback-preserving so
+in-memory fakes and other callers are unchanged:
+
+1. **Windowed ranking reads + one resolve per run.**
+   `RankingLedgerRepository.findAllWithinWindow?(currentWeek, weeks)` —
+   the Drizzle impl is ONE SQL prefilter on `season_earned * 52 +
+   week_earned BETWEEN current-weeks AND current` (the same absolute-week
+   arithmetic `weeksBetween` uses; a row outside the window can never
+   contribute points). `RankPositionQuery.sortedRankings()` uses it,
+   falling back to `findAll()` for fakes. **Determinism fix (documented):**
+   both Drizzle reads now `ORDER BY player_id`, and `sortedRankings()`
+   breaks equal totals by `playerId` explicitly (ties previously kept
+   physical-row order). `StartDueTournamentsUseCase.execute` resolves each
+   band's `sortedRankings()` ONCE per run and threads the results into
+   `fillDrawSlots` / `FormDoublesDrawUseCase.form` / `applyWildCards` as
+   optional precomputed inputs — safe only because nothing writes the
+   ledger inside `execute()` (asserted in a comment). `applyWildCards`
+   uses one sorted list + index lookup instead of a full-scan `rankFor()`
+   per candidate.
+2. **No fill N+1s.** `fillDrawSlots` / `FormDoublesDrawUseCase.form`
+   accept optional preloaded context: the fill-only pool
+   (`fillOnly && !retired`), the free-agent list, the per-week
+   entered-player set, and the ranked lists; absent context keeps today's
+   per-candidate loop. New
+   `TournamentRepository.findEnteredPlayerIdsForWeek(week)` is one
+   `SELECT DISTINCT e.player_id FROM tournament_entries e JOIN tournaments
+   t ...` — exactly the set form of the old singles-only
+   `findByPlayerAndWeek(...).length === 0`. `StartDueTournamentsUseCase`
+   loads pool / free agents / entered set per distinct week ONCE before
+   the due loop. **Selection order is preserved** (same pool order, same
+   id tie-break; fills mutate the week's set as they land, mirroring the
+   old immediate-save visibility) and is pinned by a real-Postgres test
+   that runs the old fallback and the new preloaded path over identical
+   state and asserts identical fillers.
+3. **Bulk daily fatigue recovery.**
+   `PlayerRepository.recoverFatigueForAll?(amount)` — one `UPDATE players
+   SET fatigue = GREATEST(0, fatigue - $1) WHERE fatigue > 0` (equivalent
+   to `Player.recoverFatigue`'s `max(0, min(100, ...))` plus the loop's
+   fatigue-0 skip). `recoverDailyFatigue()` uses it when present, else
+   today's loop.
+
+**Instrumentation.** `WORLD_TICK_PROFILE=1` (unset = no-op, zero
+allocation/cost) enables `TickProfiler`
+(`packages/application/src/profiling/tickProfile.ts`, exported from
+`@tennis-manager/application`), logging one `{"msg":"world-tick-profile",
+"scope":...,"phase":...,"ms":...}` line per phase:
+`AdvanceWorldWeekUseCase` (clock, fatigue recovery, `players.findAll`,
+per-player weekly loop, ladder decay, inactivity penalty), the worker's
+`advance-world-day` handler (each weekly system separately, ordering
+untouched), `SimulateDueMatchesUseCase` (live-set load, sweep, aggregate
+per-match), both `Promote*` use cases (live-set load).
+
+**Measured** (7-tick driver `apps/worker/src/scripts/soakTick.ts`, worker
+stopped, identical DB copies of `soak3`, unique tick starts): weekly
+rollover 69.70s → 17.39s (4.0×; `startDueTournaments` 53.75s → 1.92s,
+28×; daily fatigue recovery 1.49s → 10ms, ~150×; 7-tick wall 102.9s →
+44.0s, 2.3×). Match counts per tick are identical
+(116/94/59/17/8/6/265) and every structural aggregate matches; the
+residual numeric diffs are inherent `Math.random()` run-to-run variance,
+proven by an AFTER-vs-AFTER control run diverging the same way. Tests:
+domain 386, application 268, api 153 (+4 real-Postgres cases), worker 11,
+web typecheck clean. (`tennis_manager_main` does not exist on this
+machine; the §5 inventory came from the actual dev/soak DBs — e.g.
+`tennis_manager_soak3`: live set 27, ledger 101,064, fill-only pool
+1,046; `tennis_manager_soak`: live set 223, of which 195 carry the
+pre-fix 2,262-match all-undecided doubles backlog.)

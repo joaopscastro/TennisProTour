@@ -5,6 +5,7 @@ import {
   RankingBand,
   RankingCalculationService,
   RankingLedgerEntry,
+  RANKING_WINDOW_WEEKS,
   WorldId,
 } from '@tennis-manager/domain';
 import { GameWorldRepository, RankingLedgerRepository } from '../ports/ports';
@@ -74,7 +75,16 @@ export class RankPositionQuery {
     // run yet.
     const currentWeek = world?.currentWeek ?? { season: 1, week: 1 };
 
-    const entries = await this.rankingLedger.findAll();
+    // WINDOWED read where the adapter provides one: a row outside the
+    // rolling 52-week window can never contribute points (the calculator
+    // filters `age >= 0 && age <= RANKING_WINDOW_WEEKS` exactly below),
+    // so excluding it in SQL is behaviour-identical — and is what keeps
+    // the ~120-200 sortedRankings() calls a weekly rollover makes from
+    // each re-reading the whole ledger. Fakes without the method fall
+    // back to findAll() unchanged.
+    const entries =
+      (await this.rankingLedger.findAllWithinWindow?.(currentWeek, RANKING_WINDOW_WEEKS)) ??
+      (await this.rankingLedger.findAll());
     const bandEntries = entries.filter(
       (entry) => matchesRankingBand(entry.ageBand, this.band) && (entry.discipline ?? 'singles') === this.discipline,
     );
@@ -93,7 +103,16 @@ export class RankPositionQuery {
       }))
       .filter((r) => r.totalPoints > 0);
 
-    return ranked.sort((a, b) => b.totalPoints - a.totalPoints);
+    // DETERMINISM FIX, not a behaviour change: equal totals previously
+    // kept whatever order the underlying read happened to return (Map
+    // insertion order = first-appearance order of a player's entries in
+    // `findAll()`), which depended on physical row layout / DB collation
+    // and could differ between two reads of the same data. Ties are now
+    // broken by playerId explicitly, so "rank #N" is reproducible — the
+    // same list, the same filler preference order, on every call.
+    return ranked.sort(
+      (a, b) => b.totalPoints - a.totalPoints || (a.playerId < b.playerId ? -1 : a.playerId > b.playerId ? 1 : 0),
+    );
   }
 
   /** 1-indexed rank position and current total for one player in this

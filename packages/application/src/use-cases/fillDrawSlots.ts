@@ -1,6 +1,6 @@
-import { isAgeEligibleForTournamentBand, PlayerId, RankingBand, Tournament, TournamentEntrant } from '@tennis-manager/domain';
+import { isAgeEligibleForTournamentBand, Player, PlayerId, RankingBand, Tournament, TournamentEntrant } from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository } from '../ports/ports';
-import { RankPositionQuery } from '../queries/RankPositionQuery';
+import { RankedPlayer, RankPositionQuery } from '../queries/RankPositionQuery';
 
 /**
  * The shared "top this tournament's draw up from the fill-only pool"
@@ -30,8 +30,36 @@ export interface FillDrawSlotsDeps {
   tournaments: TournamentRepository;
   /** Optional: the rank query for the tournament's own band. When
    * omitted (a caller with no rank query), selection just falls back to
-   * the deterministic id ordering. */
+   * the deterministic id ordering. Ignored when `preloaded.ranked` is
+   * supplied. */
   rankQuery?: RankPositionQuery;
+}
+
+/**
+ * Run-wide inputs a caller that fills SEVERAL draws in one execution can
+ * load once and share, instead of re-reading pool/rankings/commitments
+ * per draw (the fill N+1). Every field is OPTIONAL and falls back to
+ * today's per-call read, so existing callers and fakes are unchanged.
+ *
+ * Content and ORDERING are load-bearing: `fillOnlyPool` must be the
+ * `players.findAll()` filter (`fillOnly && !isRetired()`) and `ranked`
+ * must be the band's `sortedRankings()`, both exactly as the fallback
+ * path would produce them — the same candidates in the same relative
+ * order, so the same fillers are picked in the same order.
+ */
+export interface FillDrawSlotsPreloaded {
+  /** The `fillOnly && !retired` pool, in `players.findAll()` order. */
+  fillOnlyPool?: ReadonlyArray<Player>;
+  /** The tournament's band list from a run-wide `sortedRankings()`. */
+  ranked?: ReadonlyArray<RankedPlayer>;
+  /** The set form of "already entered ANY tournament the same week",
+   * from `TournamentRepository.findEnteredPlayerIdsForWeek`. When
+   * supplied, candidates in the set are skipped exactly as a non-empty
+   * `findByPlayerAndWeek` result used to be — and the ids actually
+   * filled by THIS call are added to the set, mirroring what the
+   * immediate `save()` below makes visible to the next per-candidate
+   * DB read in the old code. */
+  enteredPlayerIdsForWeek?: Set<PlayerId>;
 }
 
 export async function fillDrawSlots(
@@ -40,6 +68,7 @@ export async function fillDrawSlots(
   needed: number,
   draw: 'main' | 'qualifying',
   addEntrant: (entrant: TournamentEntrant) => void,
+  preloaded: FillDrawSlotsPreloaded = {},
 ): Promise<number> {
   if (needed <= 0) return 0;
   const band: RankingBand = tournament.ageBand ?? 'senior';
@@ -47,16 +76,24 @@ export async function fillDrawSlots(
   // A retired player is never a live filler: nothing deletes a retired
   // player, and without this exclusion they would still be selected into
   // a real tournament draw they can never play.
-  const fillOnlyPlayers = (await deps.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
-  const ranked = deps.rankQuery ? await deps.rankQuery.sortedRankings() : [];
+  const fillOnlyPlayers =
+    preloaded.fillOnlyPool ?? (await deps.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
+  const ranked = preloaded.ranked ?? (deps.rankQuery ? await deps.rankQuery.sortedRankings() : []);
   const rankOrder = new Map(ranked.map((r, index) => [r.playerId, index]));
 
   const eligible = fillOnlyPlayers.filter((p) =>
     isAgeEligibleForTournamentBand(p.seasonAgeAnchorWeeks, tournament.ageBand),
   );
 
+  const enteredThisWeek = preloaded.enteredPlayerIdsForWeek;
   const available: PlayerId[] = [];
   for (const candidate of eligible) {
+    if (enteredThisWeek) {
+      // Preloaded commitment set: one membership check instead of a
+      // single-player round trip (the N+1 this preload removes).
+      if (!enteredThisWeek.has(candidate.id)) available.push(candidate.id);
+      continue;
+    }
     const committedElsewhere = await deps.tournaments.findByPlayerAndWeek(candidate.id, tournament.weekScheduled);
     if (committedElsewhere.length === 0) available.push(candidate.id);
   }
@@ -86,6 +123,7 @@ export async function fillDrawSlots(
         ? { playerId, seed: null, draw, entryType: 'Q' }
         : { playerId, seed: null };
     addEntrant(entrant);
+    enteredThisWeek?.add(playerId);
   }
   // Persist immediately — later tournaments processed this same run rely
   // on findByPlayerAndWeek seeing it.

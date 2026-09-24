@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
-import { drawOf, entryTypeOf, ManagerId, PairId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
+import { drawOf, entryTypeOf, GameWeek, ManagerId, PairId, PlayerId, TournamentId, TournamentEntrant } from '@tennis-manager/domain';
 import { DoublesPair } from '@tennis-manager/domain';
 import { MastersCup } from '@tennis-manager/domain';
 import { WorldTeamCup } from '@tennis-manager/domain';
@@ -37,6 +37,7 @@ import {
   RankPositionQuery,
   SendManagerDigestsUseCase,
   StartDueTournamentsUseCase,
+  TournamentRepository,
 } from '@tennis-manager/application';
 import { testConnectionString } from '../../db/testConnection';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
@@ -915,6 +916,227 @@ describe('DrizzleRankingLedgerRepository', () => {
     const entries = await ledgerRepository.findByPlayer(PlayerId('p-obl'));
     expect(entries.find((e) => e.tournamentId === TournamentId('t-major-obl'))?.obligatory).toBe(true);
     expect(entries.find((e) => e.tournamentId === TournamentId('t-ch-obl'))?.obligatory).toBe(false);
+  });
+});
+
+/**
+ * Soak/performance-pass regression coverage, against real Postgres:
+ *  - the windowed ranking read (`findAllWithinWindow`) must include both
+ *    window ends and exclude anything older or in the future, and
+ *    `RankPositionQuery` over the REAL adapter must equal what the
+ *    calculator's own in-memory window filter computes;
+ *  - the run-wide fill preloads must select the SAME fillers as the old
+ *    per-candidate fallback path (selection order is behaviour);
+ *  - the bulk fatigue recovery must be exactly the per-player loop's
+ *    math over real rows;
+ *  - the singles-only entered-for-the-week set must be the set form of
+ *    `findByPlayerAndWeek(...).length === 0`.
+ */
+describe('windowed ranking reads + run-wide fill preloads (real Postgres)', () => {
+  const worldRepository = new DrizzleGameWorldRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+  const ledgerRepository = new DrizzleRankingLedgerRepository(db);
+
+  function rankingsFor(worldId: WorldId): Record<RankingBand, RankPositionQuery> {
+    return {
+      senior: new RankPositionQuery(ledgerRepository, worldRepository, worldId, 'senior'),
+      u18: new RankPositionQuery(ledgerRepository, worldRepository, worldId, 'u18'),
+      u16: new RankPositionQuery(ledgerRepository, worldRepository, worldId, 'u16'),
+      u14: new RankPositionQuery(ledgerRepository, worldRepository, worldId, 'u14'),
+    };
+  }
+
+  it('findAllWithinWindow includes both window ends and excludes older-than-window and future rows', async () => {
+    const worldId = WorldId('window-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 3, week: 10 }));
+
+    await playerRepository.save(Player.hire(PlayerId('p-window'), 'Window Player', 24 * 52, attributes(30), ManagerId('m-window')));
+    await tournamentRepository.save(
+      Tournament.open({
+        name: 'Window Test Open',
+        id: TournamentId('t-window'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 3, week: 10 },
+        drawSize: 16,
+      }),
+    );
+
+    // currentWeek absolute = 3*52 + 10 = 166; the 52-week window is
+    // [114, 166] inclusive.
+    const currentWeek: GameWeek = { season: 3, week: 10 };
+    const oldestInWindow: GameWeek = { season: 2, week: 10 }; // 114 = exactly 52 weeks old
+    const justOutside: GameWeek = { season: 2, week: 9 }; // 113 = 53 weeks old
+    const future: GameWeek = { season: 3, week: 11 }; // 167
+
+    const append = async (points: number, weekEarned: GameWeek): Promise<void> => {
+      await ledgerRepository.append({
+        playerId: PlayerId('p-window'),
+        tournamentId: TournamentId('t-window'),
+        tier: 'challenger',
+        ageBand: null,
+        points,
+        weekEarned,
+      });
+    };
+    await append(10, oldestInWindow);
+    await append(20, currentWeek);
+    await append(1000, justOutside);
+    await append(1000, future);
+
+    const windowed = await ledgerRepository.findAllWithinWindow(currentWeek, RANKING_WINDOW_WEEKS);
+    expect(
+      windowed.map((e) => `${e.weekEarned.season}:${e.weekEarned.week}`).sort(),
+    ).toEqual(['2:10', '3:10']);
+
+    // The real query over the real adapter computes exactly what the
+    // calculator's own in-memory filter would: only the two in-window
+    // results count (10 + 20), never the two 1000-point out-of-window
+    // ones.
+    const query = new RankPositionQuery(ledgerRepository, worldRepository, worldId, 'senior');
+    expect(await query.rankFor(PlayerId('p-window'))).toEqual({ totalPoints: 30, rank: 1 });
+  });
+
+  it('selects the SAME fillers through the preloaded path and the old per-candidate fallback', async () => {
+    const worldId = WorldId('fillers-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 1 }));
+
+    // A pool large enough that which 16 of 20 candidates are picked is
+    // actually decided by the selection order, not by the pool running
+    // out. Ids are zero-padded so localeCompare ordering is obvious.
+    for (let i = 1; i <= 20; i++) {
+      const player = Player.generateFillOnly(
+        PlayerId(`same-filler-${String(i).padStart(2, '0')}`),
+        `Same Filler ${i}`,
+        24 * 52,
+        'prime',
+        attributes(35),
+        'US',
+      );
+      player.pullDomainEvents();
+      await playerRepository.save(player);
+    }
+
+    const openTournament = (id: string): Tournament =>
+      Tournament.open({
+        name: 'Same Fillers Open',
+        id: TournamentId(id),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 1 },
+        drawSize: 16,
+      });
+
+    // Run 1 — the OLD path: a repository view WITHOUT the set read, so
+    // StartDueTournamentsUseCase (and fillDrawSlots under it) take the
+    // original per-candidate findByPlayerAndWeek fallback against the
+    // real database.
+    await tournamentRepository.save(openTournament('same-fillers-legacy'));
+    const legacyView: TournamentRepository = {
+      findById: (id) => tournamentRepository.findById(id),
+      findOpenForRegistration: () => tournamentRepository.findOpenForRegistration(),
+      findStarted: () => tournamentRepository.findStarted(),
+      findByPlayerAndWeek: (playerId, week) => tournamentRepository.findByPlayerAndWeek(playerId, week),
+      findDoublesByPlayerAndWeek: (playerId, week) => tournamentRepository.findDoublesByPlayerAndWeek(playerId, week),
+      deleteAbandonedTournament: (id) => tournamentRepository.deleteAbandonedTournament(id),
+      save: (tournament) => tournamentRepository.save(tournament),
+    };
+    const legacyUseCase = new StartDueTournamentsUseCase(
+      legacyView,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const legacyResult = await legacyUseCase.execute({ worldId });
+    const legacyEntrants = (await tournamentRepository.findById(TournamentId('same-fillers-legacy')))!
+      .entrants.map((e) => e.playerId as string)
+      .sort();
+
+    // Reset to a byte-identical starting state: while run 1's draw
+    // exists, its fillers count as committed for the same week, so the
+    // draw (and only the draw) must go before run 2. Child rows first —
+    // the tournament row is referenced by several non-cascading FKs.
+    await db.delete(schema.tournamentMatches).where(eq(schema.tournamentMatches.tournamentId, 'same-fillers-legacy'));
+    await db.delete(schema.weeklyEntryClaims).where(eq(schema.weeklyEntryClaims.tournamentId, 'same-fillers-legacy'));
+    await db.delete(schema.tournamentEntries).where(eq(schema.tournamentEntries.tournamentId, 'same-fillers-legacy'));
+    await db.delete(schema.tournaments).where(eq(schema.tournaments.id, 'same-fillers-legacy'));
+
+    // Run 2 — the NEW path: the real repository (which DOES implement
+    // findEnteredPlayerIdsForWeek), so the set/preloaded path is used.
+    await tournamentRepository.save(openTournament('same-fillers-preloaded'));
+    const preloadedUseCase = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const preloadedResult = await preloadedUseCase.execute({ worldId });
+    const preloadedEntrants = (await tournamentRepository.findById(TournamentId('same-fillers-preloaded')))!
+      .entrants.map((e) => e.playerId as string)
+      .sort();
+
+    expect(legacyResult.filled).toBe(16);
+    expect(preloadedResult.filled).toBe(16);
+    expect(preloadedEntrants).toEqual(legacyEntrants);
+  });
+
+  it('recoverFatigueForAll matches Player.recoverFatigue over real rows (tired, rested, clamped)', async () => {
+    const tired = Player.hire(PlayerId('fatigue-tired'), 'Fatigue Tired', 24 * 52, attributes(30), ManagerId('m-fatigue'));
+    tired.applyMatchFatigue(10);
+    await playerRepository.save(tired);
+
+    const rested = Player.hire(PlayerId('fatigue-rested'), 'Fatigue Rested', 24 * 52, attributes(30), ManagerId('m-fatigue'));
+    await playerRepository.save(rested);
+
+    // Fewer fatigue points than the recovery amount — must floor at 0
+    // exactly like Player.recoverFatigue's max(0, min(100, ...)).
+    const nearlyRested = Player.hire(PlayerId('fatigue-clamped'), 'Fatigue Clamped', 24 * 52, attributes(30), ManagerId('m-fatigue'));
+    nearlyRested.applyMatchFatigue(2);
+    await playerRepository.save(nearlyRested);
+
+    await playerRepository.recoverFatigueForAll(3);
+
+    expect((await playerRepository.findById(PlayerId('fatigue-tired')))!.fatigue).toBe(7);
+    expect((await playerRepository.findById(PlayerId('fatigue-rested')))!.fatigue).toBe(0);
+    expect((await playerRepository.findById(PlayerId('fatigue-clamped')))!.fatigue).toBe(0);
+  });
+
+  it('findEnteredPlayerIdsForWeek returns exactly the singles-entered ids for that week (doubles-only excluded)', async () => {
+    await playerRepository.save(Player.hire(PlayerId('entered-p1'), 'Entered One', 24 * 52, attributes(30), ManagerId('m-entered')));
+    await playerRepository.save(Player.hire(PlayerId('entered-p2'), 'Entered Two', 24 * 52, attributes(30), ManagerId('m-entered')));
+
+    await tournamentRepository.save(
+      Tournament.open({
+        name: 'Entered Week Open',
+        id: TournamentId('entered-t1'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 4 },
+        drawSize: 16,
+      }),
+    );
+    await tournamentRepository.save(
+      Tournament.open({
+        name: 'Other Week Open',
+        id: TournamentId('entered-t-other'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 5 },
+        drawSize: 16,
+      }),
+    );
+
+    await db.insert(schema.tournamentEntries).values({ tournamentId: 'entered-t1', playerId: 'entered-p1', seed: null });
+    await db.insert(schema.tournamentEntries).values({ tournamentId: 'entered-t-other', playerId: 'entered-p2', seed: null });
+    // A DOUBLES-only entry for the same week (p2 in t1's doubles field) —
+    // the singles-only predicate must NOT include it.
+    await db.insert(schema.tournamentDoublesEntrants).values({ tournamentId: 'entered-t1', playerId: 'entered-p2' });
+
+    const ids = await tournamentRepository.findEnteredPlayerIdsForWeek({ season: 1, week: 4 });
+    expect(ids).toEqual([PlayerId('entered-p1')]);
   });
 });
 
