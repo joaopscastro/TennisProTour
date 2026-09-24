@@ -8,7 +8,6 @@ import {
   PlayerMatchesDto,
   PlannerWeekDto,
   RosterDashboardEntryDto,
-  Surface,
   TrainingFocus,
   WorldClockDto,
   acceptDoublesPair,
@@ -25,24 +24,21 @@ import {
 } from '../lib/api';
 import { useCountdown, formatCountdown, formatCountdownClock } from '../lib/useCountdown';
 import { nextPendingEntry, type PendingEntry } from '../lib/pendingEntry';
-import { Sidebar } from '../components/Sidebar';
+import { AppShell } from '../components/ui/AppShell';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
 import { CoachConversionModal } from '../components/CoachConversionModal';
-import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, rankingBandScopeNote, type RankBand } from '../lib/format';
+import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, WEEKS_PER_SEASON, disambiguatedNames, rankingBandScopeNote } from '../lib/format';
 import { useDevManagerId } from '../lib/managerContext';
 import { refreshEntitlement, useEntitlement } from '../lib/entitlement';
-import { Avatar } from '../components/ui/Avatar';
-import { AppFrame, PageShell, Hero, Panel, Button, SectionLabel, Flag } from '../components/ui/primitives';
-import { AnimatedNumber, AnimatedOvrRing, Delta, RankShift, FlashOnGain, usePersistedPrevious } from '../components/ui/motion';
+import { PageShell, PanelHeader, Button, SectionLabel, Flag } from '../components/ui/primitives';
 import { CelebrationMoment, CelebrationOverlay } from '../components/ui/Celebration';
-import { ALL_SURFACES, surfaceMeta, surfaceTheme } from '../lib/ui/surfaces';
+import { ALL_SURFACES, surfaceMeta } from '../lib/ui/surfaces';
 import { stageLabel, stageMeta } from '../lib/ui/stage';
 import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../lib/ui/focus';
 
 // Static reference data (surface colours, training-focus grouping, stage
-// palette) now lives in lib/ui/* — shared with the player profile, which
-// carried its own copies before.
+// palette) lives in lib/ui/* — shared with the player profile.
 
 // Mirrors StandardAgingPolicy's thresholds (packages/domain) — those
 // values are illustrative/not-yet-balanced per CLAUDE.md — the actual
@@ -100,54 +96,21 @@ const FIRST_RUN_STEPS: Array<{ n: number; title: string; body: string; href: str
 type SortBy = 'fatigue' | 'stage' | 'overall' | 'name';
 
 // ---------------------------------------------------------------------------
-// Animated roster cells (GC-15). Each owns its own persisted-previous hooks so
-// hook order stays stable regardless of how the roster is sorted/reordered.
+// Roster table cells (Direction A: values snap, colour encodes state)
 // ---------------------------------------------------------------------------
 
-/** Rank plate: the band label always leads, so the same number can never
- * read as a contradiction with another screen's rank (an unranked U16
- * player can still be Senior #3 — both are true, on different ladders).
- * Points count up from last seen, a ▲/▼ shift chip shows how many
- * positions the player moved, and a floating +/− points delta rises off it. */
-function AnimatedRankPlate({ playerId, rank, points, band }: { playerId: string; rank: number | null; points: number; band: RankBand }) {
-  const prevRank = usePersistedPrevious(`roster:rank:${playerId}`, rank ?? -1);
-  const prevPoints = usePersistedPrevious(`roster:pts:${playerId}`, points);
-  const nr = rank == null;
-  const fromRank = prevRank != null && prevRank > 0 ? prevRank : null;
+/** The segmented stat bar + mono value shared by the fatigue/form and
+ * doubles-chemistry cells. `pct` is clamped for the bar only; the value
+ * shown is always the real figure. */
+function SegStat({ value, pct, color }: { value: number; pct: number; color: string }) {
   return (
-    <div style={{ position: 'relative', display: 'flex', alignItems: 'baseline', gap: 6, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 9.5, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)', flexBasis: '100%' }}>
-        {RANK_BAND_LABEL[band]} ranking
-      </span>
-      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>#</span>
-      <span style={{ fontSize: 26, fontWeight: 850, lineHeight: 1, letterSpacing: '-0.5px', color: nr ? 'var(--gc-ink-faint)' : 'var(--gc-gold)', fontVariantNumeric: 'tabular-nums' }}>
-        {nr ? 'NR' : rank}
-      </span>
-      {!nr && fromRank != null && <RankShift from={fromRank} to={rank} />}
-      {!nr && (
-        <span style={{ position: 'relative', fontSize: 11.5, color: 'var(--gc-ink-mute)' }}>
-          <AnimatedNumber value={points} from={prevPoints ?? points} mountFrom={prevPoints ?? points} format={(n) => `${Math.round(n).toLocaleString()} pts`} style={{ fontSize: 11.5, color: 'var(--gc-ink-mute)' }} />
-          <Delta value={points} />
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** A single surface-affinity bar that grows from its previously-seen height and
- *  flashes green when the affinity has risen since last seen. */
-function AnimatedAffinityBar({ playerId, surfaceKey, value, letter }: { playerId: string; surfaceKey: Surface; value: number; letter: string }) {
-  const pct = Math.round((value / 60) * 100);
-  const t = surfaceTheme(surfaceKey);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-      <FlashOnGain value={value} radius={4}>
-        <div style={{ width: 11, height: 34, borderRadius: 4, display: 'flex', alignItems: 'flex-end', overflow: 'hidden', background: 'oklch(0% 0 0 / 0.35)' }} title={`${surfaceKey}: ${value}`}>
-          <div className="gc-bar-fill" style={{ width: '100%', height: `${pct}%`, background: `linear-gradient(180deg, ${t.color}, ${t.deep})`, transition: 'height 700ms cubic-bezier(.2,.8,.2,1)' }} />
-        </div>
-      </FlashOnGain>
-      <span style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--gc-ink-faint)' }}>{letter}</span>
-    </div>
+    <span className="gc-seg-wrap">
+      <span
+        className="gc-seg"
+        style={{ ['--p' as string]: Math.max(0, Math.min(100, pct)), ['--seg' as string]: color }}
+      />
+      <span className="gc-seg-val">{value}</span>
+    </span>
   );
 }
 
@@ -168,29 +131,29 @@ function RosterNextMatch({ matches, pendingEntry }: { matches: PlayerMatchesDto 
   if (!next) {
     if (pendingEntry) {
       return (
-        <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-mute)' }}>
-          <span style={{ color: 'var(--gc-ink-dim)', fontWeight: 600 }}>Entered:</span> {pendingEntry.name}
-          <span style={{ color: 'var(--gc-ink-faint)' }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>Entered:</span> {pendingEntry.name}
+          <span style={{ color: 'var(--ink-4)' }}>
             {' '}· S{pendingEntry.week.season} W{pendingEntry.week.week} — draw not yet made
           </span>
         </div>
       );
     }
     return (
-      <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-faint)' }}>No match scheduled</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-4)' }}>No match scheduled</div>
     );
   }
   const live = next.scheduledStartAt !== null && remainingMs <= 0;
   return (
-    <div style={{ fontSize: 10.5, marginTop: 2, color: 'var(--gc-ink-mute)' }}>
-      <span style={{ color: 'var(--gc-ink-dim)', fontWeight: 600 }}>Next:</span> vs {next.opponentName}
-      <span style={{ color: 'var(--gc-ink-faint)' }}> · {next.tournamentName}</span>
+    <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+      <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>Next:</span> vs {next.opponentName}
+      <span style={{ color: 'var(--ink-4)' }}> · {next.tournamentName}</span>
       {next.scheduledStartAt === null ? (
-        <span style={{ color: 'var(--gc-ink-faint)', fontStyle: 'italic' }}> · awaiting simulation</span>
+        <span style={{ color: 'var(--ink-4)', fontStyle: 'italic' }}> · awaiting simulation</span>
       ) : live ? (
-        <span style={{ color: 'oklch(70% 0.17 45)', fontWeight: 700 }}> · live now</span>
+        <span style={{ color: 'var(--live)', fontWeight: 700 }}> · live now</span>
       ) : (
-        <span style={{ color: 'oklch(78% 0.1 200)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}> · in {formatCountdownClock(remainingMs)}</span>
+        <span style={{ color: 'var(--accent)', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}> · in {formatCountdownClock(remainingMs)}</span>
       )}
     </div>
   );
@@ -294,8 +257,13 @@ export default function RosterDashboardPage() {
     return copy;
   }, [players, sortBy]);
 
+  // Duplicate full names are real (the generator draws from a finite pool) —
+  // disambiguate within the roster list so two "Yuki Okafor" rows stay
+  // individually identifiable. Display-only, same helper as the other lists.
+  const displayNames = useMemo(() => disambiguatedNames(players ?? []), [players]);
+
   // Counts down to the world's next DAY tick (the same nextTickAt the
-  // sidebar and the player profile count to) — the honest "when does the
+  // topbar and the player profile count to) — the honest "when does the
   // world move next" signal, distinct from any single match's schedule.
   const nextTickMs = useCountdown(worldClock?.nextTickAt ?? null);
 
@@ -469,62 +437,38 @@ export default function RosterDashboardPage() {
   // row (rank + overall) — no new query.
   const enterModalEntry = enterModalPlayer ? players?.find((p) => p.id === enterModalPlayer.id) ?? null : null;
 
+  // Unranked players get the "a ranking is earned by winning" explanation —
+  // once per band present, as a table note (rows stay dense; the explanation
+  // stays visible, never hover-only).
+  const unrankedBands = useMemo(
+    () => Array.from(new Set(sortedPlayers.filter((p) => p.rank == null).map((p) => p.rankBand))),
+    [sortedPlayers],
+  );
+
   function showNotice(text: string) {
     setNotice(text);
     setTimeout(() => setNotice((current) => (current === text ? null : current)), 4000);
   }
 
   return (
-    <AppFrame>
+    <AppShell active="roster" tier={tier} xpBalance={entitlement?.xpBalance}>
       {celebrations.length > 0 && (
         <CelebrationOverlay moments={celebrations} onClose={() => setCelebrations([])} />
       )}
-      <Sidebar active="roster" tier={tier} xpBalance={entitlement?.xpBalance} />
 
-      <PageShell wash="radial-gradient(120% 60% at 90% -10%, oklch(40% 0.05 122 / 0.16), transparent 60%)">
-        {/* HERO */}
-        <Hero minHeight={140}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: '2px', textTransform: 'uppercase', color: 'oklch(90% 0.02 150)', opacity: 0.85 }}>Your Academy</div>
-              <div style={{ fontSize: 34, fontWeight: 850, letterSpacing: '-0.5px', color: 'white', marginTop: 4, textShadow: '0 2px 8px oklch(0% 0 0 / 0.4)' }}>Roster</div>
-              <div style={{ fontSize: 13.5, color: 'oklch(92% 0.01 150)', opacity: 0.8, marginTop: 4 }}>
-                Shape careers, set training, and send your players onto the circuit.
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {canCreateCustomPlayer && (
-                  <Button variant="ghost" onClick={() => setCustomPlayerModalOpen(true)} style={{ background: 'oklch(100% 0 0 / 0.12)', color: 'white', borderColor: 'oklch(100% 0 0 / 0.25)' }}>
-                    Create custom player ({customPlayerCredits})
-                  </Button>
-                )}
-                <Link href="/scouting" className="gc-btn gc-btn--primary" style={{ textDecoration: 'none' }}>
-                  Browse talent pool →
-                </Link>
-              </div>
-              {/* Slot pips */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 11.5, color: 'oklch(92% 0.01 150)', opacity: 0.85, fontWeight: 600 }}>
-                  {usedSlots} / {slotCount} slots
-                </span>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {Array.from({ length: slotCount }, (_, i) => (
-                    <div key={i} style={{
-                      width: 20, height: 6, borderRadius: 3,
-                      background: i < usedSlots ? 'var(--gc-ball)' : 'oklch(100% 0 0 / 0.2)',
-                      boxShadow: i < usedSlots ? '0 0 6px var(--gc-ball)' : 'none',
-                    }} />
-                  ))}
-                </div>
-              </div>
-            </div>
+      <PageShell>
+        {/* Page header — flat, no hero band/wash (Direction A). */}
+        <div>
+          <div className="t-label">Your Academy</div>
+          <h1 className="t-h1" style={{ margin: '4px 0 0' }}>Roster</h1>
+          <div className="t-body-sm" style={{ marginTop: 4 }}>
+            Shape careers, set training, and send your players onto the circuit.
           </div>
-        </Hero>
+        </div>
 
         {!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && (
           <form
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--gc-ink-faint)', marginTop: 12 }}
+            style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 8, fontSize: 11.5, color: 'var(--ink-4)', marginTop: 12 }}
             onSubmit={(e) => { e.preventDefault(); setManagerId(managerIdInput.trim() || managerId); }}
           >
             Manager ID (dev)
@@ -533,167 +477,263 @@ export default function RosterDashboardPage() {
         )}
 
         {error && (
-          <div style={{ marginTop: 16, fontSize: 13, borderRadius: 10, padding: '10px 14px', color: 'oklch(85% 0.12 25)', background: 'oklch(40% 0.12 25 / 0.2)', border: '1px solid oklch(60% 0.15 25 / 0.35)' }}>
+          <div
+            className="gc-notice"
+            style={{
+              marginTop: 16,
+              color: 'var(--loss)',
+              borderColor: 'color-mix(in srgb, var(--loss) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+            }}
+          >
             {error}
           </div>
         )}
 
         {hasPlayers && (
           <>
-            <SectionLabel right={
-              <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                {worldClock && (
-                  <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)', fontVariantNumeric: 'tabular-nums' }}>
-                    Next day in {formatCountdown(nextTickMs)}
-                  </span>
-                )}
-                <select className="gc-select" value={sortBy} onChange={(e) => setSortBy(e.target.value as SortBy)} style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}>
-                  <option value="fatigue">Sort: Fatigue</option>
-                  <option value="stage">Sort: Nearest decline</option>
-                  <option value="overall">Sort: Overall rating</option>
-                  <option value="name">Sort: Name</option>
-                </select>
+            {/* Sub-bar: slot meter + tier note + the one primary talent-pool CTA. */}
+            <div className="gc-subbar" style={{ marginTop: 20 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span className="t-label" style={{ margin: 0 }}>Roster slots</span>
+                <span className="gc-slotdots">
+                  {Array.from({ length: slotCount }, (_, i) => (
+                    <i key={i} className={i < usedSlots ? '' : 'empty'} />
+                  ))}
+                </span>
+                <span className="num" style={{ fontWeight: 600 }}>{usedSlots}/{slotCount} SLOTS</span>
               </div>
-            }>Squad · {usedSlots} player{usedSlots === 1 ? '' : 's'}</SectionLabel>
-
-            {/* Legend for the C/G/H/I surface-affinity bars on each row — the
-                letters had no explanation anywhere. Derived from the same
-                ALL_SURFACES list the bars render, so the two can't drift. */}
-            <div style={{ marginTop: -8, marginBottom: 12, fontSize: 10.5, color: 'var(--gc-ink-faint)' }}>
-              Surfaces:{' '}
-              {ALL_SURFACES.map((key, i) => {
-                const meta = surfaceMeta(key);
-                return (
-                  <span key={key}>
-                    {i > 0 ? ' · ' : ''}
-                    <strong style={{ color: 'var(--gc-ink-mute)' }}>{meta.letter}</strong>{' '}
-                    {meta.label}
-                  </span>
-                );
-              })}
+              <span style={{ width: 1, height: 22, background: 'var(--hair)' }} />
+              <span className="t-body-sm" style={{ fontSize: 12 }}>
+                {tier === 'pro' ? '4 roster slots · faster point decay applies' : '2 roster slots · upgrade for more room'}
+              </span>
+              <div style={{ flex: 1 }} />
+              {canCreateCustomPlayer && (
+                <Button variant="ghost" onClick={() => setCustomPlayerModalOpen(true)}>
+                  Create custom player ({customPlayerCredits})
+                </Button>
+              )}
+              <Link href="/scouting" className="gc-btn gc-btn--primary" style={{ textDecoration: 'none' }}>
+                + Claim free agent
+              </Link>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {sortedPlayers.map((p, idx) => {
-                const fat = fatigueMeta(p.fatigue);
-                const frm = formMeta(p.form);
-                const stg = stageMeta(p.stage);
-                const busy = busyPlayerId === p.id;
-                return (
-                  <Panel key={p.id} className="gc-rise" style={{ padding: 0, opacity: busy ? 0.55 : 1, animationDelay: `${idx * 55}ms`, overflow: 'visible' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,2.5fr) auto minmax(0,1.1fr) minmax(0,1.15fr) auto minmax(150px,1.2fr) auto', gap: 16, alignItems: 'center', padding: '15px 18px' }}>
-                      {/* Identity */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 13, minWidth: 0 }}>
-                        <Avatar id={p.id} name={p.name} size={52} />
-                        <div style={{ minWidth: 0 }}>
-                          <Link href={`/players/${p.id}`} style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', color: 'var(--gc-ink)', fontWeight: 750, fontSize: 15.5 }}>
-                            <Flag code={p.nationality} /> <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
-                          </Link>
-                          <div style={{ fontSize: 12, color: 'var(--gc-ink-mute)', marginTop: 2 }}>
-                            Age {(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)} · <span style={{ color: 'var(--gc-ink-faint)' }}>{p.lastResult ?? 'No matches yet'}</span>
-                          </div>
-                          <RosterNextMatch matches={matchesByPlayer[p.id]} pendingEntry={nextPendingEntry(plannerByPlayer[p.id])} />
-                        </div>
-                      </div>
-
-                      {/* OVR */}
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-                        <AnimatedOvrRing value={p.overall} size={46} persistKey={`roster:ovr:${p.id}`} />
-                        <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.5px', color: 'var(--gc-ink-faint)' }}>OVR</span>
-                      </div>
-
-                      {/* Rank — always labelled with its ladder (see
-                          AnimatedRankPlate), so a roster "#NR" can never
-                          read as contradicting a profile's "Senior #3". */}
-                      <div>
-                        <AnimatedRankPlate playerId={p.id} rank={p.rank} points={p.points} band={p.rankBand} />
-                        {p.rank == null && (
-                          <div style={{ marginTop: 5, fontSize: 10, lineHeight: 1.4, color: 'var(--gc-ink-faint)', maxWidth: 190 }}>
-                            {RANKING_EARNED_NOTE} {rankingBandScopeNote(p.rankBand)}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Stage + fatigue + form */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <span style={{ alignSelf: 'flex-start', padding: '3px 9px', borderRadius: 6, fontSize: 11, fontWeight: 750, background: stg.bg, color: stg.fg }}>
-                          {stageLabel(p.stage)}
-                        </span>
-                        <div className="gc-bar" style={{ width: '100%', maxWidth: 130 }}><i style={{ width: `${p.fatigue}%`, background: fat.color }} /></div>
-                        <span style={{ fontSize: 10.5, color: fat.color, fontWeight: 600 }}>{fat.label}</span>
-                        <div className="gc-bar" style={{ width: '100%', maxWidth: 130 }}><i style={{ width: `${Math.min(100, p.form)}%`, background: frm.color }} /></div>
-                        <span style={{ fontSize: 10.5, color: frm.color, fontWeight: 600 }}>Form {frm.label}</span>
-                      </div>
-
-                      {/* Surfaces */}
-                      <div style={{ display: 'flex', gap: 7 }}>
-                        {ALL_SURFACES.map((key) => (
-                          <AnimatedAffinityBar key={key} playerId={p.id} surfaceKey={key} value={p.surfaceAffinities[key]} letter={surfaceMeta(key).letter} />
-                        ))}
-                      </div>
-
-                      {/* Training focus */}
-                      <div style={{ position: 'relative' }}>
-                        <button
-                          onClick={() => setOpenFocusMenu(openFocusMenu === p.id ? null : p.id)}
-                          disabled={busy || p.stage === 'retired'}
-                          className="gc-select"
-                          style={{ width: '100%', textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundImage: 'none' }}
-                        >
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                            <span style={{ width: 6, height: 6, borderRadius: 999, background: p.trainingFocus ? 'var(--gc-ball)' : 'var(--gc-ink-faint)' }} />
-                            {trainingFocusLabel(p.trainingFocus)}
-                          </span>
-                          <span style={{ fontSize: 10, color: 'var(--gc-ink-mute)' }}>▾</span>
-                        </button>
-                        {openFocusMenu === p.id && (
-                          <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, minWidth: 180, maxHeight: 320, overflowY: 'auto', zIndex: 20, padding: 5 }}>
-                            {FOCUS_GROUPS.map((grp, i) => (
-                              <div key={grp.label} style={i > 0 ? { borderTop: '1px solid var(--gc-line)', marginTop: 4, paddingTop: 4 } : undefined}>
-                                <div style={{ padding: '5px 9px 3px', fontSize: 10, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--gc-ink-faint)' }}>{grp.label}</div>
-                                {grp.options.map((opt) => {
-                                  const on = focusEquals(p.trainingFocus, opt.focus);
-                                  return (
-                                    <div key={opt.label} onClick={() => handleSelectFocus(p.id, opt.focus)}
-                                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)', background: on ? 'var(--gc-s3)' : 'transparent' }}>
-                                      {opt.label}{on && <span style={{ color: 'var(--gc-ball)', fontWeight: 800 }}>✓</span>}
-                                    </div>
-                                  );
-                                })}
+            <div className="gc-panel" style={{ marginTop: 24, overflow: 'visible' }}>
+              <PanelHeader right={
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 14 }}>
+                  <span>{usedSlots} player{usedSlots === 1 ? '' : 's'} · cap {slotCount}</span>
+                  {worldClock && (
+                    <span style={{ color: 'var(--ink-3)' }}>Next day in {formatCountdown(nextTickMs)}</span>
+                  )}
+                  <select
+                    className="gc-select"
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value as SortBy)}
+                    style={{ padding: '4px 26px 4px 9px', fontSize: 11.5 }}
+                  >
+                    <option value="fatigue">Sort: Fatigue</option>
+                    <option value="stage">Sort: Nearest decline</option>
+                    <option value="overall">Sort: Overall rating</option>
+                    <option value="name">Sort: Name</option>
+                  </select>
+                </span>
+              }>Squad</PanelHeader>
+              <div className="gc-panel-bd flush">
+                <table className="gc-table gc-table--rows">
+                  <thead>
+                    <tr>
+                      <th>Player</th>
+                      <th>Stage</th>
+                      <th className="r">OVR</th>
+                      <th>Rank</th>
+                      <th className="r">Pts</th>
+                      <th>Fatigue</th>
+                      <th>Form</th>
+                      <th>Surfaces C·G·H·I</th>
+                      <th>Focus</th>
+                      <th>Next</th>
+                      <th className="r">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedPlayers.map((p) => {
+                      const fat = fatigueMeta(p.fatigue);
+                      const frm = formMeta(p.form);
+                      const stg = stageMeta(p.stage);
+                      const busy = busyPlayerId === p.id;
+                      const selected = openFocusMenu === p.id || openActionsMenu === p.id;
+                      return (
+                        <tr key={p.id} className={selected ? 'is-selected' : undefined} style={{ opacity: busy ? 0.55 : 1 }}>
+                          {/* Identity: flag + name + age (mono); second line = last result. */}
+                          <td>
+                            <div className="gc-pcell">
+                              <Flag code={p.nationality} />
+                              <div style={{ minWidth: 0 }}>
+                                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                                  <Link
+                                    href={`/players/${p.id}`}
+                                    className="nm gc-identity-link"
+                                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                  >
+                                    {displayNames.get(p.id) ?? p.name}
+                                  </Link>
+                                  <span className="ag num">{(p.ageInWeeks / WEEKS_PER_SEASON).toFixed(1)}</span>
+                                </div>
+                                <div className="t-mono-s" style={{ color: 'var(--ink-3)' }}>
+                                  {p.lastResult ?? 'No matches yet'}
+                                </div>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                            </div>
+                          </td>
 
-                      {/* Actions */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, position: 'relative', width: 92 }}>
-                        <Button variant="primary" onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })} disabled={busy || p.stage === 'retired'} style={{ padding: '7px 10px', fontSize: 12 }}>Enter</Button>
-                        <Button variant="ghost" onClick={() => handlePractice(p.id, p.name)} disabled={busy || p.stage === 'retired'} style={{ padding: '6px 10px', fontSize: 12 }} title="Practice — no form change, small fatigue, grants development XP + ladder">Practice</Button>
-                        <Button variant="ghost" onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)} disabled={busy} style={{ padding: '6px 10px', fontSize: 12 }}>More ···</Button>
-                        {openActionsMenu === p.id && (
-                          <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 160, zIndex: 20, padding: 5, overflow: 'hidden' }}>
-                            {p.stage !== 'retired' ? (
-                              <div onClick={() => { setOpenActionsMenu(null); setCoachModalPlayer({ id: p.id, name: p.name }); }} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'var(--gc-ink-dim)' }}>Convert to coach</div>
-                            ) : (
-                              <div style={{ padding: '8px 10px', fontSize: 12.5, borderRadius: 7, color: 'var(--gc-ink-faint)' }} title="Retired players can't become coaches">Convert to coach</div>
-                            )}
-                            <div onClick={() => handleRelease(p.id, p.name)} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 7, color: 'oklch(72% 0.16 25)' }}>Release player</div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </Panel>
-                );
-              })}
+                          {/* Stage + the server-computed ageing note. */}
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                              <span style={{ alignSelf: 'flex-start', padding: '1px 6px', borderRadius: 'var(--r1)', fontSize: 11, fontWeight: 700, background: stg.bg, color: stg.fg }}>
+                                {stageLabel(p.stage)}
+                              </span>
+                              <span style={{ fontSize: 11, color: stg.noteColor }}>{p.stageNote}</span>
+                            </div>
+                          </td>
 
-              {showOpenSlot && (
-                <Link href="/scouting" style={{ textDecoration: 'none' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 14, padding: 18, fontSize: 13, fontWeight: 650, color: 'var(--gc-ink-mute)', border: '1.5px dashed var(--gc-line)', background: 'oklch(100% 0 0 / 0.02)' }}>
-                    + Open roster slot — add a player
+                          <td className="r"><span className="gc-ovr">{p.overall}</span></td>
+
+                          {/* Rank — always labelled with its ladder, never a bare number. */}
+                          <td>
+                            <span className="gc-rank">
+                              <span className="lad">{RANK_BAND_LABEL[p.rankBand]}</span> {p.rank == null ? 'NR' : `#${p.rank}`}
+                            </span>
+                          </td>
+
+                          <td className="r num">{p.points.toLocaleString()}</td>
+
+                          <td><SegStat value={p.fatigue} pct={p.fatigue} color={fat.color} /></td>
+                          <td><SegStat value={p.form} pct={Math.min(100, p.form)} color={frm.color} /></td>
+
+                          <td>
+                            <div className="gc-surf4">
+                              {ALL_SURFACES.map((key) => (
+                                <span key={key} className="s" title={`${surfaceMeta(key).label}: ${p.surfaceAffinities[key]}`}>
+                                  <span className="gc-dot" style={{ background: surfaceMeta(key).color }} />
+                                  <span className="letter">{surfaceMeta(key).letter}</span>
+                                  {p.surfaceAffinities[key]}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+
+                          {/* Training focus — the existing control, unchanged behaviour. */}
+                          <td>
+                            <div style={{ position: 'relative' }}>
+                              <button
+                                onClick={() => setOpenFocusMenu(openFocusMenu === p.id ? null : p.id)}
+                                disabled={busy || p.stage === 'retired'}
+                                className="gc-select"
+                                style={{ width: 96, textAlign: 'left', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundImage: 'none', padding: '4px 9px', fontSize: 11.5 }}
+                              >
+                                <span style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                                  <span style={{ width: 6, height: 6, borderRadius: 999, background: p.trainingFocus ? 'var(--accent)' : 'var(--ink-4)' }} />
+                                  {trainingFocusLabel(p.trainingFocus)}
+                                </span>
+                                <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>▾</span>
+                              </button>
+                              {openFocusMenu === p.id && (
+                                <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, minWidth: 190, maxHeight: 320, overflowY: 'auto', zIndex: 20, padding: 5 }}>
+                                  {FOCUS_GROUPS.map((grp, i) => (
+                                    <div key={grp.label} style={i > 0 ? { borderTop: '1px solid var(--hair)', marginTop: 4, paddingTop: 4 } : undefined}>
+                                      <div style={{ padding: '5px 9px 3px', fontSize: 10, fontWeight: 800, letterSpacing: '0.6px', textTransform: 'uppercase', color: 'var(--ink-4)' }}>{grp.label}</div>
+                                      {grp.options.map((opt) => {
+                                        const on = focusEquals(p.trainingFocus, opt.focus);
+                                        return (
+                                          <div key={opt.label} role="button" onClick={() => handleSelectFocus(p.id, opt.focus)}
+                                            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 9px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--r2)', color: 'var(--ink-2)', background: on ? 'var(--bg-4)' : 'transparent' }}>
+                                            {opt.label}{on && <span style={{ color: 'var(--accent)', fontWeight: 800 }}>✓</span>}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Next match / pending entry / no match. */}
+                          <td>
+                            <RosterNextMatch matches={matchesByPlayer[p.id]} pendingEntry={nextPendingEntry(plannerByPlayer[p.id])} />
+                          </td>
+
+                          {/* Actions — handlers identical to the card layout. */}
+                          <td className="r">
+                            <div style={{ display: 'inline-flex', gap: 4, position: 'relative' }}>
+                              <Button variant="primary" onClick={() => setEnterModalPlayer({ id: p.id, name: p.name })} disabled={busy || p.stage === 'retired'} className="gc-btn--sm">Enter</Button>
+                              <Button variant="ghost" onClick={() => handlePractice(p.id, p.name)} disabled={busy || p.stage === 'retired'} className="gc-btn--sm" title="Practice — no form change, small fatigue, grants development XP + ladder">Practice</Button>
+                              <Button variant="ghost" onClick={() => setOpenActionsMenu(openActionsMenu === p.id ? null : p.id)} disabled={busy} className="gc-btn--sm">More ···</Button>
+                              {openActionsMenu === p.id && (
+                                <div className="gc-panel" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, minWidth: 160, zIndex: 20, padding: 5, overflow: 'hidden', textAlign: 'left' }}>
+                                  {p.stage !== 'retired' ? (
+                                    <div role="button" onClick={() => { setOpenActionsMenu(null); setCoachModalPlayer({ id: p.id, name: p.name }); }} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--r2)', color: 'var(--ink-2)' }}>Convert to coach</div>
+                                  ) : (
+                                    <div role="button" aria-disabled="true" style={{ padding: '8px 10px', fontSize: 12.5, borderRadius: 'var(--r2)', color: 'var(--ink-4)' }} title="Retired players can't become coaches">Convert to coach</div>
+                                  )}
+                                  <div role="button" onClick={() => handleRelease(p.id, p.name)} style={{ padding: '8px 10px', fontSize: 12.5, cursor: 'pointer', borderRadius: 'var(--r2)', color: 'var(--loss)' }}>Release player</div>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+
+                    {showOpenSlot && (
+                      <tr>
+                        <td colSpan={11} style={{ padding: 0 }}>
+                          <Link
+                            href="/scouting"
+                            className="gc-openslot"
+                            style={{ border: 0, borderTop: '1px dashed var(--hair-2)', borderRadius: 0, textDecoration: 'none', justifyContent: 'center' }}
+                          >
+                            <span className="t">+ Open roster slot — add a player</span>
+                          </Link>
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+
+                {/* Legend + band explanations (relocated from the old per-row
+                    labels, never deleted): the letters had no explanation
+                    anywhere, and the fatigue/form band words now live here. */}
+                <div className="gc-tbl-note">
+                  Surfaces:{' '}
+                  {ALL_SURFACES.map((key, i) => {
+                    const meta = surfaceMeta(key);
+                    return (
+                      <span key={key}>
+                        {i > 0 ? ' · ' : ''}
+                        <strong style={{ color: 'var(--ink-2)' }}>{meta.letter}</strong>{' '}
+                        {meta.label}
+                      </span>
+                    );
+                  })}
+                </div>
+                <div className="gc-tbl-note" style={{ paddingTop: 0 }}>
+                  Form sweet spot 12–25 = match sharp. Fatigue is a sim modifier, not a hard block.
+                </div>
+                <details className="gc-details" style={{ margin: '4px 12px 12px' }}>
+                  <summary>How to read fatigue and form</summary>
+                  <div className="t-body-sm" style={{ marginTop: 8, fontSize: 12 }}>
+                    <div>Fatigue: 70%+ high, rest recommended · 40–69% moderate · below 40% fresh.</div>
+                    <div style={{ marginTop: 4 }}>Form: below 8 rusty, needs matches · 8–11 warming up · 12–25 match sharp · 26–30 well-played · over 30 overplayed, needs rest.</div>
                   </div>
-                </Link>
-              )}
+                </details>
+                {unrankedBands.length > 0 && (
+                  <div className="gc-tbl-note" style={{ paddingTop: 0 }}>
+                    {RANKING_EARNED_NOTE}{' '}
+                    {unrankedBands.map((band) => rankingBandScopeNote(band)).join(' ')}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -704,15 +744,15 @@ export default function RosterDashboardPage() {
         {doublesPairs !== null && (
           <div style={{ marginTop: 26 }}>
             <SectionLabel right={
-              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--gc-ink-mute)' }}>
+              <span style={{ fontSize: 11.5, fontWeight: 700, color: 'var(--ink-3)' }}>
                 {doublesPairs.filter((p) => p.status !== 'dissolved').length} open
               </span>
             }>Doubles</SectionLabel>
 
             {/* Form a same-manager pair from two of my own players. */}
             {hasPlayers && usedSlots >= 2 && (
-              <Panel style={{ padding: 14, marginBottom: 12 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--gc-ink)', marginBottom: 10 }}>Form a doubles pair</div>
+              <div className="gc-panel" style={{ padding: 14, marginBottom: 12 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Form a doubles pair</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                   <select className="gc-select" value={pairA ?? ''} onChange={(e) => setPairA(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
                     <option value="">Select player…</option>
@@ -720,137 +760,148 @@ export default function RosterDashboardPage() {
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
-                  <span style={{ fontSize: 12, color: 'var(--gc-ink-mute)' }}>+</span>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>+</span>
                   <select className="gc-select" value={pairB ?? ''} onChange={(e) => setPairB(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
                     <option value="">Select player…</option>
                     {sortedPlayers.filter((p) => p.id !== pairA).map((p) => (
                       <option key={p.id} value={p.id}>{p.name}</option>
                     ))}
                   </select>
-                  <Button variant="primary" onClick={handleFormPair} disabled={!pairA || !pairB || doublesBusy} style={{ padding: '7px 14px', fontSize: 12.5 }}>
+                  <Button variant="primary" onClick={handleFormPair} disabled={!pairA || !pairB || doublesBusy} className="gc-btn--sm">
                     {doublesBusy ? 'Working…' : 'Form pair'}
                   </Button>
                 </div>
-              </Panel>
+              </div>
             )}
 
             {/* Active pairs + pending invites. */}
             {doublesPairs.filter((p) => p.status !== 'dissolved').length === 0 && (
-              <div style={{ fontSize: 12.5, color: 'var(--gc-ink-faint)', padding: '8px 2px' }}>
+              <div style={{ fontSize: 12.5, color: 'var(--ink-4)', padding: '8px 2px' }}>
                 No pairs yet — form one above, or invite a rival&apos;s player from their profile.
               </div>
             )}
 
-            {doublesPairs
-              .filter((p) => p.status !== 'dissolved')
-              .map((pair) => {
-                const incoming = pair.status === 'pending' && pair.playerB.managerId === managerId;
-                const outgoing = pair.status === 'pending' && pair.playerA.managerId === managerId;
-                return (
-                  <Panel key={pair.id} style={{ padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
-                      <span
-                        className="gc-badge"
-                        style={{
-                          background: pair.status === 'active' ? 'oklch(45% 0.13 150 / 0.3)' : 'oklch(45% 0.1 240 / 0.3)',
-                          color: pair.status === 'active' ? 'oklch(85% 0.14 150)' : 'oklch(84% 0.09 240)',
-                        }}
-                      >
-                        {pair.status === 'active' ? 'Active' : incoming ? 'Invite for you' : 'Awaiting reply'}
-                      </span>
-                      {incoming ? (
-                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
-                          <Flag code={pair.playerA.nationality} /> {pair.playerA.name} wants to partner with your player{' '}
-                          <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--gc-ball)', textDecoration: 'none' }}>{pair.playerB.name}</Link>
-                        </span>
-                      ) : outgoing ? (
-                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
-                          You invited <Flag code={pair.playerB.nationality} />{' '}
-                          <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--gc-ball)', textDecoration: 'none' }}>{pair.playerB.name}</Link>{' '}
-                          to partner with {pair.playerA.name}
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 13.5, fontWeight: 650, color: 'var(--gc-ink)' }}>
-                          {pair.playerA.name} <span style={{ color: 'var(--gc-ink-mute)' }}>·</span> {pair.playerB.name}
-                          {pair.chemistry > 0 && (
-                            <span className="gc-badge" style={{ marginLeft: 8, background: 'oklch(45% 0.1 150 / 0.3)', color: 'oklch(85% 0.12 150)' }}>
-                              chem {pair.chemistry}
-                            </span>
-                          )}
-                        </span>
-                      )}
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                      {incoming && (
-                        <Button variant="primary" onClick={() => handleAcceptPair(pair.id)} disabled={doublesBusy} style={{ padding: '6px 12px', fontSize: 12 }}>
-                          Accept
-                        </Button>
-                      )}
-                      <Button variant="ghost" onClick={() => handleDissolvePair(pair.id)} disabled={doublesBusy} style={{ padding: '6px 12px', fontSize: 12 }}>
-                        {incoming ? 'Decline' : outgoing ? 'Cancel' : 'Dissolve'}
-                      </Button>
-                    </div>
-                  </Panel>
-                );
-              })}
+            {doublesPairs.filter((p) => p.status !== 'dissolved').length > 0 && (
+              <div className="gc-panel">
+                <div className="gc-panel-bd flush">
+                  <table className="gc-table gc-table--rows">
+                    <thead>
+                      <tr>
+                        <th>Pair</th>
+                        <th>Chemistry</th>
+                        <th>Status</th>
+                        <th className="r">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {doublesPairs
+                        .filter((p) => p.status !== 'dissolved')
+                        .map((pair) => {
+                          const incoming = pair.status === 'pending' && pair.playerB.managerId === managerId;
+                          const outgoing = pair.status === 'pending' && pair.playerA.managerId === managerId;
+                          return (
+                            <tr key={pair.id}>
+                              <td>
+                                {incoming ? (
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                                    <Flag code={pair.playerA.nationality} /> {pair.playerA.name} wants to partner with your player{' '}
+                                    <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{pair.playerB.name}</Link>
+                                  </span>
+                                ) : outgoing ? (
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                                    You invited <Flag code={pair.playerB.nationality} />{' '}
+                                    <Link href={`/players/${pair.playerB.playerId}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>{pair.playerB.name}</Link>{' '}
+                                    to partner with {pair.playerA.name}
+                                  </span>
+                                ) : (
+                                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                                    {pair.playerA.name} <span style={{ color: 'var(--ink-3)' }}>·</span> {pair.playerB.name}
+                                  </span>
+                                )}
+                              </td>
+                              <td><SegStat value={pair.chemistry} pct={pair.chemistry} color="var(--accent)" /></td>
+                              <td>
+                                <span
+                                  className="gc-badge"
+                                  style={pair.status === 'active'
+                                    ? { color: 'var(--win)', borderColor: 'color-mix(in srgb, var(--win) 40%, transparent)' }
+                                    : { color: 'var(--hard)', borderColor: 'color-mix(in srgb, var(--hard) 40%, transparent)' }}
+                                >
+                                  {pair.status === 'active' ? 'Active' : incoming ? 'Invite for you' : 'Awaiting reply'}
+                                </span>
+                              </td>
+                              <td className="r">
+                                <div style={{ display: 'inline-flex', gap: 6 }}>
+                                  {incoming && (
+                                    <Button variant="primary" onClick={() => handleAcceptPair(pair.id)} disabled={doublesBusy} className="gc-btn--sm">
+                                      Accept
+                                    </Button>
+                                  )}
+                                  <Button variant="ghost" onClick={() => handleDissolvePair(pair.id)} disabled={doublesBusy} className="gc-btn--sm">
+                                    {incoming ? 'Decline' : outgoing ? 'Cancel' : 'Dissolve'}
+                                  </Button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {showEmpty && (
-          <div style={{ marginTop: 20 }}>
-            <Panel style={{ padding: '44px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, textAlign: 'center' }}>
-              <Avatar id="empty-roster-slot" size={72} />
-              <div>
-                <div style={{ fontSize: 22, fontWeight: 850 }}>Welcome to the circuit</div>
-                <div style={{ fontSize: 14, maxWidth: 460, lineHeight: 1.55, color: 'var(--gc-ink-mute)', marginTop: 8 }}>
-                  Your academy is empty — {slotCount} roster slot{slotCount === 1 ? '' : 's'} ready and waiting. Here&apos;s the loop:
-                </div>
+          <div className="gc-panel" style={{ marginTop: 24, padding: '44px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, textAlign: 'center' }}>
+            <div>
+              <div className="t-h2">Welcome to the circuit</div>
+              <div className="t-body-sm" style={{ maxWidth: 460, lineHeight: 1.55, margin: '8px auto 0' }}>
+                Your academy is empty — {slotCount} roster slot{slotCount === 1 ? '' : 's'} ready and waiting. Here&apos;s the loop:
               </div>
+            </div>
 
-              <div className="flex flex-col gap-[10px]" style={{ width: '100%', maxWidth: 500, textAlign: 'left' }}>
-                {FIRST_RUN_STEPS.map((step) => (
+            <div style={{ width: '100%', maxWidth: 500, textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {FIRST_RUN_STEPS.map((step) => (
+                <div
+                  key={step.n}
+                  style={{ display: 'flex', alignItems: 'flex-start', gap: 12, borderRadius: 'var(--r2)', padding: '12px 14px', border: '1px solid var(--hair)', background: 'var(--bg-3)' }}
+                >
                   <div
-                    key={step.n}
-                    className="flex items-start gap-[12px] rounded-[10px] px-[14px] py-[12px]"
-                    style={{ border: '1px solid var(--gc-line)', background: 'var(--gc-s2)' }}
+                    style={{ flex: 'none', width: 24, height: 24, borderRadius: '50%', display: 'grid', placeItems: 'center', fontSize: 12, fontWeight: 800, background: 'var(--accent)', color: 'var(--accent-ink)' }}
                   >
-                    <div
-                      className="flex-none w-[24px] h-[24px] rounded-full grid place-items-center text-[12px] font-extrabold"
-                      style={{ background: 'var(--gc-ball)', color: 'oklch(22% 0.05 140)' }}
-                    >
-                      {step.n}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div style={{ fontSize: 13.5, fontWeight: 750 }}>{step.title}</div>
-                      <div style={{ fontSize: 12.5, color: 'var(--gc-ink-mute)', lineHeight: 1.5, marginTop: 2 }}>{step.body}</div>
-                    </div>
-                    <Link
-                      href={step.href}
-                      className="flex-none self-center no-underline text-[12px] font-semibold hover:underline"
-                      style={{ color: 'var(--gc-ball)' }}
-                    >
-                      {step.cta} →
-                    </Link>
+                    {step.n}
                   </div>
-                ))}
-              </div>
-
-              {entitlement && entitlement.xpBalance > 0 && (
-                <div style={{ fontSize: 13, color: 'var(--gc-ink-dim)' }}>
-                  You have <strong style={{ color: 'var(--gc-gold)' }}>{entitlement.xpBalance} XP</strong> — enough to sign your first player.
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700 }}>{step.title}</div>
+                    <div style={{ fontSize: 12.5, color: 'var(--ink-3)', lineHeight: 1.5, marginTop: 2 }}>{step.body}</div>
+                  </div>
+                  <Link
+                    href={step.href}
+                    style={{ flex: 'none', alignSelf: 'center', fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}
+                  >
+                    {step.cta} →
+                  </Link>
                 </div>
-              )}
-            </Panel>
+              ))}
+            </div>
+
+            {entitlement && entitlement.xpBalance > 0 && (
+              <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>
+                You have <strong style={{ color: 'var(--gold)' }}>{entitlement.xpBalance} XP</strong> — enough to sign your first player.
+              </div>
+            )}
           </div>
         )}
 
         {players === null && !error && (
-          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--gc-ink-mute)' }}>Loading roster…</div>
+          <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--ink-3)' }}>Loading roster…</div>
         )}
       </PageShell>
 
       {notice && (
-        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--gc-ball-d)' }}>
+        <div className="gc-panel gc-pop" style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 40, fontSize: 13, fontWeight: 650, padding: '13px 18px', borderColor: 'var(--accent)' }}>
           {notice}
         </div>
       )}
@@ -901,6 +952,6 @@ export default function RosterDashboardPage() {
           }}
         />
       )}
-    </AppFrame>
+    </AppShell>
   );
 }

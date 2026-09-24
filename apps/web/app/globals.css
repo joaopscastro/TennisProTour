@@ -239,6 +239,14 @@ a { color: inherit; text-decoration: none; }
 .gc-table--dense tbody td { height: 28px; }
 .gc-table--tall tbody td { height: 40px; }
 .gc-tbl-note { padding: 8px 12px; font-size: 11px; color: var(--ink-3); }
+/* Roster rows carry two lines (identity + last result, next match), so the
+   base 32px minimum gives way to comfortable vertical padding; single-line
+   tables keep the prototype's exact 32px row. Tighter horizontal padding
+   keeps all eleven roster columns inside the 1232px panel (the prototype
+   itself clips ~12px at this width). */
+.gc-table--rows tbody td { height: auto; padding: 5px 7px; }
+.gc-table--rows thead th { padding: 9px 7px; }
+.gc-table--rows .gc-btn--sm { padding: 4px 7px; white-space: nowrap; }
 
 /* ---- Segmented stat bar (10 blocks, driven by --p + --seg) ----------------- */
 .gc-seg {
@@ -352,6 +360,60 @@ a { color: inherit; text-decoration: none; }
 }
 .gc-tabs--segmented .gc-tab { border-bottom: 0; border-radius: var(--r1); padding: 6px 12px; }
 .gc-tabs--segmented .gc-tab.is-active { background: var(--bg-4); color: var(--ink); }
+
+/* ---- Topbar chrome (Direction A header + nav rows) ------------------------- */
+.gc-topbar {
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--hair);
+  position: sticky; top: 0; z-index: 30;
+}
+.gc-topbar-in {
+  max-width: 1280px; margin: 0 auto; padding: 0 24px;
+  height: var(--topbar-h); display: flex; align-items: center; gap: 12px;
+  overflow-x: auto; scrollbar-width: none;
+}
+.gc-topbar-in::-webkit-scrollbar { display: none; }
+.gc-brand {
+  display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
+  font-family: var(--display); font-weight: 700; font-size: 20px;
+  letter-spacing: .02em; color: var(--ink); white-space: nowrap;
+}
+.gc-brand .ball { color: var(--accent); }
+.gc-topnav { display: flex; align-items: center; gap: 0; flex: 0 0 auto; }
+.gc-topnav .gc-tab { padding: 12px 10px; }
+.gc-topnav .gc-tab[aria-disabled="true"] { color: var(--ink-4); cursor: default; }
+.gc-topbar-kv { display: flex; flex-direction: column; gap: 1px; white-space: nowrap; flex: 0 0 auto; }
+.gc-topbar-kv .k { font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; }
+.gc-topbar-kv .v { font-family: var(--mono); font-size: 13px; color: var(--ink); }
+.gc-xp {
+  display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto;
+  background: var(--bg-3); border: 1px solid var(--hair);
+  border-radius: var(--r2); padding: 6px 10px; white-space: nowrap;
+}
+.gc-xp .amt { font-family: var(--mono); font-weight: 600; color: var(--accent); }
+.gc-main { flex: 1; min-width: 0; }
+
+/* ---- Roster sub-bar (slot meter) ------------------------------------------- */
+.gc-subbar {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  background: var(--bg-2); border: 1px solid var(--hair);
+  border-radius: var(--r3); padding: 12px 16px;
+}
+.gc-slotdots { display: flex; gap: 4px; }
+.gc-slotdots i { width: 16px; height: 8px; border-radius: var(--r1); background: var(--accent); display: block; }
+.gc-slotdots i.empty { background: var(--bg-4); }
+
+/* ---- Roster table cells ---------------------------------------------------- */
+.gc-pcell { display: flex; align-items: center; gap: 10px; min-width: 150px; }
+.gc-pcell .nm { font-weight: 600; color: var(--ink); }
+.gc-pcell .ag { font-family: var(--mono); font-size: 11px; color: var(--ink-3); }
+.gc-ovr { font-family: var(--mono); font-weight: 600; font-size: 20px; }
+.gc-rank { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+.gc-rank .lad { color: var(--ink-3); font-size: 11px; text-transform: uppercase; }
+.gc-surf4 { display: flex; gap: 10px; }
+.gc-surf4 .s { display: flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 11px; color: var(--ink-2); }
+.gc-surf4 .letter { font-weight: 600; color: var(--ink-3); }
+.gc-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
 /* ---- Modal ----------------------------------------------------------------- */
 .gc-modal-backdrop {
