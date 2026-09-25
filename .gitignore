@@ -13,6 +13,9 @@ playwright-report/
 balance-report-*.json
 playtest-report*.json
 soak-report*.json
+# agent-played-season harness runs (agentSeason.mjs): digests, decisions,
+# apply journals, tick checkpoints, reports. Local artifacts only.
+runs/
 
 # ux-probe: session screenshots/journals/logs and any report an agent writes.
 # Never commit live session artifacts — only the driver/scripts/README.
