@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
 import { GameWeek, PairId, PlayerId, TournamentId, WEEKS_PER_SEASON } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
@@ -18,6 +18,7 @@ import { Surface } from '@tennis-manager/domain';
 import { ConcurrentModificationError, TournamentRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { tournamentEntries, tournamentMatches, tournamentDoublesEntrants, tournamentDoublesPairs, tournamentDoublesMatches, tournaments, weeklyEntryClaims, players } from '../../db/schema';
+import { doublesMainDrawUnfinished, singlesMainDrawUnfinished } from './unfinishedCommitment';
 
 type TournamentRow = typeof tournaments.$inferSelect;
 type EntryRow = typeof tournamentEntries.$inferSelect;
@@ -43,7 +44,13 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   async findOpenForRegistration(): Promise<Tournament[]> {
-    const rows = await this.db.select().from(tournaments).where(eq(tournaments.hasStarted, false));
+    // A CANCELLED draw is terminal and never offered again (see
+    // Tournament.cancel) — it would otherwise sit in the due list
+    // forever because its has_started flag stays false.
+    const rows = await this.db
+      .select()
+      .from(tournaments)
+      .where(and(eq(tournaments.hasStarted, false), isNull(tournaments.cancelledAt)));
     return Promise.all(rows.map((row) => this.load(row)));
   }
 
@@ -222,6 +229,39 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   /**
+   * The set form of the `noUnfinishedCommitment` predicate — see the
+   * port's doc comment. One UNION over the same three commitment paths
+   * the per-player predicate checks (singles entries, doubles entries,
+   * formed doubles pairs), reusing the exact SQL fragments so this read
+   * and the atomic claim's refusal can never disagree. No aggregate
+   * `load()`: the caller only needs the ids.
+   */
+  async findUnfinishedCommitmentPlayerIds(): Promise<PlayerId[]> {
+    const result = await this.db.execute(sql`
+      SELECT e.player_id AS player_id
+      FROM tournament_entries e
+      JOIN tournaments t ON t.id = e.tournament_id
+      WHERE ${singlesMainDrawUnfinished}
+      UNION
+      SELECT de.player_id
+      FROM tournament_doubles_entrants de
+      JOIN tournaments t ON t.id = de.tournament_id
+      WHERE ${doublesMainDrawUnfinished}
+      UNION
+      SELECT dp.player_a
+      FROM tournament_doubles_pairs dp
+      JOIN tournaments t ON t.id = dp.tournament_id
+      WHERE ${doublesMainDrawUnfinished}
+      UNION
+      SELECT dp.player_b
+      FROM tournament_doubles_pairs dp
+      JOIN tournaments t ON t.id = dp.tournament_id
+      WHERE ${doublesMainDrawUnfinished}
+    `);
+    return (result.rows as Array<{ player_id: string }>).map((row) => PlayerId(row.player_id));
+  }
+
+  /**
    * How many of each given tournament's singles entrants belong to a real
    * manager — one grouped query joining `tournament_entries` to `players`,
    * never a per-tournament read. This is the exact condition the tournament
@@ -264,6 +304,8 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       doublesQualifierSlots: tournament.doublesQualifierSlots,
       hostCountry: tournament.hostCountry,
       hasStarted: tournament.hasStarted,
+      cancelledAt: tournament.cancelledAt ? new Date(tournament.cancelledAt) : null,
+      cancelReason: tournament.cancelReason,
     };
 
     await this.db.transaction(async (tx) => {
@@ -449,6 +491,8 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       doublesQualifyingDrawSize: row.doublesQualifyingDrawSize,
       doublesQualifierSlots: row.doublesQualifierSlots,
       hostCountry: row.hostCountry,
+      cancelledAt: row.cancelledAt ? row.cancelledAt.toISOString() : null,
+      cancelReason: row.cancelReason,
       entrants: entryRows.map(toEntrant),
       rounds: toRounds(matchRows.filter((m) => m.draw === 'main')),
       qualifyingRounds: toRounds(matchRows.filter((m) => m.draw === 'qualifying')),

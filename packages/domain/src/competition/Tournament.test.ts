@@ -490,3 +490,78 @@ describe('Tournament.addDoublesMainDrawFiller', () => {
     expect(() => t.addDoublesMainDrawFiller(filler)).toThrow(/already in/);
   });
 });
+
+describe('Tournament.cancel — the terminal CANCELLED state for an unseedable draw', () => {
+  it('cancels a never-started draw, exposes the reason, and stays not-started', () => {
+    const t = Tournament.open(baseProps());
+    expect(t.isCancelled).toBe(false);
+    expect(t.cancelledAt).toBeNull();
+    expect(t.cancelReason).toBeNull();
+
+    t.cancel('The draw could not be filled in time');
+
+    expect(t.isCancelled).toBe(true);
+    expect(t.cancelledAt).not.toBeNull();
+    expect(t.cancelReason).toBe('The draw could not be filled in time');
+    // Cancellation is NOT a form of starting — every hasStarted-shaped
+    // gate must stay false for a cancelled draw.
+    expect(t.hasStarted).toBe(false);
+    expect(t.hasMainDraw).toBe(false);
+  });
+
+  it('is idempotent: a second cancel keeps the first timestamp and reason', () => {
+    const t = Tournament.open(baseProps());
+    t.cancel('first reason');
+    const at = t.cancelledAt;
+    t.cancel('SECOND reason');
+    expect(t.cancelledAt).toBe(at);
+    expect(t.cancelReason).toBe('first reason');
+  });
+
+  it('requires a non-empty reason', () => {
+    const t = Tournament.open(baseProps());
+    expect(() => t.cancel('   ')).toThrow(/reason/i);
+    expect(t.isCancelled).toBe(false);
+  });
+
+  it('refuses to cancel a tournament that has already started', () => {
+    const t = Tournament.open(baseProps());
+    for (let i = 0; i < 16; i++) t.registerEntrant({ playerId: PlayerId(`c${i}`), seed: null });
+    t.startWithBracket(new BracketGenerator().generate(t.mainEntrants, 16));
+    expect(() => t.cancel('too late')).toThrow(/already started/);
+    expect(t.isCancelled).toBe(false);
+  });
+
+  it('refuses singles AND doubles registration after cancel', () => {
+    const t = Tournament.open(baseProps({ tier: 'tour', doublesDrawSize: 8 }));
+    t.cancel('done');
+    expect(() => t.registerEntrant({ playerId: PlayerId('late'), seed: null })).toThrow(/cancelled/);
+    expect(() => t.registerDoublesEntrant(PlayerId('late'))).toThrow(/cancelled/);
+    expect(t.entrants).toHaveLength(0);
+    expect(t.doublesEntrants).toHaveLength(0);
+  });
+
+  it('refuses startWithBracket after cancel', () => {
+    const t = Tournament.open(baseProps());
+    for (let i = 0; i < 16; i++) t.registerEntrant({ playerId: PlayerId(`s${i}`), seed: null });
+    t.cancel('done');
+    expect(() => t.startWithBracket(new BracketGenerator().generate(t.mainEntrants, 16))).toThrow(/cancelled/);
+    expect(t.hasStarted).toBe(false);
+  });
+
+  it('round-trips cancelledAt/cancelReason through reconstitute', () => {
+    const original = Tournament.open(baseProps());
+    original.cancel('stuck too long');
+    const reloaded = Tournament.reconstitute({
+      ...baseProps(),
+      cancelledAt: original.cancelledAt,
+      cancelReason: original.cancelReason,
+      entrants: [],
+      rounds: [],
+    });
+    expect(reloaded.isCancelled).toBe(true);
+    expect(reloaded.cancelledAt).toBe(original.cancelledAt);
+    expect(reloaded.cancelReason).toBe('stuck too long');
+    expect(reloaded.hasStarted).toBe(false);
+  });
+});

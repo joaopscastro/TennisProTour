@@ -60,6 +60,16 @@ export interface FillDrawSlotsPreloaded {
    * immediate `save()` below makes visible to the next per-candidate
    * DB read in the old code. */
   enteredPlayerIdsForWeek?: Set<PlayerId>;
+  /** The set form of the signing rule's `noUnfinishedCommitment`
+   * predicate, from `TournamentRepository.findUnfinishedCommitmentPlayerIds`.
+   * A candidate in this set is still alive in an earlier week's draw (a
+   * 14-day major, a late-running event), so placing them into this draw
+   * would give one player two matches on the same day — the per-week
+   * set above cannot see that. Ids actually filled by THIS call are
+   * added, so a later draw in the same run (even a different week's)
+   * can't reuse them. Optional: absent (an in-memory fake, the legacy
+   * fallback path) keeps the pre-existing same-week-only exclusion. */
+  unfinishedCommitmentPlayerIds?: Set<PlayerId>;
 }
 
 export async function fillDrawSlots(
@@ -86,8 +96,12 @@ export async function fillDrawSlots(
   );
 
   const enteredThisWeek = preloaded.enteredPlayerIdsForWeek;
+  const unfinishedCommitments = preloaded.unfinishedCommitmentPlayerIds;
   const available: PlayerId[] = [];
   for (const candidate of eligible) {
+    // Still alive in ANY earlier-concluded-by-week draw — never placed
+    // into this one, regardless of whether that draw's week matches.
+    if (unfinishedCommitments?.has(candidate.id)) continue;
     if (enteredThisWeek) {
       // Preloaded commitment set: one membership check instead of a
       // single-player round trip (the N+1 this preload removes).
@@ -124,6 +138,10 @@ export async function fillDrawSlots(
         : { playerId, seed: null };
     addEntrant(entrant);
     enteredThisWeek?.add(playerId);
+    // The new entrant now holds an unfinished commitment to THIS draw,
+    // so the run-wide set is updated too — a later draw this run (even
+    // in a different week) must not reuse them.
+    unfinishedCommitments?.add(playerId);
   }
   // Persist immediately — later tournaments processed this same run rely
   // on findByPlayerAndWeek seeing it.

@@ -1,5 +1,6 @@
 import { ManagerId, PlayerId } from '@tennis-manager/domain';
 import {
+  DigestCancellation,
   DigestNextMatch,
   DigestPlayerData,
   DigestResult,
@@ -41,6 +42,8 @@ export interface DigestPlayer {
   results: DigestResult[];
   titles: DigestTitle[];
   next: DigestNextMatch | null;
+  /** Cancelled draws (window-filtered) — see DigestCancellation. */
+  cancelled: DigestCancellation[];
 }
 
 export interface ManagerDigest {
@@ -99,6 +102,9 @@ export function buildManagerDigest(input: {
       const titles = player.titles
         .filter((t) => inWindow(t.createdAt, input.since, input.until))
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const cancelled = (player.cancelled ?? [])
+        .filter((c) => inWindow(c.cancelledAt, input.since, input.until))
+        .sort((a, b) => b.cancelledAt.getTime() - a.cancelledAt.getTime());
       const standing = input.ranks.get(player.playerId) ?? { rank: null, totalPoints: 0 };
       return {
         playerId: player.playerId,
@@ -108,9 +114,13 @@ export function buildManagerDigest(input: {
         results,
         titles,
         next: player.next,
+        cancelled,
       };
     })
-    .filter((player) => player.results.length > 0 || player.titles.length > 0 || player.next !== null);
+    .filter(
+      (player) =>
+        player.results.length > 0 || player.titles.length > 0 || player.next !== null || player.cancelled.length > 0,
+    );
 
   if (players.length === 0) return null;
 
@@ -173,6 +183,21 @@ export function renderDigestEmail(digest: ManagerDigest): RenderedDigestEmail {
       htmlParts.push('<ul>');
       for (const title of player.titles) {
         const line = `Won ${title.tournamentName} (${title.tier})`;
+        textLines.push(`  ${line}`);
+        htmlParts.push(`<li>${escapeHtml(line)}</li>`);
+      }
+      htmlParts.push('</ul>');
+    }
+
+    if (player.cancelled.length > 0) {
+      textLines.push('Cancelled:');
+      htmlParts.push('<ul>');
+      for (const cancellation of player.cancelled) {
+        // Exactly the plain-language shape the product asks for:
+        // "Cancelled: <tier> — <reason>". The tournament name rides along
+        // in parentheses so the manager knows WHICH event; the reason is
+        // the same string the tournament/roster/profile surfaces show.
+        const line = `Cancelled: ${cancellation.tier} — ${cancellation.reason ?? 'No reason recorded'} (${cancellation.tournamentName})`;
         textLines.push(`  ${line}`);
         htmlParts.push(`<li>${escapeHtml(line)}</li>`);
       }

@@ -30,10 +30,12 @@ import * as schema from '../../db/schema';
 import {
   ConcurrentModificationError,
   EnsureFillOnlyPopulationUseCase,
+  EnsureSignablePoolUseCase,
   EventPublisherPort,
   FILL_ONLY_FLOORS,
   IdGeneratorPort,
   ManagerContactPort,
+  MIN_SIGNABLE_FREE_AGENTS,
   RankPositionQuery,
   SendManagerDigestsUseCase,
   StartDueTournamentsUseCase,
@@ -1083,6 +1085,113 @@ describe('windowed ranking reads + run-wide fill preloads (real Postgres)', () =
     expect(preloadedEntrants).toEqual(legacyEntrants);
   });
 
+  it('excludes a filler still alive in an EARLIER week\'s draw from a later week (cross-week double-booking)', async () => {
+    const worldId = WorldId('cross-week-world');
+    // The world has rolled into week 3; the week-3 draw is due.
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 3 }));
+
+    const busyUnseeded = Player.generateFillOnly(PlayerId('busy-unseeded'), 'Busy Unseeded', 24 * 52, 'prime', attributes(35), 'US');
+    const busyRevealing = Player.generateFillOnly(PlayerId('busy-revealing'), 'Busy Revealing', 24 * 52, 'prime', attributes(35), 'US');
+    const free = Player.generateFillOnly(PlayerId('cross-free'), 'Free Filler', 24 * 52, 'prime', attributes(35), 'US');
+    // The revealing major's opponent is manager-owned (NOT a filler), so
+    // it can never compete with the fillers for a place — it exists only
+    // to satisfy the match-row FKs.
+    const opponent = Player.hire(PlayerId('cross-week-opp'), 'Cross Week Opponent', 24 * 52, attributes(35), ManagerId('m-cross'));
+    for (const p of [busyUnseeded, busyRevealing, free, opponent]) {
+      p.pullDomainEvents();
+      await playerRepository.save(p);
+    }
+
+    await db.insert(schema.tournaments).values({
+      id: 'cross-week-major-unseeded',
+      name: 'Unseeded Major',
+      tier: 'major',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 32,
+      // Started, so the fill path below does NOT process it — but with no
+      // main-draw match rows at all, it is still unfinished.
+      hasStarted: true,
+    });
+    // An entry in a draw that never seeded at all — an unfinished
+    // commitment even with no match row (the case a match-based read
+    // misses).
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'cross-week-major-unseeded',
+      playerId: PlayerId('busy-unseeded'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+
+    await db.insert(schema.tournaments).values({
+      id: 'cross-week-major-revealing',
+      name: 'Revealing Major',
+      tier: 'major',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 32,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'cross-week-major-revealing',
+      playerId: PlayerId('busy-revealing'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+    // Decided but still inside its reveal window -> not aired -> unfinished.
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'cross-week-major-revealing',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('busy-revealing'),
+      entrantB: PlayerId('cross-week-opp'),
+      winnerId: PlayerId('busy-revealing'),
+      loserId: PlayerId('cross-week-opp'),
+      setScores: [{ winnerGames: 6, loserGames: 2 }],
+      scheduledStartAt: new Date(Date.now() + 60 * 60_000),
+      revealSeconds: 900,
+    });
+
+    // The read itself is the set form of the exact same predicate the
+    // signing rule uses — checked BEFORE the fill below adds a new
+    // commitment to `cross-free`.
+    const blockedIds = await tournamentRepository.findUnfinishedCommitmentPlayerIds();
+    expect(blockedIds).toContain(PlayerId('busy-unseeded'));
+    expect(blockedIds).toContain(PlayerId('busy-revealing'));
+    expect(blockedIds).not.toContain(PlayerId('cross-free'));
+
+    const next = Tournament.open({
+      name: 'Next Week Open',
+      id: TournamentId('cross-week-next'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 3 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(next);
+
+    const useCase = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const result = await useCase.execute({ worldId });
+
+    expect(result.filled).toBe(1); // only `free` was available
+    const reloaded = await tournamentRepository.findById(TournamentId('cross-week-next'));
+    const entrantIds = reloaded!.entrants.map((entrant) => entrant.playerId as string);
+    expect(entrantIds).toContain('cross-free');
+    expect(entrantIds).not.toContain('busy-unseeded');
+    expect(entrantIds).not.toContain('busy-revealing');
+  });
+
   it('recoverFatigueForAll matches Player.recoverFatigue over real rows (tired, rested, clamped)', async () => {
     const tired = Player.hire(PlayerId('fatigue-tired'), 'Fatigue Tired', 24 * 52, attributes(30), ManagerId('m-fatigue'));
     tired.applyMatchFatigue(10);
@@ -1458,6 +1567,95 @@ describe('DrizzlePlayerMatchesQuery.liveTournamentByPlayer', () => {
     expect(live.get(PlayerId('fa-doubles-b'))).toEqual({ id: 'live-doubles', name: 'Doubles Live Open' });
     expect(live.has(PlayerId('fa-doubles-out-a'))).toBe(false);
     expect(live.has(PlayerId('fa-doubles-out-b'))).toBe(false);
+  });
+});
+
+describe('DrizzlePlayerMatchesQuery.forPlayer (next ordering)', () => {
+  const query = new DrizzlePlayerMatchesQuery(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const agingPolicy = new StandardAgingPolicy();
+
+  function saveFree(id: string, name: string) {
+    return playerRepository.save(
+      Player.generateFillOnly(PlayerId(id), name, 20 * 52, agingPolicy.stageForAge(20 * 52), attributes(40), 'ES', 70, {
+        speed: 70,
+        stamina: 70,
+        strength: 70,
+      }),
+    );
+  }
+
+  function tournament(id: string, name: string, week: number): typeof schema.tournaments.$inferInsert {
+    return { id, name, tier: 'tour', surface: 'hard', seasonScheduled: 1, weekScheduled: week, drawSize: 16 };
+  }
+
+  it('picks the EARLIER scheduled week among two unscheduled pending matches (the contract says "earliest")', async () => {
+    // The real bug: the unscheduled tie-break sorted week DESCENDING, so
+    // a player alive in a week-2 and a week-5 draw got "next" = week 5.
+    await saveFree('next-p1', 'Next Player');
+    await saveFree('next-opp-late', 'Opponent Late');
+    await saveFree('next-opp-early', 'Opponent Early');
+    await db.insert(schema.tournaments).values([
+      tournament('next-late', 'Later Week Open', 5),
+      tournament('next-early', 'Earlier Week Open', 2),
+    ]);
+    await db.insert(schema.tournamentMatches).values([
+      { tournamentId: 'next-late', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('next-p1'), entrantB: PlayerId('next-opp-late'), winnerId: null, loserId: null, setScores: null },
+      { tournamentId: 'next-early', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('next-p1'), entrantB: PlayerId('next-opp-early'), winnerId: null, loserId: null, setScores: null },
+    ]);
+
+    const { next } = await query.forPlayer(PlayerId('next-p1'));
+    expect(next?.tournamentId).toBe(TournamentId('next-early'));
+    expect(next?.weekScheduled).toEqual({ season: 1, week: 2 });
+  });
+
+  it('picks the LOWER round within the same tournament week', async () => {
+    await saveFree('next-p2', 'Next Player Two');
+    await saveFree('next-r3-opp', 'Round Three Opponent');
+    await saveFree('next-r2-opp', 'Round Two Opponent');
+    await db.insert(schema.tournaments).values(tournament('next-same', 'Same Week Open', 3));
+    await db.insert(schema.tournamentMatches).values([
+      { tournamentId: 'next-same', draw: 'main', roundNumber: 3, matchIndex: 0, entrantA: PlayerId('next-p2'), entrantB: PlayerId('next-r3-opp'), winnerId: null, loserId: null, setScores: null },
+      { tournamentId: 'next-same', draw: 'main', roundNumber: 2, matchIndex: 0, entrantA: PlayerId('next-p2'), entrantB: PlayerId('next-r2-opp'), winnerId: null, loserId: null, setScores: null },
+    ]);
+
+    const { next } = await query.forPlayer(PlayerId('next-p2'));
+    expect(next?.roundNumber).toBe(2);
+  });
+
+  it('still lets a decided-but-unaired SCHEDULED match beat both unscheduled pending matches', async () => {
+    await saveFree('next-p3', 'Next Player Three');
+    await saveFree('next-fa-opp', 'Future A Opponent');
+    await saveFree('next-fb-opp', 'Future B Opponent');
+    await saveFree('next-rev-opp', 'Revealing Opponent');
+    await db.insert(schema.tournaments).values([
+      tournament('next-future-a', 'Future A Open', 2),
+      tournament('next-future-b', 'Future B Open', 4),
+      tournament('next-revealing', 'Revealing Open', 1),
+    ]);
+    await db.insert(schema.tournamentMatches).values([
+      { tournamentId: 'next-future-a', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('next-p3'), entrantB: PlayerId('next-fa-opp'), winnerId: null, loserId: null, setScores: null },
+      { tournamentId: 'next-future-b', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('next-p3'), entrantB: PlayerId('next-fb-opp'), winnerId: null, loserId: null, setScores: null },
+      // Decided, scheduled well into the future -> inside its reveal
+      // window, so it is NOT aired and IS the closest "next" match.
+      {
+        tournamentId: 'next-revealing',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: PlayerId('next-p3'),
+        entrantB: PlayerId('next-rev-opp'),
+        winnerId: PlayerId('next-p3'),
+        loserId: PlayerId('next-rev-opp'),
+        setScores: [{ winnerGames: 6, loserGames: 1 }],
+        scheduledStartAt: new Date(Date.now() + 60 * 60_000),
+        revealSeconds: 900,
+      },
+    ]);
+
+    const { next } = await query.forPlayer(PlayerId('next-p3'));
+    expect(next?.tournamentId).toBe(TournamentId('next-revealing'));
+    expect(next?.result).toBe('pending');
   });
 });
 
@@ -2489,6 +2687,95 @@ describe('retired players are never draw fillers (real Postgres)', () => {
   });
 });
 
+/**
+ * P1-A1: the demand-aware filler top-up. The real deadlock was a pool
+ * sized by static floors (290 total) against a week's actual slot demand
+ * (~692 average, ~1052 peak) with a one-tournament-per-week commitment
+ * rule — so later-processed draws could never fill. This proves the
+ * sequence that actually runs in the worker: generation's slate exists,
+ * the guard sizes the pool to the measured demand, and on the NEXT
+ * rollover every due draw reaches its seedable threshold (a full field,
+ * no stuck bye-only round 1).
+ */
+describe('demand-aware filler supply (real Postgres)', () => {
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const worldRepository = new DrizzleGameWorldRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+  const rankingLedgerRepository = new DrizzleRankingLedgerRepository(db);
+
+  function rankingsFor(worldId: WorldId): Record<RankingBand, RankPositionQuery> {
+    return {
+      senior: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'senior'),
+      u18: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u18'),
+      u16: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u16'),
+      u14: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u14'),
+    };
+  }
+
+  it('sizes the pool to the measured next-week demand, and every due draw then seeds full', async () => {
+    const worldId = WorldId('demand-seed-world');
+    const world = GameWorld.create(worldId, { season: 1, week: 1 });
+    await worldRepository.save(world);
+
+    // The week-2 slate generation would have opened: enough senior demand
+    // (major 118+32, tour 54+32, futures 32 = 268) to EXCEED the static
+    // 200 senior floor, plus a u16 j30.
+    const week = { season: 1, week: 2 };
+    await tournamentRepository.save(Tournament.open({ name: 'Demand Major', id: TournamentId('demand-seed-major'), tier: 'major', surface: 'hard', weekScheduled: week, drawSize: 128, qualifyingDrawSize: 32, qualifierSlots: 8, wildCardSlots: 2 }));
+    await tournamentRepository.save(Tournament.open({ name: 'Demand Tour', id: TournamentId('demand-seed-tour'), tier: 'tour', surface: 'hard', weekScheduled: week, drawSize: 64, qualifyingDrawSize: 32, qualifierSlots: 8, wildCardSlots: 2 }));
+    await tournamentRepository.save(Tournament.open({ name: 'Demand Futures', id: TournamentId('demand-seed-futures'), tier: 'futures', surface: 'hard', weekScheduled: week, drawSize: 32 }));
+    await tournamentRepository.save(Tournament.open({ name: 'Demand J30', id: TournamentId('demand-seed-j30'), tier: 'j30', ageBand: 'u16', surface: 'hard', weekScheduled: week, drawSize: 16 }));
+
+    const ensure = new EnsureFillOnlyPopulationUseCase(
+      worldRepository,
+      playerRepository,
+      new NoopEventPublisher(),
+      new StandardPlayerGenerationPolicy(),
+      realRandom,
+      new SequentialFillerIdGenerator(),
+      new StandardAgingPolicy(),
+      tournamentRepository,
+    );
+    const generated = await ensure.execute({ worldId });
+    const staticFloors = FILL_ONLY_FLOORS.reduce((sum, floor) => sum + floor.minimum, 0);
+    // 349 senior (268 x 1.3) + u18 40 + u16 40 (floor beats 16 x 1.3) + u14 10 = 439.
+    expect(generated.generated).toBeGreaterThan(staticFloors);
+
+    // The rollover INTO week 2.
+    world.advanceWeek('demand-seed-rollover');
+    await worldRepository.save(world);
+
+    const start = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const result = await start.execute({ worldId });
+
+    expect(result.started).toBe(4);
+    // Every due draw reached its seedable threshold: qualifying and main
+    // fields at full capacity, draw seeded.
+    const major = (await tournamentRepository.findById(TournamentId('demand-seed-major')))!;
+    expect(major.qualifyingEntrants).toHaveLength(32);
+    // 128 − 8 reserved qualifier places; the 2 reserved wild-card places
+    // were never awarded (no host country / no local qualifiers), so they
+    // are fillable → 120, the StartDue fill target.
+    expect(major.mainEntrants).toHaveLength(120);
+    expect(major.hasQualifyingDrawStarted).toBe(true);
+    const tour = (await tournamentRepository.findById(TournamentId('demand-seed-tour')))!;
+    expect(tour.qualifyingEntrants).toHaveLength(32);
+    expect(tour.mainEntrants).toHaveLength(56); // 64 − 8
+    const futures = (await tournamentRepository.findById(TournamentId('demand-seed-futures')))!;
+    expect(futures.entrants).toHaveLength(32);
+    expect(futures.hasStarted).toBe(true);
+    const j30 = (await tournamentRepository.findById(TournamentId('demand-seed-j30')))!;
+    expect(j30.entrants).toHaveLength(16);
+    expect(j30.hasStarted).toBe(true);
+  });
+});
+
 describe('DrizzleNotificationDeliveryRepository + DrizzleNotificationPreferenceRepository', () => {
   const deliveries = new DrizzleNotificationDeliveryRepository(db);
   const preferences = new DrizzleNotificationPreferenceRepository(db);
@@ -2883,3 +3170,100 @@ describe('DrizzleManagerAccountCreationAdapter', () => {
   });
 });
 
+
+/**
+ * D3: the acquisition loop (EnsureSignablePoolUseCase) against real
+ * Postgres. A "saturated week" — every free agent already committed to
+ * an unseeded draw — used to leave the signable pool at zero forever;
+ * the guard must top it up to MIN_SIGNABLE_FREE_AGENTS, and a cancelled
+ * commitment (C2) must release its players to re-claim.
+ */
+describe('EnsureSignablePoolUseCase (D3) against real Postgres', () => {
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const worldRepository = new DrizzleGameWorldRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+
+  async function saveFreeAgent(id: string): Promise<void> {
+    const g = new StandardPlayerGenerationPolicy().generate(realRandom, { minWeeks: 20 * 52, maxWeeks: 20 * 52 });
+    const player = Player.generateFillOnly(
+      PlayerId(id),
+      `Agent ${id}`,
+      20 * 52,
+      new StandardAgingPolicy().stageForAge(20 * 52),
+      g.attributes,
+      'ES',
+      g.potentialCeiling,
+      g.physicalCeilings,
+      g.talent,
+    );
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+  }
+
+  it('tops a saturated week up to the signable floor, and cancelling the stuck draw releases its players to re-claim', async () => {
+    const worldId = WorldId('signable-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 2 }));
+
+    for (const id of ['sat-1', 'sat-2', 'sat-3']) await saveFreeAgent(id);
+    // An UNSEDED, never-started draw: no main-draw matches exist at all,
+    // so every entry in it is an unfinished commitment forever.
+    await db.insert(schema.tournaments).values({
+      id: 'sat-stuck',
+      name: 'Saturated Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 2,
+      drawSize: 16,
+      hasStarted: false,
+    });
+    await db.insert(schema.tournamentEntries).values(
+      ['sat-1', 'sat-2', 'sat-3'].map((id) => ({
+        tournamentId: 'sat-stuck',
+        playerId: PlayerId(id),
+        seed: null,
+        entryType: 'da' as const,
+        draw: 'main' as const,
+      })),
+    );
+
+    const before = await playerRepository.countFreeAgents();
+    expect(before.total).toBe(3);
+    expect(before.signable).toBe(0); // the saturated week: 0 signable
+
+    const useCase = new EnsureSignablePoolUseCase(
+      worldRepository,
+      playerRepository,
+      new NoopEventPublisher(),
+      new StandardPlayerGenerationPolicy(),
+      realRandom,
+      new SequentialFillerIdGenerator(),
+      new StandardAgingPolicy(),
+    );
+    const result = await useCase.execute({ worldId });
+
+    expect(result.signableBefore).toBe(0);
+    expect(result.generated).toBe(MIN_SIGNABLE_FREE_AGENTS);
+    expect(await playerRepository.countSignableFreeAgents()).toBeGreaterThanOrEqual(MIN_SIGNABLE_FREE_AGENTS);
+
+    // The originally-locked agents are still genuinely refused while the
+    // draw is unfinished — the guard added free agents, it did not
+    // unblock anyone.
+    const claimAdapter = new DrizzleTalentClaimAdapter(db);
+    const xpRepository = new DrizzleManagerXpRepository(db);
+    await xpRepository.credit(ManagerId('m-d3'), 100);
+    expect(await claimAdapter.claimAndCharge(PlayerId('sat-1'), ManagerId('m-d3'), 40)).toEqual({
+      kind: 'player-committed',
+    });
+
+    // Cancel the stuck draw (C1/C2) — its players become signable and the
+    // same claim, through the same atomic adapter, now succeeds.
+    const stuck = (await tournamentRepository.findById(TournamentId('sat-stuck')))!;
+    stuck.cancel('The draw could not be filled in time');
+    await tournamentRepository.save(stuck);
+
+    expect(await playerRepository.countSignableFreeAgents()).toBeGreaterThanOrEqual(MIN_SIGNABLE_FREE_AGENTS + 3);
+    const claimed = await claimAdapter.claimAndCharge(PlayerId('sat-1'), ManagerId('m-d3'), 40);
+    expect(claimed.kind).toBe('claimed');
+  });
+});

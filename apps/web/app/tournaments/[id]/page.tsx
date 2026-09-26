@@ -820,6 +820,7 @@ export default function TournamentBracketPage() {
 
   const overallStatus = useMemo(() => {
     if (!tournament) return '';
+    if (tournament.cancelled) return 'Cancelled — the draw was never made';
     if (!tournament.hasStarted) return 'Registration open — draw not yet made';
     // Derived from the same per-round status (and so the same `matchState`
     // predicate) the round badges use — the hero can no longer claim the
@@ -878,7 +879,9 @@ export default function TournamentBracketPage() {
   // (itself the one `roundStatus`/`matchState` predicate the round badges
   // read) — never a second notion of "under way".
   const statusChip = !tournament.hasStarted
-    ? 'REGISTRATION OPEN'
+    ? tournament.cancelled
+      ? 'CANCELLED'
+      : 'REGISTRATION OPEN'
     : overallStatus === 'Tournament complete' || overallStatus.endsWith(' complete')
       ? 'COMPLETE'
       : overallStatus === 'Results airing'
@@ -954,6 +957,15 @@ export default function TournamentBracketPage() {
           </div>
         </div>
 
+        {tournament.cancelled && (
+          <div className="gc-notice mt-3" style={{ borderColor: 'color-mix(in srgb, var(--warn) 45%, transparent)' }}>
+            <strong>Cancelled:</strong>{' '}
+            {tournament.cancelReason ?? 'This draw was cancelled before it could start.'} The tournament never
+            played; every entry is kept in the players&apos; history and those players are free to enter other
+            events.
+          </div>
+        )}
+
         {error && (
           <div className="gc-notice mt-3" style={{ color: 'var(--loss)', borderColor: 'color-mix(in srgb, var(--loss) 40%, transparent)' }}>
             {error}
@@ -966,7 +978,7 @@ export default function TournamentBracketPage() {
             counterpart to the doubles one below. Previously an open
             tournament's page offered ONLY doubles, so entering a player in
             singles meant leaving for the Planner tab. */}
-        {!tournament.hasStarted && (
+        {!tournament.hasStarted && !tournament.cancelled && (
           <div className="mb-6">
             <SinglesEntryPanel tournamentId={tournamentId} managerId={devManagerId} onEntered={() => void load()} />
           </div>
@@ -1157,6 +1169,16 @@ export default function TournamentBracketPage() {
         )}
 
         {!tournament.hasStarted ? (
+          tournament.cancelled ? (
+            <Panel style={{ padding: 28, textAlign: 'center' }}>
+              <Icon name="ball" size={22} style={{ color: 'var(--ink-3)' }} />
+              <div className="text-[15px] font-bold" style={{ color: 'var(--ink)', marginTop: 6 }}>This draw was cancelled</div>
+              <div className="t-body-sm" style={{ marginTop: 6, lineHeight: 1.5 }}>
+                {tournament.cancelReason ?? 'It could not be filled before its deadline.'} No matches were played,
+                so there is no bracket. Entries remain in each player&apos;s tournament history.
+              </div>
+            </Panel>
+          ) : (
           <Panel style={{ padding: 28, textAlign: 'center' }}>
             <Icon name="ball" size={22} style={{ color: 'var(--ink-3)' }} />
             <div className="text-[15px] font-bold" style={{ color: 'var(--ink)', marginTop: 6 }}>The draw hasn&apos;t been made yet</div>
@@ -1167,6 +1189,7 @@ export default function TournamentBracketPage() {
               Until then, managers can keep entering players above.
             </div>
           </Panel>
+          )
         ) : !tournament.hasMainDraw ? (
           <Panel style={{ padding: 28, textAlign: 'center' }}>
             <Icon name="ball" size={22} style={{ color: 'var(--ink-3)' }} />

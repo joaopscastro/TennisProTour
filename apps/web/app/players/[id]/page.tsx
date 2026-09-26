@@ -947,9 +947,17 @@ export default function PlayerProfilePage() {
                                   key={t.id}
                                   href={`/tournaments/${t.id}`}
                                   className="gc-identity-link"
-                                  style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', color: 'var(--ink)' }}
+                                  style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', color: t.cancelled ? 'var(--ink-3)' : 'var(--ink)' }}
                                 >
                                   {t.name}
+                                  {t.cancelled && (
+                                    <span
+                                      title={t.cancelReason ?? 'This draw was cancelled before it could start'}
+                                      style={{ fontStyle: 'italic', fontWeight: 500, color: 'var(--ink-3)' }}
+                                    >
+                                      {' '}— Cancelled
+                                    </span>
+                                  )}
                                 </Link>
                               ))}
                             </div>

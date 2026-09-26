@@ -1,6 +1,7 @@
 import { and, eq, gt, inArray, isNotNull, lte, or } from 'drizzle-orm';
 import { AgeBand, ManagerId, PlayerId, TournamentTier } from '@tennis-manager/domain';
 import {
+  DigestCancellation,
   DigestNextMatch,
   DigestPlayerData,
   DigestResult,
@@ -8,7 +9,7 @@ import {
   ManagerDigestQuery,
 } from '@tennis-manager/application';
 import { Db } from '../../db/client';
-import { players, titles, tournamentMatches, tournaments } from '../../db/schema';
+import { players, titles, tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
 
 /**
  * Drizzle-backed ManagerDigestQuery (Notifications STAGE 1).
@@ -86,6 +87,24 @@ export class DrizzleManagerDigestQuery implements ManagerDigestQuery {
         and(inArray(titles.playerId, playerIds), gt(titles.createdAt, since), lte(titles.createdAt, until)),
       );
 
+    // Cancelled draws this manager's players were entered in, windowed by
+    // the cancellation instant (P1-C3) — a cancelled event never plays, so
+    // it has no match timestamps to key on. Entries are the join key, so
+    // only real registrations surface (a filler-only draw nobody entered
+    // is not news).
+    const cancellationRows = await this.db
+      .select({ entry: tournamentEntries, tournament: tournaments })
+      .from(tournamentEntries)
+      .innerJoin(tournaments, eq(tournaments.id, tournamentEntries.tournamentId))
+      .where(
+        and(
+          inArray(tournamentEntries.playerId, playerIds),
+          isNotNull(tournaments.cancelledAt),
+          gt(tournaments.cancelledAt, since),
+          lte(tournaments.cancelledAt, until),
+        ),
+      );
+
     return roster.map((player) => {
       const ownMatches = matchRows.filter(
         (row) => row.match.entrantA === player.id || row.match.entrantB === player.id,
@@ -159,6 +178,17 @@ export class DrizzleManagerDigestQuery implements ManagerDigestQuery {
           createdAt: row.title.createdAt,
         }));
 
+      const cancelled: DigestCancellation[] = cancellationRows
+        .filter((row) => row.entry.playerId === player.id && row.tournament.cancelledAt !== null)
+        .map((row) => ({
+          tournamentId: row.tournament.id,
+          tournamentName: row.tournament.name,
+          tier: row.tournament.tier as TournamentTier,
+          ageBand: row.tournament.ageBand as AgeBand | null,
+          reason: row.tournament.cancelReason,
+          cancelledAt: row.tournament.cancelledAt as Date,
+        }));
+
       return {
         playerId: PlayerId(player.id),
         name: player.name,
@@ -166,6 +196,7 @@ export class DrizzleManagerDigestQuery implements ManagerDigestQuery {
         results,
         titles: playerTitles,
         next,
+        cancelled,
       };
     });
   }

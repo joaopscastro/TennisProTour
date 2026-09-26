@@ -23,7 +23,7 @@ import {
   setTrainingFocus,
 } from '../lib/api';
 import { useCountdown, formatCountdown, formatCountdownClock } from '../lib/useCountdown';
-import { nextPendingEntry, type PendingEntry } from '../lib/pendingEntry';
+import { latestCancelledEntry, nextPendingEntry, type CancelledEntry, type PendingEntry } from '../lib/pendingEntry';
 import { AppShell } from '../components/ui/AppShell';
 import { EnterTournamentModal } from '../components/EnterTournamentModal';
 import { CreateCustomPlayerModal } from '../components/CreateCustomPlayerModal';
@@ -123,7 +123,15 @@ function SegStat({ value, pct, color }: { value: number; pct: number; color: str
  * doesn't exist yet. When there is no match at all, a pending TOURNAMENT
  * ENTRY is shown instead ("draw not yet made") so a just-made entry is
  * visible immediately — never a faked match, never a bare "nothing". */
-function RosterNextMatch({ matches, pendingEntry }: { matches: PlayerMatchesDto | null | undefined; pendingEntry?: PendingEntry | null }) {
+function RosterNextMatch({
+  matches,
+  pendingEntry,
+  cancelledEntry,
+}: {
+  matches: PlayerMatchesDto | null | undefined;
+  pendingEntry?: PendingEntry | null;
+  cancelledEntry?: CancelledEntry | null;
+}) {
   const next = matches?.next ?? null;
   const remainingMs = useCountdown(next?.scheduledStartAt ?? null);
   // Still loading (no entry yet) — render nothing rather than flashing
@@ -136,6 +144,20 @@ function RosterNextMatch({ matches, pendingEntry }: { matches: PlayerMatchesDto 
           <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>Entered:</span> {pendingEntry.name}
           <span style={{ color: 'var(--ink-4)' }}>
             {' '}· S{pendingEntry.week.season} W{pendingEntry.week.week} — draw not yet made
+          </span>
+        </div>
+      );
+    }
+    if (cancelledEntry) {
+      // The entry is real history (kept, never hidden) — so say what
+      // happened in plain language instead of falling through to "No
+      // match scheduled", which read as if the entry had been lost.
+      return (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          <span style={{ color: 'var(--ink-2)', fontWeight: 600 }}>Cancelled:</span> {cancelledEntry.name}
+          <span style={{ color: 'var(--ink-4)' }}>
+            {' '}· S{cancelledEntry.week.season} W{cancelledEntry.week.week}
+            {cancelledEntry.reason ? ` — ${cancelledEntry.reason}` : ''}
           </span>
         </div>
       );
@@ -661,7 +683,11 @@ export default function RosterDashboardPage() {
 
                           {/* Next match / pending entry / no match. */}
                           <td>
-                            <RosterNextMatch matches={matchesByPlayer[p.id]} pendingEntry={nextPendingEntry(plannerByPlayer[p.id])} />
+                            <RosterNextMatch
+                              matches={matchesByPlayer[p.id]}
+                              pendingEntry={nextPendingEntry(plannerByPlayer[p.id])}
+                              cancelledEntry={latestCancelledEntry(plannerByPlayer[p.id])}
+                            />
                           </td>
 
                           {/* Actions — handlers identical to the card layout. */}

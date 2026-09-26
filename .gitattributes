@@ -1,0 +1,8 @@
+# Node ESM harness scripts (apps/api/scripts, tools/) must check out with
+# LF line endings on every platform. Git's core.autocrlf=true (the Windows
+# default here) rewrites them to CRLF on checkout, and vitest 4 / Vite 8's
+# SSR transform throws "Invalid or unexpected token" when it imports a CRLF
+# `.mjs` (found the hard way: a stash/pop turned apps/api/scripts/lib/
+# soakEvidence.mjs into CRLF and broke its test suite with no parse error
+# under node/esbuild/rolldown — only the vitest pipeline choked).
+*.mjs text eol=lf

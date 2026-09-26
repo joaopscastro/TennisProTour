@@ -5,6 +5,7 @@ import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/doma
 import { PlayerRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { players } from '../../db/schema';
+import { noUnfinishedCommitmentFor } from './unfinishedCommitment';
 
 type PlayerRow = typeof players.$inferSelect;
 
@@ -33,13 +34,44 @@ export class DrizzlePlayerRepository implements PlayerRepository {
     return rows.map(toDomain);
   }
 
-  async findFreeAgents(): Promise<Player[]> {
-    const rows = await this.db
+  async findFreeAgents(options: { limit?: number; offset?: number; signableOnly?: boolean } = {}): Promise<Player[]> {
+    const conditions = [isNull(players.managerId), ne(players.stage, 'retired')];
+    // The signable-only filter is the SAME SQL predicate the atomic claim
+    // enforces (noUnfinishedCommitmentFor), so a page filtered here can
+    // never show a Sign button the claim would refuse.
+    if (options.signableOnly) conditions.push(noUnfinishedCommitmentFor(players.id));
+    const base = this.db
       .select()
       .from(players)
-      .where(and(isNull(players.managerId), ne(players.stage, 'retired')))
-      .orderBy(asc(players.ageInWeeks));
-    return rows.map(toDomain);
+      .where(and(...conditions))
+      // age first (the long-standing "youngest first" ordering), then id
+      // so paging is stable when two free agents share an age.
+      .orderBy(asc(players.ageInWeeks), asc(players.id));
+    if (options.limit !== undefined) {
+      return (await base.limit(options.limit).offset(options.offset ?? 0)).map(toDomain);
+    }
+    if (options.offset !== undefined) {
+      return (await base.offset(options.offset)).map(toDomain);
+    }
+    return (await base).map(toDomain);
+  }
+
+  async countFreeAgents(): Promise<{ total: number; signable: number }> {
+    const rows = await this.db
+      .select({
+        total: sql<number>`count(*)::int`,
+        signable: sql<number>`count(*) FILTER (WHERE ${noUnfinishedCommitmentFor(players.id)})::int`,
+      })
+      .from(players)
+      .where(and(isNull(players.managerId), ne(players.stage, 'retired')));
+    return { total: Number(rows[0]?.total ?? 0), signable: Number(rows[0]?.signable ?? 0) };
+  }
+
+  /** The acquisition-loop guard's read (EnsureSignablePoolUseCase): the
+   * same `countFreeAgents().signable` number, exposed as its own method
+   * so the caller doesn't have to know the grouped shape. */
+  async countSignableFreeAgents(): Promise<number> {
+    return (await this.countFreeAgents()).signable;
   }
 
   /**

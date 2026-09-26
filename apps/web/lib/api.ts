@@ -248,6 +248,14 @@ export interface TournamentDto {
   /** True when a top-ranked player must count this event even if they
    * skip it (the obligatory-tournament rule). */
   obligatory: boolean;
+  /** The draw was CANCELLED before it ever started (P1-C1): it sat past
+   * its grace window without becoming seedable, never plays, and its
+   * entrants are released from the commitment lock. Entries are KEPT
+   * and labelled, never hidden. */
+  cancelled: boolean;
+  /** The plain-language reason ("Cancelled: <tier> — <reason>"), or
+   * null when not cancelled. */
+  cancelReason: string | null;
   /** Only present when GET /tournaments was called with ?playerId=.
    * Attached for BOTH bands now — see fetchOpenTournaments and
    * attachEntryInfo on the API side. Junior tiers cap at 3/week, the
@@ -436,8 +444,26 @@ export function fetchEntitlement(managerId: string): Promise<EntitlementDto> {
   return getJson(managerPath(managerId, 'entitlement'), managerId);
 }
 
-export function fetchTalentPool(): Promise<TalentPoolCandidateDto[]> {
-  return getJson('/talent-pool');
+/** One page of the Scouting pool plus the counts the page needs to stay
+ * honest while paginating (see talentPoolRoutes.ts): `total` is the
+ * number of rows matching the CURRENT filter, `poolTotal`/
+ * `availableTotal` are filter-independent. */
+export interface TalentPoolPageDto {
+  candidates: TalentPoolCandidateDto[];
+  total: number;
+  poolTotal: number;
+  availableTotal: number;
+  limit: number;
+  offset: number;
+}
+
+export function fetchTalentPool(options: { limit?: number; offset?: number; signableOnly?: boolean } = {}): Promise<TalentPoolPageDto> {
+  const params = new URLSearchParams();
+  if (options.limit !== undefined) params.set('limit', String(options.limit));
+  if (options.offset !== undefined) params.set('offset', String(options.offset));
+  if (options.signableOnly) params.set('signableOnly', 'true');
+  const query = params.toString();
+  return getJson(`/talent-pool${query ? `?${query}` : ''}`);
 }
 
 export function claimTalentPoolCandidate(playerId: string, managerId: string): Promise<PlayerDto> {
@@ -782,6 +808,10 @@ export interface PlayerTournamentHistoryEntryDto {
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
+  /** The draw was cancelled before it ever started (P1-C3): shown as
+   * "Cancelled" in the history rather than a fake result. */
+  cancelled: boolean;
+  cancelReason: string | null;
   roundsWon: number;
   won: boolean;
   eliminated: boolean;

@@ -125,7 +125,12 @@ export function tournamentHistoryResultLabel(entry: {
   eliminated: boolean;
   roundsWon: number;
   drawSize: number;
+  /** P1-C3: a cancelled draw never played — the entry is real history
+   * and must say so plainly rather than fall through to "Not yet
+   * started" (which would read as still coming). */
+  cancelled?: boolean;
 }): string {
+  if (entry.cancelled) return 'Cancelled';
   if (entry.won) return 'Champion';
   if (entry.eliminated) return `Lost — ${matchRoundLabel(entry.drawSize / 2 ** (entry.roundsWon + 1))}`;
   if (!entry.hasStarted) return 'Not yet started';

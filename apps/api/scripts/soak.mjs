@@ -377,8 +377,11 @@ function botIds() {
 
 // ---- Per-week bot decision pass ----
 async function fetchPool() {
-  const res = await api('GET', '/talent-pool');
-  return res.ok && Array.isArray(res.body) ? res.body : [];
+  // The pool route is paginated (P1-A2): request a large page and read
+  // its `candidates`. A legacy array body is still accepted.
+  const res = await api('GET', '/talent-pool?limit=256');
+  const body = Array.isArray(res.body) ? res.body : res.body?.candidates;
+  return res.ok && Array.isArray(body) ? body : [];
 }
 
 async function claimAgentsFor(bot, clock) {

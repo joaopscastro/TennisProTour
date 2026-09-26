@@ -21,7 +21,7 @@ import { ClaimTalentPoolCandidateUseCase } from '@tennis-manager/application';
 import { ConvertPlayerToCoachUseCase } from '@tennis-manager/application';
 import { CreateCustomPlayerUseCase } from '@tennis-manager/application';
 import { RefreshTalentPoolUseCase } from '@tennis-manager/application';
-import { GenesisSeedFillOnlyPlayersUseCase, EnsureFillOnlyPopulationUseCase } from '@tennis-manager/application';
+import { GenesisSeedFillOnlyPlayersUseCase, EnsureFillOnlyPopulationUseCase, EnsureSignablePoolUseCase } from '@tennis-manager/application';
 import { OpenTournamentUseCase } from '@tennis-manager/application';
 import { OpenRegistrationUseCase } from '@tennis-manager/application';
 import { SimulateMatchUseCase } from '@tennis-manager/application';
@@ -209,6 +209,12 @@ export interface Dependencies {
    * tournament's empty draw always has age-appropriate fillers (see
    * EnsureFillOnlyPopulationUseCase). */
   ensureFillOnlyPopulation: EnsureFillOnlyPopulationUseCase;
+  /** The repeatable ACQUISITION loop (D3): after each week's placements
+   * are committed, tops the SIGNABLE free-agent population up to
+   * MIN_SIGNABLE_FREE_AGENTS so "you can always sign someone" is a hard
+   * invariant (see EnsureSignablePoolUseCase). Run from the same weekly
+   * worker handler, deliberately AFTER startDueTournaments. */
+  ensureSignablePool: EnsureSignablePoolUseCase;
   openTournament: OpenTournamentUseCase;
   openRegistration: OpenRegistrationUseCase;
   registerEntrant: RegisterEntrantUseCase;
@@ -648,7 +654,30 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
       standardAgingPolicy,
     ),
     genesisSeedFillOnlyPlayers: new GenesisSeedFillOnlyPlayersUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
-    ensureFillOnlyPopulation: new EnsureFillOnlyPopulationUseCase(worlds, players, events, generationPolicy, generationRandom, idGenerator, standardAgingPolicy),
+    ensureFillOnlyPopulation: new EnsureFillOnlyPopulationUseCase(
+      worlds,
+      players,
+      events,
+      generationPolicy,
+      generationRandom,
+      idGenerator,
+      standardAgingPolicy,
+      // Demand-aware pass (P1-A1): reads the week's open draws so the
+      // pool is sized for the slate the generators just opened.
+      tournaments,
+    ),
+    // The acquisition loop (D3). Runs AFTER startDueTournaments in the
+    // worker handler, so the week's filler placements are already
+    // committed when this measures what is left signable.
+    ensureSignablePool: new EnsureSignablePoolUseCase(
+      worlds,
+      players,
+      events,
+      generationPolicy,
+      generationRandom,
+      idGenerator,
+      standardAgingPolicy,
+    ),
     openTournament,
     openRegistration,
     registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw, weeklyEntryGuard),

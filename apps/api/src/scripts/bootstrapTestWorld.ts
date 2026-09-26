@@ -24,6 +24,15 @@ import { resolveMatchLogDirectory } from '../matchLogDirectory';
  * on a fixed-id / already-open check. Re-running generates 0 new fillers
  * and opens 0 new tournaments.
  *
+ * The population guard runs TWICE (phases 1 and 6). Phase 1's run happens
+ * before any slate exists, so it only applies the static floors — enough
+ * for the phase-2 demo draw to fill. Phase 6 then runs AFTER the season's
+ * slate has been opened, exactly mirroring the production handler's
+ * generate-then-ensure order, so the demand pass sizes the pool for next
+ * week's draws on the FIRST run and both calls are clean no-ops on a
+ * re-run (without phase 6, a re-run's phase-1 call would see a slate it
+ * never sized for and generate the demand shortfall then).
+ *
  * RUN WITH THE WORKER STOPPED so the weekly tick can't race this script
  * (it force-starts due tournaments mid-run).
  *
@@ -37,6 +46,8 @@ import { resolveMatchLogDirectory } from '../matchLogDirectory';
  *   3. An enterable CURRENT-week senior slate (futures/challenger/tour).
  *   4. The rest of the season's senior calendar (weeks current+1..52).
  *   5. The junior ladder for next week (guarded — see above).
+ *   6. Demand-aware filler top-up for the slate just generated (see the
+ *      idempotency note above).
  *
  * Run: npm run bootstrap -w apps/api
  */
@@ -49,7 +60,7 @@ export interface BootstrapWorldSummary {
   worldId: WorldId;
   worldCreated: boolean;
   week: GameWeek;
-  /** Phase 1 — fill-only players generated this run (0 on a re-run). */
+  /** Phases 1+6 — fill-only players generated this run (0 on a re-run). */
   fillersGenerated: number;
   /** Free agents now available to sign. */
   freeAgents: number;
@@ -164,6 +175,16 @@ export async function bootstrapWorld(
     log(`phase 5: opened ${juniorOpened} junior tournament(s); ${juniorMastersHeld} juniorMasters field(s) held.`);
   }
 
+  // ---- Phase 6: demand-aware filler sizing (after the slate exists) ----
+  // The weekly handler generates first, then sizes the pool for the slate
+  // it just opened; bootstrap mirrors that here. Phase 1 already applied
+  // the static floors (the demo draw needed them before any slate
+  // existed), so this second call is what makes the whole script
+  // re-runnable: on the first run it reaches the demand target; on a
+  // re-run both calls are no-ops.
+  const demandFill = await deps.ensureFillOnlyPopulation.execute({ worldId });
+  log(`phase 6: demand-aware filler top-up generated ${demandFill.generated} player(s).`);
+
   const [openCount, startedCount] = [
     (await deps.tournaments.findOpenForRegistration()).length,
     (await deps.tournaments.findStarted()).length,
@@ -174,7 +195,7 @@ export async function bootstrapWorld(
     worldId,
     worldCreated,
     week: world.currentWeek,
-    fillersGenerated: fill.generated,
+    fillersGenerated: fill.generated + demandFill.generated,
     freeAgents,
     demoOpened,
     demoStarted,

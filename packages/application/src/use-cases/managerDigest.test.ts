@@ -210,3 +210,68 @@ describe('renderDigestEmail', () => {
     expect(renderDigestEmail(digest).text).toContain('L 3-6 vs Bob Opponent');
   });
 });
+
+describe('managerDigest — cancelled draws (P1-C3)', () => {
+  it('window-filters cancellations by cancelledAt and renders the plain-language line', () => {
+    const digest = buildManagerDigest({
+      managerId: ManagerId('m1'),
+      since,
+      until,
+      ranks: new Map(),
+      players: [
+        playerData({
+          cancelled: [
+            {
+              tournamentId: 't-cancel',
+              tournamentName: 'Riga Open',
+              tier: 'tour',
+              ageBand: null,
+              reason: 'The draw could not be filled in time',
+              cancelledAt: new Date('2026-01-10T09:00:00.000Z'),
+            },
+            {
+              tournamentId: 't-old',
+              tournamentName: 'Old Cancelled Cup',
+              tier: 'futures',
+              ageBand: null,
+              reason: null,
+              cancelledAt: new Date('2026-01-01T09:00:00.000Z'), // outside the window
+            },
+          ],
+        }),
+      ],
+    });
+
+    expect(digest).not.toBeNull();
+    expect(digest!.players[0].cancelled.map((c) => c.tournamentId)).toEqual(['t-cancel']);
+    const rendered = renderDigestEmail(digest!);
+    expect(rendered.text).toContain('Cancelled: tour — The draw could not be filled in time (Riga Open)');
+    expect(rendered.text).not.toContain('Old Cancelled Cup');
+  });
+
+  it('a cancellation ALONE is news — the player is not dropped from the digest', () => {
+    const digest = buildManagerDigest({
+      managerId: ManagerId('m1'),
+      since,
+      until,
+      ranks: new Map(),
+      players: [
+        playerData({
+          cancelled: [
+            {
+              tournamentId: 't-cancel',
+              tournamentName: 'Riga Open',
+              tier: 'j100',
+              ageBand: 'u16',
+              reason: 'The draw could not be filled in time',
+              cancelledAt: new Date('2026-01-10T09:00:00.000Z'),
+            },
+          ],
+        }),
+      ],
+    });
+    expect(digest).not.toBeNull();
+    expect(digest!.players).toHaveLength(1);
+    expect(renderDigestEmail(digest!).text).toContain('Cancelled: j100 — The draw could not be filled in time (Riga Open)');
+  });
+});

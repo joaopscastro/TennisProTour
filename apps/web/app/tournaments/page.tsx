@@ -645,7 +645,11 @@ function PlannerView() {
                         key={t.id}
                         href={`/tournaments/${t.id}`}
                         className="rounded-[6px] px-[9px] py-[7px] no-underline block"
-                        style={{ background: 'color-mix(in srgb, var(--accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', color: 'inherit' }}
+                        style={
+                          t.cancelled
+                            ? { background: 'color-mix(in srgb, var(--warn) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--warn) 35%, transparent)', color: 'inherit' }
+                            : { background: 'color-mix(in srgb, var(--accent) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--accent) 30%, transparent)', color: 'inherit' }
+                        }
                       >
                         <div className="flex items-center gap-[5px] min-w-0">
                           <SurfaceBadge surface={t.surface} size="sm" />
@@ -653,7 +657,11 @@ function PlannerView() {
                         </div>
                         <div className="text-[12px] font-semibold mt-[3px] truncate">{t.name}</div>
                         <div className="text-[10.5px]" style={{ color: 'var(--ink-3)' }}>
-                          {t.hasStarted ? 'Started' : `${t.mainDrawEntrants}/${t.drawSize} entrants`}
+                          {t.cancelled
+                            ? 'Cancelled — never started'
+                            : t.hasStarted
+                              ? 'Started'
+                              : `${t.mainDrawEntrants}/${t.drawSize} entrants`}
                         </div>
                       </a>
                     ))}

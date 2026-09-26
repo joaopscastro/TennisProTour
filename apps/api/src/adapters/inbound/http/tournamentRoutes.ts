@@ -167,6 +167,15 @@ export function toTournamentDto(
      * line rather than printing a misleading 0). */
     ...(managerEntrants !== undefined ? { managerEntrants } : {}),
     hasStarted: tournament.hasStarted,
+    /** The draw was CANCELLED (P1-C1): a never-started event that sat
+     * past its grace window without ever becoming seedable. Terminal —
+     * it never plays, and its entrants are released from the
+     * unfinished-commitment lock (so they become signable again).
+     * Entries are KEPT: the UI shows them marked, never hides them. */
+    cancelled: tournament.isCancelled,
+    /** The plain-language reason shown wherever the entry appears
+     * ("Cancelled: <tier> — <reason>"), or null when not cancelled. */
+    cancelReason: tournament.cancelReason,
     /** The main draw has been seeded. Distinct from `hasStarted`, which
      * is also true while a tournament is playing its QUALIFYING draw
      * and its main draw doesn't exist yet (deferred main-draw seeding —

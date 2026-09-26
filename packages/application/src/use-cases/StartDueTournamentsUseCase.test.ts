@@ -18,7 +18,7 @@ import {
 } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
-import { StartDueTournamentsUseCase } from './StartDueTournamentsUseCase';
+import { CANCELLED_DRAW_GRACE_WEEKS, CANCELLED_DRAW_REASON, StartDueTournamentsUseCase } from './StartDueTournamentsUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -28,7 +28,9 @@ class InMemoryTournamentRepository implements TournamentRepository {
   }
 
   async findOpenForRegistration(): Promise<Tournament[]> {
-    return [...this.store.values()].filter((t) => !t.hasStarted);
+    // Mirrors the production adapter: a cancelled draw is terminal and
+    // never offered for registration/due processing again.
+    return [...this.store.values()].filter((t) => !t.hasStarted && !t.isCancelled);
   }
 
   async findStarted(): Promise<Tournament[]> {
@@ -526,5 +528,71 @@ describe('StartDueTournamentsUseCase — abandoned-draw expiry', () => {
     expect(result.expired).toBe(0);
     expect(result.started).toBe(1);
     expect((await tournaments.findById(TournamentId('t-full-start')))!.hasStarted).toBe(true);
+  });
+});
+describe('StartDueTournamentsUseCase — cancelling a never-seedable draw (P1-C1)', () => {
+  it('cancels a past-grace, still-unseedable draw WITH a manager entrant, keeping its entries, and releases it from the open list', async () => {
+    // World has rolled five weeks past the draw's scheduled week — past
+    // CANCELLED_DRAW_GRACE_WEEKS (4). The draw holds one REAL entrant and
+    // there are no fillers, so it can never reach a seedable threshold.
+    const { tournaments, useCase, players } = await setup({ season: 1, week: 6 });
+    const tournament = openSeniorTournament('t-stuck');
+    realEntrant(tournament, 'real-1');
+    await tournaments.save(tournament);
+    const realPlayer = Player.hire(PlayerId('real-1'), 'Real One', 25 * 52, attributes(50), ManagerId('m1'));
+    realPlayer.pullDomainEvents();
+    await players.save(realPlayer);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.started).toBe(0);
+    expect(result.cancelled).toBe(1);
+
+    const reloaded = await tournaments.findById(TournamentId('t-stuck'));
+    expect(reloaded!.isCancelled).toBe(true);
+    expect(reloaded!.cancelReason).toBe(CANCELLED_DRAW_REASON);
+    expect(reloaded!.hasStarted).toBe(false);
+    // Entries are KEPT — no data loss (the manager's decision and the
+    // player's history survive the cancellation).
+    expect(reloaded!.entrants.map((e) => e.playerId as string)).toEqual(['real-1']);
+
+    // Once cancelled it never reappears in the open list, so a re-run is
+    // a no-op rather than a re-cancel.
+    const second = await useCase.execute({ worldId });
+    expect(second.cancelled).toBe(0);
+  });
+
+  it('does NOT cancel a past-scheduled but still-within-grace draw', async () => {
+    // Week 5 vs scheduled week 1 = 4 weeks: exactly the grace boundary,
+    // which is inclusive (<= grace stays open).
+    const { tournaments, useCase } = await setup({ season: 1, week: 1 + CANCELLED_DRAW_GRACE_WEEKS });
+    const tournament = openSeniorTournament('t-grace');
+    realEntrant(tournament, 'real-1');
+    await tournaments.save(tournament);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.cancelled).toBe(0);
+    const reloaded = await tournaments.findById(TournamentId('t-grace'));
+    expect(reloaded!.isCancelled).toBe(false);
+  });
+
+  it('does NOT cancel a past-grace draw that becomes seedable this run — it starts instead', async () => {
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 7 });
+    const tournament = openSeniorTournament('t-rescued');
+    realEntrant(tournament, 'real-1');
+    await tournaments.save(tournament);
+    // Enough fillers to make a real round-1 match (a 16-draw needs 9+
+    // entrants for any match to exist at all).
+    for (let i = 0; i < 15; i++) await players.save(fillOnlyPlayer(`rescue-${i}`, 25 * 52));
+    await players.save(Player.hire(PlayerId('real-1'), 'Real One', 25 * 52, attributes(50), ManagerId('m1')));
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.cancelled).toBe(0);
+    expect(result.started).toBe(1);
+    const reloaded = await tournaments.findById(TournamentId('t-rescued'));
+    expect(reloaded!.isCancelled).toBe(false);
+    expect(reloaded!.hasStarted).toBe(true);
   });
 });

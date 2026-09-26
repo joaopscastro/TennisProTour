@@ -129,18 +129,26 @@ export class DrizzlePlayerMatchesQuery {
       .map((r) => toSummary(r, r.match.winnerId === playerId ? 'win' : 'loss'));
 
     // "Next" = the earliest not-yet-aired match the player is still alive
-    // in. Simulated-but-not-aired matches (scheduledStartAt set) come
-    // first — ordered by their reveal start — because they're closest;
-    // truly pending matches (no schedule yet, their round isn't due)
-    // follow.
+    // in (the port's documented contract). Simulated-but-not-aired
+    // matches (scheduledStartAt set) come first — ordered by their
+    // reveal start — because they're closest; truly pending matches (no
+    // schedule yet, their round isn't due) follow, earliest scheduled
+    // week first.
+    //
+    // The unscheduled tie-break sorts season/week ASCENDING. It used to
+    // be DESCENDING (the `b - a` shape above, copied from `recent`'s
+    // newest-first intent), so a player still alive in two future-week
+    // draws got "next" = the LATER week — the opposite of the port's
+    // "earliest not-yet-simulated" contract, and of the ascending
+    // roundNumber tie-break within one week.
     const notAired = rows.filter((r) => !aired(r));
     notAired.sort((a, b) => {
       const aStart = a.match.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
       const bStart = b.match.scheduledStartAt?.getTime() ?? Number.POSITIVE_INFINITY;
       if (aStart !== bStart) return aStart - bStart;
       return (
-        b.tournament.seasonScheduled - a.tournament.seasonScheduled ||
-        b.tournament.weekScheduled - a.tournament.weekScheduled ||
+        a.tournament.seasonScheduled - b.tournament.seasonScheduled ||
+        a.tournament.weekScheduled - b.tournament.weekScheduled ||
         a.match.roundNumber - b.match.roundNumber
       );
     });

@@ -12,7 +12,10 @@ export default defineConfig({
     },
   },
   test: {
-    include: ['src/**/*.test.ts'],
+    // `scripts/**/*.test.mjs` — the soak/agent harness's shared pure
+    // helpers (scripts/lib/*.mjs) are regression-covered here too; see
+    // scripts/lib/soakEvidence.test.mjs.
+    include: ['src/**/*.test.ts', 'scripts/**/*.test.mjs'],
     // Integration tests hit one shared Postgres instance; run files
     // sequentially so table cleanup in one file can't race another.
     fileParallelism: false,

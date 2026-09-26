@@ -7,6 +7,7 @@ export * from './use-cases/CreateCustomPlayerUseCase';
 export * from './use-cases/RefreshTalentPoolUseCase';
 export * from './use-cases/GenesisSeedFillOnlyPlayersUseCase';
 export * from './use-cases/EnsureFillOnlyPopulationUseCase';
+export * from './use-cases/EnsureSignablePoolUseCase';
 export * from './use-cases/StartDueTournamentsUseCase';
 export * from './use-cases/SetTrainingScheduleUseCase';
 export * from './use-cases/ReleasePlayerUseCase';

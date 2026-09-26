@@ -1065,7 +1065,7 @@ describe('API', () => {
 
     const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
     expect(listed.statusCode).toBe(200);
-    const candidates = listed.json();
+    const candidates = listed.json().candidates;
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ id: 'tp1', name: 'Pool Player', nationality: 'ES', ageInWeeks: 750 });
     // Career signal + competing context are present and default honestly
@@ -1093,7 +1093,9 @@ describe('API', () => {
     expect(claimed.body).not.toContain('83');
     expect(claimed.body).not.toContain('89');
 
-    expect((await app.inject({ method: 'GET', url: '/talent-pool' })).json()).toEqual([]);
+    const afterClaim = await app.inject({ method: 'GET', url: '/talent-pool' });
+    expect(afterClaim.json().candidates).toEqual([]);
+    expect(afterClaim.json().total).toBe(0);
 
     // A second claim attempt on the now-claimed candidate is a conflict
     // — m2 is funded too, so this genuinely exercises the "candidate
@@ -1146,7 +1148,7 @@ describe('API', () => {
 
     const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
     expect(listed.statusCode).toBe(200);
-    const dto = listed.json().find((c: { id: string }) => c.id === 'tp-live');
+    const dto = listed.json().candidates.find((c: { id: string }) => c.id === 'tp-live');
     expect(dto.currentTournament).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
     expect(dto.signingBlocked).toBe(true);
     expect(dto.blockingCommitment).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
@@ -1164,6 +1166,65 @@ describe('API', () => {
     expect(refused.statusCode).toBe(409);
     expect((refused.json() as { error: string }).error).toMatch(/unfinished tournament/);
     expect((await deps.players.findById(PlayerId('tp-live')))!.managerId).toBeNull();
+  });
+
+  it('pages the pool with limit/offset and filters signableOnly server-side, with honest totals', async () => {
+    // The demand-sized pool is ~1,600 free agents — the response must be
+    // one page, the filter must be applied in SQL (a signable-only page
+    // can never contain a blocked row), and the counts must describe the
+    // WHOLE pool, not just the page.
+    const agingPolicy = new StandardAgingPolicy();
+    const stage = agingPolicy.stageForAge(20 * 52);
+    const ceilings = { speed: 70, stamina: 70, strength: 70 };
+    for (let i = 0; i < 5; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(PlayerId(`paged-${i}`), `Paged ${i}`, (18 + i) * 52, stage, fixedAttributes(50), 'ES', 70, ceilings),
+      );
+    }
+    // The YOUNGEST (first, given youngest-first ordering) is committed
+    // to an unstarted draw.
+    await db.insert(schema.tournaments).values({
+      id: 'paged-t1',
+      name: 'Paging Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'paged-t1',
+      playerId: PlayerId('paged-0'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+
+    const first = await app.inject({ method: 'GET', url: '/talent-pool?limit=2&offset=0' });
+    expect(first.statusCode).toBe(200);
+    const firstPage = first.json();
+    expect(firstPage.candidates).toHaveLength(2);
+    expect(firstPage.total).toBe(5); // all free agents match the default filter
+    expect(firstPage.poolTotal).toBe(5);
+    expect(firstPage.availableTotal).toBe(4);
+    expect(firstPage.limit).toBe(2);
+    expect(firstPage.offset).toBe(0);
+
+    const second = await app.inject({ method: 'GET', url: '/talent-pool?limit=2&offset=2' });
+    const secondPage = second.json();
+    expect(secondPage.candidates).toHaveLength(2);
+    const firstIds = firstPage.candidates.map((c: { id: string }) => c.id);
+    const secondIds = secondPage.candidates.map((c: { id: string }) => c.id);
+    expect(secondIds.some((id: string) => firstIds.includes(id))).toBe(false);
+
+    const signable = await app.inject({ method: 'GET', url: '/talent-pool?signableOnly=true' });
+    const signablePage = signable.json();
+    expect(signablePage.candidates).toHaveLength(4);
+    expect(signablePage.candidates.some((c: { id: string }) => c.id === 'paged-0')).toBe(false);
+    expect(signablePage.candidates.every((c: { signingBlocked: boolean }) => c.signingBlocked === false)).toBe(true);
+    expect(signablePage.total).toBe(4); // the filtered total
+    expect(signablePage.availableTotal).toBe(4);
+    expect(signablePage.poolTotal).toBe(5);
   });
 
   it('signs a free agent whose only tournament has FINISHED — the pool is not shrunk forever', async () => {
@@ -1203,7 +1264,7 @@ describe('API', () => {
     });
 
     const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
-    const dto = listed.json().find((c: { id: string }) => c.id === 'tp-done');
+    const dto = listed.json().candidates.find((c: { id: string }) => c.id === 'tp-done');
     expect(dto.signingBlocked).toBe(false);
     expect(dto.blockingCommitment).toBeNull();
 
@@ -1211,6 +1272,100 @@ describe('API', () => {
     const claimed = await app.inject({
       method: 'POST',
       url: '/talent-pool/tp-done/claim',
+      headers: { 'x-dev-manager-id': 'm1' },
+      payload: { managerId: 'm1' },
+    });
+    expect(claimed.statusCode).toBe(201);
+    expect((claimed.json() as { managerId: string }).managerId).toBe('m1');
+  });
+
+  it('cancelling a permanently-stuck draw round-trips through real Postgres and releases its free agent through the real claim route', async () => {
+    // The P1-C1/C2 end-to-end: a never-started, never-seeded draw (so its
+    // main draw will never exist) whose entry locks a free agent out of
+    // the signing pool forever. Cancelling it must (a) persist the
+    // terminal state, (b) stop the pool marking the player blocked, and
+    // (c) let the real atomic claim through.
+    const agingPolicy = new StandardAgingPolicy();
+    const stage = agingPolicy.stageForAge(20 * 52);
+    const ceilings = { speed: 70, stamina: 70, strength: 70 };
+    await deps.players.save(Player.generateFillOnly(PlayerId('tp-cancel'), 'Stuck Free Agent', 20 * 52, stage, fixedAttributes(50), 'ES', 70, ceilings));
+    await db.insert(schema.tournaments).values({
+      id: 'tp-cancel-t1',
+      name: 'Stuck Open',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: false, // never seeded — entries only
+    });
+    await db.insert(schema.tournamentEntries).values({
+      tournamentId: 'tp-cancel-t1',
+      playerId: PlayerId('tp-cancel'),
+      seed: null,
+      entryType: 'da',
+      draw: 'main',
+    });
+
+    const before = await app.inject({ method: 'GET', url: '/talent-pool?signableOnly=true' });
+    expect(before.json().candidates.some((c: { id: string }) => c.id === 'tp-cancel')).toBe(false);
+    const blockedList = await app.inject({ method: 'GET', url: '/talent-pool' });
+    const blockedDto = blockedList.json().candidates.find((c: { id: string }) => c.id === 'tp-cancel');
+    expect(blockedDto.signingBlocked).toBe(true);
+    expect(blockedDto.blockingCommitment).toEqual({ id: 'tp-cancel-t1', name: 'Stuck Open' });
+
+    await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/talent-pool/tp-cancel/claim',
+      headers: { 'x-dev-manager-id': 'm1' },
+      payload: { managerId: 'm1' },
+    });
+    expect(refused.statusCode).toBe(409);
+
+    // Cancel through the real repository round-trip (the same domain call
+    // StartDueTournamentsUseCase makes past its grace window).
+    const stuck = (await deps.tournaments.findById(TournamentId('tp-cancel-t1')))!;
+    stuck.cancel('The draw could not be filled in time');
+    await deps.tournaments.save(stuck);
+
+    const reloaded = (await deps.tournaments.findById(TournamentId('tp-cancel-t1')))!;
+    expect(reloaded.isCancelled).toBe(true);
+    expect(reloaded.cancelReason).toBe('The draw could not be filled in time');
+    expect(reloaded.entrants.map((e) => e.playerId as string)).toEqual(['tp-cancel']); // entries KEPT
+
+    // The DTO says it, visibly (P1-C3).
+    const detail = await app.inject({ method: 'GET', url: '/tournaments/tp-cancel-t1' });
+    expect(detail.json().cancelled).toBe(true);
+    expect(detail.json().cancelReason).toBe('The draw could not be filled in time');
+    // And a cancelled draw is not offered as open for registration.
+    const open = await app.inject({ method: 'GET', url: '/tournaments?status=open' });
+    expect(open.json().some((t: { id: string }) => t.id === 'tp-cancel-t1')).toBe(false);
+
+    // The planner MARKS it rather than hiding it: the entry is still the
+    // player's real history, clearly labelled cancelled. The default
+    // planner window starts at the world's week (S1 W52), so schedule
+    // the draw in W52 for this read.
+    await db
+      .update(schema.tournaments)
+      .set({ seasonScheduled: 1, weekScheduled: 52 })
+      .where(eq(schema.tournaments.id, 'tp-cancel-t1'));
+    const planner = await app.inject({ method: 'GET', url: '/players/tp-cancel/entry-planner' });
+    const planned = planner.json().flatMap((w: { entries: Array<{ id: string }> }) => w.entries).find((t: { id: string }) => t.id === 'tp-cancel-t1');
+    expect(planned).toBeDefined();
+    expect(planned.cancelled).toBe(true);
+    expect(planned.cancelReason).toBe('The draw could not be filled in time');
+    expect(planned.hasStarted).toBe(false);
+
+    // The pool now offers them, and the real atomic claim succeeds.
+    const after = await app.inject({ method: 'GET', url: '/talent-pool?signableOnly=true' });
+    const dto = after.json().candidates.find((c: { id: string }) => c.id === 'tp-cancel');
+    expect(dto.signingBlocked).toBe(false);
+    expect(dto.blockingCommitment).toBeNull();
+
+    const claimed = await app.inject({
+      method: 'POST',
+      url: '/talent-pool/tp-cancel/claim',
       headers: { 'x-dev-manager-id': 'm1' },
       payload: { managerId: 'm1' },
     });

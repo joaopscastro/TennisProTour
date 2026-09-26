@@ -79,6 +79,14 @@ export function makeAdvanceWorldHandler(deps: Dependencies, tickIntervalMs: numb
       // manager had a chance to register — see that use case's doc.
       await deps.startDueTournaments.execute({ worldId });
       profiler.mark('startDueTournaments');
+      // The repeatable ACQUISITION loop (D3) — deliberately AFTER
+      // startDueTournaments: the week's filler/entry placements are
+      // committed first, so this guard measures (and tops up) the free
+      // agents left SIGNABLE, making "you can always sign someone" a
+      // hard invariant. Running before would let the placements consume
+      // the very pool it just guaranteed. See EnsureSignablePoolUseCase.
+      await deps.ensureSignablePool.execute({ worldId });
+      profiler.mark('ensureSignablePool');
       // The obligatory-tournament ranking rule (P9 —
       // docs/ranking-realism-proposal.md §4), LAST of the weekly
       // systems and deliberately so: it reads every concluded

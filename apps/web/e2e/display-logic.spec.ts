@@ -11,11 +11,11 @@ import {
   replayScoreVisible,
   replayStartOffset,
 } from '../lib/matchAir';
-import { nextPendingEntry } from '../lib/pendingEntry';
+import { latestCancelledEntry, nextPendingEntry } from '../lib/pendingEntry';
 import { resolveDecidedSide } from '../lib/decidedIt';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
-import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../lib/format';
+import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
 
 /**
  * Pure-logic regression tests for two first-time-visitor bugs. These need
@@ -318,7 +318,7 @@ test.describe('pending tournament entry (roster "what next")', () => {
   const week = (
     season: number,
     w: number,
-    entries: Array<{ id: string; name: string; tier: string; hasStarted: boolean }>,
+    entries: Array<{ id: string; name: string; tier: string; hasStarted: boolean; cancelled?: boolean; cancelReason?: string | null }>,
   ) => ({ week: { season, week: w }, entries }) as unknown as PlannerWeekDto;
 
   test('no planner or no entries means no pending entry', () => {
@@ -343,6 +343,37 @@ test.describe('pending tournament entry (roster "what next")', () => {
 
   test('a planner with only started events yields nothing (the match read takes over)', () => {
     expect(nextPendingEntry([week(1, 2, [{ id: 's', name: 'Started', tier: 'tour', hasStarted: true }])])).toBeNull();
+  });
+
+  test('a CANCELLED entry is never counted as a pending commitment', () => {
+    const planner = [
+      week(1, 2, [{ id: 'cancelled', name: 'Riga Open', tier: 'tour', hasStarted: false, cancelled: true, cancelReason: 'The draw could not be filled in time' }]),
+      week(1, 4, [{ id: 'live', name: 'Lima Challenger', tier: 'challenger', hasStarted: false }]),
+    ];
+    expect(nextPendingEntry(planner)).toEqual({
+      tournamentId: 'live',
+      name: 'Lima Challenger',
+      tier: 'challenger',
+      week: { season: 1, week: 4 },
+    });
+    // ...but it IS surfaced, plainly, with its reason.
+    expect(latestCancelledEntry(planner)).toEqual({
+      tournamentId: 'cancelled',
+      name: 'Riga Open',
+      tier: 'tour',
+      week: { season: 1, week: 2 },
+      reason: 'The draw could not be filled in time',
+    });
+  });
+
+  test('latestCancelledEntry picks the most recent cancellation and is null when none fired', () => {
+    const planner = [
+      week(1, 2, [{ id: 'old', name: 'Old Cancelled', tier: 'tour', hasStarted: false, cancelled: true, cancelReason: null }]),
+      week(1, 9, [{ id: 'new', name: 'New Cancelled', tier: 'j60', hasStarted: false, cancelled: true, cancelReason: 'The draw could not be filled in time' }]),
+    ];
+    expect(latestCancelledEntry(planner)?.tournamentId).toBe('new');
+    expect(latestCancelledEntry([week(1, 2, [{ id: 'ok', name: 'Fine', tier: 'tour', hasStarted: false }])])).toBeNull();
+    expect(latestCancelledEntry(null)).toBeNull();
   });
 });
 
@@ -378,5 +409,24 @@ test.describe('duplicate player names are disambiguated', () => {
     expect(first).not.toBe(second);
     expect(first.startsWith('Yuki Okafor (')).toBe(true);
     expect(names.get('cccc-3333')).toBe('Marta Vukovic');
+  });
+});
+
+test.describe('cancelled entries are legible (P1-C3)', () => {
+  test('a cancelled tournament-history row reads "Cancelled", never "Not yet started"', () => {
+    expect(
+      tournamentHistoryResultLabel({
+        hasStarted: false,
+        won: false,
+        eliminated: false,
+        roundsWon: 0,
+        drawSize: 16,
+        cancelled: true,
+      }),
+    ).toBe('Cancelled');
+    // The same shape WITHOUT the flag is the genuine not-yet-started case.
+    expect(
+      tournamentHistoryResultLabel({ hasStarted: false, won: false, eliminated: false, roundsWon: 0, drawSize: 16 }),
+    ).toBe('Not yet started');
   });
 });

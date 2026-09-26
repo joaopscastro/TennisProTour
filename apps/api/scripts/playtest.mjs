@@ -128,8 +128,11 @@ async function main() {
   }
 
   // ---- Talent pool: bucket by age band for a spread across all ages ----
-  const poolRes = await api('GET', '/talent-pool');
-  const agents = poolRes.ok ? poolRes.body : [];
+  // The pool route is paginated (P1-A2): request a large page and read
+  // its `candidates`. A legacy array body is still accepted.
+  const poolRes = await api('GET', '/talent-pool?limit=256');
+  const poolBody = Array.isArray(poolRes.body) ? poolRes.body : poolRes.body?.candidates;
+  const agents = poolRes.ok && Array.isArray(poolBody) ? poolBody : [];
   report.pools.total = agents.length;
   const u16 = agents.filter((p) => p.ageInWeeks <= U16_MAX_WEEKS);
   const senior = agents.filter((p) => p.ageInWeeks > U16_MAX_WEEKS);

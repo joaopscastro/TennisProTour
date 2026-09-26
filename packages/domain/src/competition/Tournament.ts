@@ -91,8 +91,16 @@ export interface TournamentOpenProps {
    * overwrite one another with a last-writer-wins whole-aggregate
    * write. Absent/0 for a freshly opened, never-persisted aggregate;
    * reconstitute() sets it from the stored row and adapters write the
-   * new value back via markPersisted() after each successful save. */
+   * new value back via markPersisted() after each save. */
   persistenceVersion?: number;
+  /** Set when a never-started draw is CANCELLED (see `cancel()`) — an
+   * ISO timestamp, plus the plain-language reason shown to managers.
+   * Both nullable: every pre-cancellation row (and every open/started
+   * tournament) has neither. A cancelled tournament is terminal and
+   * never started; its ENTRIES ARE KEPT (no data loss — the players'
+   * history still shows the entry, marked cancelled). */
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
 }
 
 /**
@@ -117,6 +125,10 @@ export class Tournament {
   private domainEvents: DomainEvent[] = [];
   /** See TournamentOpenProps.persistenceVersion. 0 = never persisted. */
   private _persistenceVersion = 0;
+  /** See TournamentOpenProps.cancelledAt/cancelReason — set only by
+   * cancel(), never mutated any other way. */
+  private _cancelledAt: string | null = null;
+  private _cancelReason: string | null = null;
 
   private constructor(
     readonly id: TournamentId,
@@ -304,6 +316,8 @@ export class Tournament {
     tournament._doublesQualifyingPairs = [...(props.doublesQualifyingPairs ?? [])];
     tournament.doublesQualifyingRounds = [...(props.doublesQualifyingRounds ?? [])];
     tournament._persistenceVersion = props.persistenceVersion ?? 0;
+    tournament._cancelledAt = props.cancelledAt ?? null;
+    tournament._cancelReason = props.cancelReason ?? null;
     return tournament;
   }
 
@@ -325,6 +339,66 @@ export class Tournament {
    * domain one — no domain rule ever reads it. */
   markPersisted(version: number): void {
     this._persistenceVersion = version;
+  }
+
+  /** When this draw was cancelled (ISO timestamp), or null. See
+   * `cancel()`'s doc comment. */
+  get cancelledAt(): string | null {
+    return this._cancelledAt;
+  }
+
+  /** The plain-language reason shown to managers, or null. */
+  get cancelReason(): string | null {
+    return this._cancelReason;
+  }
+
+  /** A cancelled draw is TERMINAL: it can never register another entrant,
+   * never start a bracket, and its entries no longer count as
+   * commitments (a signed free agent inside one becomes signable again —
+   * see the SQL twin in apps/api's unfinishedCommitment.ts). Deliberately
+   * distinct from a deleted abandoned shell: cancellation KEEPS every
+   * entry row, so a manager's real registration, and the player's
+   * history, survive; the event simply never plays. */
+  get isCancelled(): boolean {
+    return this._cancelledAt !== null;
+  }
+
+  /**
+   * Cancels a never-started draw: an event that sat past its grace
+   * window without ever becoming seedable. This is the TERMINAL state
+   * that replaced "kept open forever" — before it, a never-started draw
+   * with even one manager-owned entrant was deliberately never expired,
+   * and after the signing rule landed ("no signing while committed")
+   * every player inside it was locked out of the pool FOREVER. Cancelling
+   * releases them while keeping the entry visible in history.
+   *
+   * **Idempotent**: a second call is a no-op (the first cancellation
+   * stands, reason and timestamp unchanged), so a retried tick can never
+   * re-cancel or overwrite the audit trail.
+   *
+   * **Only a never-started draw can be cancelled** — a tournament that
+   * has played any match is resolved by play, not by fiat. (The one
+   * caller, StartDueTournamentsUseCase, only ever passes draws that
+   * failed to seed inside their grace window.)
+   */
+  cancel(reason: string): void {
+    if (this.isCancelled) return;
+    if (this.hasStarted) {
+      throw new Error(`Cannot cancel tournament ${this.id}: it has already started`);
+    }
+    if (reason.trim().length === 0) {
+      throw new Error(`Cannot cancel tournament ${this.id} without a reason`);
+    }
+    this._cancelledAt = new Date().toISOString();
+    this._cancelReason = reason;
+  }
+
+  /** Shared "the draw is cancelled" refusal for every mutator that would
+   * otherwise add to or start it. */
+  private assertNotCancelled(action: string): void {
+    if (this.isCancelled) {
+      throw new Error(`Cannot ${action}: tournament ${this.id} was cancelled (${this._cancelReason})`);
+    }
   }
 
   /** EVERY entrant, both draws. Unchanged for tournaments without
@@ -498,6 +572,7 @@ export class Tournament {
   }
 
   registerEntrant(entrant: TournamentEntrant): void {
+    this.assertNotCancelled('register an entrant');
     if (this.hasStarted) {
       throw new Error(`Cannot register an entrant: tournament ${this.id} has already started`);
     }
@@ -612,6 +687,7 @@ export class Tournament {
    * has produced its winners — the deferred-main-draw model. What can
    * never happen twice is the main bracket itself. */
   startWithBracket(rounds: BracketRound[]): void {
+    this.assertNotCancelled('start a tournament');
     if (this.hasMainDraw) {
       throw new Error(`Tournament ${this.id} has already started`);
     }
@@ -659,6 +735,7 @@ export class Tournament {
    * "a sparse field can produce a matchless round 1" guard as the main
    * draw, for the same reason (see startWithBracket). */
   startQualifyingWithBracket(rounds: BracketRound[]): void {
+    this.assertNotCancelled('start qualifying');
     if (!this.hasQualifying) {
       throw new Error(`Tournament ${this.id} holds no qualifying event`);
     }
@@ -869,6 +946,7 @@ export class Tournament {
    * (see DoublesPairingService). Allowed only while the tournament is
    * open, exactly like singles `registerEntrant`. */
   registerDoublesEntrant(playerId: PlayerId): void {
+    this.assertNotCancelled('register a doubles entrant');
     if (!this.hasDoubles) {
       throw new Error(`Tournament ${this.id} holds no doubles draw`);
     }
@@ -887,6 +965,7 @@ export class Tournament {
    * pairs (so each `PairId` maps back to its two players) and the seeded
    * bracket. */
   startDoublesWithBracket(pairs: TournamentDoublesPair[], rounds: BracketRound<PairId>[]): void {
+    this.assertNotCancelled('start doubles');
     if (!this.hasDoubles) {
       throw new Error(`Tournament ${this.id} holds no doubles draw`);
     }
@@ -930,6 +1009,7 @@ export class Tournament {
    * promoted, so the direct pairs are parked here first and the main
    * bracket is seeded later by PromoteDoublesQualifiersUseCase. */
   recordDoublesDirectAcceptancePairs(pairs: TournamentDoublesPair[]): void {
+    this.assertNotCancelled('record doubles direct acceptance');
     if (this.hasDoublesDrawStarted) {
       throw new Error(`Cannot record doubles direct acceptance: tournament ${this.id}'s doubles draw is already seeded`);
     }
@@ -941,6 +1021,7 @@ export class Tournament {
    * draw places. Deferred main-draw seeding: the doubles main draw is
    * seeded by PromoteDoublesQualifiersUseCase once qualifying finishes. */
   startDoublesQualifyingWithBracket(pairs: TournamentDoublesPair[], rounds: BracketRound<PairId>[]): void {
+    this.assertNotCancelled('start doubles qualifying');
     if (!this.hasDoublesQualifying) {
       throw new Error(`Tournament ${this.id} holds no doubles qualifying`);
     }

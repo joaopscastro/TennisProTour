@@ -851,8 +851,11 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     });
   }
 
-  const poolRes = await api('GET', '/talent-pool');
-  const freeAgents = (Array.isArray(poolRes.body) ? poolRes.body : [])
+  // The pool route is paginated (P1-A2): the digest asks for a large page
+  // and maps its `candidates`. A legacy array body is still accepted.
+  const poolRes = await api('GET', '/talent-pool?limit=256');
+  const poolBody = Array.isArray(poolRes.body) ? poolRes.body : poolRes.body?.candidates;
+  const freeAgents = (Array.isArray(poolBody) ? poolBody : [])
     .filter((a) => a.signingBlocked !== true)
     .map((a) => ({
       id: a.id,
@@ -1682,6 +1685,22 @@ async function finalize() {
   report.finalCohort = {
     deltas: cohortDeltas(report.trackedCohort.weekly.map((week) => week.rows), report.trackedCohort.ids),
   };
+
+  // The attribute/experience flatness check (the old Skill-rounding bug
+  // signature), mirroring soak.mjs's derived anomaly. It never ran here
+  // at all before — this harness produced the deltas but dropped them.
+  for (const d of report.finalCohort.deltas) {
+    if (d.present === false) continue;
+    if (d.experienceRisingSkillsFlat) {
+      report.anomalies.push({
+        type: 'experience-rising-skills-flat',
+        playerId: d.id,
+        experienceDelta: d.experienceDelta,
+        skillsMoved: d.skillsMoved,
+        detail: 'Experience accumulated but no skill column moved over the tracked window.',
+      });
+    }
+  }
 
   if (runCtx.evidence) {
     const evidence = await collectFinalEvidence(db, { ids: [...trackedIds], worldId: runCtx.world, currentAbs: absoWeek(clock.currentWeek) });

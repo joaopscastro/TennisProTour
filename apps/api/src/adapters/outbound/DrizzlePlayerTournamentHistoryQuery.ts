@@ -17,6 +17,12 @@ export interface PlayerTournamentHistoryEntry {
   weekScheduled: { season: number; week: number };
   drawSize: number;
   hasStarted: boolean;
+  /** The draw was CANCELLED before it ever started (P1-C1/C3): the
+   * event never plays, but the entry is real history and stays visible —
+   * the UI labels it "Cancelled" rather than hiding it. A cancelled
+   * entry can never have roundsWon/won/eliminated true. */
+  cancelled: boolean;
+  cancelReason: string | null;
   /** How many of this player's OWN AIRED matches in this tournament are
    * recorded as a win — 0 for a first-round exit, a not-yet-played entry,
    * or a match still inside its reveal window, never null (a real,
@@ -122,6 +128,8 @@ export class DrizzlePlayerTournamentHistoryQuery {
         weekScheduled: { season: tournament.seasonScheduled, week: tournament.weekScheduled },
         drawSize: tournament.drawSize,
         hasStarted: tournament.hasStarted,
+        cancelled: tournament.cancelledAt !== null,
+        cancelReason: tournament.cancelReason,
         roundsWon,
         won,
         eliminated,

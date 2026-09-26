@@ -53,6 +53,19 @@ export interface DigestTitle {
   createdAt: Date;
 }
 
+/** A draw CANCELLED inside the digest window that this player held an
+ * entry in (P1-C3) — the honest "your event never played" line. */
+export interface DigestCancellation {
+  tournamentId: string;
+  tournamentName: string;
+  tier: TournamentTier;
+  ageBand: AgeBand | null;
+  reason: string | null;
+  /** When the cancellation was recorded — the window key, like a
+   * title's createdAt (never a match timestamp). */
+  cancelledAt: Date;
+}
+
 /** A player's next not-yet-aired main-draw match. */
 export interface DigestNextMatch {
   tournamentId: string;
@@ -76,6 +89,9 @@ export interface DigestPlayerData {
   results: DigestResult[];
   titles: DigestTitle[];
   next: DigestNextMatch | null;
+  /** Cancelled draws the player was entered in. Optional for test
+   * compatibility; the Drizzle adapter always provides it. */
+  cancelled?: DigestCancellation[];
 }
 
 export interface ManagerDigestQuery {

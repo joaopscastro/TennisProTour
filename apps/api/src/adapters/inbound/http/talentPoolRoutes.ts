@@ -81,6 +81,21 @@ function toFreeAgentDto(
   };
 }
 
+/** Default page size for the Scouting pool. Large enough that a bare
+ * `GET /talent-pool` (no query) still feels like the old whole-pool read
+ * for a small world, small enough that a demand-sized pool (~1,600 free
+ * agents) is never serialized in one response. */
+export const DEFAULT_TALENT_POOL_LIMIT = 64;
+/** Upper bound on an explicit `limit` — a client can page, but never ask
+ * the server to serialize the entire pool. */
+export const MAX_TALENT_POOL_LIMIT = 256;
+
+function intParam(value: unknown, fallback: number, min: number, max: number): number {
+  const parsed = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(parsed)));
+}
+
 /**
  * The talent pool: hiring is no longer instant/on-demand. As of the
  * candidate/player unification (see docs/CLAUDE.md), a free agent is a
@@ -88,12 +103,33 @@ function toFreeAgentDto(
  * for its whole career whether or not anyone ever signs it — it never
  * expires or vanishes. A manager browses the current free agents and
  * signs a specific one (transferring ownership), which costs XP.
+ *
+ * PAGINATED (the pool is demand-sized to ~1,600 after P1-A1, so the old
+ * unpaginated read was both a response-size and a DB-read problem):
+ * `?limit=&offset=&signableOnly=` reads one page, `signableOnly=true`
+ * applies the SAME unfinished-commitment predicate the atomic claim
+ * enforces (server-side, via the repository's SQL filter), and the
+ * response carries:
+ *   - `candidates` — the page;
+ *   - `total` — how many rows match the current filter (drives "Show
+ *     more" and the filtered count);
+ *   - `poolTotal` / `availableTotal` — the filter-independent totals, so
+ *     the UI can say "N available of M free agents" without the client
+ *     ever holding more than one page.
  */
 export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencies): void {
-  app.get('/talent-pool', async () => {
-    const freeAgents = await deps.players.findFreeAgents();
+  app.get<{ Querystring: { limit?: string; offset?: string; signableOnly?: string } }>('/talent-pool', async (request) => {
+    const limit = intParam(request.query.limit, DEFAULT_TALENT_POOL_LIMIT, 1, MAX_TALENT_POOL_LIMIT);
+    const offset = intParam(request.query.offset, 0, 0, Number.MAX_SAFE_INTEGER);
+    const signableOnly =
+      request.query.signableOnly === 'true' || request.query.signableOnly === '1';
+
+    const [counts, freeAgents] = await Promise.all([
+      deps.players.countFreeAgents ? deps.players.countFreeAgents() : Promise.resolve(null),
+      deps.players.findFreeAgents({ limit, offset, signableOnly }),
+    ]);
     const playerIds = freeAgents.map((player) => player.id);
-    // Three batch reads for the whole pool (not one per free agent): who
+    // Three batch reads for the PAGE (not one per free agent): who
     // is currently competing, who is blocked from signing by an
     // unfinished tournament commitment, and how many titles each has won.
     const [liveTournaments, commitments, titleCounts] = await Promise.all([
@@ -101,7 +137,7 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
       deps.playerMatches.unfinishedCommitmentByPlayer(playerIds),
       deps.titles.countByPlayers(playerIds),
     ]);
-    return freeAgents.map((player) =>
+    const candidates = freeAgents.map((player) =>
       toFreeAgentDto(
         player,
         deps.talentClaimPricingPolicy,
@@ -110,6 +146,14 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
         commitments.get(player.id) ?? null,
       ),
     );
+    return {
+      candidates,
+      total: counts ? (signableOnly ? counts.signable : counts.total) : candidates.length,
+      poolTotal: counts?.total ?? candidates.length,
+      availableTotal: counts?.signable ?? (signableOnly ? candidates.length : candidates.filter((c) => !c.signingBlocked).length),
+      limit,
+      offset,
+    };
   });
 
   app.post<{ Params: { id: string }; Body: { managerId: string } }>(

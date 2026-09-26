@@ -8,9 +8,10 @@ import {
   RankingBand,
   StandardAgingPolicy,
   WorldId,
+  addWeeks,
   juniorEligibilityForAge,
 } from '@tennis-manager/domain';
-import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository } from '../ports/ports';
+import { EventPublisherPort, GameWorldRepository, IdGeneratorPort, PlayerRepository, TournamentRepository } from '../ports/ports';
 
 /** One age-band floor the guard maintains: keep at least `minimum`
  * fill-only free agents in this band, generating any shortfall within
@@ -36,10 +37,10 @@ export interface FillerBandFloor {
  * see Player.seasonAgeAnchorWeeks' doc comment — so this only needs to
  * hold at generation time, not forever).
  *
- * KNOWN GAP, DELIBERATELY LEFT OPEN (3-season soak finding). The
- * weekly-commitment exclusion means a filler can pad only ONE tournament
- * per week, so the floor must cover a whole week's slot DEMAND, not just
- * "a couple of draws". Derived from the schedule policies
+ * WHY THIS IS A FLOOR, NOT THE TARGET. The weekly-commitment exclusion
+ * means a filler can pad only ONE tournament per week, so the pool must
+ * cover a whole week's slot DEMAND, not just "a couple of draws".
+ * Derived from the schedule policies
  * (StandardSenior/StandardJuniorTournamentSchedulePolicy) and the
  * qualifying/wild-card reserved-slot rules:
  *   - Senior, non-major week: futures 2x32 + challenger 2x(27 main + 16
@@ -50,13 +51,15 @@ export interface FillerBandFloor {
  *     816 peak.
  *   - So TOTAL peak weekly demand = 236 + 816 = 1052 (1290 on the rare
  *     week a major and the junior peak coincide).
- * The floors sum to 290, roughly a quarter of peak demand — which is why
- * later-processed draws in a full week start short (the soak saw started
- * `tour` 64-draws with 4 entrants). Raising the floors to ~1050-1290
- * would fix it but would balloon the player population (the day tick's
- * `players.findAll()` cost scales with it), so per the brief this is
- * LEFT UNCHANGED pending the owner's floors-vs-slate-size decision; the
- * demanded number is 1052 peak (1290 with a major) versus 290 today. */
+ * The floors sum to 290 (they are the cold-start safety net), and the
+ * DEMAND-AWARE second pass below now tops the pool up to
+ * `demand × FILL_DEMAND_HEADROOM_FACTOR` for the week just generated —
+ * this replaces the earlier "KNOWN GAP, DELIBERATELY LEFT OPEN"
+ * behaviour where the static floors were the whole target and
+ * later-processed draws in a full week started short (the 3-season soak
+ * saw started `tour` 64-draws with 4 entrants, and
+ * `free_of_week39/44/48/50/52 = 0`). The floors stay in place for the
+ * world's first ticks and as a belt-and-braces minimum. */
 export const FILL_ONLY_FLOORS: ReadonlyArray<FillerBandFloor> = [
   // minWeeks is 18*52 + 1, NOT 17*52 — the senior range must start
   // strictly ABOVE the U18 band's own ceiling (18*52). Before the U18
@@ -73,6 +76,18 @@ export const FILL_ONLY_FLOORS: ReadonlyArray<FillerBandFloor> = [
   { band: 'u14', minimum: 10, ageRange: { minWeeks: 12 * 52, maxWeeks: 14 * 52 } },
 ];
 
+/**
+ * How much headroom over one week's measured fill demand the demand-aware
+ * pass keeps in the pool. The demand computation counts the slots that
+ * WILL need padding if a draw stays empty (`mainDrawCapacity` +
+ * `qualifyingDrawSize` per open draw scheduled for the week just
+ * generated), but some fillers are still committed to earlier weeks'
+ * draws when the next week's draws seed, so the pool must exceed the raw
+ * number. PLACEHOLDER, tuned with the rest of the fill system — same
+ * flagged-constant discipline as the floors and every economy constant.
+ */
+export const FILL_DEMAND_HEADROOM_FACTOR = 1.3;
+
 export interface EnsureFillOnlyPopulationCommand {
   worldId: WorldId;
 }
@@ -84,23 +99,33 @@ export interface EnsureFillOnlyPopulationResult {
 /**
  * The recurring SAFE GUARD that keeps a world's draw-filler population
  * from ever running dry: every weekly rollover, this tops up each age
- * band's fill-only free agents to a floor, generating the shortfall
- * across the full age ladder.
+ * band's fill-only free agents to whatever is higher — its safety floor
+ * (FILL_ONLY_FLOORS) or the actual fill DEMAND of the week that was just
+ * generated, times FILL_DEMAND_HEADROOM_FACTOR — generating the
+ * shortfall across the full age ladder.
+ *
+ * The demand pass is why this can now keep a full weekly slate seedable:
+ * the handler runs the content generators BEFORE this guard
+ * (apps/worker/src/jobs/handlers.ts), so the week-NEXT open draws exist
+ * and their padding requirement is readable (`mainDrawCapacity` +
+ * `qualifyingDrawSize` per draw, summed per band). The static floors
+ * alone (290 total vs ~1052 peak demand) meant later-processed draws in
+ * a full week could never fill — verified live as
+ * `free_of_week39/44/48/50/52 = 0`.
  *
  * Why it must exist: a world's fill-only population only ever SHRINKS —
  * players are claimed (fillOnly flips off), or retire — and the weekly
- * talent-pool refresh only ever generates 14-16-year-old prospects, so
- * senior-age fillers (and, to a lesser degree, U14) deplete with nothing
- * refilling them. The genesis seed (GenesisSeedFillOnlyPlayersUseCase) is
- * one-time; without this guard, a live world eventually reaches a state
- * where a senior tournament's empty draw has no age-eligible filler to
- * pad it — exactly the "blank tournaments" failure a production world
- * must never see.
+ * talent-pool refresh only ever generates 12-16-year-old prospects, so
+ * senior-age fillers deplete with nothing refilling them. The genesis
+ * seed (GenesisSeedFillOnlyPlayersUseCase) is one-time; without this
+ * guard, a live world eventually reaches a state where a senior
+ * tournament's empty draw has no age-eligible filler to pad it — exactly
+ * the "blank tournaments" failure a production world must never see.
  *
  * Idempotent by construction: it only ever generates the shortfall up to
- * each floor, so a re-fire is a no-op. Reuses PlayerGenerationPolicy
- * completely as-is (age range is already a parameter), exactly like the
- * genesis seed.
+ * the per-band target, so a re-fire is a no-op. Reuses
+ * PlayerGenerationPolicy completely as-is (age range is already a
+ * parameter), exactly like the genesis seed.
  */
 export class EnsureFillOnlyPopulationUseCase {
   constructor(
@@ -111,6 +136,10 @@ export class EnsureFillOnlyPopulationUseCase {
     private readonly random: RandomSource,
     private readonly ids: IdGeneratorPort,
     private readonly agingPolicy: AgingPolicy = new StandardAgingPolicy(),
+    /** The open-draw read the demand pass needs. Optional and LAST for
+     * test compatibility (a fake/legacy construction without it keeps
+     * the floor-only behavior); the composition root always passes it. */
+    private readonly tournaments?: TournamentRepository,
   ) {}
 
   async execute(command: EnsureFillOnlyPopulationCommand): Promise<EnsureFillOnlyPopulationResult> {
@@ -123,17 +152,64 @@ export class EnsureFillOnlyPopulationUseCase {
     // supply that can no longer pad a draw and the real shortfall is
     // silently under-generated until the live pool runs dry.
     const fillOnly = (await this.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
+    // Only AVAILABLE fillers count toward the target. A player still
+    // committed to an unfinished draw — last week's 14-day major, an
+    // event mid-play, or a match simulated seconds ago and still inside
+    // its staggered reveal window — cannot pad anything this tick (the
+    // fill helpers exclude exactly this set, see
+    // TournamentRepository.findUnfinishedCommitmentPlayerIds), so
+    // counting them toward the target would report it satisfied while
+    // the actual fill comes up short. The pilot run that found this: a
+    // 273-strong u14 pool whose members were all mid-draw at the
+    // rollover generated zero fresh u14 fillers and 11 due draws
+    // starved. The set is optional (in-memory fakes omit it); absent,
+    // every fill-only player counts as before.
+    const committedIds =
+      this.tournaments?.findUnfinishedCommitmentPlayerIds
+        ? new Set(await this.tournaments.findUnfinishedCommitmentPlayerIds())
+        : null;
     const counts: Record<RankingBand, number> = { senior: 0, u18: 0, u16: 0, u14: 0 };
     // Band-count by the SAME eligibility age the actual consumer
     // (StartDueTournamentsUseCase.fillSlots' isAgeEligibleForTournamentBand
     // check) uses — seasonAgeAnchorWeeks, never raw ageInWeeks — so this
     // floor never under/over-counts relative to who's actually usable as
     // a filler for a given band's draw right now.
-    for (const player of fillOnly) counts[juniorEligibilityForAge(player.seasonAgeAnchorWeeks)] += 1;
+    for (const player of fillOnly) {
+      if (committedIds?.has(player.id)) continue;
+      counts[juniorEligibilityForAge(player.seasonAgeAnchorWeeks)] += 1;
+    }
+
+    // The week's actual fill demand, per band. The generators open NEXT
+    // week's slate (GenerateSenior/JuniorTournamentsUseCase both use
+    // addWeeks(currentWeek, 1)) and run earlier in the same tick, so the
+    // draws this guard is preparing for are exactly the open ones
+    // scheduled for that week. Per draw, the slots that will need padding
+    // are the direct-acceptance places (`mainDrawCapacity`, which already
+    // excludes the reserved qualifier/wild-card places) plus the whole
+    // qualifying field (`qualifyingDrawSize`) — both via the existing
+    // Tournament accessors, never a re-derived copy of the capacity
+    // rules. No demand read (a fake without a tournament repository)
+    // leaves the demand at zero and the pass reduces to the floors.
+    const demand: Record<RankingBand, number> = { senior: 0, u18: 0, u16: 0, u14: 0 };
+    if (this.tournaments) {
+      const targetWeek = addWeeks(world.currentWeek, 1);
+      for (const tournament of await this.tournaments.findOpenForRegistration()) {
+        if (
+          tournament.weekScheduled.season !== targetWeek.season ||
+          tournament.weekScheduled.week !== targetWeek.week
+        ) {
+          continue;
+        }
+        const band: RankingBand = tournament.ageBand ?? 'senior';
+        demand[band] += tournament.mainDrawCapacity + tournament.qualifyingDrawSize;
+      }
+    }
 
     let generated = 0;
     for (const floor of FILL_ONLY_FLOORS) {
-      const shortfall = floor.minimum - counts[floor.band];
+      const demandTarget = Math.ceil(demand[floor.band] * FILL_DEMAND_HEADROOM_FACTOR);
+      const target = Math.max(floor.minimum, demandTarget);
+      const shortfall = target - counts[floor.band];
       for (let i = 0; i < shortfall; i++) {
         const g = this.generationPolicy.generate(this.random, floor.ageRange);
         const player = Player.generateFillOnly(

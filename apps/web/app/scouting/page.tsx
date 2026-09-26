@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   TalentPoolCandidateDto,
   WorldClockDto,
@@ -81,19 +81,32 @@ function AttributeSnapshot({ attributes }: { attributes: TalentPoolCandidateDto[
   );
 }
 
+/** The Scouting table pages the pool 48 rows at a time. */
+const TALENT_POOL_PAGE_SIZE = 48;
+
+/** The filter-independent counts the server sends with every page — see
+ * TalentPoolPageDto. Kept separate from `candidates` so "Show more" can
+ * append without losing the honest totals. */
+interface PoolMeta {
+  total: number;
+  poolTotal: number;
+  availableTotal: number;
+}
+
 export default function ScoutingPage() {
   const devManagerId = useDevManagerId();
   const [managerId, setManagerId] = useState(devManagerId ?? '');
   const [managerIdInput, setManagerIdInput] = useState(devManagerId ?? '');
   const { entitlement, refresh: refreshEntitlement } = useEntitlement(managerId);
   const [candidates, setCandidates] = useState<TalentPoolCandidateDto[] | null>(null);
+  const [poolMeta, setPoolMeta] = useState<PoolMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [claimingId, setClaimingId] = useState<string | null>(null);
   const [claimedOutId, setClaimedOutId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [worldClock, setWorldClock] = useState<WorldClockDto | null>(null);
   const [celebrations, setCelebrations] = useState<CelebrationMoment[]>([]);
-  const [shown, setShown] = useState(48);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [sortBy, setSortBy] = useState<ScoutSort>('youngest');
   // Which rows are expanded to show their full attribute bars. A Set (not a
   // single id) so two prospects can be compared side by side, which is the
@@ -106,16 +119,32 @@ export default function ScoutingPage() {
   // "Unavailable" (measured: 44 blocked / 4 signable). This filter
   // defaults ON so a first-time manager sees a useful list, while the
   // committed players are only one click away (never hidden permanently).
+  // Since P1-A2 it is a REAL server-side filter (`signableOnly=true`),
+  // not a client-side view of an already-downloaded pool.
   const [availableOnly, setAvailableOnly] = useState(true);
+  // How many rows are already loaded, so "Show more" can ask for the next
+  // offset without depending on (and re-triggering on) `candidates`.
+  const loadedRef = useRef(0);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (mode: 'reset' | 'more') => {
     setError(null);
+    if (mode === 'more') setLoadingMore(true);
     try {
-      setCandidates(await fetchTalentPool());
+      const offset = mode === 'more' ? loadedRef.current : 0;
+      const page = await fetchTalentPool({
+        limit: TALENT_POOL_PAGE_SIZE,
+        offset,
+        signableOnly: availableOnly,
+      });
+      loadedRef.current = offset + page.candidates.length;
+      setCandidates((prev) => (mode === 'more' ? [...(prev ?? []), ...page.candidates] : page.candidates));
+      setPoolMeta({ total: page.total, poolTotal: page.poolTotal, availableTotal: page.availableTotal });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      if (mode === 'more') setLoadingMore(false);
     }
-  }, []);
+  }, [availableOnly]);
 
   const loadClock = useCallback(() => {
     fetchWorldClock()
@@ -129,7 +158,7 @@ export default function ScoutingPage() {
   // and with the rollover having passed, the pool itself has changed.
   const refreshClockAndPool = useCallback(() => {
     loadClock();
-    void load();
+    void load('reset');
   }, [loadClock, load]);
 
   useEffect(() => {
@@ -175,7 +204,7 @@ export default function ScoutingPage() {
       const reduce = typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
       await new Promise((r) => setTimeout(r, reduce ? 0 : 560));
       showNotice(`Signed ${name} — welcome to the academy.`);
-      await load();
+      await load('reset');
       await refreshEntitlement();
       // A signing is a real event, not a silent list row — fire a claim
       // celebration (GC-16), scaled off the OBSERVABLE current OVR only
@@ -212,7 +241,7 @@ export default function ScoutingPage() {
           : `Couldn't sign ${name}: ${serverMessage}`;
       setError(message);
       showNotice(message);
-      await load();
+      await load('reset');
     } finally {
       setClaimingId(null);
       setClaimedOutId(null);
@@ -224,39 +253,29 @@ export default function ScoutingPage() {
   // disabled every Sign button until a reload won the fetch.
   const xpBalance = entitlement?.xpBalance ?? null;
 
-  // How many free agents are actually signable right now — drives both
-  // the filter and the honest count copy. Committed players stay in the
-  // pool (and on the "All" view); they are never removed.
-  const availableCount = useMemo(
-    () => (candidates ?? []).filter((c) => !c.signingBlocked).length,
-    [candidates],
-  );
-
-  // The set the table actually draws from: signable-only by default, or
-  // everyone (including In a draw) when the filter is switched off.
-  const visibleCandidates = useMemo(() => {
-    if (!candidates) return [];
-    return availableOnly ? candidates.filter((c) => !c.signingBlocked) : candidates;
-  }, [candidates, availableOnly]);
+  // The signable-only view is a SERVER filter now (see load): the page
+  // only ever holds signable rows when toggled on, so no client-side
+  // re-filtering is needed or possible (a blocked row is not downloaded).
+  const availableCount = poolMeta?.availableTotal ?? 0;
+  const poolTotalCount = poolMeta?.poolTotal ?? 0;
+  const filteredTotal = poolMeta?.total ?? 0;
 
   // "Youngest" stays the default (and the backend already returns the
-  // pool youngest-first), so this only re-orders when the scout picks
-  // another axis. Ties fall back to age so the order is stable. Sorting
-  // always happens WITHIN the filtered set, so the filter and every sort
-  // option work together.
+  // pool youngest-first), so this only re-orders the LOADED rows when
+  // the scout picks another axis. Ties fall back to age so the order is
+  // stable.
   // Two distinct free agents can share a full name (finite generator
-  // pool), which read as a duplicate bug on the grid. Disambiguate against
-  // the WHOLE pool (not just the visible page) so a colliding name keeps
-  // the same suffix as the manager pages through "Show more".
+  // pool), which read as a duplicate bug on the grid. Disambiguate over
+  // the loaded rows, so names on the same page can never collide.
   const displayNames = useMemo(() => disambiguatedNames(candidates ?? []), [candidates]);
 
   const sortedCandidates = useMemo(() => {
-    const copy = [...visibleCandidates];
+    const copy = [...(candidates ?? [])];
     if (sortBy === 'overall') copy.sort((a, b) => overallOf(b) - overallOf(a) || a.ageInWeeks - b.ageInWeeks);
     else if (sortBy === 'cost') copy.sort((a, b) => a.claimCost - b.claimCost || a.ageInWeeks - b.ageInWeeks);
     else copy.sort((a, b) => a.ageInWeeks - b.ageInWeeks);
     return copy;
-  }, [visibleCandidates, sortBy]);
+  }, [candidates, sortBy]);
 
   return (
     <AppShell active="scouting" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
@@ -302,10 +321,24 @@ export default function ScoutingPage() {
           <div style={{ marginTop: 24, fontSize: 13.5, color: 'var(--ink-3)' }}>Loading talent pool…</div>
         )}
 
-        {candidates?.length === 0 && (
+        {candidates !== null && filteredTotal === 0 && (
           <div className="gc-panel" style={{ marginTop: 20, padding: '60px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents right now</div>
-            <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Fresh young talent arrives at the next weekly refresh.</div>
+            {poolTotalCount > 0 ? (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents available to sign right now</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)', maxWidth: 480, lineHeight: 1.5 }}>
+                  All {poolTotalCount} free agent{poolTotalCount === 1 ? '' : 's'} in the pool {poolTotalCount === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.
+                </div>
+                <Button variant="ghost" onClick={() => setAvailableOnly(false)}>
+                  Show everyone ({poolTotalCount})
+                </Button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents right now</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Fresh young talent arrives at the next weekly refresh.</div>
+              </>
+            )}
           </div>
         )}
 
@@ -315,11 +348,11 @@ export default function ScoutingPage() {
               <span className="t-label" style={{ color: 'var(--ink-2)' }}>
                 {availableOnly ? (
                   <>
-                    {availableCount} available of {candidates.length} free agent{candidates.length === 1 ? '' : 's'}
+                    {availableCount} available of {poolTotalCount} free agent{poolTotalCount === 1 ? '' : 's'}
                   </>
                 ) : (
                   <>
-                    All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} · {availableCount} available
+                    All {poolTotalCount} free agent{poolTotalCount === 1 ? '' : 's'} · {availableCount} available
                   </>
                 )}
               </span>
@@ -334,21 +367,16 @@ export default function ScoutingPage() {
                   ]}
                   active={availableOnly ? 'available' : 'all'}
                   onSelect={(id) => {
+                    // Changing the filter re-fetches page 0 server-side
+                    // (the load callback's identity changes).
                     setAvailableOnly(id === 'available');
-                    setShown(48);
                   }}
                 />
                 <select
                   className="gc-select"
                   value={sortBy}
                   aria-label="Sort free agents"
-                  onChange={(e) => {
-                    setSortBy(e.target.value as ScoutSort);
-                    // Jump back to the top of the newly-ordered list so
-                    // the sorted head is actually visible, not buried
-                    // behind however far "Show more" had already gone.
-                    setShown(48);
-                  }}
+                  onChange={(e) => setSortBy(e.target.value as ScoutSort)}
                   style={{ padding: '7px 28px 7px 10px', fontSize: 12 }}
                 >
                   <option value="youngest">Sort: Youngest</option>
@@ -359,19 +387,8 @@ export default function ScoutingPage() {
             </div>
 
             <div className="gc-panel-bd flush">
-              {sortedCandidates.length === 0 ? (
-                <div style={{ padding: '48px 40px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>No free agents available to sign right now</div>
-                  <div style={{ fontSize: 13, color: 'var(--ink-3)', maxWidth: 480, lineHeight: 1.5 }}>
-                    All {candidates.length} free agent{candidates.length === 1 ? '' : 's'} in the pool {candidates.length === 1 ? 'is' : 'are'} committed to a tournament that hasn&apos;t concluded. They become signable once it does.
-                  </div>
-                  <Button variant="ghost" onClick={() => { setAvailableOnly(false); setShown(48); }}>
-                    Show everyone ({candidates.length})
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <table className="gc-table">
+              <>
+                <table className="gc-table">
                     <thead>
                       <tr>
                         <th>Player</th>
@@ -384,7 +401,7 @@ export default function ScoutingPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {sortedCandidates.slice(0, shown).map((c) => {
+                      {sortedCandidates.map((c) => {
                         const busy = claimingId === c.id;
                         const claimedOut = claimedOutId === c.id;
                         // One source for the XP shown and the gating: unknown (not
@@ -532,15 +549,16 @@ export default function ScoutingPage() {
                     </tbody>
                   </table>
 
-                  {shown < sortedCandidates.length && (
+                  {candidates.length < filteredTotal && (
                     <div style={{ display: 'flex', justifyContent: 'center', padding: '14px 0' }}>
-                      <Button variant="ghost" onClick={() => setShown((n) => n + 48)}>
-                        Show more ({sortedCandidates.length - shown} more free agents)
+                      <Button variant="ghost" disabled={loadingMore} onClick={() => void load('more')}>
+                        {loadingMore
+                          ? 'Loading…'
+                          : `Show more (${filteredTotal - candidates.length} more free agents)`}
                       </Button>
                     </div>
                   )}
                 </>
-              )}
 
               {/* The pool explanation — the working one-liner stays visible;
                   the full "how signing works" prose is one click away in the

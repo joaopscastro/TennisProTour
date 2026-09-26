@@ -37,6 +37,14 @@ export interface StartDueTournamentsResult {
    * draw that will never seed so they become signable again. 0 whenever
    * none qualify. */
   expired: number;
+  /** Never-started draws CANCELLED this run because they sat past the
+   * cancellation grace window (CANCELLED_DRAW_GRACE_WEEKS) without ever
+   * becoming seedable — the terminal state that replaced "kept open
+   * forever" for a draw holding a manager's real registration (see
+   * Tournament.cancel). Entries are KEPT; the draw never plays and its
+   * players stop being locked out of the signing pool. 0 on ordinary
+   * ticks. */
+  cancelled: number;
 }
 
 /** How many weeks past its scheduled week a never-started tournament
@@ -49,6 +57,26 @@ export interface StartDueTournamentsResult {
  * PLACEHOLDER threshold" discipline as every other pacing constant
  * here. */
 export const ABANDONED_TOURNAMENT_EXPIRY_WEEKS = 2;
+
+/** How many weeks past its scheduled week a never-started, STILL
+ * UNSEDEABLE draw is left open before it is CANCELLED. Deliberately
+ * longer than ABANDONED_TOURNAMENT_EXPIRY_WEEKS: the delete path only
+ * ever fires for a draw nobody (manager-owned) entered, while this is
+ * the last resort for one a manager DID register in — it gets several
+ * extra rollovers to fill and seed before the world gives up on it, and
+ * even then its entries are kept (marked cancelled), never deleted. On
+ * a saturated week (one filler can pad only one tournament) this is the
+ * difference between a manager's entry being stuck in limbo forever —
+ * and its players locked out of the signing pool forever, since a
+ * never-seeded draw never concludes — and the entry being honestly
+ * closed out. PLACEHOLDER, same flagged-threshold discipline as every
+ * other pacing constant here. */
+export const CANCELLED_DRAW_GRACE_WEEKS = 4;
+
+/** The single plain-language reason stamped on every cancelled draw —
+ * surfaced verbatim by the tournament/roster/profile/digest UI (item
+ * C3), so the copy has ONE definition rather than a per-surface string. */
+export const CANCELLED_DRAW_REASON = 'The draw could not be filled in time';
 
 /**
  * The missing "this tournament's registration window is over, time to
@@ -179,12 +207,15 @@ export class StartDueTournamentsUseCase {
     //      exists. Deleting it releases them.
     //
     // A never-started draw that has even ONE manager-owned entrant is
-    // NEVER expired, no matter how far past its week it is: a manager
-    // invested a real decision in it and may still be waiting on its
-    // bracket. Those are deliberately left in place for the normal
-    // start/fill path (and are reported as stuck draws rather than
-    // silently swept). A started tournament never appears in `open` at
-    // all. Idempotent: a deleted draw simply never appears again.
+    // NEVER expired (deleted) here, no matter how far past its week it
+    // is: a manager invested a real decision in it and may still be
+    // waiting on its bracket. Those keep getting the normal start/fill
+    // path — and, once past CANCELLED_DRAW_GRACE_WEEKS without ever
+    // becoming seedable, are CANCELLED by the pass at the end of this
+    // method instead (entries kept; players released from the
+    // unfinished-commitment lock). A started tournament never appears in
+    // `open` at all. Idempotent: a deleted draw simply never appears
+    // again, and cancel() itself is idempotent.
     // `deleteAbandonedTournament` is optional on the port (in-memory
     // fakes omit it); when absent the pass is inert.
     const expiredIds = new Set<string>();
@@ -242,6 +273,19 @@ export class StartDueTournamentsUseCase {
     const fillOnlyPool = (await this.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
     const freeAgents = this.formDoublesDraw ? await this.players.findFreeAgents() : undefined;
 
+    // Still-alive-in-any-draw set (see the port's doc comment): one read
+    // per run, so a filler alive in an earlier week's 14-day major (or a
+    // late-running draw) can never be double-booked into a later week's
+    // draw. Absent when the repository doesn't implement it (an
+    // in-memory fake) — the old same-week-only exclusion applies. The
+    // fill helper mutates this set as it fills, so a later draw in the
+    // SAME run can't reuse a filler either. SAFE for the same reason the
+    // other preloads are: nothing in this method changes any player's
+    // commitments except the fills themselves, which the helper records.
+    const unfinishedCommitmentPlayerIds = this.tournaments.findUnfinishedCommitmentPlayerIds
+      ? new Set(await this.tournaments.findUnfinishedCommitmentPlayerIds())
+      : undefined;
+
     // One `sortedRankings()` per band per RUN, resolved lazily on first
     // use. The ledger is never written below, so the cached list is what
     // every later call would have re-computed.
@@ -285,6 +329,7 @@ export class StartDueTournamentsUseCase {
         fillOnlyPool,
         ranked: await singlesRankedFor(band),
         enteredPlayerIdsForWeek,
+        unfinishedCommitmentPlayerIds,
       };
       const doublesPreloaded: FormDoublesDrawPreloaded = {
         singlesRanked: await singlesRankedFor(band),
@@ -395,7 +440,36 @@ export class StartDueTournamentsUseCase {
       await this.formDoublesDraw?.form(tournament, doublesPreloaded);
     }
 
-    return { started, filled, expired: expiredIds.size };
+    // -----------------------------------------------------------------
+    // Cancellation pass (P1-C1). LAST, deliberately: every due draw has
+    // just had its fill/start attempt above, so a never-started draw that
+    // is STILL unseeded past CANCELLED_DRAW_GRACE_WEEKS genuinely cannot
+    // be made to play this tick. Before this existed, a draw holding one
+    // manager-owned entrant was kept open forever (the delete pass
+    // rightly refuses to delete it), and once the "no signing while
+    // committed" rule landed, every player inside such a draw was locked
+    // out of the Scouting pool FOREVER — the 52-week agent season measured
+    // exactly that: 21 never-started tournaments (18 with manager
+    // entries, 30 entries trapped) and 549/549 free agents unsignable for
+    // 49 straight weeks. CANCELLING instead is terminal and honest: the
+    // draw never plays, every entry is KEPT (the manager's decision and
+    // the player's history remain), and Tournament.cancel's SQL twin
+    // (`unfinishedCommitment.ts`'s `t.cancelled_at IS NULL`) releases the
+    // entrants to the signing pool on the very next read.
+    // Idempotent: a tournament already cancelled is never due (it is
+    // excluded by findOpenForRegistration), and cancel() itself is a
+    // no-op on a second call.
+    // -----------------------------------------------------------------
+    let cancelled = 0;
+    for (const tournament of due) {
+      if (tournament.hasStarted || tournament.isCancelled) continue;
+      if (weeksBetween(tournament.weekScheduled, currentWeek) <= CANCELLED_DRAW_GRACE_WEEKS) continue;
+      tournament.cancel(CANCELLED_DRAW_REASON);
+      await this.tournaments.save(tournament);
+      cancelled += 1;
+    }
+
+    return { started, filled, expired: expiredIds.size, cancelled };
   }
 
   /** Registers up to `needed` eligible unclaimed players as entrants on

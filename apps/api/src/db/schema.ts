@@ -604,6 +604,15 @@ export const tournaments = pgTable('tournaments', {
    * unconditional delete+reinsert was last-writer-wins). Defaults to 1
    * for every pre-existing row. */
   version: integer('version').notNull().default(1),
+  /** Terminal CANCELLED state for a never-started draw (see
+   * Tournament.cancel): set on a draw that sat past its grace window
+   * without ever becoming seedable. NULL for every open/started
+   * tournament and every pre-cancellation row. Entries are deliberately
+   * KEPT, so the cancelled flag both stops the draw being offered and
+   * removes it from the unfinished-commitment lock (see
+   * unfinishedCommitment.ts) — its players become signable again. */
+  cancelledAt: timestamp('cancelled_at', { withTimezone: true }),
+  cancelReason: text('cancel_reason'),
 
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

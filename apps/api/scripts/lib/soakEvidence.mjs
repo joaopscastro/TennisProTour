@@ -185,15 +185,32 @@ export async function snapshotEconomy(db, managerIds) {
 
 export function cohortDeltas(weekly, ids) {
   if (weekly.length === 0) return [];
-  const first = weekly[0];
-  const last = weekly[weekly.length - 1];
-  const firstById = new Map(first.map((r) => [r.id, r]));
-  const lastById = new Map(last.map((r) => [r.id, r]));
+  // First/last by scanning EVERY snapshot, not just `weekly[0]`/
+  // `weekly[weekly.length - 1]`. A player claimed after week 0 has
+  // `rows: []` in the first snapshot, so taking that snapshot as "first"
+  // reported `present: false` for every such player and the
+  // experience-rising-skills-flat anomaly could never fire — it passed
+  // VACUOUSLY in every soak, including the one that found the Skill
+  // rounding bug. First occurrence wins for `first`, last for `last`, so
+  // a later-claimed player gets a real delta measured from their first
+  // present week.
+  const firstById = new Map();
+  const lastById = new Map();
+  for (const snapshot of weekly) {
+    for (const row of snapshot) {
+      if (!firstById.has(row.id)) firstById.set(row.id, row);
+      lastById.set(row.id, row);
+    }
+  }
   const skillCols = ['serve', 'forehand', 'backhand', 'volley', 'speed', 'stamina', 'strength', 'consistency', 'clutch', 'doubles'];
   return ids.map((id) => {
     const a = firstById.get(id);
     const b = lastById.get(id);
-    if (!a || !b) return { id, present: false };
+    // A player observed in only ONE snapshot has no measurable window —
+    // the same `present: false` as an id never observed at all (the
+    // object identity check is exact: scanning assigns `first` and
+    // `last` the same row object for a single appearance).
+    if (!a || !b || a === b) return { id, present: false };
     const skillDelta = {};
     let skillsMoved = 0;
     for (const c of skillCols) {

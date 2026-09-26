@@ -78,8 +78,32 @@ export interface PlayerRepository {
    * and scarce" note). A free agent is now a real Player with
    * managerId: null, not a separate TalentPoolCandidate aggregate: a
    * generated player lives in the world for their whole career whether
-   * or not a manager ever signs them, so they never "expire" or vanish. */
-  findFreeAgents(): Promise<Player[]>;
+   * or not a manager ever signs them, so they never "expire" or vanish.
+   *
+   * The optional paging/filter arguments exist for the Scouting page:
+   * with a demand-sized pool (~1,600 free agents) serializing every row
+   * is neither useful nor affordable. `limit`/`offset` page the
+   * youngest-first list; `signableOnly` applies the SAME unfinished-
+   * commitment predicate the atomic claim enforces, so a signable-only
+   * page can never contain a row the server would refuse. Omitted (every
+   * pre-existing caller), the full list comes back exactly as before. */
+  findFreeAgents(options?: { limit?: number; offset?: number; signableOnly?: boolean }): Promise<Player[]>;
+  /** Pool counts for the Scouting page's honest pagination copy: the
+   * total unowned/non-retired population and how many of those are
+   * signable right now (same predicate as above). One grouped count
+   * query, never a full-pool read. Optional for test compatibility
+   * (an in-memory fake may omit it); the Drizzle adapter — the only
+   * production implementation — always provides it. */
+  countFreeAgents?(): Promise<{ total: number; signable: number }>;
+  /** How many free agents are signable RIGHT NOW, by the exact same
+   * predicate the atomic claim enforces (no unfinished tournament
+   * commitment). The acquisition-loop guard (EnsureSignablePoolUseCase)
+   * reads this to keep "you can always sign someone" a hard invariant —
+   * it must never be a cheaper approximation, or the guard could think
+   * the pool is fine while every claim refuses. Optional for test
+   * compatibility (an in-memory fake may omit it); the Drizzle adapter —
+   * the only production implementation — always provides it. */
+  countSignableFreeAgents?(): Promise<number>;
   /** Recovers `amount` fatigue from EVERY player carrying any, in ONE
    * statement — the bulk counterpart to `save(player)` in the daily
    * recovery loop (AdvanceWorldWeekUseCase.recoverDailyFatigue), which
@@ -222,6 +246,19 @@ export interface TournamentRepository {
    * (an in-memory fake may omit it); callers fall back to the
    * per-candidate findByPlayerAndWeek check when absent. */
   findEnteredPlayerIdsForWeek?(week: GameWeek): Promise<PlayerId[]>;
+
+  /** Every player id holding ANY unfinished tournament commitment —
+   * the set form of the signing rule's `noUnfinishedCommitment`
+   * predicate (see unfinishedCommitment.ts), covering singles entries,
+   * doubles entries AND formed doubles pairs. The weekly fillers read it
+   * so a player still alive in an earlier week's draw (a 14-day major, a
+   * late-running event) can never be placed into a later week's draw:
+   * the per-week `findEnteredPlayerIdsForWeek` set only sees entries
+   * scheduled for the SAME week, so it could not stop a filler being
+   * double-booked across weeks — one player holding two matches on the
+   * same day. Optional for test compatibility (an in-memory fake may
+   * omit it); the fill helpers then keep their old behavior. */
+  findUnfinishedCommitmentPlayerIds?(): Promise<PlayerId[]>;
 
   /** For each of the given tournaments, how many of its SINGLES entrants
    * are owned by a real manager (`players.manager_id IS NOT NULL`) — the
