@@ -1,4 +1,4 @@
-import { GameWeek, isJuniorTier, PlayerId, TournamentTier } from '@tennis-manager/domain';
+import { GameWeek, isJuniorTier, PlayerId, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { TournamentRepository } from '../ports/ports';
 
 /**
@@ -43,16 +43,60 @@ export function weeklyEntryCapForTier(tier: TournamentTier): number {
   return isJuniorTier(tier) ? JUNIOR_WEEKLY_ENTRY_CAP : SENIOR_WEEKLY_ENTRY_CAP;
 }
 
+/** The exact SET of tournaments IN THE SAME RANKING BAND as `tier`
+ * (junior vs. senior) a player is already entered in for a given
+ * GameWeek — singles and doubles together, deduplicated by tournament
+ * id. The cap is "how many tournaments a player plays this week" (see
+ * countSameBandEntriesForWeek below), so an entry list alone loses the
+ * one thing both the count and its `excludeTournamentId` exclusion
+ * need: WHICH tournament is which.
+ *
+ * Exposed as a set (not just a count) because a caller that needs the
+ * count for SEVERAL tournaments in the same band+week — the
+ * tournament-list route's attachEntryInfo — must subtract the right
+ * tournament per row without re-reading the repository once per row,
+ * and because `countSameBandEntriesForWeek` itself is then a thin
+ * wrapper over this one read.
+ *
+ * The two bands are counted independently: a junior-age player entering
+ * the senior tour (allowed) has that senior entry counted only against
+ * the senior cap, never the junior one, and vice-versa. */
+export async function sameBandEntryTournamentIdsForWeek(
+  tournaments: TournamentRepository,
+  playerId: PlayerId,
+  week: GameWeek,
+  tier: TournamentTier,
+): Promise<Set<string>> {
+  const [singles, doubles] = await Promise.all([
+    tournaments.findByPlayerAndWeek(playerId, week),
+    tournaments.findDoublesByPlayerAndWeek(playerId, week),
+  ]);
+  const wantJunior = isJuniorTier(tier);
+  const tournamentIds = new Set<string>();
+  for (const t of [...singles, ...doubles]) {
+    if (isJuniorTier(t.tier) === wantJunior) tournamentIds.add(t.id);
+  }
+  return tournamentIds;
+}
+
 /** How many tournaments IN THE SAME RANKING BAND as `tier` (junior vs
  * senior) a player is already entered in for a given GameWeek — the
  * exact count RegisterEntrantUseCase compares against the tier's cap,
  * factored out so a read-only caller (a tournament-list route deciding
  * whether to let a manager even attempt an entry) can show the same
  * real number up front instead of only learning it from a failed
- * registration attempt. The two bands are counted independently: a
- * junior-age player entering the senior tour (allowed) has that senior
- * entry counted only against the senior cap, never the junior one, and
- * vice-versa.
+ * registration attempt.
+ *
+ * `excludeTournamentId` is the tournament currently being registered,
+ * and MUST be passed by every registration path: a player entered in
+ * this tournament's SINGLES is still only in ONE tournament, so adding
+ * their DOUBLES entry here (or vice versa) must not be counted against
+ * themselves — otherwise a senior at the cap of 1 would be refused a
+ * doubles entry into the very event they already hold a singles entry
+ * in, making same-event doubles unenterable. This mirrors the atomic
+ * guard (`DrizzleWeeklyEntryGuardAdapter.tryClaimEntry`), which already
+ * excludes the tournament being registered; the two must agree or the
+ * friendly pre-check would refuse what the atomic path allows.
  *
  * Counts SINGLES and DOUBLES entries together (deduplicated by
  * tournament): the cap is "how many tournaments a player plays this
@@ -66,15 +110,9 @@ export async function countSameBandEntriesForWeek(
   playerId: PlayerId,
   week: GameWeek,
   tier: TournamentTier,
+  excludeTournamentId?: TournamentId,
 ): Promise<number> {
-  const [singles, doubles] = await Promise.all([
-    tournaments.findByPlayerAndWeek(playerId, week),
-    tournaments.findDoublesByPlayerAndWeek(playerId, week),
-  ]);
-  const wantJunior = isJuniorTier(tier);
-  const tournamentIds = new Set<string>();
-  for (const t of [...singles, ...doubles]) {
-    if (isJuniorTier(t.tier) === wantJunior) tournamentIds.add(t.id);
-  }
+  const tournamentIds = await sameBandEntryTournamentIdsForWeek(tournaments, playerId, week, tier);
+  if (excludeTournamentId !== undefined) tournamentIds.delete(excludeTournamentId);
   return tournamentIds.size;
 }

@@ -41,3 +41,52 @@ export function fatigueCostForMatch(stamina: number): number {
   const resistance = (clampedStamina / 100) * MAX_STAMINA_FATIGUE_RESISTANCE;
   return Math.round(BASE_MATCH_FATIGUE * (1 - resistance));
 }
+
+// ---------------------------------------------------------------------------
+// Daily recovery — the "rest" half of the fatigue system (applied on EVERY
+// advanced day, mid-week and on the weekly rollover alike; see
+// AdvanceWorldWeekUseCase). All constants PLACEHOLDER, same tuning-pass
+// status as BASE_MATCH_FATIGUE above.
+// ---------------------------------------------------------------------------
+
+/** Flat fatigue recovered over one advanced day — the base term. */
+export const FATIGUE_RECOVERY_PER_DAY = 3;
+
+/**
+ * Fraction of a player's CURRENT fatigue additionally recovered per
+ * advanced day. This is what turns recovery from a FIXED drain the
+ * overplayed player eventually outruns (a ratchet, where any schedule
+ * deep enough to out-accrue it pins fatigue at 100 forever) into a
+ * SELF-LIMITING force: the more tired the player is, the faster they
+ * recover, so accrual and recovery meet at an equilibrium instead of a
+ * ceiling.
+ *
+ * Quantified (continuous math; the balance tool reports the real
+ * integer-stepped values): a senior's 32-draw title run (5 matches/week
+ * × ~6 fatigue) settles around fatigue 26, a 128-draw major title run
+ * (7 matches) around 60, and a player at 60 recovers to ~26 in about 7
+ * idle days — while ordinary play (≤3 matches/week) stays at 0.
+ * Deliberately retuned as a PAIR with FORM_STALE_THRESHOLD /
+ * FORM_OUT_OF_BAND_PENALTY_PER_POINT in StatisticalMatchSimulator:
+ * fatigue now carries the overplay cost, form stays the rust/rhythm
+ * signal (see docs/balance-tuning-report.md's second fatigue/form pass).
+ */
+export const FATIGUE_RECOVERY_FRACTION = 0.05;
+
+/**
+ * Fatigue recovered over ONE advanced day by a player currently at
+ * `fatigue`: the flat `base` (FATIGUE_RECOVERY_PER_DAY in production;
+ * callers may pass an override, e.g. the balance tool's candidate
+ * comparison) PLUS FATIGUE_RECOVERY_FRACTION × current fatigue, rounded
+ * to a whole point so the stored integer never gains a fraction.
+ *
+ * This is the ONE place the recovery formula lives — `Player.recoverFatigue`
+ * applies it, and `DrizzlePlayerRepository.recoverFatigueForAll` mirrors
+ * the exact same arithmetic in one SQL statement (the daily fast path).
+ * The two must never diverge; `DrizzleRepositories.integration.test.ts`
+ * pins that against real Postgres.
+ */
+export function fatigueRecoveredPerDay(fatigue: number, base: number = FATIGUE_RECOVERY_PER_DAY): number {
+  const clampedFatigue = Math.max(0, Math.min(100, fatigue));
+  return Math.round(base + clampedFatigue * FATIGUE_RECOVERY_FRACTION);
+}

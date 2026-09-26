@@ -37,7 +37,16 @@ class InMemoryTournamentRepository implements TournamentRepository {
   }
 
   async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
-    return [];
+    // Mirrors findByPlayerAndWeek over `doublesEntrants` — the doubles half
+    // of the weekly cap must be real in these fakes now that a same-event
+    // doubles entry is a tested, permitted case (previously this returned
+    // [] and the doubles side of the cap was untestable here).
+    return [...this.store.values()].filter(
+      (t) =>
+        t.weekScheduled.season === week.season &&
+        t.weekScheduled.week === week.week &&
+        t.doublesEntrants.some((id) => id === playerId),
+    );
   }
 
   async findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
@@ -148,6 +157,21 @@ function openTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1,
     surface: 'clay',
     weekScheduled,
     drawSize: 16,
+  });
+}
+
+/** A senior tournament that also holds a doubles draw — required to
+ * exercise the weekly cap's singles/doubles interaction, since a
+ * tournament without a doubles draw can't accept a doubles entry at all. */
+function openDoublesTournament(id: TournamentId, weekScheduled: GameWeek = { season: 1, week: 1 }): Tournament {
+  return Tournament.open({
+    name: 'Test Doubles Tournament',
+    id,
+    tier: 'challenger',
+    surface: 'clay',
+    weekScheduled,
+    drawSize: 16,
+    doublesDrawSize: 4,
   });
 }
 
@@ -481,6 +505,81 @@ describe('RegisterEntrantUseCase', () => {
       const third = TournamentId('senior3');
       await tournaments.save(openTournament(third, nextWeek));
       await expect(useCase.execute({ tournamentId: third, playerId: player })).resolves.toBeUndefined();
+    });
+
+    it('lets a senior at the cap enter the SAME event’s doubles — singles + doubles at one tournament is one weekly entry (the pre-check now mirrors the atomic guard’s exclusion)', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const week: GameWeek = { season: 1, week: 1 };
+      const player = PlayerId('same-event-player');
+      await savePlayer(players, player, SENIOR_AGE);
+      const id = TournamentId('same-event-t1');
+      await tournaments.save(openDoublesTournament(id, week));
+
+      const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      const doubles = new RegisterDoublesEntrantUseCase(tournaments, players);
+
+      await expect(singles.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
+
+      // Already at the senior cap of 1. Before the excludeTournamentId fix
+      // this was refused ("already entered 1 senior tournaments") because
+      // the pre-check counted the player's own singles entry at THIS event
+      // against the cap — while the atomic guard already excluded it.
+      await expect(
+        doubles.execute({ tournamentId: id, playerId: player, managerId: ManagerId('m1') }),
+      ).resolves.toBeUndefined();
+
+      const after = await tournaments.findById(id);
+      expect(after!.entrants.some((e) => e.playerId === player)).toBe(true);
+      expect(after!.doublesEntrants).toContain(player);
+    });
+
+    it('lets a player enter the SAME event’s singles after its doubles — likewise one weekly entry (the singles pre-check excludes it too)', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const week: GameWeek = { season: 1, week: 1 };
+      const player = PlayerId('doubles-first-player');
+      await savePlayer(players, player, SENIOR_AGE);
+      const id = TournamentId('doubles-first-t1');
+      await tournaments.save(openDoublesTournament(id, week));
+
+      const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      const doubles = new RegisterDoublesEntrantUseCase(tournaments, players);
+
+      await expect(
+        doubles.execute({ tournamentId: id, playerId: player, managerId: ManagerId('m1') }),
+      ).resolves.toBeUndefined();
+
+      // At cap 1 with only a doubles entry in this event — the singles
+      // entry at the same tournament must pass, exactly as the reverse order.
+      await expect(singles.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
+
+      const after = await tournaments.findById(id);
+      expect(after!.doublesEntrants).toContain(player);
+      expect(after!.entrants.some((e) => e.playerId === player)).toBe(true);
+    });
+
+    it('still refuses doubles at a DIFFERENT event the same week at the senior cap of 1 — a different tournament is a real second entry', async () => {
+      const tournaments = new InMemoryTournamentRepository();
+      const players = new InMemoryPlayerRepository();
+      const week: GameWeek = { season: 1, week: 1 };
+      const player = PlayerId('different-event-player');
+      await savePlayer(players, player, SENIOR_AGE);
+      const first = TournamentId('different-event-t1');
+      const second = TournamentId('different-event-t2');
+      await tournaments.save(openDoublesTournament(first, week));
+      await tournaments.save(openDoublesTournament(second, week));
+
+      const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+      const doubles = new RegisterDoublesEntrantUseCase(tournaments, players);
+      await expect(singles.execute({ tournamentId: first, playerId: player })).resolves.toBeUndefined();
+
+      await expect(
+        doubles.execute({ tournamentId: second, playerId: player, managerId: ManagerId('m1') }),
+      ).rejects.toThrow(/already entered 1 senior tournaments/);
+
+      const rejected = await tournaments.findById(second);
+      expect(rejected!.doublesEntrants).toHaveLength(0);
     });
 
     it('does not let a senior registration count against, or be blocked by, a junior weekly count', async () => {

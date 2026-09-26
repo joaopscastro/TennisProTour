@@ -18,6 +18,7 @@ import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
 import { xpAffordability } from '../../lib/xp';
 import { disambiguatedNames, formatMoney, WEEKS_PER_SEASON } from '../../lib/format';
+import { titleSummaryLabel } from '../../lib/titles';
 
 function overallOf(c: TalentPoolCandidateDto): number {
   const { technical, physical, mental } = c.attributes;
@@ -490,14 +491,16 @@ export default function ScoutingPage() {
                               </td>
 
                               {/* Observable career context — a real record, not a
-                                  scouting grade. Both figures keep their words
-                                  ("titles", "career") rather than hovering alone. */}
+                                  scouting grade. The title line shows the raw
+                                  count AND the tier-weighted points together
+                                  (never a tier-blind count alone), so a pile of
+                                  J30/J60 titles cannot read like a major. */}
                               <td>
                                 <span className="num" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, whiteSpace: 'nowrap' }}>
-                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--gold)' }} title="Titles won on tour">
+                                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--gold)' }} title="Titles won, and their tier-weighted points (a major weighs 2,000; a J30 weighs 30)">
                                     <Icon name="trophy" size={12} />
                                     <span style={{ color: 'var(--ink-2)' }}>
-                                      {c.titleCount} {c.titleCount === 1 ? 'title' : 'titles'}
+                                      {titleSummaryLabel({ count: c.titleCount, weight: c.titleWeight, byTier: c.titlesByTier })}
                                     </span>
                                   </span>
                                   <span style={{ color: 'var(--ink-4)' }}>·</span>

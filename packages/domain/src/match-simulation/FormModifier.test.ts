@@ -35,4 +35,16 @@ describe('formModifier', () => {
     expect(formModifier(FORM_STALE_THRESHOLD + 1)).toBeLessThan(0);
     expect(formModifier(60)).toBeLessThan(formModifier(FORM_STALE_THRESHOLD + 1));
   });
+
+  it('pins the retuned stale boundary: a 6-match/week equilibrium (~31-40) is NOT stale, and the softened penalty starts above 40', () => {
+    // The second fatigue/form pass moved the stale side out from 30 to 40
+    // precisely because the measured 6-match/week equilibrium lands at
+    // ~31-40: under the old threshold an ordinary active schedule was
+    // permanently stale, while fatigue now carries the overplay cost.
+    expect(FORM_STALE_THRESHOLD).toBe(40);
+    expect(formModifier(31)).toBe(0);
+    expect(formModifier(40)).toBe(0);
+    expect(formModifier(41)).toBeCloseTo(-0.15);
+    expect(formModifier(60)).toBeCloseTo(-0.15 * 20);
+  });
 });

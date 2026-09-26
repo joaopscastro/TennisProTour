@@ -374,6 +374,14 @@ much more closely.
 
 ## Fatigue/form pass: the day-tick-scaling question, answered with data
 
+> **Superseded in part by the SECOND fatigue/form pass at the end of this
+> document.** Everything below is the record of the *first* pass (recovery
+> 5 → 3/day, no form change). Its measured tables remain accurate for the
+> formulas in force at the time, but the recovery model changed from a
+> fixed drain to a self-limiting one, the form stale boundary and penalty
+> were softened, and the inactivity penalty was relaxed. Read the first
+> pass as history; the second pass's section states what changed and why.
+
 The docs repeatedly flag the fatigue/form constants as "the main open
 balance question," specifically *"especially their scaling to our
 day-tick cadence"* (`docs/rocking-rackets-competitive-analysis.md` §5).
@@ -499,3 +507,126 @@ reason to carry fractional player state.
   thresholds, the training-redesign deltas, `DIRECT_ACCEPTANCE_CUTOFF`,
   the prize-money tables, etc.) remain untouched and still need their own
   passes.
+
+## Fatigue/form pass #2: from a ratchet to an equilibrium (deliberate rest-pressure shift)
+
+The first pass retuned the fixed recovery drain (5 → 3/day) to revive
+fatigue on the senior tour, and explicitly aimed its new steady state at
+"forcing a rest week." Live play over a full agent season then showed what
+that pressure actually produced, and it was the wrong shape:
+
+- **Fatigue was a ratchet, not a decision.** A 32-draw title run accrues
+  ~30 fatigue/week against a fixed 21/week drain, so the three
+  most-played juniors (6 matches/week: ~36-42 accrued vs 21 drained)
+  ended the season at **fatigue 93-97** — permanently exhausted, never
+  recovering between weeks, because the drain could not outrun accrual.
+  Players only *appeared* rested when they played fewer matches than the
+  drain, i.e. the mechanic punished success monotonically.
+- **Rest was punished by a different system.** The only way to shed
+  fatigue was an idle week — which triggered the manager-ladder
+  **inactivity penalty (−15%)**. So the first pass created a real cost for
+  overplay and then made the remedy the single worst thing a manager could
+  do. Rest was not a real option; it was a trap.
+- **Form's stale side contradicted "play to earn."** Form's equilibrium is
+  ≈ 5.67 × matches/week (decay ×0.85/week vs +1/match) against a reward
+  band of 12–25 and a stale penalty above 30 — so any schedule at or above
+  ~5 matches/week drifts permanently OUT of band, and the measured 6/week
+  equilibrium (31) sat in the stale zone. The most active players were
+  systematically penalised, exactly inverting the intended incentive.
+
+This pass deliberately shifts that pressure. **Stated plainly: the first
+pass's "sustained play eventually forces a rest week" model is replaced.
+Overplay now costs a finite, self-limiting amount, and a rest week is a
+viable plan rather than a trap** — the systems no longer fight each other.
+
+### What changed
+
+1. **Self-limiting fatigue recovery** (`FatiguePolicy.ts`): recovery per
+   advanced day is now `FATIGUE_RECOVERY_PER_DAY (3) + fatigue ×
+   FATIGUE_RECOVERY_FRACTION (0.05)`, rounded to a whole point.
+   `Player.recoverFatigue` applies it, and
+   `DrizzlePlayerRepository.recoverFatigueForAll` mirrors the exact same
+   arithmetic in one SQL statement (equivalence pinned against real
+   Postgres). The more tired the player, the faster they recover — accrual
+   and recovery meet at an equilibrium instead of a ceiling. All constants
+   remain PLACEHOLDER.
+2. **Softened form stale side** (`StatisticalMatchSimulator.ts`):
+   `FORM_STALE_THRESHOLD` 30 → 40 and
+   `FORM_OUT_OF_BAND_PENALTY_PER_POINT` 0.3 → 0.15. Fatigue now carries the
+   overplay cost; form stays the rust/rhythm signal.
+3. **Softened the inactivity penalty** (`ManagerLadderPolicy.ts`):
+   0.85 → 0.95, so an idle week costs ~6% composed with the routine 1%
+   decay — a real, felt consequence without making rest the wrong move at
+   the exact moment the fatigue system asks for it.
+
+### Before → after, measured (3000 trials/bucket, same tool)
+
+**Fatigue trajectory** (`fatigueTrajectory`). Before: fixed −3/day;
+after: −(3 + 5% × fatigue)/day. End-of-week and mid-week peak shown for
+the after run (peak is what a manager sees during a deep run):
+
+| schedule | matches/wk | stamina | cost/match | BEFORE steady | AFTER end-of-week | AFTER peak |
+|---|---|---|---|---|---|---|
+| idle | 0 | 50 / 20 | 6 / 7 | 0 | 0 | 0 |
+| senior: R1 exit | 1 | 50 / 20 | 6 / 7 | 0 | 0 | 3 / 4 |
+| senior: deep run | 3 | 50 / 20 | 6 / 7 | 0 | 0 | 8 / 10 |
+| senior: 32-draw title | 5 | 50 / 20 | 6 / 7 | **91 / 91** | **18 / 25** | **26 / 35** |
+| junior: 3 tournaments | 6 | 50 / 20 | 6 / 7 | **94 / 94** | 39 / 44 | 44 / 50 |
+| senior: 128-draw major title | 7 | 50 / 20 | 6 / 7 | **97 / 97** | 44 / 63 | 44 / 63 |
+
+The design pass's quantified predictions are reproduced: a 5-match title
+run peaks at **26** (predicted ~26) and a 7-match major run settles at
+**63** at low stamina (predicted ~60), versus 91-97 before. The mechanic is
+now monotone in schedule depth (more matches → higher finite
+equilibrium), and ordinary play (≤3 matches/week) still never accumulates.
+A 60-fatigue player recovers to **24** in ~7 idle days (predicted ~26),
+so a rest week genuinely works. The existing "30 fatigue ≈ 15 percentage
+points of win rate" finding is unchanged for a given fatigue *value*
+(before: 35.9% at fatigue 30; after: 35.3%) — players simply stop sitting
+at 100.
+
+**Form curve** (`form`). Before: stale at 30 with a −0.3/point penalty;
+after: stale at 40 with −0.15/point:
+
+| A's form | BEFORE modifier → win rate | AFTER modifier → win rate |
+|---|---|---|
+| 0 | −2.4 → 50.4% | −1.2 → 50.7% |
+| 8 (tolerance starts) | 0.0 → 59.0% | 0.0 → 52.8% |
+| 12-25 (sweet spot) | +2.0 → ~64.5% | +2.0 → ~60% |
+| 30 | 0.0 → 58.7% | 0.0 → 53.8% |
+| 40 | −3.0 → 48.5% | 0.0 → 51.8% |
+| 50 | −6.0 → 39.3% | −1.5 → 48.2% |
+
+**Form trajectory** (`formTrajectory`). The steady-state form *values* are
+unchanged (accrual/decay untouched), but the band classification moves the
+heaviest schedule out of stale:
+
+| schedule | matches/wk | steady form | BEFORE band | AFTER band |
+|---|---|---|---|---|
+| idle | 0 | 0 | rusty | rusty |
+| went idle from form 20 | 0 | 3 | rusty | rusty |
+| senior: first-round exits | 1 | 3 | rusty | rusty |
+| senior: mid run | 2 | 9 | neutral | neutral |
+| senior: deep run | 3 | 14 | sweet-spot | sweet-spot |
+| senior: title run | 5 | 26 | neutral | neutral |
+| junior: 3 tournaments/week | 6 | 31 | **stale** | **neutral** |
+
+### What this pass did and did not do
+
+- **Applied**: the self-limiting recovery formula and its constants
+  (`packages/domain/src/player/FatiguePolicy.ts`, applied in
+  `Player.recoverFatigue` and mirrored in
+  `DrizzlePlayerRepository.recoverFatigueForAll`); the form stale
+  threshold/penalty softenings
+  (`packages/domain/src/match-simulation/StatisticalMatchSimulator.ts`);
+  and the inactivity-penalty softening
+  (`packages/domain/src/manager/ManagerLadderPolicy.ts`).
+- **Built**: the `fatigueTrajectory` bucket now replays the production
+  self-limiting formula and reports the mid-week peak alongside the
+  end-of-week value; the tool's meta carries the recovery fraction.
+- **Not done**: `BASE_MATCH_FATIGUE`, the fatigue sim penalty
+  (`fatigue × 0.15`), and `FORM_WEEKLY_DECAY` remain untouched — the data
+  did not support moving them. The disclosed `decayForm` integer-rounding
+  artifact from the first pass is also unchanged (band-neutral). Every
+  constant here remains an explicit PLACEHOLDER validated against
+  simulated trajectories, not live play.

@@ -1,4 +1,4 @@
-import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, PotentialProjection, projectPotential, RankingBand, TournamentId, TournamentTier, DoublesPairStatus } from '@tennis-manager/domain';
+import { AgeBand, GameWeek, juniorEligibilityForAge, ManagerId, PlayerId, PlayerLifecycleStage, PotentialProjection, projectPotential, RankingBand, summarizeTitleTiers, TitleTally, TournamentId, TournamentTier, DoublesPairStatus } from '@tennis-manager/domain';
 import { RankPositionQuery } from '@tennis-manager/application';
 import { DrizzlePlayerRepository } from './DrizzlePlayerRepository';
 import { DrizzlePeakRankingRepository } from './DrizzlePeakRankingRepository';
@@ -47,6 +47,11 @@ export interface PlayerProfileDto {
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
   tournamentHistory: PlayerTournamentHistoryEntry[];
   titles: Array<{ tournamentId: TournamentId; name: string; tier: TournamentTier; ageBand: AgeBand | null; weekEarned: GameWeek }>;
+  /** The tier-weighted counterpart to `titles.length` (see TitleWeight.ts):
+   * raw count AND a weight summing each title's champion point value,
+   * plus the per-tier breakdown — so the headline never shows a tier-blind
+   * count. Derived, never stored. */
+  titleSummary: TitleTally;
   /** The profile-only "scout's projection" of this player's upside (P5,
    * docs/rocking-rackets-competitive-analysis.md §3). This is a DERIVED,
    * age-fuzzed read computed server-side from the HIDDEN
@@ -227,6 +232,10 @@ export class DrizzlePlayerProfileQuery {
       peakRankings: peaks.map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
       tournamentHistory,
       titles: titleList,
+      // Count + tier weight together, from the SAME summariser the
+      // Scouting pool's grouped read uses — the headline can then always
+      // say both (73 titles at ~905 pts is not 29 titles at ~3,350).
+      titleSummary: summarizeTitleTiers(titleRecords.map((title) => title.tier)),
       potential: projectPotential({
         playerId: player.id,
         ageInWeeks: player.ageInWeeks,

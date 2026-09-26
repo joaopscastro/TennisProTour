@@ -1,5 +1,5 @@
 import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
-import { ManagerId, PlayerId } from '@tennis-manager/domain';
+import { FATIGUE_RECOVERY_FRACTION, ManagerId, PlayerId } from '@tennis-manager/domain';
 import { Player, PlayerDormantCarryoverBonus, PlayerLifecycleStage } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { PlayerRepository } from '@tennis-manager/application';
@@ -79,16 +79,23 @@ export class DrizzlePlayerRepository implements PlayerRepository {
    * findAll() + one upsert per tired player on every day tick. See
    * PlayerRepository.recoverFatigueForAll's doc comment for why this is
    * exactly equivalent to the per-player loop it replaces:
-   * `GREATEST(0, fatigue - amount)` is `Player.recoverFatigue`'s
-   * `max(0, min(100, fatigue - amount))` under the game's invariant that
-   * fatigue never exceeds 100, and `WHERE fatigue > 0` is the loop's
-   * `if (player.fatigue === 0) continue;` skip. `updated_at` is touched
-   * the same way a save would.
+   * `GREATEST(0, fatigue - round(amount + fatigue × fraction))` is
+   * `Player.recoverFatigue`'s `max(0, min(100, fatigue -
+   * fatigueRecoveredPerDay(fatigue, amount)))` under the game's invariant
+   * that fatigue never exceeds 100, and `WHERE fatigue > 0` is the loop's
+   * `if (player.fatigue === 0) continue;` skip. The `round()` is the same
+   * whole-point rounding the domain function applies, so both paths
+   * produce byte-identical values (pinned against real Postgres in
+   * DrizzleRepositories.integration.test.ts). `updated_at` is touched the
+   * same way a save would.
    */
   async recoverFatigueForAll(amount: number): Promise<void> {
     await this.db
       .update(players)
-      .set({ fatigue: sql`GREATEST(0, ${players.fatigue} - ${amount})`, updatedAt: sql`now()` })
+      .set({
+        fatigue: sql`GREATEST(0, ${players.fatigue} - round((${amount} + ${players.fatigue} * ${FATIGUE_RECOVERY_FRACTION}::numeric)::numeric))`,
+        updatedAt: sql`now()`,
+      })
       .where(sql`${players.fatigue} > 0`);
   }
 

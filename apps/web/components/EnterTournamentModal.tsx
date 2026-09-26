@@ -239,6 +239,16 @@ export function EnterTournamentModal({ playerId, playerName, managerId, week, pl
           : 'Choose a tournament still open for registration.'}
       </div>
 
+      {/* The cap fact a manager needs BEFORE picking: the weekly entry cap
+          counts tournaments, not draws, so a singles entry here plus the
+          event's doubles is still one tournament — it must never read as a
+          second weekly commitment the way a different event would be. */}
+      <div className="text-[11.5px] mb-3" style={{ color: 'var(--ink-4)', lineHeight: 1.5 }}>
+        The weekly cap counts tournaments, not draws: {playerName}&apos;s singles and doubles at the SAME event is one
+        tournament. After entering singles here, add the doubles entry from the event&apos;s page — no extra weekly
+        entry.
+      </div>
+
       {guidance && (
         <div
           className="mb-3 rounded-[6px] px-3 py-2 text-[12px] leading-[1.5]"

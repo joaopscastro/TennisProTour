@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { Player, PlayerId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { Player, PlayerId, TalentClaimPricingPolicy, TitleTally } from '@tennis-manager/domain';
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
 import { Dependencies } from '../../../composition';
 import { toPlayerDto } from './playerDto';
@@ -20,7 +20,7 @@ function toFreeAgentDto(
   player: Player,
   talentClaimPricingPolicy: TalentClaimPricingPolicy,
   currentTournament: { id: string; name: string } | null,
-  titleCount: number,
+  titleTally: TitleTally,
   blockingCommitment: { id: string; name: string } | null,
 ) {
   const { technical, physical, mental, surfaceAffinities } = player.attributes;
@@ -38,10 +38,17 @@ function toFreeAgentDto(
     // Observable career signals, so an established free agent reads as
     // established BEFORE signing rather than as a surprise afterwards
     // (the pool deliberately spans raw teenagers to match-hardened
-    // veterans). Both are public on PlayerDto/profile already, so
+    // veterans). All are public on PlayerDto/profile already, so
     // exposing them here leaks no hidden potential/ceiling data.
     careerPrizeMoney: player.careerPrizeMoney,
-    titleCount,
+    // The raw COUNT never travels alone: the tier-weighted total and the
+    // per-tier breakdown come with it, so "73 titles" built on J30/J60
+    // cannot read the same as "29 titles" including a major (see
+    // TitleWeight.ts — the weight is the tier's champion point value,
+    // straight from StandardRankingPointsTable).
+    titleCount: titleTally.count,
+    titleWeight: titleTally.weight,
+    titlesByTier: titleTally.byTier,
     // The tournament this free agent still has a match to play in, if
     // any — an informational "Competing" badge. null when they aren't
     // currently competing. See DrizzlePlayerMatchesQuery's
@@ -131,8 +138,9 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
     const playerIds = freeAgents.map((player) => player.id);
     // Three batch reads for the PAGE (not one per free agent): who
     // is currently competing, who is blocked from signing by an
-    // unfinished tournament commitment, and how many titles each has won.
-    const [liveTournaments, commitments, titleCounts] = await Promise.all([
+    // unfinished tournament commitment, and each player's title tally
+    // (count + tier weight + per-tier breakdown).
+    const [liveTournaments, commitments, titleTallies] = await Promise.all([
       deps.playerMatches.liveTournamentByPlayer(playerIds),
       deps.playerMatches.unfinishedCommitmentByPlayer(playerIds),
       deps.titles.countByPlayers(playerIds),
@@ -142,7 +150,7 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
         player,
         deps.talentClaimPricingPolicy,
         liveTournaments.get(player.id) ?? null,
-        titleCounts.get(player.id) ?? 0,
+        titleTallies.get(player.id) ?? { count: 0, weight: 0, byTier: {} },
         commitments.get(player.id) ?? null,
       ),
     );

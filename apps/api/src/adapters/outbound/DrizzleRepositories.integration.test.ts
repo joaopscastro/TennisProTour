@@ -17,6 +17,7 @@ import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { Coach, CoachId } from '@tennis-manager/domain';
 import {
+  fatigueRecoveredPerDay,
   GameWorld,
   juniorEligibilityForAge,
   RANKING_WINDOW_WEEKS,
@@ -1192,25 +1193,31 @@ describe('windowed ranking reads + run-wide fill preloads (real Postgres)', () =
     expect(entrantIds).not.toContain('busy-revealing');
   });
 
-  it('recoverFatigueForAll matches Player.recoverFatigue over real rows (tired, rested, clamped)', async () => {
-    const tired = Player.hire(PlayerId('fatigue-tired'), 'Fatigue Tired', 24 * 52, attributes(30), ManagerId('m-fatigue'));
-    tired.applyMatchFatigue(10);
-    await playerRepository.save(tired);
-
-    const rested = Player.hire(PlayerId('fatigue-rested'), 'Fatigue Rested', 24 * 52, attributes(30), ManagerId('m-fatigue'));
-    await playerRepository.save(rested);
-
-    // Fewer fatigue points than the recovery amount — must floor at 0
-    // exactly like Player.recoverFatigue's max(0, min(100, ...)).
-    const nearlyRested = Player.hire(PlayerId('fatigue-clamped'), 'Fatigue Clamped', 24 * 52, attributes(30), ManagerId('m-fatigue'));
-    nearlyRested.applyMatchFatigue(2);
-    await playerRepository.save(nearlyRested);
+  it('recoverFatigueForAll mirrors Player.recoverFatigue exactly over real rows (self-limiting fraction, rested, clamped)', async () => {
+    // The BULK path is one SQL statement; the per-player path is
+    // Player.recoverFatigue. They must never diverge (the use case picks
+    // whichever the repository supports) — so seed a spread of fatigue
+    // values and assert the SQL result equals the domain function's own
+    // expected value for each, including the fraction-rounding boundaries.
+    const seeded: Array<{ id: string; fatigue: number }> = [
+      { id: 'fatigue-10', fatigue: 10 }, // round(3 + 0.5) = 4 → 6
+      { id: 'fatigue-2', fatigue: 2 }, // round(3 + 0.1) = 3 → clamps at 0
+      { id: 'fatigue-50', fatigue: 50 }, // round(3 + 2.5) = 6 → 44 (a real half-up rounding case)
+      { id: 'fatigue-99', fatigue: 99 }, // round(3 + 4.95) = 8 → 91
+      { id: 'fatigue-0', fatigue: 0 }, // skipped entirely (WHERE fatigue > 0)
+    ];
+    for (const { id, fatigue } of seeded) {
+      const player = Player.hire(PlayerId(id), `Fatigue ${id}`, 24 * 52, attributes(30), ManagerId('m-fatigue'));
+      if (fatigue > 0) player.applyMatchFatigue(fatigue);
+      await playerRepository.save(player);
+    }
 
     await playerRepository.recoverFatigueForAll(3);
 
-    expect((await playerRepository.findById(PlayerId('fatigue-tired')))!.fatigue).toBe(7);
-    expect((await playerRepository.findById(PlayerId('fatigue-rested')))!.fatigue).toBe(0);
-    expect((await playerRepository.findById(PlayerId('fatigue-clamped')))!.fatigue).toBe(0);
+    for (const { id, fatigue } of seeded) {
+      const expected = fatigue === 0 ? 0 : Math.max(0, fatigue - fatigueRecoveredPerDay(fatigue));
+      expect((await playerRepository.findById(PlayerId(id)))!.fatigue).toBe(expected);
+    }
   });
 
   it('findEnteredPlayerIdsForWeek returns exactly the singles-entered ids for that week (doubles-only excluded)', async () => {
@@ -1382,7 +1389,7 @@ describe('DrizzleTitleRepository', () => {
     expect(titles).toEqual([]);
   });
 
-  it('countByPlayers returns per-player counts and omits players with no titles', async () => {
+  it('countByPlayers returns per-player tier-weighted tallies (grouped by tier) and omits players with no titles', async () => {
     await playerRepository.save(Player.hire(PlayerId('p-count-1'), 'Two Titles', 20 * 52, attributes(30), ManagerId('m1')));
     await playerRepository.save(Player.hire(PlayerId('p-count-2'), 'One Title', 20 * 52, attributes(30), ManagerId('m1')));
     await playerRepository.save(Player.hire(PlayerId('p-count-3'), 'None Yet', 20 * 52, attributes(30), ManagerId('m1')));
@@ -1391,18 +1398,21 @@ describe('DrizzleTitleRepository', () => {
         Tournament.open({ name: 'Count Cup', id: TournamentId(id), tier: 'tour', surface: 'hard', weekScheduled: { season: 1, week: 1 }, drawSize: 16 }),
       );
     }
+    // Deliberately different tiers per title: the grouped read must sum
+    // the champion values (tour 1000, major 2000, j60 60) and keep the
+    // per-tier counts, not just a raw count.
     await titleRepository.append({ tournamentId: TournamentId('t-count-1'), playerId: PlayerId('p-count-1'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
-    await titleRepository.append({ tournamentId: TournamentId('t-count-2'), playerId: PlayerId('p-count-1'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
-    await titleRepository.append({ tournamentId: TournamentId('t-count-3'), playerId: PlayerId('p-count-2'), tier: 'tour', ageBand: null, weekEarned: { season: 1, week: 1 } });
+    await titleRepository.append({ tournamentId: TournamentId('t-count-2'), playerId: PlayerId('p-count-1'), tier: 'major', ageBand: null, weekEarned: { season: 1, week: 1 } });
+    await titleRepository.append({ tournamentId: TournamentId('t-count-3'), playerId: PlayerId('p-count-2'), tier: 'j60', ageBand: 'u16', weekEarned: { season: 1, week: 1 } });
 
-    const counts = await titleRepository.countByPlayers([
+    const tallies = await titleRepository.countByPlayers([
       PlayerId('p-count-1'),
       PlayerId('p-count-2'),
       PlayerId('p-count-3'),
     ]);
-    expect(counts.get(PlayerId('p-count-1'))).toBe(2);
-    expect(counts.get(PlayerId('p-count-2'))).toBe(1);
-    expect(counts.has(PlayerId('p-count-3'))).toBe(false);
+    expect(tallies.get(PlayerId('p-count-1'))).toEqual({ count: 2, weight: 1000 + 2000, byTier: { tour: 1, major: 1 } });
+    expect(tallies.get(PlayerId('p-count-2'))).toEqual({ count: 1, weight: 60, byTier: { j60: 1 } });
+    expect(tallies.has(PlayerId('p-count-3'))).toBe(false);
   });
 });
 
@@ -2251,6 +2261,26 @@ describe('DrizzleWeeklyEntryGuardAdapter', () => {
     expect(
       await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt1'), cap: 1 }),
     ).toBe(true);
+  });
+
+  it('allows a same-event doubles claim for a player who already holds that event’s singles entry — a tournament is excluded from its own count, not counted against itself', async () => {
+    await savePlayer('gp1');
+    const first = await saveOpenTournament('gt1', 'challenger');
+    first.registerEntrant({ playerId: PlayerId('gp1'), seed: null });
+    await tournamentRepository.save(first);
+
+    // The doubles claim for the SAME event at cap 1 must pass: the guard
+    // excludes gt1 from the recount, exactly as both registration use
+    // cases' pre-checks now do.
+    expect(
+      await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt1'), cap: 1 }),
+    ).toBe(true);
+
+    // A DIFFERENT event is still a genuine second entry — refused.
+    await saveOpenTournament('gt2', 'challenger');
+    expect(
+      await guard.tryClaimEntry({ playerId: PlayerId('gp1'), week, isJunior: false, tournamentId: TournamentId('gt2'), cap: 1 }),
+    ).toBe(false);
   });
 
   it('counts junior and senior entries independently', async () => {

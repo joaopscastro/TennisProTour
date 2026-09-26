@@ -36,6 +36,7 @@ export * from './ranking/RankingBand';
 export * from './ranking/GraduationCarryover';
 export * from './ranking/PeakRanking';
 export * from './ranking/TitleRecord';
+export * from './ranking/TitleWeight';
 export * from './ranking/DoublesRanking';
 export * from './ranking/DoublesTitleRecord';
 export * from './ranking/SeasonBonusPoolPolicy';

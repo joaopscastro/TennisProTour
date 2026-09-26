@@ -64,12 +64,17 @@ export class StandardManagerLadderPolicy implements ManagerLadderPolicy {
   private static readonly WEEKLY_DECAY = 0.99;
 
   /** PLACEHOLDER: a fully inactive week (zero entries anywhere on the
-   * whole roster) costs an EXTRA 15% on top of the routine 1% —
-   * noticeably sharper than the baseline erosion, since the goal is a
-   * real, felt consequence for "forgot to log in," not a rounding
-   * error next to the passive decay everyone already takes. Not tuned
-   * against real data — same status as WEEKLY_DECAY. */
-  private static readonly INACTIVITY_PENALTY = 0.85;
+   * whole roster) costs an EXTRA 5% on top of the routine 1%. Softened
+   * 0.85 → 0.95 by the second fatigue/form pass (docs/balance-tuning-
+   * report.md): fatigue recovery is now self-limiting, so a deep run
+   * settles at a real, finite fatigue instead of pinning at 100 — but
+   * that only makes "take a rest week" a viable plan if a rest week
+   * isn't itself punished by a 15% score cliff. 5% is still a real,
+   * felt consequence (a manager who forgets entirely keeps sliding
+   * ~6%/week including the routine decay) without making rest the wrong
+   * move at the exact moment the fatigue system starts asking for it.
+   * Not tuned against live data — same status as WEEKLY_DECAY. */
+  private static readonly INACTIVITY_PENALTY = 0.95;
 
   creditFor(rankingPoints: number): number {
     return rankingPoints;

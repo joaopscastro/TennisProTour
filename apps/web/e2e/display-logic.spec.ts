@@ -15,6 +15,7 @@ import { latestCancelledEntry, nextPendingEntry } from '../lib/pendingEntry';
 import { resolveDecidedSide } from '../lib/decidedIt';
 import type { PlannerWeekDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
+import { titleSummaryLabel } from '../lib/titles';
 import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
 
 /**
@@ -409,6 +410,30 @@ test.describe('duplicate player names are disambiguated', () => {
     expect(first).not.toBe(second);
     expect(first.startsWith('Yuki Okafor (')).toBe(true);
     expect(names.get('cccc-3333')).toBe('Marta Vukovic');
+  });
+});
+
+test.describe('title figures are tier-weighted, never a tier-blind count (D2)', () => {
+  test('count AND tier-weighted points are always shown together', () => {
+    const label = titleSummaryLabel({ count: 29, weight: 3350, byTier: { major: 1, j60: 28 } });
+    expect(label).toContain('29 titles');
+    expect(label).toContain('3,350 pts');
+    expect(label).toContain('1 Major');
+  });
+
+  test('a pile of small-grade titles reads differently from a major — the exact 73-vs-29 case', () => {
+    const juniorGrinder = titleSummaryLabel({ count: 73, weight: 73 * 60, byTier: { j60: 73 } });
+    const majorWinner = titleSummaryLabel({ count: 29, weight: 3500, byTier: { major: 1, j60: 29 } });
+    expect(juniorGrinder).toContain('73 titles');
+    expect(juniorGrinder).toContain('4,380 pts');
+    expect(juniorGrinder).toContain('best J60');
+    expect(majorWinner).toContain('1 Major');
+    expect(juniorGrinder).not.toBe(majorWinner);
+  });
+
+  test('a no-title player says so plainly, and one title keeps its singular + best rung', () => {
+    expect(titleSummaryLabel({ count: 0, weight: 0, byTier: {} })).toBe('No titles');
+    expect(titleSummaryLabel({ count: 1, weight: 250, byTier: { futures: 1 } })).toBe('1 title · 250 pts · best Futures');
   });
 });
 

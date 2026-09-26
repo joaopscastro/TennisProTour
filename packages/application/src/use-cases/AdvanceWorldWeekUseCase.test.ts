@@ -18,6 +18,7 @@ import {
   StandardAgingPolicy,
   StandardTrainingPolicy,
   SurfaceAffinities,
+  fatigueRecoveredPerDay,
   Tournament,
   TournamentId,
   TrainingPolicy,
@@ -176,6 +177,21 @@ class InMemoryPlayerRepository implements PlayerRepository {
   async save(player: Player): Promise<void> {
     this.saveCount += 1;
     this.store.set(player.id, player);
+  }
+}
+
+/** The bulk-recovery path's in-memory stand-in — mirrors
+ * DrizzlePlayerRepository.recoverFatigueForAll's semantics (one pass over
+ * every tired player, applying the same domain recovery formula, fatigue 0
+ * skipped), so a test can drive the use case through BOTH paths and assert
+ * they produce identical fatigue. */
+class InMemoryPlayerRepositoryWithBulkRecovery extends InMemoryPlayerRepository {
+  async recoverFatigueForAll(amount: number): Promise<void> {
+    for (const player of await this.findAll()) {
+      if (player.fatigue === 0) continue;
+      player.recoverFatigue(amount);
+      await this.save(player);
+    }
   }
 }
 
@@ -467,7 +483,8 @@ describe('AdvanceWorldWeekUseCase', () => {
 
       expect(result).toEqual({ advanced: true, weekRolledOver: false, playersAged: 0, seasonRolledOver: false });
       const after = (await players.findById(PlayerId('p1')))!;
-      expect(after.fatigue).toBe(50 - FATIGUE_RECOVERY_PER_DAY);
+      // Self-limiting recovery: base + 5% of current fatigue (rounded).
+      expect(after.fatigue).toBe(50 - fatigueRecoveredPerDay(50));
       expect(after.form).toBe(20); // form only decays on the weekly rollover
       expect(after.ageInWeeks).toBe(25 * 52); // no aging mid-week
     });
@@ -504,8 +521,50 @@ describe('AdvanceWorldWeekUseCase', () => {
 
       expect(result.weekRolledOver).toBe(true);
       const after = (await players.findById(PlayerId('p1')))!;
-      expect(after.fatigue).toBe(50 - FATIGUE_RECOVERY_PER_DAY);
+      expect(after.fatigue).toBe(50 - fatigueRecoveredPerDay(50));
       expect(after.form).toBe(Math.round(20 * FORM_WEEKLY_DECAY));
+    });
+
+    it('recovers the SAME amount on the bulk SQL path and the per-player fallback (the two must never diverge)', async () => {
+      // The bulk path is the repository's one-statement UPDATE (mirrors
+      // Player.recoverFatigue's arithmetic exactly; pinned against real
+      // Postgres in DrizzleRepositories.integration.test.ts). This pins
+      // that the USE CASE hands both paths the same inputs and produces
+      // the same result.
+      const build = async (players: InMemoryPlayerRepository, tickKey: string) => {
+        const worlds = new InMemoryGameWorldRepository();
+        const worldId = WorldId('main');
+        await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 1 }, currentDay: 3, lastAppliedTick: null }));
+        const player = Player.hire(PlayerId('p1'), 'Tired Player', 25 * 52, startingAttributes(), ManagerId('m1'));
+        player.applyMatchFatigue(50);
+        player.pullDomainEvents();
+        await players.save(player);
+        const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+        const useCase = new AdvanceWorldWeekUseCase(
+          worlds,
+          players,
+          new FakeBillingPort(),
+          standardAging,
+          standardAging,
+          new RecordingEventPublisher(),
+          new StandardTrainingPolicy(),
+          new InMemoryCoachRepository(),
+          new InMemoryRankingLedgerRepository(),
+          new InMemoryTrainingScheduleRepository(),
+          new InMemoryManagerLadderRepository(),
+          new StandardManagerLadderPolicy(),
+          new StandardPlayerDevelopmentPolicy(),
+          new InMemoryTournamentRepository(),
+        );
+        await useCase.execute({ worldId, tickKey });
+        return (await players.findById(PlayerId('p1')))!.fatigue;
+      };
+
+      const perPlayerFatigue = await build(new InMemoryPlayerRepository(), 'per-player-tick');
+      const bulkFatigue = await build(new InMemoryPlayerRepositoryWithBulkRecovery(), 'bulk-tick');
+
+      expect(perPlayerFatigue).toBe(50 - fatigueRecoveredPerDay(50));
+      expect(bulkFatigue).toBe(perPlayerFatigue);
     });
   });
 

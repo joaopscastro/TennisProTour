@@ -4,6 +4,7 @@ import { Player } from './Player';
 import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
 import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
 import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
+import { fatigueRecoveredPerDay, FATIGUE_RECOVERY_PER_DAY } from './FatiguePolicy';
 
 /** Deterministic development policy for Player's own funding tests —
  * only experienceCostPerSkillPoint matters here (the match/weekly XP
@@ -88,6 +89,31 @@ describe('Player', () => {
 
     player.recoverFatigue(1000);
     expect(player.fatigue).toBe(0);
+  });
+
+  it('recovers the self-limiting daily amount — flat base plus a rounded fraction of current fatigue', () => {
+    const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    player.applyMatchFatigue(80);
+    // 80 × 0.05 = 4 → recovery 3 + 4 = 7 → 80 - 7 = 73.
+    player.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
+    expect(player.fatigue).toBe(80 - fatigueRecoveredPerDay(80));
+    expect(player.fatigue).toBe(73);
+
+    // A nearly-rested player recovers only the flat base (the fraction
+    // rounds away), and recovery still floors at 0.
+    const nearlyRested = Player.hire(PlayerId('p2'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+    nearlyRested.applyMatchFatigue(5);
+    nearlyRested.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
+    expect(nearlyRested.fatigue).toBe(2);
+
+    // The recovery is never fractional — fatigue stays integer-valued for
+    // every starting value (it is persisted in an integer column).
+    for (let f = 0; f <= 100; f++) {
+      const p = Player.hire(PlayerId('p'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
+      p.applyMatchFatigue(f);
+      p.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
+      expect(Number.isInteger(p.fatigue)).toBe(true);
+    }
   });
 
   it('starts with zero form, accrues per match, and clamps to [0, 100]', () => {

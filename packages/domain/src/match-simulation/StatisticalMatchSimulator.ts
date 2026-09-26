@@ -31,12 +31,22 @@ export const FORM_SWEET_SPOT_MIN = 12;
 export const FORM_SWEET_SPOT_MAX = 25;
 /** Below this, a player is "rusty" (under-played) and pays a penalty. */
 export const FORM_RUSTY_THRESHOLD = 8;
-/** Above this, a player is "stale" (over-played) and pays a penalty. */
-export const FORM_STALE_THRESHOLD = 30;
+/** Above this, a player is "stale" (over-played) and pays a penalty.
+ * Softened 30 → 40 by the second fatigue/form pass (docs/balance-tuning-
+ * report.md): the observed equilibrium for a junior playing 6 matches a
+ * week is ~31, so the old threshold made a genuinely active schedule
+ * permanently stale; 40 leaves that schedule in the neutral tolerance
+ * zone. FATIGUE now carries the overplay cost (its self-limiting
+ * recovery settles at a finite value — see FatiguePolicy); form stays
+ * the rust/rhythm signal. */
+export const FORM_STALE_THRESHOLD = 40;
 /** Flat effective-rating bonus while inside the sweet-spot band. */
 export const FORM_SWEET_SPOT_BONUS = 2;
-/** Effective-rating penalty per form point outside the tolerance zone. */
-export const FORM_OUT_OF_BAND_PENALTY_PER_POINT = 0.3;
+/** Effective-rating penalty per form point outside the tolerance zone.
+ * Softened 0.3 → 0.15 in the same pass as FORM_STALE_THRESHOLD above:
+ * with the stale side pushed out, the remaining penalty only needs to be
+ * a nudge, not the dominant overplay disincentive. */
+export const FORM_OUT_OF_BAND_PENALTY_PER_POINT = 0.15;
 
 /** Flat effective-rating bonus a player gets when the tournament is held
  * in their own country (home advantage, P6 — RR models this as a fixed

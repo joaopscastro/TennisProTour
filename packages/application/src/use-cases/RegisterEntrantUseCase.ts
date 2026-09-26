@@ -167,7 +167,18 @@ export class RegisterEntrantUseCase {
       }
     }
 
-    const entryCount = await countSameBandEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled, tournament.tier);
+    // The tournament being registered is EXCLUDED from its own count
+    // (see countSameBandEntriesForWeek): a player already holding a
+    // DOUBLES entry in this same event is still only in one tournament,
+    // so entering its singles must not be blocked by that doubles entry.
+    // The atomic guard below excludes it identically.
+    const entryCount = await countSameBandEntriesForWeek(
+      this.tournaments,
+      command.playerId,
+      tournament.weekScheduled,
+      tournament.tier,
+      tournament.id,
+    );
     const cap = weeklyEntryCapForTier(tournament.tier);
     if (entryCount >= cap) {
       const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';

@@ -2,6 +2,7 @@ import { PlayerId, ManagerId } from '../shared/ids';
 import { PlayerAttributes, Surface, isPhysicalAttribute } from './PlayerAttributes';
 import { PhysicalCeilings } from './PlayerGenerationPolicy';
 import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
+import { fatigueRecoveredPerDay } from './FatiguePolicy';
 import { DomainEvent } from '../shared/DomainEvent';
 import { TrainingFocus, TrainingPolicy, applyCoachBonus, applyPotentialDiminishingReturns } from './TrainingPolicy';
 
@@ -506,8 +507,19 @@ export class Player {
     };
   }
 
-  recoverFatigue(amount: number): void {
-    this.applyMatchFatigue(-amount);
+  /** Recovers ONE advanced day's worth of fatigue (called for every tired
+   * player on every day tick — see AdvanceWorldWeekUseCase.recoverDailyFatigue
+   * and the bulk SQL twin DrizzlePlayerRepository.recoverFatigueForAll).
+   *
+   * `baseAmount` is the flat per-day term (FATIGUE_RECOVERY_PER_DAY in
+   * production; overridable by the balance tool). The actual recovery is
+   * `baseAmount + fatigue × FATIGUE_RECOVERY_FRACTION`, rounded to a whole
+   * point — a SELF-LIMITING recovery, so the more tired a player is the
+   * faster they recover, which is what lets accrual and recovery settle at
+   * an equilibrium instead of pinning a busy schedule at 100 forever. See
+   * FatiguePolicy.fatigueRecoveredPerDay, the one place this formula lives. */
+  recoverFatigue(baseAmount: number): void {
+    this.applyMatchFatigue(-fatigueRecoveredPerDay(this.props.fatigue, baseAmount));
   }
 
   /** Adds to this player's form counter after a real match — called by

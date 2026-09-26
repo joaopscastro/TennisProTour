@@ -25,4 +25,15 @@ describe('StandardManagerLadderPolicy', () => {
     expect(score).toBeLessThan(1000);
     expect(score).toBeGreaterThan(0);
   });
+
+  it('applies a softened inactivity penalty — 5% extra on top of the routine 1%, not the old 15% cliff', () => {
+    // Retuned 0.85 → 0.95 by the second fatigue/form pass: with fatigue
+    // recovery now self-limiting, a rest week is a legitimate plan the
+    // system itself nudges toward — so an inactive week must still cost
+    // something real (~6% composed with the routine decay), but not so
+    // much that resting is the wrong move at the exact moment fatigue
+    // asks for it.
+    expect(policy.inactivityPenaltyFactor()).toBe(0.95);
+    expect(policy.weeklyDecayFactor() * policy.inactivityPenaltyFactor()).toBeCloseTo(0.9405, 4);
+  });
 });

@@ -43,6 +43,7 @@ import {
 } from '../../../lib/format';
 import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { stageLabel, stageMeta } from '../../../lib/ui/stage';
+import { titleSummaryLabel } from '../../../lib/titles';
 import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../../../lib/ui/focus';
 
 const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' };
@@ -441,7 +442,11 @@ export default function PlayerProfilePage() {
 
   const stg = stageMeta(profile.stage);
   const heroSurface = profile.tournamentHistory[0]?.surface ?? null;
-  const titleCount = profile.titles.length;
+  const titleCount = profile.titleSummary.count;
+  // The headline shows the raw count AND the tier-weighted figure
+  // together (never a tier-blind count alone) — a 73-title junior card
+  // and a 29-title major winner read differently at a glance.
+  const titleLine = titleSummaryLabel(profile.titleSummary);
   const topRank = profile.currentRankings.reduce<number | null>(
     (best, r) => (r.rank !== null && (best === null || r.rank < best) ? r.rank : best),
     null,
@@ -452,7 +457,7 @@ export default function PlayerProfilePage() {
       .sort((a, b) => (a.rank as number) - (b.rank as number))[0] ?? null;
   const heroTagline =
     titleCount > 0
-      ? `${titleCount} career ${titleCount === 1 ? 'title' : 'titles'} and counting.`
+      ? `${titleLine} and counting.`
       : topRank !== null && topRank <= 32
       ? `Climbing fast — world #${topRank} and hungry for a first trophy.`
       : 'Chasing a breakthrough result on tour.';

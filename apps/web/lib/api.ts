@@ -130,7 +130,13 @@ export interface TalentPoolCandidateDto {
    * manager should see which they're looking at. Never hidden potential
    * data. */
   careerPrizeMoney: number;
+  /** Raw title count AND its tier-weighted total together — the count
+   * alone is tier-blind (73 J30/J60 titles ≠ 29 titles including a
+   * major), so both travel and both are shown. `titlesByTier` is the
+   * per-tier breakdown the label uses to name the best rung. */
   titleCount: number;
+  titleWeight: number;
+  titlesByTier: Partial<Record<string, number>>;
   /** The tournament this free agent still has a match to play in, if any
    * — an informational "Competing" badge. null when they aren't
    * currently competing (see DrizzlePlayerMatchesQuery's
@@ -847,6 +853,9 @@ export interface PlayerProfileDto {
   peakRankings: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
   tournamentHistory: PlayerTournamentHistoryEntryDto[];
   titles: Array<{ tournamentId: string; name: string; tier: string; ageBand: AgeBand | null; weekEarned: { season: number; week: number } }>;
+  /** The tier-weighted counterpart to `titles.length` — raw count AND
+   * weight, so the headline can never show a tier-blind count alone. */
+  titleSummary: { count: number; weight: number; byTier: Partial<Record<string, number>> };
   /** The profile-only "scout's projection" of upside (P5). Age-fuzzed,
    * derived server-side from hidden ceilings — narrows toward truth as
    * the player ages. Never present on any list/pool DTO. */

@@ -284,6 +284,58 @@ describe('API', () => {
     expect(accepted.statusCode).toBe(201);
   });
 
+  it('counts singles + doubles at the SAME event as ONE weekly entry — display and enforcement agree, and a second event is still refused at the senior cap of 1', async () => {
+    const adminHeaders = { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' };
+    for (const id of ['t-same-event-cap', 't-other-event-cap']) {
+      const opened = await app.inject({
+        method: 'POST',
+        url: '/tournaments/open-registration',
+        headers: adminHeaders,
+        payload: { tournamentId: id, tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 52 }, drawSize: 16 },
+      });
+      expect(opened.statusCode).toBe(201);
+    }
+
+    const managerId = 'm-same-event-cap';
+    expect(await hirePlayer('cap-subject', managerId)).toBe(201);
+    const singles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-same-event-cap/entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap-subject' },
+    });
+    expect(singles.statusCode).toBe(201);
+
+    // The display helper mirrors enforcement: the tournament already
+    // entered EXCLUDES itself (0/1 — its doubles is still enterable),
+    // while a different same-week senior event counts the entry (1/1).
+    const list = await app.inject({ method: 'GET', url: '/tournaments?status=open&playerId=cap-subject' });
+    expect(list.statusCode).toBe(200);
+    const rows = list.json() as Array<{ id: string; weeklyEntryCountThisWeek: number; weeklyEntryCapThisWeek: number }>;
+    expect(rows.find((r) => r.id === 't-same-event-cap')).toMatchObject({ weeklyEntryCountThisWeek: 0, weeklyEntryCapThisWeek: 1 });
+    expect(rows.find((r) => r.id === 't-other-event-cap')).toMatchObject({ weeklyEntryCountThisWeek: 1, weeklyEntryCapThisWeek: 1 });
+
+    // Enforcement agrees: doubles at the SAME event passes at cap 1...
+    const doubles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-same-event-cap/doubles-entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap-subject' },
+    });
+    expect(doubles.statusCode).toBe(201);
+    expect((doubles.json() as { doublesEntrants: string[] }).doublesEntrants).toContain('cap-subject');
+
+    // ...while doubles at a DIFFERENT event is a real second entry, refused.
+    const otherDoubles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-other-event-cap/doubles-entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap-subject' },
+    });
+    expect(otherDoubles.statusCode).toBe(409);
+    expect((otherDoubles.json() as { error: string }).error).toContain('already entered 1 senior tournaments');
+  });
+
   it('serves the world clock: the real seeded GameWeek + day plus a next-tick timestamp derived from WORLD_TICK_CRON', async () => {
     const response = await app.inject({ method: 'GET', url: '/world/clock' });
     expect(response.statusCode).toBe(200);
@@ -1071,7 +1123,14 @@ describe('API', () => {
     // Career signal + competing context are present and default honestly
     // for an unsigned player with no history — never a guess, never
     // omitted (the Scouting card reads these directly).
-    expect(candidates[0]).toMatchObject({ careerPrizeMoney: 0, titleCount: 0, currentTournament: null });
+    expect(candidates[0]).toMatchObject({
+      careerPrizeMoney: 0,
+      titleCount: 0,
+      // The tier-weighted figure travels WITH the count, never alone.
+      titleWeight: 0,
+      titlesByTier: {},
+      currentTournament: null,
+    });
     expect(candidates[0]).not.toHaveProperty('tier');
     expect(candidates[0]).not.toHaveProperty('potentialTier');
     expect(candidates[0].attributes.technical.serve).toBe(50); // current attributes stay precise, unfuzzed
@@ -1104,6 +1163,44 @@ describe('API', () => {
     await deps.managerXp.credit(ManagerId('m2'), AMPLE_XP_FOR_TESTS);
     const secondClaim = await app.inject({ method: 'POST', url: '/talent-pool/tp1/claim', headers: { 'x-dev-manager-id': 'm2' }, payload: { managerId: 'm2' } });
     expect(secondClaim.statusCode).toBe(409);
+  });
+
+  it('shows a free agent’s titles tier-weighted — count AND weight together, never a tier-blind count', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    await deps.players.save(
+      Player.generateFillOnly(PlayerId('tp-weighted'), 'Weighted Veteran', 30 * 52, agingPolicy.stageForAge(30 * 52), fixedAttributes(40), 'BR', 70, {
+        speed: 70,
+        stamina: 70,
+        strength: 70,
+      }),
+    );
+    // A major title needs a tournament row (titles FK to tournaments).
+    await db.insert(schema.tournaments).values({
+      id: 'tp-weighted-t1',
+      name: 'Weighted Open',
+      tier: 'major',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await deps.titles.append({
+      tournamentId: TournamentId('tp-weighted-t1'),
+      playerId: PlayerId('tp-weighted'),
+      tier: 'major',
+      ageBand: null,
+      weekEarned: { season: 1, week: 1 },
+    });
+
+    const listed = await app.inject({ method: 'GET', url: '/talent-pool' });
+    expect(listed.statusCode).toBe(200);
+    const dto = listed.json().candidates.find((c: { id: string }) => c.id === 'tp-weighted');
+    expect(dto.titleCount).toBe(1);
+    // The weight is the major's champion value, straight from the domain
+    // points table — and the breakdown names the tier.
+    expect(dto.titleWeight).toBe(2000);
+    expect(dto.titlesByTier).toEqual({ major: 1 });
   });
 
   it('shows a committed free agent but refuses to sign them, and the DTO flag matches the enforcement', async () => {
@@ -1154,6 +1251,8 @@ describe('API', () => {
     expect(dto.blockingCommitment).toEqual({ id: 'tp-live-t1', name: 'Mid-Event Open' });
     expect(dto.careerPrizeMoney).toBe(0);
     expect(dto.titleCount).toBe(0);
+    expect(dto.titleWeight).toBe(0);
+    expect(dto.titlesByTier).toEqual({});
 
     // The server refuses the signing with the plain-language reason.
     await deps.managerXp.credit(ManagerId('m1'), AMPLE_XP_FOR_TESTS);

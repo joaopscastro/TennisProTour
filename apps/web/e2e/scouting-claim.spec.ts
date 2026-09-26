@@ -17,6 +17,8 @@ const candidate = {
   claimCost: 50,
   careerPrizeMoney: 0,
   titleCount: 0,
+  titleWeight: 0,
+  titlesByTier: {},
   currentTournament: null,
   attributes: {
     technical: { serve: 40, forehand: 40, backhand: 40, volley: 40 },

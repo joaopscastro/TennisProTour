@@ -50,15 +50,21 @@ const {
   FORM_RUSTY_THRESHOLD,
   FORM_STALE_THRESHOLD,
   fatigueCostForMatch,
+  FATIGUE_RECOVERY_FRACTION,
 } = domain;
-// The weekly form decay and daily fatigue recovery live in the application
-// layer (applied by AdvanceWorldWeekUseCase, not the domain), so they're
-// imported rather than re-hardcoded here — the same "never duplicate a
-// production constant" discipline the report's meta block already uses.
+// The weekly form decay lives in the application layer (applied by
+// AdvanceWorldWeekUseCase, not the domain), so it's imported rather than
+// re-hardcoded here — the same "never duplicate a production constant"
+// discipline the report's meta block already uses. The daily fatigue
+// recovery formula itself is the domain's (Player.recoverFatigue →
+// FatiguePolicy.fatigueRecoveredPerDay, base + fatigue × fraction); the
+// FLAT BASE is re-exported through the application layer for the same
+// reason it always was.
 const { FORM_WEEKLY_DECAY, FATIGUE_RECOVERY_PER_DAY } = application;
-// FATIGUE_RECOVERY_PER_DAY overrides the production daily recovery for this
-// run only, so a retuning pass can compare candidate values against real
-// trajectory data (same pattern as DIVISOR):
+// FATIGUE_RECOVERY_PER_DAY overrides the production FLAT BASE for this run
+// only, so a retuning pass can compare candidate values against real
+// trajectory data (same pattern as DIVISOR). The self-limiting FRACTION is
+// part of the formula now, so it is always applied on top (see the report):
 //   for r in 5 4 3 2; do FATIGUE_RECOVERY_PER_DAY=$r node apps/api/scripts/balance-simulation.mjs; done
 const FATIGUE_RECOVERY = process.env.FATIGUE_RECOVERY_PER_DAY
   ? Number(process.env.FATIGUE_RECOVERY_PER_DAY)
@@ -368,16 +374,19 @@ const formTrajectories = FORM_SCHEDULES.map(({ name, matchesPerWeek, startForm =
 // --- Bucket 8: realistic fatigue trajectory -----------------------------
 // Bucket 2 measured what a given fatigue VALUE is worth; this measures what
 // fatigue real schedules actually produce. Fatigue has BOTH an accrual (per
-// match, fatigueCostForMatch) and a recovery (per DAY tick —
-// FATIGUE_RECOVERY_PER_DAY, applied on all 7 days of the week). Under the
-// senior weekly entry cap of 1 tournament, a champion plays at most 5-7
-// matches in a week, against 7 × recovery — so whether fatigue EVER
-// accumulates depends entirely on that constant's scaling to the day-tick
-// cadence. This is the exact "especially their scaling to our day-tick
-// cadence" concern docs/rocking-rackets-competitive-analysis.md §5 calls
-// the main open balance question. Matches are modelled as consecutive days
-// at the start of the week (a real run's shape), each followed by that
-// day's recovery — the real Player mutators, not a re-derived recurrence.
+// match, fatigueCostForMatch) and a recovery (per DAY tick), and as of the
+// second fatigue/form pass the recovery is SELF-LIMITING:
+// `FATIGUE_RECOVERY_PER_DAY + fatigue × FATIGUE_RECOVERY_FRACTION`, rounded —
+// so the more tired a player is the faster they recover, and accrual and
+// recovery meet at a finite equilibrium instead of the old fixed drain a
+// deep schedule could always out-accrue (which pinned a 5+/week schedule at
+// 100 forever). Under the senior weekly entry cap of 1 tournament, a
+// champion plays at most 5-7 matches in a week; the point of this bucket is
+// to show those schedules now settle at a real, finite fatigue instead of
+// the ceiling. Matches are modelled as consecutive days at the start of the
+// week (a real run's shape), each followed by that day's recovery — the
+// real Player mutators (Player.recoverFatigue applies the domain formula),
+// not a re-derived recurrence.
 const FATIGUE_TRAJECTORY_WEEKS = 52;
 const FATIGUE_SCHEDULES = [
   { name: 'idle', matchesPerWeek: 0 },
@@ -394,15 +403,25 @@ for (const { name, matchesPerWeek } of FATIGUE_SCHEDULES) {
     const player = makeCatchupPlayer(`fatigue-${name}-${stamina}`, { skill: 50, ceilingHeadroom: EXPECTED_CEILING_HEADROOM });
     const costPerMatch = fatigueCostForMatch(stamina);
     const samples = [];
+    const peaks = [];
     for (let week = 1; week <= FATIGUE_TRAJECTORY_WEEKS; week++) {
+      let weekPeak = 0;
       for (let day = 1; day <= 7; day++) {
         if (day <= matchesPerWeek) player.applyMatchFatigue(costPerMatch);
         player.recoverFatigue(FATIGUE_RECOVERY);
+        if (player.fatigue > weekPeak) weekPeak = player.fatigue;
       }
-      if (week > FATIGUE_TRAJECTORY_WEEKS - 4) samples.push(player.fatigue);
+      if (week > FATIGUE_TRAJECTORY_WEEKS - 4) {
+        samples.push(player.fatigue);
+        peaks.push(weekPeak);
+      }
     }
     const steadyStateFatigue = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
-    fatigueTrajectories.push({ schedule: name, matchesPerWeek, stamina, costPerMatch, steadyStateFatigue });
+    // The mid-week peak is the number a manager actually SEES while a deep
+    // run is happening; the end-of-week value is where a Monday player
+    // starts. Both are finite now — neither approaches 100.
+    const peakFatigue = Math.round(peaks.reduce((a, b) => a + b, 0) / peaks.length);
+    fatigueTrajectories.push({ schedule: name, matchesPerWeek, stamina, costPerMatch, steadyStateFatigue, peakFatigue });
   }
 }
 
@@ -425,6 +444,7 @@ const report = {
     xpPerSkillPoint: developmentPolicy.experienceCostPerSkillPoint(),
     baseGainYouth: BASE_GAIN_YOUTH,
     fatigueRecoveryPerDay: FATIGUE_RECOVERY,
+    fatigueRecoveryFraction: FATIGUE_RECOVERY_FRACTION,
   },
   ratingGap: {
     description: 'Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.',
@@ -466,8 +486,9 @@ const report = {
   },
   fatigueTrajectory: {
     description:
-      'Steady-state fatigue a real weekly schedule reaches over a 52-week season, replaying the production per-match cost (fatigueCostForMatch) and per-day recovery (FATIGUE_RECOVERY_PER_DAY, applied on all 7 days) through the real Player mutators. Rows are per schedule × stamina. A senior plays at most 5-7 matches/week (the 1/week entry cap), so this directly tests whether fatigue ever accumulates on the senior tour at all.',
+      'Steady-state fatigue a real weekly schedule reaches over a 52-week season, replaying the production per-match cost (fatigueCostForMatch) and the production SELF-LIMITING per-day recovery (fatigueRecoveredPerDay: base + fatigue × fraction, applied on all 7 days) through the real Player mutators. Rows are per schedule × stamina and carry both the end-of-week value and the mid-week PEAK (the number a manager sees during a deep run). A senior plays at most 5-7 matches/week (the 1/week entry cap); this shows those schedules now settle at a finite equilibrium instead of climbing to the 100 ceiling forever.',
     recoveryPerDay: FATIGUE_RECOVERY,
+    recoveryFraction: FATIGUE_RECOVERY_FRACTION,
     rows: fatigueTrajectories,
   },
 };
@@ -512,10 +533,10 @@ for (const row of formTrajectories) {
   );
 }
 
-console.log(`\nFatigue trajectory (52-week steady state, recovery ${FATIGUE_RECOVERY}/day):`);
-console.log('  schedule                          matches/wk  stamina  cost/match  steady fatigue');
+console.log(`\nFatigue trajectory (52-week steady state, recovery ${FATIGUE_RECOVERY}/day + ${FATIGUE_RECOVERY_FRACTION}×fatigue — self-limiting):`);
+console.log('  schedule                          matches/wk  stamina  cost/match  end-of-week  peak');
 for (const row of fatigueTrajectories) {
   console.log(
-    `  ${row.schedule.padEnd(32)}  ${String(row.matchesPerWeek).padStart(10)}  ${String(row.stamina).padStart(7)}  ${String(row.costPerMatch).padStart(10)}  ${String(row.steadyStateFatigue).padStart(14)}`,
+    `  ${row.schedule.padEnd(32)}  ${String(row.matchesPerWeek).padStart(10)}  ${String(row.stamina).padStart(7)}  ${String(row.costPerMatch).padStart(10)}  ${String(row.steadyStateFatigue).padStart(11)}  ${String(row.peakFatigue).padStart(4)}`,
   );
 }

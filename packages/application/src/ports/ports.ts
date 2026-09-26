@@ -104,15 +104,20 @@ export interface PlayerRepository {
    * compatibility (an in-memory fake may omit it); the Drizzle adapter —
    * the only production implementation — always provides it. */
   countSignableFreeAgents?(): Promise<number>;
-  /** Recovers `amount` fatigue from EVERY player carrying any, in ONE
-   * statement — the bulk counterpart to `save(player)` in the daily
-   * recovery loop (AdvanceWorldWeekUseCase.recoverDailyFatigue), which
-   * otherwise reads every player and issues one single-row upsert per
-   * tired player on every day tick. Semantically identical to calling
-   * `Player.recoverFatigue(amount)` (max(0, min(100, fatigue - amount)))
-   * for each player with `fatigue > 0`, then saving: the `fatigue === 0`
-   * skip the loop applies is exactly the `WHERE fatigue > 0` filter, and
-   * fatigue can never exceed the 100 cap the loop would clamp to.
+  /** Recovers one advanced day's fatigue from EVERY player carrying any,
+   * in ONE statement — the bulk counterpart to `save(player)` in the
+   * daily recovery loop (AdvanceWorldWeekUseCase.recoverDailyFatigue),
+   * which otherwise reads every player and issues one single-row upsert
+   * per tired player on every day tick. `amount` is the FLAT base term
+   * (FATIGUE_RECOVERY_PER_DAY in production); the real recovery is the
+   * self-limiting `amount + fatigue × FATIGUE_RECOVERY_FRACTION` (see
+   * FatiguePolicy.fatigueRecoveredPerDay), rounded to a whole point.
+   * Semantically identical to calling `Player.recoverFatigue(amount)` for
+   * each player with `fatigue > 0`, then saving: the `fatigue === 0` skip
+   * the loop applies is exactly the `WHERE fatigue > 0` filter, and
+   * fatigue can never exceed the 100 cap the loop would clamp to. The
+   * Drizzle implementation must mirror the formula's arithmetic exactly
+   * (it does; the equivalence is pinned against real Postgres).
    * Optional for test compatibility (an in-memory fake may omit it); the
    * use case falls back to the per-player loop when absent. */
   recoverFatigueForAll?(amount: number): Promise<void>;

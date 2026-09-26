@@ -6,6 +6,7 @@ import {
   TournamentDto,
   fetchOpenTournaments,
   fetchRosterDashboard,
+  registerDoublesEntrant,
   registerEntrant,
 } from '../lib/api';
 import { entryPlacement, tournamentRefusalReason } from '../lib/tournamentPick';
@@ -46,8 +47,17 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
   const [refusal, setRefusal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // After a successful singles entry: who was entered (for the "also
+  // enter doubles" offer), which player the doubles signup would use
+  // (partner/roster choice), and the outcome of that follow-up.
+  const [enteredPlayerId, setEnteredPlayerId] = useState<string | null>(null);
+  const [enteredTournament, setEnteredTournament] = useState<TournamentDto | null>(null);
+  const [doublesPlayerId, setDoublesPlayerId] = useState<string>('');
+  const [doublesBusy, setDoublesBusy] = useState(false);
+  const [doublesNotice, setDoublesNotice] = useState<string | null>(null);
 
   const activeRoster = (roster ?? []).filter((p) => p.stage !== 'retired');
+  const enteredName = activeRoster.find((p) => p.id === enteredPlayerId)?.name ?? 'This player';
 
   async function openPicker() {
     setError(null);
@@ -86,23 +96,52 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
     setError(null);
     setNotice(null);
     try {
-      const tournament = await registerEntrant(tournamentId, pick, managerId);
+      const entered = pick;
+      const tournament = await registerEntrant(tournamentId, entered, managerId);
       // Say where the player ACTUALLY landed, not a fixed string: a
       // below-cutoff registrant at a qualifying tier sits in the qualifying
       // field (the entry list shows them as [Q]) and only reaches the main
       // draw by winning through. The returned DTO carries their real draw.
-      const placedInQualifying = entryPlacement(tournament.entrants, pick) === 'qualifying';
+      const placedInQualifying = entryPlacement(tournament.entrants, entered) === 'qualifying';
       setPick('');
       setNotice(
         placedInQualifying
           ? 'Player entered in qualifying — they must win through to the main draw.'
           : 'Player entered in the main draw.',
       );
+      // Offer the doubles follow-up for the SAME event: per the weekly cap
+      // a player's singles + doubles at one tournament is still one entry,
+      // so this is free — say so, and let the manager add the player (or a
+      // partner from the roster) without leaving the page.
+      setEnteredPlayerId(entered);
+      setDoublesPlayerId(entered);
+      setEnteredTournament(tournament);
+      setDoublesNotice(null);
       onEntered(tournament);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  }
+
+  /** "Also enter doubles at this event" — calls the same route the page's
+   * own doubles control uses (registerDoublesEntrant), now permitted at
+   * the senior cap of 1 because the weekly cap counts tournaments, not
+   * draws: a singles + doubles entry at the SAME event is one tournament. */
+  async function submitDoublesFollowUp() {
+    if (!doublesPlayerId) return;
+    setDoublesBusy(true);
+    setError(null);
+    try {
+      const updated = await registerDoublesEntrant(tournamentId, doublesPlayerId, managerId);
+      setDoublesNotice('Entered in doubles too — still one tournament toward this week’s cap.');
+      setEnteredTournament(updated);
+      onEntered(updated);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDoublesBusy(false);
     }
   }
 
@@ -112,7 +151,8 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
       <div style={{ padding: 16 }}>
         <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
           Register one of your players into this tournament&apos;s main draw. Below the direct-acceptance cutoff you&apos;ll
-          enter through qualifying.
+          enter through qualifying. Singles and doubles at this same event count as ONE tournament toward the weekly
+          entry cap — adding the doubles entry costs no extra week.
         </div>
 
         <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
@@ -185,6 +225,39 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
         {refusal && <div className="text-[12px] mb-[8px] font-semibold" style={{ color: 'var(--loss)' }}>Can&apos;t enter: {refusal}</div>}
         {error && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--loss)' }}>{error}</div>}
         {notice && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--win)' }}>{notice}</div>}
+
+        {/* The doubles follow-up offer, shown once a singles entry landed (and
+            only when this event even holds a doubles draw). Copy states the
+            cap fact explicitly: this is one tournament either way. */}
+        {enteredPlayerId && enteredTournament && enteredTournament.doublesDrawSize > 0 && (
+          <div className="rounded-[6px] px-3 py-2 mb-3" style={{ border: '1px solid var(--hair)', background: 'var(--bg-2)' }}>
+            <div className="text-[12px] font-semibold" style={{ color: 'var(--ink)' }}>
+              Also enter doubles at this event — no extra weekly entry
+            </div>
+            <div className="text-[11.5px] mt-[4px]" style={{ color: 'var(--ink-3)', lineHeight: 1.5 }}>
+              {enteredName}&apos;s singles and doubles entries at the same tournament count as one tournament toward
+              the weekly cap. Add them — or a partner from your roster — to the {enteredTournament.doublesDrawSize}-pair
+              doubles draw.
+            </div>
+            <div className="flex items-center gap-[8px] flex-wrap mt-[8px]">
+              <select
+                className="gc-select"
+                aria-label="Player to enter in doubles"
+                value={doublesPlayerId}
+                onChange={(e) => setDoublesPlayerId(e.target.value)}
+                style={{ padding: '7px 10px', fontSize: 12.5 }}
+              >
+                {activeRoster.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <Button onClick={submitDoublesFollowUp} disabled={!doublesPlayerId || doublesBusy}>
+                {doublesBusy ? 'Entering…' : 'Enter doubles'}
+              </Button>
+            </div>
+            {doublesNotice && <div className="text-[12px] mt-[6px]" style={{ color: 'var(--win)' }}>{doublesNotice}</div>}
+          </div>
+        )}
 
         <div className="text-[11.5px] mt-2" style={{ color: 'var(--ink-3)' }}>
           Planning across several weeks?{' '}

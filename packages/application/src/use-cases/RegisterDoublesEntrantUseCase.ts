@@ -90,7 +90,19 @@ export class RegisterDoublesEntrantUseCase {
       }
     }
 
-    const entryCount = await countSameBandEntriesForWeek(this.tournaments, command.playerId, tournament.weekScheduled, tournament.tier);
+    // The tournament being registered is EXCLUDED from its own count
+    // (see countSameBandEntriesForWeek): this is exactly the case the
+    // pre-check used to get wrong — a senior holding a SINGLES entry in
+    // this event and now entering its DOUBLES field is still in one
+    // tournament, and must not be refused at the cap of 1. The atomic
+    // guard below already excluded it; the pre-check now agrees.
+    const entryCount = await countSameBandEntriesForWeek(
+      this.tournaments,
+      command.playerId,
+      tournament.weekScheduled,
+      tournament.tier,
+      tournament.id,
+    );
     const cap = weeklyEntryCapForTier(tournament.tier);
     if (entryCount >= cap) {
       const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';

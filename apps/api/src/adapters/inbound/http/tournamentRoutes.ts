@@ -5,7 +5,7 @@ import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@ten
 import { Surface } from '@tennis-manager/domain';
 
 const TOURNAMENT_TIERS = ['futures', 'challenger', 'tour', 'major', 'j30', 'j60', 'j100', 'j200', 'j300', 'j500', 'juniorMasters'];
-import { countSameBandEntriesForWeek, weeklyEntryCapForTier, matchIdForSlot } from '@tennis-manager/application';
+import { sameBandEntryTournamentIdsForWeek, weeklyEntryCapForTier, matchIdForSlot } from '@tennis-manager/application';
 import { TournamentRepository } from '@tennis-manager/application';
 import { Dependencies, WORLD_ID } from '../../../composition';
 import { requireInternalAdmin, requireManager } from './auth';
@@ -264,19 +264,26 @@ function toRoundDtos<S extends string>(rounds: ReadonlyArray<BracketRound<S>>) {
   }));
 }
 
-/** For every tournament in the list: how many same-band tournaments the
- * given player has already entered in that tournament's specific week
- * (one countSameBandEntriesForWeek call per DISTINCT band+(season,week)
- * pair, not one per tournament, since a manager's open-tournament list
- * is typically dominated by a handful of weeks), and whether the
- * player's CURRENT age is eligible for that tournament's band at all
- * (isAgeEligibleForTournamentBand — a player who's aged out of a junior
- * band gets ageEligible: false; the senior tour always returns true,
- * matching RegisterEntrantUseCase's own one-directional age rule). Both
- * bands now carry the weekly-cap fields: the senior tour is capped at 1
- * tournament/week (SENIOR_WEEKLY_ENTRY_CAP), so an EnterTournamentModal
- * can disable a second senior entry the same week up front, exactly as
- * it already did for the junior 3/week cap. */
+/** For every tournament in the list: how many OTHER same-band
+ * tournaments the given player has already entered in that tournament's
+ * specific week, and whether the player's CURRENT age is eligible for
+ * that tournament's band at all (isAgeEligibleForTournamentBand — a
+ * player who's aged out of a junior band gets ageEligible: false; the
+ * senior tour always returns true, matching RegisterEntrantUseCase's own
+ * one-directional age rule). Both bands carry the weekly-cap fields: the
+ * senior tour is capped at 1 tournament/week (SENIOR_WEEKLY_ENTRY_CAP),
+ * so an EnterTournamentModal can disable a second senior entry the same
+ * week up front, exactly as it already did for the junior 3/week cap.
+ *
+ * The count EXCLUDES the row's own tournament, mirroring
+ * countSameBandEntriesForWeek's excludeTournamentId (the exact same
+ * semantics both registration use cases and the atomic guard apply): a
+ * player already holding this event's singles entry must still read as
+ * 0/1 here, because entering its doubles does not consume a second
+ * weekly entry. The raw same-band entry SET is read once per
+ * band+(season,week) pair — not once per tournament, since a manager's
+ * open-tournament list is typically dominated by a handful of weeks —
+ * and the per-row exclusion is then just a set membership check. */
 async function attachEntryInfo(
   tournaments: TournamentRepository,
   list: Tournament[],
@@ -284,16 +291,17 @@ async function attachEntryInfo(
   playerAgeInWeeks: number,
   playerRank: number | null,
 ): Promise<Map<string, PlayerScopedInfo>> {
-  const countByBandWeekKey = new Map<string, number>();
+  const idsByBandWeekKey = new Map<string, Set<string>>();
   const result = new Map<string, PlayerScopedInfo>();
   for (const tournament of list) {
     const bandKey = isJuniorTier(tournament.tier) ? 'j' : 's';
     const weekKey = `${bandKey}-${tournament.weekScheduled.season}-${tournament.weekScheduled.week}`;
-    let count = countByBandWeekKey.get(weekKey);
-    if (count === undefined) {
-      count = await countSameBandEntriesForWeek(tournaments, playerId, tournament.weekScheduled, tournament.tier);
-      countByBandWeekKey.set(weekKey, count);
+    let enteredIds = idsByBandWeekKey.get(weekKey);
+    if (enteredIds === undefined) {
+      enteredIds = await sameBandEntryTournamentIdsForWeek(tournaments, playerId, tournament.weekScheduled, tournament.tier);
+      idsByBandWeekKey.set(weekKey, enteredIds);
     }
+    const count = enteredIds.has(tournament.id) ? enteredIds.size - 1 : enteredIds.size;
 
     // Preview this player's entry route: the SAME resolveEntryType call
     // RegisterEntrantUseCase makes at POST time, so the UI can show "you'll

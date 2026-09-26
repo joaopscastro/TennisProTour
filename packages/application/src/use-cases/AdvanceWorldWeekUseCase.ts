@@ -1,6 +1,7 @@
 import {
   bestResultsCapFor,
   computeGraduationCarryover,
+  FATIGUE_RECOVERY_PER_DAY,
   juniorEligibilityForAge,
   matchesRankingBand,
   ManagerId,
@@ -41,19 +42,20 @@ export interface AdvanceWorldWeekCommand {
  * the weekly rollover alike) - the recovery half of the fatigue system
  * whose accrual lives in SimulateMatchUseCase (fatigueCostForMatch).
  *
- * Retuned from 5 to 3 by the fatigue/form pass (docs/balance-tuning-
- * report.md's "Fatigue trajectory" section). At 5/day a week gave back 35
- * fatigue, while the ENTIRE senior tour is capped at one tournament a week
- * (5 matches for a 32-draw champion, ~6 fatigue per match): a player who
- * WON a title every single week still netted negative and sat at fatigue 0
- * forever, so the mechanic was dead on the senior tour. 3/day moves the
- * accumulation threshold to ~4 matches/week - ordinary play (an early exit
- * through a deep run) stays free, while a sustained semifinal-or-better
- * schedule slowly builds fatigue and eventually forces a rest week, which
- * is the "which tournaments do I enter" tension the system exists for.
- * Still a PLACEHOLDER, verified against simulated trajectories rather than
- * live play (docs/rocking-rackets-competitive-analysis.md §5). */
-export const FATIGUE_RECOVERY_PER_DAY = 3;
+ * LIVES IN THE DOMAIN NOW (FatiguePolicy.ts), next to the formula that
+ * actually applies it: `base + fatigue × FATIGUE_RECOVERY_FRACTION`,
+ * rounded — a self-limiting recovery, so accrual and recovery meet at an
+ * equilibrium rather than a ratchet (see
+ * FATIGUE_RECOVERY_FRACTION's doc comment for the quantified effect).
+ * Re-exported here so the existing application-layer importers (the
+ * balance tool, this class's own tests) keep working unchanged.
+ *
+ * History: retuned 5 → 3 by the first fatigue/form pass (docs/balance-
+ * tuning-report.md), which left a fixed drain a deep schedule could
+ * always out-accrue; the second pass (same report) made recovery
+ * self-limiting and softened the form stale side + inactivity penalty to
+ * turn "rest" into a real option. Still a PLACEHOLDER. */
+export { FATIGUE_RECOVERY_PER_DAY };
 
 /** Multiplicative form decay applied once per WEEKLY rollover (0.85 =
  * lose 15%/week). RR decays −8%/week in a faster-moving real-time

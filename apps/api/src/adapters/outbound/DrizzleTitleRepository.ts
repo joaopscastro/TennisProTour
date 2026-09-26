@@ -1,5 +1,5 @@
 import { eq, inArray, sql } from 'drizzle-orm';
-import { AgeBand, PlayerId, TitleRecord, TournamentId, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand, PlayerId, TitleRecord, TitleTally, TournamentId, TournamentTier, titleWeightFor } from '@tennis-manager/domain';
 import { TitleRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { titles } from '../../db/schema';
@@ -33,20 +33,34 @@ export class DrizzleTitleRepository implements TitleRepository {
   }
 
   /**
-   * Batch title counts for the Scouting pool's career signal — a free
+   * Batch title tallies for the Scouting pool's career signal — a free
    * agent who has already won titles is visibly experienced rather than a
-   * surprise after signing. One grouped query for the whole pool, not one
-   * `findByPlayer` per free agent. Ids with no titles are simply absent
-   * from the map (callers read a missing key as 0).
+   * surprise after signing, AND the raw count never stands alone: it
+   * carries the tier-weighted total and per-tier breakdown alongside it
+   * (see TitleWeight.ts), so a pile of J30/J60 titles cannot read the same
+   * as a major. One grouped query for the whole pool (grouped by player
+   * AND tier), not one `findByPlayer` per free agent. Ids with no titles
+   * are simply absent from the map (callers read a missing key as a zero
+   * tally).
    */
-  async countByPlayers(playerIds: PlayerId[]): Promise<Map<PlayerId, number>> {
+  async countByPlayers(playerIds: PlayerId[]): Promise<Map<PlayerId, TitleTally>> {
     if (playerIds.length === 0) return new Map();
     const rows = await this.db
-      .select({ playerId: titles.playerId, count: sql<number>`count(*)::int` })
+      .select({ playerId: titles.playerId, tier: titles.tier, count: sql<number>`count(*)::int` })
       .from(titles)
       .where(inArray(titles.playerId, playerIds))
-      .groupBy(titles.playerId);
-    return new Map(rows.map((row) => [PlayerId(row.playerId), row.count]));
+      .groupBy(titles.playerId, titles.tier);
+    const tallies = new Map<PlayerId, TitleTally>();
+    for (const row of rows) {
+      const playerId = PlayerId(row.playerId);
+      const tier = row.tier as TournamentTier;
+      const tally = tallies.get(playerId) ?? { count: 0, weight: 0, byTier: {} };
+      tally.count += row.count;
+      tally.weight += row.count * titleWeightFor(tier);
+      tally.byTier[tier] = (tally.byTier[tier] ?? 0) + row.count;
+      tallies.set(playerId, tally);
+    }
+    return tallies;
   }
 }
 
