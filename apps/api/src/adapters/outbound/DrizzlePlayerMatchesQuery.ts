@@ -41,6 +41,19 @@ export interface PlayerMatchesResult {
   /** The player's earliest not-yet-simulated match, if they're still
    * alive in a started/open tournament — else null. */
   next: PlayerMatchSummary | null;
+  /** The player's earliest GENUINELY UNPLAYED match (no outcome yet),
+   * ordered by scheduled week/round ascending — else null.
+   *
+   * Deliberately distinct from `next`: `next` is the profile's
+   * "reveal-order" read and can therefore be a DECIDED match whose
+   * reveal window hasn't elapsed yet (the staged Premiere countdown the
+   * profile strip shows), while `nextPending` only ever answers "what
+   * has this player still to PLAY". The agent-season digest consumed
+   * `next` and so reported a long-decided, result-hidden match as the
+   * "next match" for many game weeks in a compressed-time harness — see
+   * DrizzlePlayerMatchesQuery's class doc comment. Additive: every
+   * existing caller of this read is unaffected. */
+  nextPending: PlayerMatchSummary | null;
 }
 
 const RECENT_LIMIT = 5;
@@ -57,6 +70,14 @@ const RECENT_LIMIT = 5;
  * scheduledStartAt so the profile can count down ("playing in 3:45")
  * rather than spoil the result before it airs. A match is "aired" once
  * it has an outcome AND (no schedule, or its reveal window has elapsed).
+ *
+ * `next` is therefore the profile's reveal-order read and may be a
+ * decided (result-hidden) match; `nextPending` is the same read's
+ * genuinely-unplayed-only counterpart, for consumers (the agent-season
+ * digest) whose question is "what does this player still have to play",
+ * never "what hasn't aired". Both are computed from the same rows in one
+ * pass, so they can never disagree about which unplayed match is
+ * earliest.
  */
 export class DrizzlePlayerMatchesQuery {
   constructor(private readonly db: Db) {}
@@ -73,7 +94,7 @@ export class DrizzlePlayerMatchesQuery {
         or(eq(tournamentMatches.entrantA, playerId), eq(tournamentMatches.entrantB, playerId)),
       );
 
-    if (rows.length === 0) return { recent: [], next: null };
+    if (rows.length === 0) return { recent: [], next: null, nextPending: null };
 
     // Resolve opponent identities in one extra query.
     const opponentIds = new Set<string>();
@@ -154,7 +175,25 @@ export class DrizzlePlayerMatchesQuery {
     });
     const next = notAired.length > 0 ? toSummary(notAired[0], 'pending') : null;
 
-    return { recent, next };
+    // `nextPending` — the earliest UNPLAYED match only (see the port
+    // interface's doc comment). Decided-but-unaired matches are excluded
+    // even when their scheduled reveal start is EARLIER than the next
+    // unplayed one: their result already exists and will surface in
+    // `recent` once aired, whereas "next" for a digest must mean "still
+    // to play". Same ascending season/week/round ordering the unscheduled
+    // branch of `next` uses, so the two never disagree about which
+    // unplayed match is earliest.
+    const undecided = rows
+      .filter((r) => r.match.winnerId === null)
+      .sort(
+        (a, b) =>
+          a.tournament.seasonScheduled - b.tournament.seasonScheduled ||
+          a.tournament.weekScheduled - b.tournament.weekScheduled ||
+          a.match.roundNumber - b.match.roundNumber,
+      );
+    const nextPending = undecided.length > 0 ? toSummary(undecided[0], 'pending') : null;
+
+    return { recent, next, nextPending };
   }
 
   /**

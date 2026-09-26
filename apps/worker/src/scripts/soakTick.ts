@@ -24,14 +24,23 @@ import { AdvanceWorldJobData, makeAdvanceWorldHandler } from '../jobs/handlers';
  *
  * TICK KEYS: `makeAdvanceWorldHandler`'s idempotency guard lives in
  * `GameWorld` (`lastAppliedTick`), so every tick must carry a UNIQUE,
- * increasing key. The handler is passed `tickIntervalMs = null`, which
- * means reveal windows default to the 24h fallback (irrelevant to bots)
- * and the tick key is NOT derived from the real calendar — the caller
- * supplies it. `driveTicks` therefore emits `soak-d<startIndex + n>` and
- * callers that spawn this script once per game-week MUST pass a
- * monotonically increasing `--start` (see apps/api/scripts/soak.mjs):
- * without it, each fresh process would restart at `soak-d0` and every
- * tick after the first spawn would be silently refused as a duplicate.
+ * increasing key. The handler is passed `tickIntervalMs` from
+ * `--tick-interval-ms` (default `null`), which the handler forwards to
+ * the match sweep as the real-time length of ONE game day. `null` keeps
+ * the production 24h fallback (the default for every existing caller);
+ * a caller that compresses a whole game-week into real minutes passes
+ * the compressed day length instead, so every match's staggered reveal
+ * (`scheduled_start_at` + `reveal_seconds`) still lands INSIDE its own
+ * game day — the H2 fix for the agent-season harness, where a 24h
+ * fallback left results un-aired for real hours (many game weeks) and
+ * the `current-matches` air gate then reported week-2 matches as the
+ * "next" match at week 12. The tick key is NOT derived from the real
+ * calendar — the caller supplies it. `driveTicks` therefore emits
+ * `soak-d<startIndex + n>` and callers that spawn this script once per
+ * game-week MUST pass a monotonically increasing `--start` (see
+ * apps/api/scripts/soak.mjs): without it, each fresh process would
+ * restart at `soak-d0` and every tick after the first spawn would be
+ * silently refused as a duplicate.
  *
  * NEVER run this concurrently with the real worker on the same world —
  * both would advance the same `GameWorld` row (and fight over the tick
@@ -42,6 +51,12 @@ export interface DriveTicksOptions {
   /** First synthetic tick index. Must be unique/increasing across every
    * process that drives the same world (see the module doc comment). */
   startIndex?: number;
+  /** Real-time length of ONE game day, in ms, forwarded to the day tick's
+   * match sweep so reveal windows tile the compressed day. `null`/omitted
+   * keeps the production 24h cron fallback (see the module doc comment —
+   * the H2 fix for the agent-season harness). Has NO effect on the tick
+   * key when the caller supplies one (`driveTicks` always does). */
+  tickIntervalMs?: number | null;
   /** Per-tick progress log. Omitted = silent. */
   log?: (message: string) => void;
 }
@@ -68,8 +83,9 @@ export interface DrivenTickResult {
  *     BullMQ worker builds).
  *   worldId: The world to advance.
  *   count: How many day-ticks to apply.
- *   opts: Optional start index (for cross-process key uniqueness) and a
- *     progress logger.
+ *   opts: Optional start index (for cross-process key uniqueness), the
+ *     compressed day length in ms (`tickIntervalMs`, threaded into the
+ *     match sweep's reveal windows), and a progress logger.
  *
  * Returns:
  *   One entry per tick, in order, with the handler's own result fields.
@@ -86,7 +102,7 @@ export async function driveTicks(
 ): Promise<DrivenTickResult[]> {
   const startIndex = opts.startIndex ?? 0;
   const log = opts.log ?? (() => undefined);
-  const handler = makeAdvanceWorldHandler(deps, null);
+  const handler = makeAdvanceWorldHandler(deps, opts.tickIntervalMs ?? null);
   const results: DrivenTickResult[] = [];
 
   for (let n = 0; n < count; n++) {
@@ -129,17 +145,22 @@ export async function driveTicks(
 }
 
 /**
- * Parses `--ticks N` / `--start N` (both optional; an unset `--start`
- * means 0). Kept tiny and dependency-free so it is trivially testable.
+ * Parses `--ticks N` / `--start N` / `--tick-interval-ms N` (all optional;
+ * an unset `--start` means 0 and an unset `--tick-interval-ms` means
+ * `null` — the production 24h fallback). Kept tiny and dependency-free so
+ * it is trivially testable.
  */
-export function parseArgs(argv: string[]): { ticks: number; startIndex: number } {
+export function parseArgs(argv: string[]): { ticks: number; startIndex: number; tickIntervalMs: number | null } {
   let ticks = 1;
   let startIndex = 0;
+  let tickIntervalMs: number | null = null;
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--ticks' && argv[i + 1] !== undefined) {
       ticks = Number(argv[++i]);
     } else if (argv[i] === '--start' && argv[i + 1] !== undefined) {
       startIndex = Number(argv[++i]);
+    } else if (argv[i] === '--tick-interval-ms' && argv[i + 1] !== undefined) {
+      tickIntervalMs = Number(argv[++i]);
     }
   }
   if (!Number.isInteger(ticks) || ticks < 1) {
@@ -148,11 +169,14 @@ export function parseArgs(argv: string[]): { ticks: number; startIndex: number }
   if (!Number.isInteger(startIndex) || startIndex < 0) {
     throw new Error(`--start must be a non-negative integer, got "${startIndex}"`);
   }
-  return { ticks, startIndex };
+  if (tickIntervalMs !== null && (!Number.isFinite(tickIntervalMs) || tickIntervalMs <= 0)) {
+    throw new Error(`--tick-interval-ms must be a positive number of milliseconds, got "${tickIntervalMs}"`);
+  }
+  return { ticks, startIndex, tickIntervalMs };
 }
 
 async function main(): Promise<void> {
-  const { ticks, startIndex } = parseArgs(process.argv.slice(2));
+  const { ticks, startIndex, tickIntervalMs } = parseArgs(process.argv.slice(2));
   const connectionString =
     process.env.DATABASE_URL ?? 'postgresql://tennis:tennis@localhost:5432/tennis_manager';
   const worldId = process.env.WORLD_ID ?? 'main';
@@ -166,9 +190,13 @@ async function main(): Promise<void> {
   });
 
   // eslint-disable-next-line no-console
-  console.log(`driving ${ticks} day-tick(s) for world "${worldId}" from index ${startIndex} (worker must be STOPPED)`);
+  console.log(
+    `driving ${ticks} day-tick(s) for world "${worldId}" from index ${startIndex} (worker must be STOPPED)` +
+      (tickIntervalMs !== null ? ` — compressed day window ${tickIntervalMs}ms` : ' — default 24h day window'),
+  );
   const results = await driveTicks(deps, worldId, ticks, {
     startIndex,
+    tickIntervalMs,
     // eslint-disable-next-line no-console
     log: (message) => console.log(message),
   });

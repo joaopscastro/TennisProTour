@@ -1667,6 +1667,71 @@ describe('DrizzlePlayerMatchesQuery.forPlayer (next ordering)', () => {
     expect(next?.tournamentId).toBe(TournamentId('next-revealing'));
     expect(next?.result).toBe('pending');
   });
+
+  it('exposes nextPending as the earliest UNPLAYED match, ignoring a decided-but-unaired one', async () => {
+    // The agent-season bug this covers: `next` legitimately reports a
+    // decided match still inside its reveal window (the profile's staged
+    // Premiere), but a harness digest asking "what is this player's next
+    // match" must never get that long-decided ghost — it needs the match
+    // still to be PLAYED. Both are true of the same rows here.
+    await saveFree('next-p4', 'Next Player Four');
+    await saveFree('next-p4-rev', 'Revealing Opponent');
+    await saveFree('next-p4-pending', 'Pending Opponent');
+    await db.insert(schema.tournaments).values([
+      tournament('next-p4-revealing', 'Revealing Cup', 1),
+      tournament('next-p4-pending', 'Pending Cup', 2),
+    ]);
+    await db.insert(schema.tournamentMatches).values([
+      {
+        tournamentId: 'next-p4-revealing',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: PlayerId('next-p4'),
+        entrantB: PlayerId('next-p4-rev'),
+        winnerId: PlayerId('next-p4'),
+        loserId: PlayerId('next-p4-rev'),
+        setScores: [{ winnerGames: 6, loserGames: 4 }],
+        scheduledStartAt: new Date(Date.now() + 60 * 60_000),
+        revealSeconds: 900,
+      },
+      { tournamentId: 'next-p4-pending', draw: 'main', roundNumber: 1, matchIndex: 0, entrantA: PlayerId('next-p4'), entrantB: PlayerId('next-p4-pending'), winnerId: null, loserId: null, setScores: null },
+    ]);
+
+    const { next, nextPending } = await query.forPlayer(PlayerId('next-p4'));
+    // Pre-existing semantics untouched: the reveal-order read still
+    // points at the closest un-aired thing, decided or not.
+    expect(next?.tournamentId).toBe(TournamentId('next-p4-revealing'));
+    // The new read skips it entirely and reports the genuinely pending one.
+    expect(nextPending?.tournamentId).toBe(TournamentId('next-p4-pending'));
+    expect(nextPending?.result).toBe('pending');
+    expect(nextPending?.setScores).toBeNull();
+  });
+
+  it('returns nextPending null when the player has no unplayed matches (only a decided-but-unaired one)', async () => {
+    await saveFree('next-p5', 'Next Player Five');
+    await saveFree('next-p5-rev', 'Revealing Opponent Five');
+    await db.insert(schema.tournaments).values(tournament('next-p5-revealing', 'Revealing Cup Five', 1));
+    await db.insert(schema.tournamentMatches).values([
+      {
+        tournamentId: 'next-p5-revealing',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: PlayerId('next-p5'),
+        entrantB: PlayerId('next-p5-rev'),
+        winnerId: PlayerId('next-p5'),
+        loserId: PlayerId('next-p5-rev'),
+        setScores: [{ winnerGames: 6, loserGames: 2 }],
+        scheduledStartAt: new Date(Date.now() + 60 * 60_000),
+        revealSeconds: 900,
+      },
+    ]);
+
+    const { next, nextPending } = await query.forPlayer(PlayerId('next-p5'));
+    expect(next?.tournamentId).toBe(TournamentId('next-p5-revealing'));
+    expect(nextPending).toBeNull();
+  });
 });
 
 describe('DrizzlePlayerMatchesQuery.unfinishedCommitmentByPlayer', () => {

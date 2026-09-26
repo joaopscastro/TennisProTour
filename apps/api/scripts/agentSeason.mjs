@@ -28,15 +28,18 @@
  *             are deferred to their listed game days in `advance`.
  *   advance — for day 1..7: run that day's due practice calls, then spawn
  *             the real day-tick pipeline (`soakTick.js --ticks 1 --start
- *             <index>`), assert the world clock moved exactly one day, and
- *             checkpoint `day-<d>.tick.json`. The tick index is DERIVED
- *             FROM THE WORLD CLOCK every day, never a stored counter:
- *             `GameWorld.advanceDay` only refuses the EXACT last tick key,
- *             so a stale counter could silently over-advance, while a
- *             clock-derived key is idempotent by construction (a retry of
- *             an already-applied day recomputes a key the world has moved
- *             past; a not-yet-applied day recomputes the same key and is
- *             accepted).
+ *             <index> --tick-interval-ms <compressed day>`, so the
+ *             staggered match reveal is scaled to the harness's real pace
+ *             instead of the production 24h fallback — see DEFAULTS.
+ *             tickIntervalMs), assert the world clock moved exactly one
+ *             day, and checkpoint `day-<d>.tick.json`. The tick index is
+ *             DERIVED FROM THE WORLD CLOCK every day, never a stored
+ *             counter: `GameWorld.advanceDay` only refuses the EXACT last
+ *             tick key, so a stale counter could silently over-advance,
+ *             while a clock-derived key is idempotent by construction (a
+ *             retry of an already-applied day recomputes a key the world
+ *             has moved past; a not-yet-applied day recomputes the same
+ *             key and is accepted).
  *   close   — snapshot pre-prune health, run the SAME prune/archive SQL
  *             soak.mjs uses, write `week-NNN.ADVANCED.json`, append
  *             `decisions.jsonl`, update `report.json`.
@@ -92,6 +95,12 @@ import {
   weeklyHealth,
 } from './lib/soakEvidence.mjs';
 import { formatValidationErrors, validateDecision } from './lib/decisionSchema.mjs';
+import {
+  buildCandidateView,
+  compactTournamentBase,
+  compareCandidates,
+  tournamentConcluded,
+} from './lib/digestFeed.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -110,19 +119,6 @@ const ACTION_ORDER = [
   'setTrainingFocus',
 ];
 const FORBIDDEN_DIGEST_KEYS = ['experience', 'talent', 'potentialCeiling', 'physicalCeilings'];
-const TIER_PRESTIGE = {
-  futures: 1,
-  challenger: 2,
-  tour: 3,
-  major: 4,
-  j30: 1,
-  j60: 2,
-  j100: 3,
-  j200: 4,
-  j300: 5,
-  j500: 6,
-  juniorMasters: 7,
-};
 
 const DEFAULTS = {
   runId: null,
@@ -134,6 +130,15 @@ const DEFAULTS = {
   managers: 'agent-m1,agent-m2,agent-m3,agent-m4',
   fundXp: 100_000,
   ratePerSec: 4.5,
+  // H2: the real-time length of ONE game day passed to every spawned
+  // `soakTick` child. The runner compresses a whole game-week into a few
+  // real minutes, so the day tick's default 24h reveal window would leave
+  // a match un-aired for real HOURS — many game-weeks — which is exactly
+  // how a week-2 match stayed the digest's "nextMatch" at week 12 and why
+  // `lastResults` was empty. 10s is inside the observed per-day pace
+  // (2s-50s) and guarantees a week's earlier results have aired before
+  // the next digest is built. `--tick-interval-ms` overrides it.
+  tickIntervalMs: 10_000,
   readyGateMs: 10 * 60 * 1000,
   collectMs: 15 * 60 * 1000,
   nudgeMs: 5 * 60 * 1000,
@@ -175,6 +180,10 @@ function parseArgs(argv) {
   }
   const num = (v, fallback) => (v === undefined || v === 'true' ? fallback : Number(v));
   const bool = (v, fallback) => (v === undefined ? fallback : v === 'true' || v === '1' ? true : v === 'false' || v === '0' ? false : fallback);
+  const tickIntervalMs = num(raw['tick-interval-ms'], DEFAULTS.tickIntervalMs);
+  if (!Number.isFinite(tickIntervalMs) || tickIntervalMs <= 0) {
+    throw new StopRunError(`--tick-interval-ms must be a positive number of milliseconds, got "${raw['tick-interval-ms']}"`);
+  }
   return {
     runId: typeof raw['run-id'] === 'string' ? raw['run-id'] : DEFAULTS.runId,
     runRoot: typeof raw['run-root'] === 'string' ? raw['run-root'] : DEFAULTS.runRoot,
@@ -185,6 +194,7 @@ function parseArgs(argv) {
     managers: (typeof raw.managers === 'string' ? raw.managers : DEFAULTS.managers).split(',').map((s) => s.trim()).filter(Boolean),
     fundXp: num(raw['fund-xp'], DEFAULTS.fundXp),
     ratePerSec: num(raw.rate, DEFAULTS.ratePerSec),
+    tickIntervalMs,
     readyGateMs: num(raw['ready-gate-ms'], DEFAULTS.readyGateMs),
     collectMs: num(raw['collect-ms'], DEFAULTS.collectMs),
     nudgeMs: num(raw['nudge-ms'], DEFAULTS.nudgeMs),
@@ -482,6 +492,29 @@ your behalf. You read your digest and write one decision file per week.
   server's rejection reason for anything that failed; \`missedWeeks\` lists the
   weeks you did not submit. Read both before repeating a rejected action.
 
+## Reading the digest (what each feed field means)
+- \`roster[].lastResults\` — the player's most recent AIRED singles results,
+  newest first (up to 3), with set scores and the tournament week. A result
+  appears here once it has aired; in this harness that is seconds after it is
+  played, so this is genuinely "what happened last week".
+- \`roster[].nextMatch\` — the next match the player still has TO PLAY (null
+  when they are not alive in any draw). A match that has already been decided
+  (even one whose result has not aired yet) is NOT reported here; it shows up
+  in \`lastResults\` once aired.
+- \`roster[].pendingEntries\` — every entry whose event has not CONCLUDED yet:
+  a seeded-and-playing draw counts, only a fully-decided or cancelled event
+  drops out. \`hasStarted\` tells you whether the draw is live.
+- \`events.canEnterNow[playerId]\` — up to 10 ENTERABLE candidate events
+  (nearest week, then tier), followed by up to 3 rank-restricted events
+  appended as disabled rows. Every row carries \`enterable\` and
+  \`blockedReason\`; a rank-restricted event is LISTED with
+  \`enterable: false\` and the reason (e.g. "ranked #37 on the senior ladder —
+  too high to enter a futures event") instead of silently disappearing.
+- \`events.canEnterNowMeta[playerId]\` — \`{ shown, enterableShown,
+  enterableTotal, restrictedShown, restrictedTotal, truncated }\`. If
+  \`enterableTotal > enterableShown\`, the list was capped; check
+  \`events.openByWeek\` (or next week's digest) for the rest.
+
 ## Apply order (per manager, sequential)
 release → claim → dissolvePair → createPair → acceptPair → enterSingles /
 enterDoubles in the order you list them → setTrainingFocus. Practice actions
@@ -540,8 +573,9 @@ CLI and the digest file it points you at.
 - Build a roster within your cap (free tier: 2 players; Pro: 4) using the
   talent pool — claim cost scales with age/ability, so a young prospect is
   cheap XP and grows.
-- Enter your players in tournaments they can win (check entryViaQualifying,
-  qualifyingFieldFull, rankRestricted, weekly entry cap in the digest).
+- Enter your players in tournaments they can win (check each row's
+  \`enterable\`/\`blockedReason\`, \`entryViaQualifying\`, and the weekly entry cap
+  in the digest; a rank-restricted row is listed disabled with the reason).
 - Keep training focuses current; use \`practice\` on days you are not deep in
   a tournament. Form has a sweet spot (digest shows form/fatigue).
 - Doubles pairs gain chemistry over matches; enter pairs together.
@@ -566,10 +600,12 @@ Run this exact command first:
 1. Read the \`digestFile\` named in the status JSON. It is the ONLY game state
    you get, and it was built from the live world moments ago. It contains your
    roster (attributes, fatigue, form, rank/peaks/titles/prize, potential
-   projection, last 3 results, next match, pending entries), the signable
-   talent pool (claim cost included), your pairs, last week's apply outcomes,
-   and this week's event candidates (\`events.canEnterNow\` per player, plus
-   \`events.openByWeek\` for scouting further ahead).
+   projection, the last 3 AIRED results, the next match still to be PLAYED,
+   and every entry whose event has not concluded), the signable talent pool
+   (claim cost included), your pairs, last week's apply outcomes, and this
+   week's event candidates (\`events.canEnterNow\` per player with
+   \`enterable\`/\`blockedReason\` on every row and a \`canEnterNowMeta\`
+   truncation summary, plus \`events.openByWeek\` for scouting further ahead).
 2. Choose up to 40 actions (schema and action list in RULES.md). Prefer
    concrete moves: enter eligible events in the nearest week, set training
    focus, spend practice days, claim/enter/release to fit the roster cap.
@@ -645,70 +681,12 @@ function overallOf(attributes) {
   return Math.round(values.reduce((sum, v) => sum + Number(v), 0) / values.length);
 }
 
-function compactTournamentBase(t) {
-  const totalRounds = Math.round(Math.log2(t.drawSize));
-  return {
-    id: t.id,
-    name: t.name,
-    tier: t.tier,
-    circuit: t.circuit,
-    ageBand: t.ageBand,
-    surface: t.surface,
-    hostCountry: t.hostCountry,
-    weekScheduled: t.weekScheduled,
-    drawSize: t.drawSize,
-    totalRounds,
-    mainDrawEntrants: t.mainDrawEntrants,
-    doublesDrawSize: t.doublesDrawSize,
-    doublesEntrants: Array.isArray(t.doublesEntrants) ? t.doublesEntrants.length : 0,
-    obligatory: t.obligatory === true,
-    managerEntrants: typeof t.managerEntrants === 'number' ? t.managerEntrants : null,
-    championPoints: Array.isArray(t.pointsBreakdown) ? t.pointsBreakdown[0]?.points ?? null : null,
-    championPrizeMoney: Array.isArray(t.prizeMoneyBreakdown) ? t.prizeMoneyBreakdown[0]?.prizeMoney ?? null : null,
-  };
-}
-
-function compactCandidate(t) {
-  return {
-    ...compactTournamentBase(t),
-    entryViaQualifying: t.entryViaQualifying === true,
-    qualifyingFieldFull: t.qualifyingFieldFull === true,
-    qualifyingFieldSize: t.qualifyingFieldSize ?? 0,
-    qualifyingFieldTaken: t.qualifyingFieldTaken ?? 0,
-    rankRestricted: t.rankRestricted === true,
-    rankRestrictedReason: t.rankRestrictedReason ?? null,
-    weeklyEntryCountThisWeek: t.weeklyEntryCountThisWeek ?? null,
-    weeklyEntryCapThisWeek: t.weeklyEntryCapThisWeek ?? null,
-  };
-}
-
-function isEnterableCandidate(t, currentAbs) {
-  if (t.hasStarted || t.registrationOpen === false) return false;
-  if (t.ageEligible === false) return false;
-  if (t.rankRestricted === true) return false;
-  if (
-    typeof t.weeklyEntryCountThisWeek === 'number' &&
-    typeof t.weeklyEntryCapThisWeek === 'number' &&
-    t.weeklyEntryCountThisWeek >= t.weeklyEntryCapThisWeek
-  ) {
-    return false;
-  }
-  const mainRoom = (t.mainDrawEntrants ?? 0) < t.drawSize;
-  const qualifyingRoom = t.entryViaQualifying === true && t.qualifyingFieldFull !== true;
-  if (!mainRoom && !qualifyingRoom) return false;
-  return absoWeek(t.weekScheduled) >= currentAbs;
-}
-
-function compareCandidates(a, b) {
-  const weekDiff = absoWeek(a.weekScheduled) - absoWeek(b.weekScheduled);
-  if (weekDiff !== 0) return weekDiff;
-  const tierDiff = (TIER_PRESTIGE[b.tier] ?? 0) - (TIER_PRESTIGE[a.tier] ?? 0);
-  if (tierDiff !== 0) return tierDiff;
-  return String(a.name).localeCompare(String(b.name));
-}
+// `compactTournamentBase`, `tournamentConcluded`, `compactCandidate`,
+// `enterabilityBlockReason`, `buildCandidateView` and `compareCandidates`
+// moved to lib/digestFeed.mjs (imported above, unit-tested in
+// digestFeed.test.mjs).
 
 const MAX_TALENT_POOL = 24;
-const MAX_CAN_ENTER_NOW = 10;
 const MAX_OPEN_WEEKS = 13;
 const MAX_EVENTS_PER_WEEK = 6;
 
@@ -737,6 +715,7 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
 
   const roster = [];
   const canEnterNow = {};
+  const canEnterNowMeta = {};
   const openTournamentUnion = new Map();
   const trackedPlayerIds = [];
   const currentAbs = absoWeek(clock.currentWeek);
@@ -759,10 +738,18 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
       if (!openTournamentUnion.has(t.id)) openTournamentUnion.set(t.id, t);
     }
 
+    // Entries that still MEAN something: the event has not concluded.
+    // Deliberately NOT `!hasStarted` (the old filter): by the time a
+    // week's digest is built the rollover has already started every
+    // tournament scheduled for that week, so a registration made last
+    // week ALWAYS read hasStarted=true and the list was permanently
+    // empty — the exact "I just registered and pendingEntries is []"
+    // report. A started-but-unfinished draw is the normal live state of
+    // an entry; only a fully-decided (or cancelled) event drops out.
     const pendingEntries = [];
     for (const week of planner) {
       for (const entry of week.entries ?? []) {
-        if (entry.hasStarted) continue;
+        if (tournamentConcluded(entry)) continue;
         pendingEntries.push({
           week: entry.weekScheduled,
           tournamentId: entry.id,
@@ -770,18 +757,16 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
           tier: entry.tier,
           ageBand: entry.ageBand,
           surface: entry.surface,
+          hasStarted: entry.hasStarted === true,
         });
         if (pendingEntries.length >= 13) break;
       }
       if (pendingEntries.length >= 13) break;
     }
 
-    const candidates = openList
-      .filter((t) => isEnterableCandidate(t, currentAbs))
-      .sort(compareCandidates)
-      .slice(0, MAX_CAN_ENTER_NOW)
-      .map(compactCandidate);
-    canEnterNow[player.id] = candidates;
+    const candidateView = buildCandidateView(openList, currentAbs);
+    canEnterNow[player.id] = candidateView.rows;
+    canEnterNowMeta[player.id] = candidateView.meta;
 
     const rankings = profile?.currentRankings ?? [];
     const band = dash?.rankBand ?? profile?.currentEligibleBand ?? 'senior';
@@ -827,17 +812,25 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
         setScores: m.setScores,
         weekScheduled: m.weekScheduled,
       })),
-      nextMatch: matches?.next
-        ? {
-            tournamentId: matches.next.tournamentId,
-            tournamentName: matches.next.tournamentName,
-            tier: matches.next.tier,
-            roundNumber: matches.next.roundNumber,
-            opponentName: matches.next.opponentName,
-            scheduledStartAt: matches.next.scheduledStartAt,
-            revealSeconds: matches.next.revealSeconds,
-          }
-        : null,
+      // `nextMatch` = the next match still TO BE PLAYED. The response's
+      // `nextPending` field (added alongside this fix) is exactly that;
+      // the fallback keeps an un-rebuilt API from breaking the digest,
+      // at the cost of the old `next` semantics (which could name a
+      // long-decided match that merely hadn't aired yet).
+      nextMatch: (() => {
+        const source = matches && Object.prototype.hasOwnProperty.call(matches, 'nextPending') ? matches.nextPending : matches?.next ?? null;
+        return source
+          ? {
+              tournamentId: source.tournamentId,
+              tournamentName: source.tournamentName,
+              tier: source.tier,
+              roundNumber: source.roundNumber,
+              opponentName: source.opponentName,
+              scheduledStartAt: source.scheduledStartAt,
+              revealSeconds: source.revealSeconds,
+            }
+          : null;
+      })(),
       pendingEntries,
       doublesPartner: profile?.doublesPartner
         ? {
@@ -939,7 +932,7 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     roster,
     talentPool: freeAgents,
     pairs,
-    events: { canEnterNow, openByWeek },
+    events: { canEnterNow, canEnterNowMeta, openByWeek },
     lastApply: lastApplyCompact,
     missedWeeks,
   };
@@ -1117,16 +1110,19 @@ function tailLines(text, count = 20) {
 
 function spawnTickOnce(tickIndex, timeoutMs = 60 * 60 * 1000) {
   return new Promise((resolvePromise) => {
-    const child = spawn(process.execPath, [SOAK_TICK_PATH, '--ticks', '1', '--start', String(tickIndex)], {
-      cwd: REPO_ROOT,
-      env: {
-        ...process.env,
-        WORLD_ID: runCtx.world,
-        DATABASE_URL: runCtx.db,
-        AUTH_MODE: 'development',
-        WORLD_TICK_PROFILE: '1',
-      },
-    });
+    const child = spawn(
+      process.execPath,
+      [SOAK_TICK_PATH, '--ticks', '1', '--start', String(tickIndex), '--tick-interval-ms', String(runCtx.tickIntervalMs)],
+      {
+        cwd: REPO_ROOT,
+        env: {
+          ...process.env,
+          WORLD_ID: runCtx.world,
+          DATABASE_URL: runCtx.db,
+          AUTH_MODE: 'development',
+          WORLD_TICK_PROFILE: '1',
+        },
+      });
     let stdout = '';
     let stderr = '';
     let settled = false;
@@ -1787,6 +1783,7 @@ async function main() {
     api: args.api,
     db: args.db,
     world: args.world,
+    tickIntervalMs: args.tickIntervalMs,
     forceLock: args.forceLock,
     staleLockMs: args.staleLockMs,
     prune: args.prune,
@@ -1828,6 +1825,7 @@ async function main() {
     weeksPlanned: args.weeks,
     managers: args.managers,
     fundXp: args.fundXp,
+    tickIntervalMs: args.tickIntervalMs,
     protocolVersion: 1,
     runnerVersion: 1,
   };
