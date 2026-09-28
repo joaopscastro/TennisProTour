@@ -82,6 +82,13 @@ export interface PlayerProfileDto {
    * junior doubles) — one per band they've ever earned a doubles point
    * in, same shape as `peakRankings`. */
   doublesPeaks: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: GameWeek }>;
+  /** The player's CURRENT (live rolling) doubles totals and ranks per
+   * band — the doubles counterpart to `currentRankings`, sitting beside
+   * the permanent `doublesPeaks` above. Previously unavailable anywhere:
+   * the doubles ladder had no per-player read at all (the senior
+   * singles `currentRankings` were the only live totals exposed), so a
+   * player's doubles standing could only be inferred from their peak. */
+  currentDoublesRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
   /** The player's doubles titles (P7c) — each shows the PARTNER (the
    * other member of the winning pair), which is the interesting half of
    * a doubles trophy; the tournament is referenced by id + tier only
@@ -126,6 +133,10 @@ export class DrizzlePlayerProfileQuery {
     private readonly doublesTitles: DrizzleDoublesTitleRepository,
     private readonly doublesPeakRankings: DrizzleDoublesPeakRankingRepository,
     private readonly playerMatches: DrizzlePlayerMatchesQuery,
+    /** The four DOUBLES ladder queries, same shape as
+     * `rankPositionByBand` — used for the live `currentDoublesRankings`
+     * below. */
+    private readonly doublesRankPositionByBand: Record<RankingBand, RankPositionQuery>,
   ) {}
 
   async forPlayer(playerId: PlayerId): Promise<PlayerProfileDto | null> {
@@ -147,6 +158,10 @@ export class DrizzlePlayerProfileQuery {
       doublesPeakU16,
       doublesPeakU18,
       commitmentByPlayer,
+      doublesSeniorRank,
+      doublesU14Rank,
+      doublesU16Rank,
+      doublesU18Rank,
     ] = await Promise.all([
       this.rankPositionByBand.senior.rankFor(playerId),
       this.rankPositionByBand.u14.rankFor(playerId),
@@ -162,6 +177,10 @@ export class DrizzlePlayerProfileQuery {
       this.doublesPeakRankings.findOne(playerId, 'u16'),
       this.doublesPeakRankings.findOne(playerId, 'u18'),
       this.playerMatches.unfinishedCommitmentByPlayer([playerId]),
+      this.doublesRankPositionByBand.senior.rankFor(playerId),
+      this.doublesRankPositionByBand.u14.rankFor(playerId),
+      this.doublesRankPositionByBand.u16.rankFor(playerId),
+      this.doublesRankPositionByBand.u18.rankFor(playerId),
     ]);
 
     // The player's non-dissolved pair (at most one by the use-case
@@ -248,6 +267,12 @@ export class DrizzlePlayerProfileQuery {
       doublesPeaks: [doublesPeakSenior, doublesPeakU14, doublesPeakU16, doublesPeakU18]
         .filter((p): p is NonNullable<typeof p> => p !== null)
         .map((p) => ({ band: p.band, peakPoints: p.peakPoints, peakAsOfWeek: p.peakAsOfWeek })),
+      currentDoublesRankings: [
+        { band: 'senior', totalPoints: doublesSeniorRank.totalPoints, rank: doublesSeniorRank.rank },
+        { band: 'u14', totalPoints: doublesU14Rank.totalPoints, rank: doublesU14Rank.rank },
+        { band: 'u16', totalPoints: doublesU16Rank.totalPoints, rank: doublesU16Rank.rank },
+        { band: 'u18', totalPoints: doublesU18Rank.totalPoints, rank: doublesU18Rank.rank },
+      ],
       doublesTitles: doublesTitleList,
       blockingCommitment: commitmentByPlayer.get(playerId) ?? null,
     };

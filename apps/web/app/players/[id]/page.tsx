@@ -851,30 +851,42 @@ export default function PlayerProfilePage() {
           </div>
         )}
 
-        {/* Doubles (P7c + junior doubles) — peak rankings + pair titles. */}
+        {/* Doubles (P7c + junior doubles) — current rank + peak rankings +
+            pair titles. The current rank reads the live doubles ladder
+            (the same one /rankings?discipline=doubles shows), added
+            beside the permanent peak so a player's doubles standing is
+            visible without leaving the profile. */}
         {(profile.doublesPeaks.length > 0 || profile.doublesTitles.length > 0) && (
           <>
             <SectionLabel>Doubles</SectionLabel>
-            {profile.doublesPeaks.map((peak) => (
-              <div
-                key={peak.band}
-                className="gc-panel"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', marginBottom: 8, borderTop: '2px solid var(--win)' }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ color: 'var(--win)', display: 'inline-flex' }}><Icon name="ball" size={16} /></span>
-                  <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink-2)' }}>Doubles peak · {BAND_LABEL[peak.band]}</div>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--win)' }}>
-                    {peak.peakPoints} pts
+            {profile.doublesPeaks.map((peak) => {
+              const current = profile.currentDoublesRankings.find((r) => r.band === peak.band);
+              return (
+                <div
+                  key={peak.band}
+                  className="gc-panel"
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 14px', marginBottom: 8, borderTop: '2px solid var(--win)' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ color: 'var(--win)', display: 'inline-flex' }}><Icon name="ball" size={16} /></span>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--ink-2)' }}>Doubles · {BAND_LABEL[peak.band]}</div>
                   </div>
-                  <div className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                    S{peak.peakAsOfWeek.season} W{peak.peakAsOfWeek.week}
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="num" style={{ fontSize: 18, fontWeight: 700, color: 'var(--win)' }}>
+                      {peak.peakPoints} pts
+                    </div>
+                    <div className="num" style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                      peak · S{peak.peakAsOfWeek.season} W{peak.peakAsOfWeek.week}
+                    </div>
+                    {current && (current.rank !== null || current.totalPoints > 0) && (
+                      <div className="num" style={{ fontSize: 11, color: 'var(--ink-2)' }}>
+                        Current {current.rank !== null ? `#${current.rank}` : 'NR'} · {current.totalPoints} pts
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
             {profile.doublesTitles.map((title) => (
               <Link
                 key={title.tournamentId}

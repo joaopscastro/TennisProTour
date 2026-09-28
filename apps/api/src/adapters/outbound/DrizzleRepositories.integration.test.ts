@@ -920,6 +920,60 @@ describe('DrizzleRankingLedgerRepository', () => {
     expect(entries.find((e) => e.tournamentId === TournamentId('t-major-obl'))?.obligatory).toBe(true);
     expect(entries.find((e) => e.tournamentId === TournamentId('t-ch-obl'))?.obligatory).toBe(false);
   });
+
+  it("round-trips `discipline`: an append WITHOUT it reads back 'singles', with 'doubles' reads back 'doubles' — via findByPlayer, findAll and findAllWithinWindow", async () => {
+    await playerRepository.save(Player.hire(PlayerId('p-disc'), 'Discipline Player', 24 * 52, attributes(30), ManagerId('m1')));
+    const singlesEvent = Tournament.open({
+      name: 'Discipline Singles Event',
+      id: TournamentId('t-singles-disc'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    const doublesEvent = Tournament.open({
+      name: 'Discipline Doubles Event',
+      id: TournamentId('t-doubles-disc'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+    });
+    await tournamentRepository.save(singlesEvent);
+    await tournamentRepository.save(doublesEvent);
+
+    // Written exactly as every pre-column call site did — field absent.
+    await ledgerRepository.append({
+      playerId: PlayerId('p-disc'),
+      tournamentId: TournamentId('t-singles-disc'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 45,
+      weekEarned: { season: 1, week: 1 },
+    });
+    // The doubles awarding path's explicit value.
+    await ledgerRepository.append({
+      playerId: PlayerId('p-disc'),
+      tournamentId: TournamentId('t-doubles-disc'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 90,
+      weekEarned: { season: 1, week: 1 },
+      discipline: 'doubles',
+    });
+
+    const byPlayer = await ledgerRepository.findByPlayer(PlayerId('p-disc'));
+    expect(byPlayer.find((e) => e.tournamentId === TournamentId('t-singles-disc'))?.discipline).toBe('singles');
+    expect(byPlayer.find((e) => e.tournamentId === TournamentId('t-doubles-disc'))?.discipline).toBe('doubles');
+
+    const all = await ledgerRepository.findAll();
+    expect(all.find((e) => e.tournamentId === TournamentId('t-singles-disc'))?.discipline).toBe('singles');
+    expect(all.find((e) => e.tournamentId === TournamentId('t-doubles-disc'))?.discipline).toBe('doubles');
+
+    const windowed = await ledgerRepository.findAllWithinWindow({ season: 1, week: 1 }, 52);
+    expect(windowed.find((e) => e.tournamentId === TournamentId('t-singles-disc'))?.discipline).toBe('singles');
+    expect(windowed.find((e) => e.tournamentId === TournamentId('t-doubles-disc'))?.discipline).toBe('doubles');
+  });
 });
 
 /**

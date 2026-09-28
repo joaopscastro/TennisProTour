@@ -783,9 +783,15 @@ export interface RankingsBoardDto {
 
 /** Public player standings board (senior/u14/u16/u18) — GET /rankings/:band. No
  * auth required, unlike fetchManagerLeaderboard (there's no "self" row here,
- * a player isn't the authenticated caller). */
-export function fetchRankings(band: RankingBand, limit = 100): Promise<RankingsBoardDto> {
-  return getJson(`/rankings/${band}?limit=${limit}`);
+ * a player isn't the authenticated caller). `discipline` defaults to
+ * 'singles'; the API route omits the query parameter entirely for
+ * singles, so that request stays byte-identical to before the doubles
+ * ladders existed. */
+export type RankingsDisciplineDto = 'singles' | 'doubles';
+
+export function fetchRankings(band: RankingBand, limit = 100, discipline: RankingsDisciplineDto = 'singles'): Promise<RankingsBoardDto> {
+  const disciplineParam = discipline === 'singles' ? '' : `&discipline=${discipline}`;
+  return getJson(`/rankings/${band}?limit=${limit}${disciplineParam}`);
 }
 
 /** The manager's email-digest preference. Default is ON: the backend
@@ -868,6 +874,9 @@ export interface PlayerProfileDto {
   /** Permanent high-water-mark DOUBLES ranking totals, one per band (P7c
    * + junior doubles). */
   doublesPeaks: Array<{ band: RankingBand; peakPoints: number; peakAsOfWeek: { season: number; week: number } }>;
+  /** The player's CURRENT (live rolling) doubles totals/ranks per band —
+   * the doubles counterpart to `currentRankings`, beside `doublesPeaks`. */
+  currentDoublesRankings: Array<{ band: RankingBand; totalPoints: number; rank: number | null }>;
   /** Doubles titles (P7c) — each shows the partner. */
   doublesTitles: Array<{
     tournamentId: string;

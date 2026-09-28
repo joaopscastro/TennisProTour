@@ -160,4 +160,49 @@ describe('RankingCalculationService', () => {
     );
     expect(withSkipZero).toBe(18 * 100);
   });
+
+  it('never applies the obligatory rule to a doubles total — there are no mandatory doubles events', () => {
+    const service = new RankingCalculationService();
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+
+    // 18 strong ordinary results already fill the cap on points.
+    const strongNonMajors: RankingLedgerEntry[] = Array.from({ length: 18 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 500, tournamentId: TournamentId(`t${i}`) }),
+    );
+    // A LOW-scoring doubles major result (the same tier that is obligatory
+    // in singles). If it were treated as obligatory it would always take a
+    // slot; as a doubles result it is an ordinary result competing on
+    // points, so it is simply the worst of 19 and is cut.
+    const doublesMajor = entry({
+      weekEarned: currentWeek,
+      points: 50,
+      tier: 'major',
+      discipline: 'doubles',
+      tournamentId: TournamentId('doubles-major'),
+    });
+
+    expect(service.calculateTotal([...strongNonMajors, doublesMajor], currentWeek, 'singles')).toBe(17 * 500 + 50);
+    expect(service.calculateTotal([...strongNonMajors, doublesMajor], currentWeek, 'doubles')).toBe(18 * 500);
+  });
+
+  it('treats a 0-point doubles major row as an ordinary zero for a doubles total (no slot burned)', () => {
+    const service = new RankingCalculationService();
+    const currentWeek: GameWeek = { season: 1, week: 1 };
+    const strongNonMajors: RankingLedgerEntry[] = Array.from({ length: 18 }, (_, i) =>
+      entry({ weekEarned: currentWeek, points: 500, tournamentId: TournamentId(`t${i}`) }),
+    );
+    const doublesZero = entry({
+      weekEarned: currentWeek,
+      points: 0,
+      tier: 'major',
+      discipline: 'doubles',
+      tournamentId: TournamentId('doubles-major-r1-loss'),
+    });
+
+    // Singles default: the major tier is obligatory, so a 0-point row
+    // burns a slot (the punitive rule).
+    expect(service.calculateTotal([...strongNonMajors, doublesZero], currentWeek)).toBe(17 * 500);
+    // Doubles: ordinary 0 → outside the best-18, no effect at all.
+    expect(service.calculateTotal([...strongNonMajors, doublesZero], currentWeek, 'doubles')).toBe(18 * 500);
+  });
 });

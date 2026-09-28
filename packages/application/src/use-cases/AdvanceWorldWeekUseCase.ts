@@ -275,8 +275,13 @@ export class AdvanceWorldWeekUseCase {
       }
       const bandAfterAging = juniorEligibilityForAge(player.seasonAgeAnchorWeeks);
       if (bandBeforeAging !== bandAfterAging) {
-        const oldBandEntries = (await this.rankingLedger.findByPlayer(player.id)).filter((entry) =>
-          matchesRankingBand(entry.ageBand, bandBeforeAging),
+        // Singles-scoped, like every other consumer of this player's
+        // junior total: a doubles row in the leaving band must not
+        // inflate (or manufacture) a graduation carryover bonus, since
+        // that bonus is consumed by the player's first SINGLES result in
+        // the new band (see GraduationCarryover.ts).
+        const oldBandEntries = (await this.rankingLedger.findByPlayer(player.id)).filter(
+          (entry) => matchesRankingBand(entry.ageBand, bandBeforeAging) && (entry.discipline ?? 'singles') === 'singles',
         );
         const oldBandCalculator = new RankingCalculationService(bestResultsCapFor(bandBeforeAging));
         const oldBandTotal = oldBandCalculator.calculateTotal(oldBandEntries, world.currentWeek);

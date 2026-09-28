@@ -109,7 +109,14 @@ function concludedTournament(
   });
 }
 
-function result(playerId: string, tournamentId: string, tier: TournamentTier, points: number, week: GameWeek = currentWeek): RankingLedgerEntry {
+function result(
+  playerId: string,
+  tournamentId: string,
+  tier: TournamentTier,
+  points: number,
+  week: GameWeek = currentWeek,
+  discipline: 'singles' | 'doubles' = 'singles',
+): RankingLedgerEntry {
   return {
     playerId: PlayerId(playerId),
     tournamentId: TournamentId(tournamentId),
@@ -117,6 +124,7 @@ function result(playerId: string, tournamentId: string, tier: TournamentTier, po
     ageBand: null,
     points,
     weekEarned: week,
+    discipline,
   };
 }
 
@@ -174,6 +182,22 @@ describe('ApplyObligatoryTournamentZerosUseCase', () => {
     expect(outcome.zerosWritten).toBe(0);
     const obligatoryRows = (await rankingLedger.findByPlayer(PlayerId('p1'))).filter((e) => e.obligatory === true);
     expect(obligatoryRows).toHaveLength(0);
+  });
+
+  it('does NOT let a DOUBLES row count as having played the event — the mandatory-skip zero still lands', async () => {
+    const { tournaments, rankingLedger, useCase } = await setup();
+    await tournaments.save(concludedTournament('major-1', 'major', currentWeek));
+    await rankingLedger.append(result('p1', 'ch-1', 'challenger', 125));
+    // A real doubles result at the same major: only the SINGLES draw was
+    // skipped, so the obligatory rule applies to the player regardless.
+    await rankingLedger.append(result('p1', 'major-1', 'major', 90, currentWeek, 'doubles'));
+
+    const outcome = await useCase.execute({ worldId });
+
+    expect(outcome.zerosWritten).toBe(1);
+    const zeros = (await rankingLedger.findByPlayer(PlayerId('p1'))).filter((e) => e.obligatory === true);
+    expect(zeros).toHaveLength(1);
+    expect(zeros[0].tournamentId).toBe(TournamentId('major-1'));
   });
 
   it('leaves an unranked player alone entirely', async () => {

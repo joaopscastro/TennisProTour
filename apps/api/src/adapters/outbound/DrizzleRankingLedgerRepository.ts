@@ -17,6 +17,10 @@ export class DrizzleRankingLedgerRepository implements RankingLedgerRepository {
       ageBand: entry.ageBand,
       points: entry.points,
       obligatory: entry.obligatory ?? false,
+      // The `?? 'singles'` default is load-bearing and mirrors the
+      // domain's own fallback at every read site: pre-P7b construction
+      // sites omit `discipline` entirely, and those are singles results.
+      discipline: entry.discipline ?? 'singles',
       seasonEarned: entry.weekEarned.season,
       weekEarned: entry.weekEarned.week,
     });
@@ -69,6 +73,11 @@ function toRankingLedgerEntry(row: typeof rankingLedger.$inferSelect): RankingLe
     ageBand: row.ageBand as AgeBand | null,
     points: row.points,
     obligatory: row.obligatory,
+    // Read back explicitly rather than leaving it undefined: every row
+    // now has a real value (the NOT NULL DEFAULT 'singles' is what every
+    // pre-existing row reads back as), and every consumer's
+    // `entry.discipline ?? 'singles'` check stays correct either way.
+    discipline: row.discipline,
     weekEarned: { season: row.seasonEarned, week: row.weekEarned },
   };
 }

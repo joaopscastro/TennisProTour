@@ -4,6 +4,7 @@ import {
   PlayerId,
   RankingBand,
   RankingCalculationService,
+  RankingDiscipline,
   RankingLedgerEntry,
   RANKING_WINDOW_WEEKS,
   WorldId,
@@ -51,7 +52,7 @@ export class RankPositionQuery {
      * every pre-P7b instance) or 'doubles'. Doubles entries carry
      * `discipline: 'doubles'` on their ledger rows; the filter below
      * keeps them out of singles totals and vice versa. */
-    private readonly discipline: 'singles' | 'doubles' = 'singles',
+    private readonly discipline: RankingDiscipline = 'singles',
   ) {}
 
   /** Every player who currently has at least one qualifying result in
@@ -99,7 +100,11 @@ export class RankPositionQuery {
     const ranked: RankedPlayer[] = [...entriesByPlayer.entries()]
       .map(([playerId, playerEntries]) => ({
         playerId,
-        totalPoints: this.calculator.calculateTotal(playerEntries, currentWeek),
+        // The discipline travels into the calculator too, not just the
+        // filter above: a doubles total must never treat a doubles
+        // `major` result as an obligatory singles event (see
+        // RankingCalculationService's doc comment).
+        totalPoints: this.calculator.calculateTotal(playerEntries, currentWeek, this.discipline),
       }))
       .filter((r) => r.totalPoints > 0);
 

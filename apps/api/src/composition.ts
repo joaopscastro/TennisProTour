@@ -268,6 +268,12 @@ export interface Dependencies {
    * ranking (discipline-filtered, best-14) the formation step reads to
    * compute each entrant's combined ranking. */
   rankPositionDoubles: RankPositionQuery;
+  /** All four DOUBLES ladder queries (one per band) — what the public
+   * `/rankings/:band?discipline=doubles` standings read and the player
+   * profile's current-doubles-rank read both use. Exposed as the same
+   * Record<RankingBand, …> shape `rankPositionByBand` uses for singles,
+   * so neither caller has to re-derive which instance is which band. */
+  doublesRankByBand: Record<RankingBand, RankPositionQuery>;
   registerDoublesEntrant: RegisterDoublesEntrantUseCase;
   formDoublesDraw: FormDoublesDrawUseCase;
   simulateDoublesMatch: SimulateDoublesMatchUseCase;
@@ -598,7 +604,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const entryPlanner = new PlayerEntryPlannerQuery(tournaments, worlds);
   const tournamentHistory = new DrizzlePlayerTournamentHistoryQuery(options.db);
   const playerMatches = new DrizzlePlayerMatchesQuery(options.db);
-  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings, playerMatches);
+  const playerProfile = new DrizzlePlayerProfileQuery(players, rankPositionByBand, peakRankings, titles, tournamentHistory, doublesPairs, doublesTitles, doublesPeakRankings, playerMatches, doublesRankByBand);
   const releasePlayer = new ReleasePlayerUseCase(players, doublesPairs);
 
   return {
@@ -722,6 +728,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     acceptDoublesPair: new AcceptDoublesPairUseCase(doublesPairs, players),
     dissolveDoublesPair: new DissolveDoublesPairUseCase(doublesPairs, players),
     rankPositionDoubles,
+    doublesRankByBand,
     registerDoublesEntrant,
     formDoublesDraw,
     simulateDoublesMatch,

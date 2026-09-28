@@ -528,6 +528,69 @@ describe('SimulateMatchUseCase', () => {
       expect(winnerEntries).toHaveLength(0);
     });
 
+    it('computes the singles peak from SINGLES rows only — a doubles row can never inflate it', async () => {
+      const tournamentId = TournamentId('t-peak-scope');
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);
+
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) {
+        await players.save(makePlayer(PlayerId(`p${i}`)));
+      }
+      const firstMatch = tournament.getRounds()[0].matches[0];
+
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const peakRankings = new InMemoryPeakRankingRepository();
+      // The loser already holds a big DOUBLES result and a modest SINGLES
+      // one. Only the singles rows may feed the singles peak.
+      await rankingLedger.append({
+        playerId: firstMatch.entrantB,
+        tournamentId: TournamentId('doubles-prev'),
+        tier: 'challenger',
+        ageBand: null,
+        points: 500,
+        weekEarned: { season: 1, week: 1 },
+        discipline: 'doubles',
+      });
+      await rankingLedger.append({
+        playerId: firstMatch.entrantB,
+        tournamentId: TournamentId('singles-prev'),
+        tier: 'challenger',
+        ageBand: null,
+        points: 100,
+        weekEarned: { season: 1, week: 1 },
+      });
+
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        rankingLedger,
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
+        peakRankings,
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      // 100 singles + the R1 loss's 0 points. The 500 doubles row is NOT
+      // part of the singles peak (pre-fix this read 600).
+      const peak = await peakRankings.findOne(firstMatch.entrantB, 'senior');
+      expect(peak!.peakPoints).toBe(100);
+    });
+
     it('pays the round-1 loser real prize money, unlike ranking points which are 0 for a first-round loss', async () => {
       const tournamentId = TournamentId('t-r1-money');
       const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16);

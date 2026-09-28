@@ -97,6 +97,16 @@ export const managerStatus = pgEnum('manager_status', ['active', 'suspended', 'd
  * = wildcard. Lowercase values to match every other enum here; the
  * domain's own 'DA'/'Q'/'WC' labels are mapped in the adapter. */
 export const tournamentEntryType = pgEnum('tournament_entry_type', ['da', 'q', 'wc']);
+/** Which discipline a `ranking_ledger` row belongs to (P7b): singles
+ * (the default — every row that existed before this column) or doubles
+ * (both players of a winning pair get their own row). Mirrors the
+ * domain's RankingDiscipline. A DEFAULT value is load-bearing: every
+ * pre-existing row must read back as exactly what the domain's own
+ * `entry.discipline ?? 'singles'` fallback means, so no backfill is
+ * needed for correct reads — the backfill script only reclassifies rows
+ * that were actually written by doubles awarding code before this
+ * column existed. */
+export const rankingDiscipline = pgEnum('ranking_discipline', ['singles', 'doubles']);
 /** Which of a tournament's two brackets a row belongs to (see DrawPhase
  * in the domain): the main draw, or the qualifying draw played out
  * before it. 'main' for everything that existed before qualifying. */
@@ -168,9 +178,19 @@ export const rankingLedger = pgTable(
     playerId: text('player_id')
       .notNull()
       .references(() => players.id),
-    tournamentId: text('tournament_id')
-      .notNull()
-      .references(() => tournaments.id),
+    /** NO FK to `tournaments` — deliberately. This column holds a
+     * TOURNAMENT id for ordinary results and a MASTERS CUP id for the
+     * season capstone (`masters_cups.id`), and the two live in separate
+     * tables. The original FK made a cup that actually fired crash its
+     * first knockout result (insert violates FK, the day tick fails,
+     * and the already-saved cup outcome means a retry never re-awards
+     * it): verified live on the dev DB, where a decided cup semifinal
+     * had exactly zero ledger/title rows. Relaxing this FK is the
+     * minimal safe fix — inventing a synthetic `tournaments` row for the
+     * cup would let the cup be picked up by tournament queries
+     * (generation idempotency, the started-list, the browse list), and
+     * a partial FK can't be expressed in Postgres. */
+    tournamentId: text('tournament_id').notNull(),
     tier: tournamentTier('tier').notNull(),
     /** Mirrors the earning tournament's age_band — null for a senior
      * result, u14/u16/u18 for a junior one. Scopes this entry to exactly one
@@ -187,6 +207,16 @@ export const rankingLedger = pgTable(
      * every pre-existing row reads back exactly as the domain's own
      * default — no backfill needed. */
     obligatory: boolean('obligatory').notNull().default(false),
+    /** Which ladder this result belongs to — 'singles' (the default,
+     * matching the domain's own `?? 'singles'` fallback and therefore
+     * every pre-existing row) or 'doubles'. Written from
+     * `entry.discipline ?? 'singles'` by DrizzleRankingLedgerRepository.
+     * This column is the fix for the critical ranking-pollution bug: the
+     * domain and every ranking read already filtered on
+     * `entry.discipline`, but persistence silently dropped it, so every
+     * doubles row was summed into the singles ladder and the doubles
+     * ladder/peaks were empty. */
+    discipline: rankingDiscipline('discipline').notNull().default('singles'),
     /** GameWeek value object flattened, same convention as tournaments.seasonScheduled/weekScheduled. */
     seasonEarned: integer('season_earned').notNull(),
     weekEarned: integer('week_earned').notNull(),
@@ -244,9 +274,12 @@ export const peakRankings = pgTable(
 export const titles = pgTable(
   'titles',
   {
-    tournamentId: text('tournament_id')
-      .primaryKey()
-      .references(() => tournaments.id),
+    /** NO FK to `tournaments` — see ranking_ledger.tournamentId's doc
+     * comment: a Masters Cup title is keyed on `masters_cups.id`, which
+     * is not a `tournaments` row, and the FK made a fired cup's title
+     * insert fail. The primary key still guarantees at most one title
+     * per event id, cup or tournament alike. */
+    tournamentId: text('tournament_id').primaryKey(),
     playerId: text('player_id')
       .notNull()
       .references(() => players.id),
@@ -793,9 +826,9 @@ export const tournamentDoublesMatches = pgTable(
 export const doublesTitles = pgTable(
   'doubles_titles',
   {
-    tournamentId: text('tournament_id')
-      .primaryKey()
-      .references(() => tournaments.id),
+    /** NO FK to `tournaments` — same Masters Cup reason as `titles`
+     * above: a cup's doubles title is keyed on `masters_cups.id`. */
+    tournamentId: text('tournament_id').primaryKey(),
     playerA: text('player_a')
       .notNull()
       .references(() => players.id),

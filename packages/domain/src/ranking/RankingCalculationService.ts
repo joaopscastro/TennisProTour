@@ -1,7 +1,7 @@
 import { GameWeek } from '../shared/ids';
 import { weeksBetween } from '../world/GameWorld';
 import { isObligatoryTier } from '../competition/CompetitionTypes';
-import { RankingLedgerEntry } from './RankingLedgerEntry';
+import { RankingDiscipline, RankingLedgerEntry } from './RankingLedgerEntry';
 
 /** The rolling window (in game weeks) a result counts for. Exported
  * because the obligatory-tournament rule's live wiring has to gather
@@ -54,18 +54,37 @@ const DEFAULT_BEST_RESULTS_CAP = 18;
  * this only ever fires for the senior tour: no junior tier is
  * obligatory, so the obligatory bucket is always empty for a junior
  * band — no junior-specific branching needed to get that right.
+ *
+ * DISCIPLINE-AWARE: the mandatory-event rule is a SINGLES-tour rule —
+ * there are no obligatory doubles events, and a doubles `major` result
+ * must never occupy (or be displaced from) an obligatory slot in a
+ * doubles total. `calculateTotal` therefore takes the discipline being
+ * totalled and only builds an obligatory bucket for `'singles'`
+ * (default, so every pre-existing caller is unchanged). IMPORTANT: this
+ * only controls the obligatory treatment — the caller still owns
+ * filtering the ledger slice to that discipline (`RankPositionQuery`
+ * and every peak-update call site do exactly that); passing a mixed
+ * ledger does not make this method a discipline filter.
  */
 export class RankingCalculationService {
   constructor(private readonly bestResultsCap: number = DEFAULT_BEST_RESULTS_CAP) {}
 
-  calculateTotal(ledger: ReadonlyArray<RankingLedgerEntry>, currentWeek: GameWeek): number {
+  calculateTotal(
+    ledger: ReadonlyArray<RankingLedgerEntry>,
+    currentWeek: GameWeek,
+    discipline: RankingDiscipline = 'singles',
+  ): number {
     const withinWindow = ledger.filter((entry) => {
       const age = weeksBetween(entry.weekEarned, currentWeek);
       return age >= 0 && age <= RANKING_WINDOW_WEEKS;
     });
 
-    const obligatory = withinWindow.filter((entry) => isObligatoryTier(entry.tier));
-    const optional = withinWindow.filter((entry) => !isObligatoryTier(entry.tier));
+    // Only the singles tour has obligatory events (see the class doc
+    // comment): for a doubles total every result is ordinary, so a
+    // doubles `major` win can never be forced into a slot as if it were
+    // a mandatory event.
+    const obligatory = discipline === 'singles' ? withinWindow.filter((entry) => isObligatoryTier(entry.tier)) : [];
+    const optional = discipline === 'singles' ? withinWindow.filter((entry) => !isObligatoryTier(entry.tier)) : withinWindow;
 
     // Obligatory results occupy N's slots too — they can't be displaced by a
     // higher-scoring optional result, but they are STILL capped at N. Without

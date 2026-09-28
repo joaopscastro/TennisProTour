@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   RankingBand,
   RankingsBoardDto,
+  RankingsDisciplineDto,
   fetchRankings,
   fetchRoster,
 } from '../../lib/api';
@@ -22,11 +23,17 @@ const BANDS: Array<{ key: RankingBand; label: string }> = [
   { key: 'u14', label: 'U14' },
 ];
 
+const DISCIPLINES: Array<{ key: RankingsDisciplineDto; label: string }> = [
+  { key: 'singles', label: 'Singles' },
+  { key: 'doubles', label: 'Doubles' },
+];
+
 export default function RankingsPage() {
   const devManagerId = useDevManagerId();
   const [managerId] = useState(devManagerId ?? '');
   const { entitlement } = useEntitlement(managerId);
   const [band, setBand] = useState<RankingBand>('senior');
+  const [discipline, setDiscipline] = useState<RankingsDisciplineDto>('singles');
   const [board, setBoard] = useState<RankingsBoardDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The caller's own roster ids, so the standings can answer "where am I?"
@@ -45,10 +52,10 @@ export default function RankingsPage() {
   useEffect(() => {
     setBoard(null);
     setError(null);
-    fetchRankings(band, 100)
+    fetchRankings(band, 100, discipline)
       .then(setBoard)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [band]);
+  }, [band, discipline]);
 
   // Two distinct players can share a full name (finite generator pool);
   // disambiguate the names this table renders.
@@ -64,6 +71,7 @@ export default function RankingsPage() {
     () => (board ? (onlyMine ? myStandings : board.standings) : []),
     [board, onlyMine, myStandings],
   );
+  const ladderLabel = discipline === 'doubles' ? `${RANK_BAND_LABEL[band]} doubles` : RANK_BAND_LABEL[band];
 
   return (
     <AppShell active="rankings" tier={entitlement?.tier} xpBalance={entitlement?.xpBalance}>
@@ -73,7 +81,7 @@ export default function RankingsPage() {
           <div className="t-label">The Full Table</div>
           <h1 className="t-h1" style={{ margin: '4px 0 0' }}>Player Rankings</h1>
           <div className="t-body-sm" style={{ marginTop: 4 }}>
-            Senior, U18, U16, and U14 are four separate ladders — each only counts results from its own events, and a player is ranked on whichever ladders their age and results qualify them for. Winning a senior event earns Senior points, not junior ones.
+            Senior, U18, U16, and U14 are four separate ladders — each only counts results from its own events, and a player is ranked on whichever ladders their age and results qualify them for. Winning a senior event earns Senior points, not junior ones. Singles and doubles are separate ladders too: a doubles result counts only on its band&apos;s doubles table, never the singles one.
           </div>
         </div>
 
@@ -81,7 +89,18 @@ export default function RankingsPage() {
           items={BANDS.map((b) => ({ id: b.key, label: b.label }))}
           active={band}
           onSelect={(id) => setBand(id as RankingBand)}
-          className="mt-2 mb-4"
+          className="mt-2 mb-2"
+        />
+
+        {/* Singles/Doubles toggle — the two disciplines share the same
+            band structure but are independent ladders (see the copy
+            above). Defaults to Singles, matching the singles-only board
+            every existing caller saw. */}
+        <Tabs
+          items={DISCIPLINES.map((d) => ({ id: d.key, label: d.label }))}
+          active={discipline}
+          onSelect={(id) => setDiscipline(id as RankingsDisciplineDto)}
+          className="mb-4"
         />
 
         {/* "Where am I?" — the standings answer it directly instead of
@@ -94,7 +113,7 @@ export default function RankingsPage() {
                 ? 'You have no players yet — sign a free agent in Scouting to start building a ranked roster.'
                 : myStandings.length > 0
                   ? `You have ${myStandings.length} player${myStandings.length === 1 ? '' : 's'} in this top-100 table, best #${Math.min(...myStandings.map((r) => r.rank))}.`
-                  : `None of your players is in the top 100 of the ${RANK_BAND_LABEL[band]} ladder yet. ${RANKING_EARNED_NOTE} ${rankingBandScopeNote(band)}`}
+                  : `None of your players is in the top 100 of the ${ladderLabel} ladder yet. ${RANKING_EARNED_NOTE} ${rankingBandScopeNote(band)}`}
             </span>
             {myStandings.length > 0 && (
               <button
@@ -126,7 +145,7 @@ export default function RankingsPage() {
 
         {board && board.standings.length === 0 && !error && (
           <div className="gc-panel" style={{ padding: '28px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
-            <div>No player has earned points on the {RANK_BAND_LABEL[band]} ladder yet.</div>
+            <div>No player has earned points on the {ladderLabel} ladder yet.</div>
             <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', maxWidth: 560, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
               {rankingBandScopeNote(band)} A player only appears here once they&apos;ve won a match in one of this band&apos;s own events — an empty junior table while U14-badged players have won senior matches is expected, not a bug.
             </div>
@@ -135,7 +154,7 @@ export default function RankingsPage() {
 
         {board && onlyMine && visibleStandings.length === 0 && !error && (
           <div className="gc-panel" style={{ padding: '24px 20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 14 }}>
-            <div>None of your players is in the top 100 of the {RANK_BAND_LABEL[band]} ladder.</div>
+            <div>None of your players is in the top 100 of the {ladderLabel} ladder.</div>
             <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5 }}>
               {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
             </div>
@@ -148,7 +167,7 @@ export default function RankingsPage() {
               <table className="gc-table">
                 <thead>
                   <tr>
-                    <th className="r" style={{ width: 100 }}>Rank · {RANK_BAND_LABEL[board.band]}</th>
+                    <th className="r" style={{ width: 100 }}>Rank · {ladderLabel}</th>
                     <th>Player</th>
                     <th>Nationality</th>
                     <th className="r">Points</th>

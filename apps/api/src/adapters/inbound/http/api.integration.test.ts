@@ -10,6 +10,7 @@ import { FastifyInstance } from 'fastify';
 import {
   DoublesPair,
   ManagerId,
+  MatchId,
   PairId,
   Player,
   PlayerAttributes,
@@ -86,6 +87,10 @@ beforeEach(async () => {
   await db.delete(schema.doublesPairs);
   await db.delete(schema.doublesPeakRankings);
   await db.delete(schema.practiceSessions);
+  // Masters Cup rows have no FK to players/tournaments, but they DO
+  // reference players by id in their jsonb and the ledger FKs to the
+  // cup id (post discipline-fix); wipe them so a cup test starts clean.
+  await db.delete(schema.mastersCups);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
   await db.delete(schema.managerProgression);
@@ -977,6 +982,161 @@ describe('API', () => {
     expect(board.standings.some((r: { managerId: string }) => r.managerId === championManager)).toBe(true);
     // The caller (rm1) is echoed back with a self entry.
     expect(board.self.managerId).toBe('rm1');
+  });
+
+  it('reads the DOUBLES ladder via ?discipline=doubles, keeps the default body byte-shaped, and 400s an unknown discipline', async () => {
+    await hirePlayer('dl-s', 'm-dl');
+    await hirePlayer('dl-d', 'm-dl');
+    await db.insert(schema.tournaments).values({
+      id: 't-dl',
+      name: 'Discipline Ladder Event',
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+    });
+    await deps.rankingLedger.append({
+      playerId: PlayerId('dl-s'),
+      tournamentId: TournamentId('t-dl'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 100,
+      weekEarned: { season: 1, week: 1 },
+    });
+    await deps.rankingLedger.append({
+      playerId: PlayerId('dl-d'),
+      tournamentId: TournamentId('t-dl'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 250,
+      weekEarned: { season: 1, week: 1 },
+      discipline: 'doubles',
+    });
+
+    // Default (no parameter): the singles board, with exactly the same
+    // response shape as before doubles ladders existed.
+    const singlesBoard = await app.inject({ method: 'GET', url: '/rankings/senior' });
+    expect(singlesBoard.statusCode).toBe(200);
+    const singlesBody = singlesBoard.json();
+    expect(Object.keys(singlesBody).sort()).toEqual(['band', 'standings']);
+    expect(singlesBody.standings.map((r: { playerId: string }) => r.playerId)).toEqual(['dl-s']);
+
+    const doublesBoard = await app.inject({ method: 'GET', url: '/rankings/senior?discipline=doubles' });
+    expect(doublesBoard.statusCode).toBe(200);
+    expect(doublesBoard.json().standings.map((r: { playerId: string }) => r.playerId)).toEqual(['dl-d']);
+
+    const invalid = await app.inject({ method: 'GET', url: '/rankings/senior?discipline=mixed' });
+    expect(invalid.statusCode).toBe(400);
+
+    // The profile exposes the live doubles standing beside the permanent
+    // doubles peaks.
+    const profile = await app.inject({ method: 'GET', url: '/players/dl-d/profile' });
+    expect(profile.statusCode).toBe(200);
+    expect(profile.json().currentDoublesRankings.find((r: { band: string }) => r.band === 'senior')).toEqual({
+      band: 'senior',
+      totalPoints: 250,
+      rank: 1,
+    });
+  });
+
+  it('a fired Masters Cup writes its ledger rows and title keyed on the CUP id — the tournament FK hazard is gone', async () => {
+    const ids = Array.from({ length: 16 }, (_, i) => `mc${i + 1}`);
+    // Spread across 8 managers, two players each — the free roster cap is 2.
+    for (let i = 0; i < ids.length; i++) {
+      expect(await hirePlayer(ids[i], `m-mc${Math.floor(i / 2) + 1}`)).toBe(201);
+    }
+    await db.insert(schema.tournaments).values({
+      id: 'mc-ranks',
+      name: 'Masters Cup Rankings Event',
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+    });
+    for (let i = 0; i < 8; i++) {
+      await deps.rankingLedger.append({
+        playerId: PlayerId(ids[i]),
+        tournamentId: TournamentId('mc-ranks'),
+        tier: 'challenger',
+        ageBand: null,
+        points: 500 - i,
+        weekEarned: { season: 1, week: 1 },
+      });
+    }
+    for (let i = 0; i < 8; i++) {
+      await deps.doublesPairs.save(DoublesPair.activate(PairId(`mc-pair-${i}`), PlayerId(ids[i * 2]), PlayerId(ids[i * 2 + 1])));
+    }
+
+    const generated = await deps.generateMastersCup.execute({
+      worldId: WorldId('main'),
+      season: 1,
+      weekScheduled: { season: 1, week: 52 },
+      surface: 'hard',
+    });
+    expect(generated).not.toBeNull();
+
+    // Decide every group match so the knockout can be seeded, then advance.
+    const loaded = (await deps.mastersCups.findBySeason(1))!;
+    for (let g = 0; g < loaded.singlesGroups.length; g++) {
+      for (let m = 0; m < loaded.singlesGroups[g].matches.length; m++) {
+        const match = loaded.singlesGroups[g].matches[m];
+        loaded.recordSinglesGroupMatchOutcome(g, m, { winner: match.entrantA, loser: match.entrantB, setScores: [{ winnerGames: 6, loserGames: 1 }] });
+      }
+    }
+    for (let g = 0; g < loaded.doublesGroups.length; g++) {
+      for (let m = 0; m < loaded.doublesGroups[g].matches.length; m++) {
+        const match = loaded.doublesGroups[g].matches[m];
+        loaded.recordDoublesGroupMatchOutcome(g, m, { winner: match.entrantA, loser: match.entrantB, setScores: [{ winnerGames: 6, loserGames: 1 }] });
+      }
+    }
+    await deps.mastersCups.save(loaded);
+    await deps.advanceMastersCup.execute({ season: 1 });
+    const seeded = (await deps.mastersCups.findBySeason(1))!;
+    expect(seeded.hasKnockout).toBe(true);
+
+    // Both singles semifinals + the final. Pre-fix, each ledger insert
+    // violated `ranking_ledger_tournament_id_tournaments_id_fk` (the cup
+    // id is not a tournaments row) and no row ever landed.
+    for (const [roundNumber, matchIndex] of [[1, 0], [1, 1], [2, 0]] as const) {
+      await deps.simulateMastersCupMatch.execute({
+        matchId: MatchId(`mc-singles-${roundNumber}-${matchIndex}`),
+        cupId: seeded.id,
+        season: 1,
+        discipline: 'singles',
+        phase: 'knockout',
+        roundNumber,
+        matchIndex,
+      });
+    }
+    const cupRows = await db.select().from(schema.rankingLedger).where(eq(schema.rankingLedger.tournamentId, seeded.id));
+    const singlesValues = cupRows
+      .filter((r) => r.discipline === 'singles')
+      .map((r) => r.points)
+      .sort((a, b) => a - b);
+    expect(singlesValues).toEqual([450, 450, 900, 1500]);
+
+    const titleRows = await db.select().from(schema.titles).where(eq(schema.titles.tournamentId, seeded.id));
+    expect(titleRows).toHaveLength(1);
+    expect(titleRows[0].playerId).toBe(cupRows.find((r) => r.points === 1500)!.playerId);
+
+    // A doubles knockout match lands two rows of scaleDoublesPoints(450)
+    // = 225, stamped 'doubles'.
+    await deps.simulateMastersCupMatch.execute({
+      matchId: MatchId('mc-doubles-1-0'),
+      cupId: seeded.id,
+      season: 1,
+      discipline: 'doubles',
+      phase: 'knockout',
+      roundNumber: 1,
+      matchIndex: 0,
+    });
+    const doublesRows = (await db.select().from(schema.rankingLedger).where(eq(schema.rankingLedger.tournamentId, seeded.id))).filter(
+      (r) => r.discipline === 'doubles',
+    );
+    expect(doublesRows).toHaveLength(2);
+    expect(doublesRows.every((r) => r.points === 225)).toBe(true);
   });
 
   it("defaults a player's ranking to unranked (rank: null, 0 points) when they haven't earned any yet", async () => {

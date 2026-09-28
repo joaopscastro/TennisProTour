@@ -422,7 +422,14 @@ export class SimulateMatchUseCase {
    */
   private async updatePeakIfExceeded(playerId: PlayerId, band: RankingBand, currentWeek: GameWeek): Promise<void> {
     const allEntries = await this.rankingLedger.findByPlayer(playerId);
-    const bandEntries = allEntries.filter((e) => matchesRankingBand(e.ageBand, band));
+    // DISCIPLINE-SCOPED: a singles peak must only ever be computed from
+    // SINGLES rows. Doubles ledger rows share the same table (and used
+    // to be indistinguishable from singles rows before `discipline` was
+    // persisted), so leaving them in here inflated every singles peak
+    // with doubles points — see the discipline backfill.
+    const bandEntries = allEntries.filter(
+      (e) => matchesRankingBand(e.ageBand, band) && (e.discipline ?? 'singles') === 'singles',
+    );
     const calculator = new RankingCalculationService(bestResultsCapFor(band));
     const freshTotal = calculator.calculateTotal(bandEntries, currentWeek);
 

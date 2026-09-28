@@ -149,7 +149,14 @@ export class ApplyObligatoryTournamentZerosUseCase {
       playersConsidered += 1;
 
       const playerEntries = await this.rankingLedger.findByPlayer(entry.playerId);
-      const playedTournamentIds = new Set<TournamentId>(playerEntries.map((e) => e.tournamentId));
+      // SINGLES rows only: "played this obligatory event" means played
+      // the SINGLES draw. A doubles row keyed to the same tournament
+      // must not exempt the player from the mandatory-skip zero — before
+      // `discipline` was persisted at all, every doubles row could
+      // silently dodge the rule for its tournament.
+      const playedTournamentIds = new Set<TournamentId>(
+        playerEntries.filter((e) => (e.discipline ?? 'singles') === 'singles').map((e) => e.tournamentId),
+      );
 
       const zeros = computeObligatoryZeroEntries({
         playerId: entry.playerId,

@@ -19,10 +19,13 @@ import {
 import { MATCH_SURFACE_AFFINITY_GAIN } from './SimulateMatchUseCase';
 
 /** Capstone points for the Masters Cup (P8b) — placeholders, higher than a
- * normal tour event but below a major (the cup is the season's crown). */
-const MASTERS_CUP_CHAMPION_POINTS = 1500;
-const MASTERS_CUP_RUNNER_UP_POINTS = 900;
-const MASTERS_CUP_SEMIFINALIST_POINTS = 450;
+ * normal tour event but below a major (the cup is the season's crown).
+ * Exported so the ranking-discipline backfill script recomputes the
+ * SAME expected awards the cup actually wrote (one source of truth,
+ * not a re-declared copy that can drift). */
+export const MASTERS_CUP_CHAMPION_POINTS = 1500;
+export const MASTERS_CUP_RUNNER_UP_POINTS = 900;
+export const MASTERS_CUP_SEMIFINALIST_POINTS = 450;
 
 /** Capstone prize money for the Masters Cup — the money counterpart to
  * the points above, same PLACEHOLDER-dollar-figure caveat as
@@ -225,8 +228,8 @@ export class SimulateMastersCupMatchUseCase {
       const updated: PeakRankingEntry = { playerId, band, peakPoints: total, peakAsOfWeek: currentWeek };
       await this.peakRankings.upsert(updated);
     } else {
-      const entries = (await this.rankingLedger.findByPlayer(playerId)).filter((e) => e.discipline === 'doubles' && (e.ageBand ?? null) === null);
-      const total = new RankingCalculationService(doublesBestResultsCapFor(band)).calculateTotal(entries, currentWeek);
+      const entries = (await this.rankingLedger.findByPlayer(playerId)).filter((e) => (e.discipline ?? 'singles') === 'doubles' && (e.ageBand ?? null) === null);
+      const total = new RankingCalculationService(doublesBestResultsCapFor(band)).calculateTotal(entries, currentWeek, 'doubles');
       const peak = await this.doublesPeakRankings.findOne(playerId, band);
       if (!isNewDoublesPeak(total, peak)) return;
       await this.doublesPeakRankings.upsert({ playerId, band, peakPoints: total, peakAsOfWeek: currentWeek });

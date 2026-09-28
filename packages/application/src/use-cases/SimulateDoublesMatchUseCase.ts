@@ -281,9 +281,9 @@ export class SimulateDoublesMatchUseCase {
    * SimulateMatchUseCase.updatePeakIfExceeded. */
   private async updateDoublesPeakIfExceeded(playerId: PlayerId, band: RankingBand, currentWeek: GameWeek): Promise<void> {
     const entries = (await this.rankingLedger.findByPlayer(playerId)).filter(
-      (e) => e.discipline === 'doubles' && (e.ageBand ?? null) === (band === 'senior' ? null : band),
+      (e) => (e.discipline ?? 'singles') === 'doubles' && (e.ageBand ?? null) === (band === 'senior' ? null : band),
     );
-    const total = new RankingCalculationService(doublesBestResultsCapFor(band)).calculateTotal(entries, currentWeek);
+    const total = new RankingCalculationService(doublesBestResultsCapFor(band)).calculateTotal(entries, currentWeek, 'doubles');
     const peak = await this.doublesPeakRankings.findOne(playerId, band);
     if (!isNewDoublesPeak(total, peak)) return;
     await this.doublesPeakRankings.upsert({ playerId, band, peakPoints: total, peakAsOfWeek: currentWeek });

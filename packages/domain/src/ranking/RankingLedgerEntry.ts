@@ -2,6 +2,13 @@ import { GameWeek } from '../shared/ids';
 import { PlayerId, TournamentId } from '../shared/ids';
 import { AgeBand, TournamentTier } from '../competition/CompetitionTypes';
 
+/** The two independent ranking ladders a ledger row can belong to. A
+ * named type (not an inline union) because the distinction is now
+ * load-bearing in several places — persistence, the calculator's
+ * obligatory-tier rule, the backfill classifier — and they must all
+ * agree on the same two strings. */
+export type RankingDiscipline = 'singles' | 'doubles';
+
 /**
  * One dated ranking result. A player's ranking is the sum of a rolling
  * window over these entries (see RankingCalculationService), never a
@@ -34,7 +41,7 @@ export interface RankingLedgerEntry {
    * filtered to `discipline === 'doubles'` (and always `ageBand ===
    * null`, since doubles is senior-only in v1).
    */
-  readonly discipline?: 'singles' | 'doubles';
+  readonly discipline?: RankingDiscipline;
   /**
    * True only for a MANDATORY-SKIP zero: a `points: 0` entry recorded
    * because the player was eligible for an obligatory event

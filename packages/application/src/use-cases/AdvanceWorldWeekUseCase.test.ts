@@ -1069,7 +1069,12 @@ describe('AdvanceWorldWeekUseCase', () => {
   });
 
   describe('junior graduation carryover', () => {
-    function entry(playerId: PlayerId, points: number, ageBand: 'u14' | 'u16' | null): RankingLedgerEntry {
+    function entry(
+      playerId: PlayerId,
+      points: number,
+      ageBand: 'u14' | 'u16' | null,
+      discipline: 'singles' | 'doubles' = 'singles',
+    ): RankingLedgerEntry {
       return {
         playerId,
         tournamentId: TournamentId('t'),
@@ -1077,6 +1082,7 @@ describe('AdvanceWorldWeekUseCase', () => {
         ageBand,
         points,
         weekEarned: { season: 1, week: 1 },
+        discipline,
       };
     }
 
@@ -1134,6 +1140,50 @@ describe('AdvanceWorldWeekUseCase', () => {
       // ranking-ledger entry — aging alone never manufactures a
       // ranking.
       expect(await rankingLedger.findAll()).toHaveLength(1); // still just the original U14 entry
+    });
+
+    it('ignores doubles rows when sizing the carryover — the bonus is based on the SINGLES total in the band being left', async () => {
+      const worlds = new InMemoryGameWorldRepository();
+      const players = new InMemoryPlayerRepository();
+      const rankingLedger = new InMemoryRankingLedgerRepository();
+      const worldId = WorldId('main');
+      await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: WEEKS_PER_SEASON }, currentDay: 7, lastAppliedTick: null }));
+
+      const player = Player.hire(PlayerId('p1'), 'Player 1', 14 * 52, startingAttributes(), ManagerId('m1'));
+      player.pullDomainEvents();
+      await players.save(player);
+      await rankingLedger.append(entry(PlayerId('p1'), 100, 'u14'));
+      // A big DOUBLES result in the same band must not inflate the
+      // carryover: it is consumed by the player's first SINGLES result
+      // in the new band (see GraduationCarryover.ts), so only the
+      // singles total is the right base.
+      await rankingLedger.append(entry(PlayerId('p1'), 500, 'u14', 'doubles'));
+
+      const standardAging = new PlayerAgingService(new StandardAgingPolicy());
+      const useCase = new AdvanceWorldWeekUseCase(
+        worlds,
+        players,
+        new FakeBillingPort(),
+        standardAging,
+        standardAging,
+        new RecordingEventPublisher(),
+        new StandardTrainingPolicy(),
+        new InMemoryCoachRepository(),
+        rankingLedger,
+        new InMemoryTrainingScheduleRepository(),
+        new InMemoryManagerLadderRepository(),
+        new StandardManagerLadderPolicy(),
+        new StandardPlayerDevelopmentPolicy(),
+        new InMemoryTournamentRepository(),
+      );
+
+      await useCase.execute({ worldId, tickKey: 'tick-1' });
+
+      const aged = await players.findById(PlayerId('p1'));
+      expect(aged!.dormantCarryoverBonus).toEqual({
+        targetBand: 'u16',
+        bonusPoints: 100 * GRADUATION_CARRYOVER_FRACTION,
+      });
     });
 
     it('records nothing when the player has no ranking at all in the band they are leaving', async () => {
