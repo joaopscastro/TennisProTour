@@ -9,8 +9,10 @@
  *     digest is built the rollover has already STARTED every tournament
  *     scheduled for that week, so a registration made last week always
  *     read `hasStarted: true` and the list was permanently empty.
- *   - `buildCandidateView` — the `canEnterNow` view. Rank-restricted
- *     events are LISTED as disabled-with-reason instead of vanishing,
+ *   - `buildCandidateView` — the `canEnterNow` view. Rule-restricted
+ *     events (rank too high for the tier, or the tier's per-season soft
+ *     cap used up) are LISTED as disabled-with-reason instead of
+ *     vanishing,
  *     the cap is honest (`truncated`, `enterableTotal`, `hiddenCount`),
  *     and it is high enough to cover the observed slate — the old cap of
  *     10 truncated 302 of 304 measured snapshots, hiding up to 22
@@ -61,10 +63,11 @@ export const TIER_PRESTIGE = {
  * `canEnterNowMeta` (`truncated`, `enterableTotal`, `hiddenCount`).
  */
 export const MAX_CAN_ENTER_NOW = 32;
-/** How many rank-restricted events are appended (disabled-with-reason)
- * after the enterable slice — a separate, small cap so the rule that
- * narrowed a player's slate is always visible without crowding out
- * actionable events. */
+/** How many rule-restricted events (rank too high for the tier, or the
+ * tier's per-season entry cap used up) are appended
+ * (disabled-with-reason) after the enterable slice — a separate, small
+ * cap so the rule that narrowed a player's slate is always visible
+ * without crowding out actionable events. */
 export const MAX_RESTRICTED_SHOWN = 3;
 
 /**
@@ -131,10 +134,18 @@ export function tournamentConcluded(t) {
 }
 
 export function compactCandidate(t) {
-  // A rank-restricted row is LISTED (disabled-with-reason) rather than
-  // omitted — see buildCandidateView. The reason text is the same string
-  // the registration use cases put in their refusal.
+  // A rule-restricted row — rank too high for the tier, or the tier's
+  // per-season soft cap used up — is LISTED (disabled-with-reason) rather
+  // than omitted; see buildCandidateView. The reason text is the same
+  // string the registration use cases put in their refusal, so the
+  // digest's disabled state and the server's 409 can never disagree.
   const restricted = t.rankRestricted === true;
+  const seasonCapped = t.seasonCapRestricted === true;
+  const blockedReason = restricted
+    ? t.rankRestrictedReason ?? 'ranking is too high for this tier'
+    : seasonCapped
+      ? t.seasonCapReason ?? 'the per-season entry limit for this tier is reached'
+      : null;
   return {
     ...compactTournamentBase(t),
     entryViaQualifying: t.entryViaQualifying === true,
@@ -143,12 +154,21 @@ export function compactCandidate(t) {
     qualifyingFieldTaken: t.qualifyingFieldTaken ?? 0,
     rankRestricted: restricted,
     rankRestrictedReason: t.rankRestrictedReason ?? null,
+    // Batch 4B's challenger soft cap (F1): the API's player-scoped open
+    // list already carries these fields; without mapping them here a
+    // capped top-50 player's challenger row read `enterable: true` and
+    // the runner's POST was refused — the exact preview-vs-enforcement
+    // disagreement the rank fields above were added to prevent.
+    seasonCapRestricted: seasonCapped,
+    seasonCapReason: t.seasonCapReason ?? null,
+    seasonCapUsedThisSeason: t.seasonCapUsedThisSeason ?? null,
+    seasonCapLimitThisSeason: t.seasonCapLimitThisSeason ?? null,
     weeklyEntryCountThisWeek: t.weeklyEntryCountThisWeek ?? null,
     weeklyEntryCapThisWeek: t.weeklyEntryCapThisWeek ?? null,
     /** Whether the runner will actually submit an entry for this row. */
-    enterable: !restricted,
+    enterable: !restricted && !seasonCapped,
     /** Why not, when `enterable` is false (null otherwise). */
-    blockedReason: restricted ? t.rankRestrictedReason ?? 'ranking is too high for this tier' : null,
+    blockedReason,
   };
 }
 
@@ -211,10 +231,12 @@ export function selectEnterableSlice(sorted, cap = MAX_CAN_ENTER_NOW) {
 /**
  * The player-scoped entry candidates, with the feed fixes the agents
  * asked for:
- *   - rank-restricted events are INCLUDED as `enterable: false` rows with
- *     `blockedReason` (they used to vanish silently, which read as a bug
- *     rather than a rule) — appended AFTER the enterable slice and capped
- *     separately, so a long enterable list can never squeeze them out;
+ *   - rule-restricted events (rank too high for the tier, or the tier's
+ *     per-season soft cap used up) are INCLUDED as `enterable: false`
+ *     rows with `blockedReason` (they used to vanish silently, which read
+ *     as a bug rather than a rule) — appended AFTER the enterable slice
+ *     and capped separately, so a long enterable list can never squeeze
+ *     them out;
  *   - the cap carries a truncation indicator (`canEnterNowMeta`), so the
  *     shown slice is never mistaken for the whole slate, and reports
  *     `hiddenCount` explicitly.
@@ -224,7 +246,7 @@ export function buildCandidateView(openList, currentAbs) {
   const enterable = [];
   const restricted = [];
   for (const t of openList) {
-    if (t.rankRestricted === true) {
+    if (t.rankRestricted === true || t.seasonCapRestricted === true) {
       restricted.push(t);
       continue;
     }

@@ -33,6 +33,10 @@ function tournament(overrides = {}) {
     rounds: overrides.rounds ?? [],
     rankRestricted: overrides.rankRestricted ?? false,
     rankRestrictedReason: overrides.rankRestrictedReason ?? null,
+    seasonCapRestricted: overrides.seasonCapRestricted ?? false,
+    seasonCapReason: overrides.seasonCapReason ?? null,
+    seasonCapUsedThisSeason: overrides.seasonCapUsedThisSeason ?? null,
+    seasonCapLimitThisSeason: overrides.seasonCapLimitThisSeason ?? null,
     ...overrides,
   };
 }
@@ -96,6 +100,59 @@ describe('buildCandidateView (canEnterNow)', () => {
     expect(rows[0].enterable).toBe(false);
     expect(rows[0].blockedReason).toContain('too high to enter a futures event');
     expect(meta).toMatchObject({ shown: 1, enterableShown: 0, enterableTotal: 0, restrictedShown: 1, restrictedTotal: 1 });
+  });
+
+  it('lists season-cap-restricted challengers as disabled-with-reason too (Batch 4B, F1)', () => {
+    // The API's player-scoped open list flags a top-50 player's 4th
+    // challenger of the season with seasonCapRestricted/seasonCapReason.
+    // compactCandidate used to ignore those fields, so the row read
+    // `enterable: true` while the POST was refused (409) — exactly the
+    // preview-vs-enforcement disagreement the rank fields prevent.
+    const capped = tournament({
+      id: 'capped-challenger',
+      name: 'Capped Challenger',
+      tier: 'challenger',
+      seasonCapRestricted: true,
+      seasonCapReason: 'you have already entered 3 challenger events this season (limit 3)',
+      seasonCapUsedThisSeason: 3,
+      seasonCapLimitThisSeason: 3,
+    });
+    const { rows, meta } = buildCandidateView([capped], currentAbs);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].enterable).toBe(false);
+    expect(rows[0].blockedReason).toContain('limit 3');
+    expect(rows[0].seasonCapRestricted).toBe(true);
+    expect(rows[0].seasonCapUsedThisSeason).toBe(3);
+    expect(rows[0].seasonCapLimitThisSeason).toBe(3);
+    expect(meta).toMatchObject({ shown: 1, enterableShown: 0, enterableTotal: 0, restrictedShown: 1, restrictedTotal: 1 });
+  });
+
+  it('never marks a season-capped row enterable, even when the enterable list is capped, and leaves plain rows neutral', () => {
+    const enterable = Array.from({ length: MAX_CAN_ENTER_NOW + 2 }, (_, i) =>
+      tournament({ id: `open-${i}`, name: `Open ${String(i).padStart(2, '0')}` }),
+    );
+    const capped = tournament({
+      id: 'capped-1',
+      name: 'Capped Challenger',
+      tier: 'challenger',
+      seasonCapRestricted: true,
+      seasonCapReason: 'season limit reached',
+    });
+    const { rows, meta } = buildCandidateView([...enterable, capped], currentAbs);
+    expect(rows.filter((r) => r.enterable)).toHaveLength(MAX_CAN_ENTER_NOW);
+    expect(rows.filter((r) => !r.enterable)).toHaveLength(1);
+    expect(rows[rows.length - 1].id).toBe('capped-1');
+    expect(meta).toMatchObject({
+      enterableShown: MAX_CAN_ENTER_NOW,
+      enterableTotal: MAX_CAN_ENTER_NOW + 2,
+      restrictedShown: 1,
+      restrictedTotal: 1,
+      truncated: true,
+      hiddenCount: 2,
+    });
+    // A plain enterable row keeps its neutral season fields and no reason.
+    expect(rows[0].seasonCapRestricted).toBe(false);
+    expect(rows[0].blockedReason).toBeNull();
   });
 
   it('always shows restricted rows even when the enterable list is already capped', () => {

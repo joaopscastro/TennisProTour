@@ -517,10 +517,12 @@ your behalf. You read your digest and write one decision file per week.
 - \`events.canEnterNow[playerId]\` — up to 32 ENTERABLE candidate events
   (nearest week, then SENIOR circuit before junior, then tier — a senior
   \`tour\`/major is always included even if the cap truncates), followed by
-  up to 3 rank-restricted events appended as disabled rows. Every row carries
-  \`enterable\` and \`blockedReason\`; a rank-restricted event is LISTED with
+  up to 3 rule-restricted events (rank too high for the tier, or the tier's
+  per-season entry cap used up) appended as disabled rows. Every row carries
+  \`enterable\` and \`blockedReason\`; a rule-restricted event is LISTED with
   \`enterable: false\` and the reason (e.g. "ranked #37 on the senior ladder —
-  too high to enter a futures event") instead of silently disappearing.
+  too high to enter a futures event", or the challenger season-cap reason)
+  instead of silently disappearing.
 - \`events.canEnterNowMeta[playerId]\` — \`{ shown, enterableShown,
   enterableTotal, restrictedShown, restrictedTotal, truncated, hiddenCount }\`.
   If \`enterableTotal > enterableShown\`, the list was capped; check
