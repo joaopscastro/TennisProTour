@@ -194,6 +194,60 @@ export function enterabilityBlockReason(t, currentAbs) {
   return null;
 }
 
+/** How many currently-committed (unsignable) free agents the digest still
+ * shows, as the "show all / committed" affordance — enough to know strong
+ * prospects exist and are locked by a live draw, without bloating the
+ * digest. */
+export const MAX_COMMITTED_SHOWN = 8;
+
+/**
+ * The digest's talent pool, fixed against the measured blind spot: the
+ * digest used to request the youngest 256 free agents and filter to
+ * signable CLIENT-side, so once that young cohort was committed to draws
+ * the pool read as EMPTY even though the API guarantees ~25+ signable
+ * free agents deeper in the pool (the 52-week agent season's "one agent
+ * made exactly one signing all season; another escaped using ids from an
+ * earlier week's digest"). This splits the two server-side reads:
+ *
+ *   - `signableBody` — `GET /talent-pool?signableOnly=true`, the SAME
+ *     predicate the atomic claim enforces, so a shown row can never be
+ *     refused as committed;
+ *   - `allBody` — the unfiltered youngest page, source of the committed
+ *     list (an honest "these exist but are locked by a live draw" view).
+ *
+ * `meta.availableTotal` is the API's own count, so the digest's number
+ * and the API's number are the same number, never a re-derivation.
+ * Pure: accepts the raw response bodies (array or `{ candidates, ... }`)
+ * and applies no sorting — the runner's own overall-desc ordering runs
+ * after this.
+ */
+export function selectTalentPool(signableBody, allBody) {
+  const candidates = Array.isArray(signableBody)
+    ? signableBody
+    : (signableBody && Array.isArray(signableBody.candidates) ? signableBody.candidates : []);
+  const all = Array.isArray(allBody) ? allBody : (allBody && Array.isArray(allBody.candidates) ? allBody.candidates : []);
+  const signable = candidates.filter((a) => a.signingBlocked !== true);
+  const signableIds = new Set(signable.map((a) => a.id));
+  const committed = all
+    .filter((a) => a.signingBlocked === true && !signableIds.has(a.id))
+    .slice(0, MAX_COMMITTED_SHOWN);
+  const availableTotal = Array.isArray(signableBody)
+    ? signable.length
+    : typeof signableBody?.availableTotal === 'number'
+      ? signableBody.availableTotal
+      : signable.length;
+  const poolTotal = Array.isArray(allBody)
+    ? all.length
+    : typeof allBody?.poolTotal === 'number'
+      ? allBody.poolTotal
+      : all.length;
+  return {
+    signable,
+    committed,
+    meta: { availableTotal, poolTotal, committedShown: committed.length },
+  };
+}
+
 /**
  * Nearest week first, then SENIOR circuit before junior, then tier
  * prestige. The senior-first key is the fix for a measured ordering bug:

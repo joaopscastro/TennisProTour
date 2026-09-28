@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { Player, PlayerId, TalentClaimPricingPolicy, TitleTally } from '@tennis-manager/domain';
 import { TALENT_POOL_AGE_RANGE } from '@tennis-manager/application';
-import { Dependencies } from '../../../composition';
+import { Dependencies, WORLD_ID } from '../../../composition';
 import { toPlayerDto } from './playerDto';
 import { requireManager } from './auth';
 
@@ -179,9 +179,16 @@ export function registerTalentPoolRoutes(app: FastifyInstance, deps: Dependencie
     async (request, reply) => {
       const manager = await requireManager(request, reply, deps);
       if (!manager) return;
+      // The world clock is read here (one PK lookup, like every other
+      // route that needs "now") so the signing is stamped with its real
+      // game week — the AdvanceWorldWeekUseCase inactivity exemption
+      // (a manager cannot be penalized for a week whose digest predates
+      // their first player) depends on it.
+      const world = await deps.worlds.findById(WORLD_ID);
       const player = await deps.claimTalentPoolCandidate.execute({
         playerId: PlayerId(request.params.id),
         managerId: manager.id,
+        managerSinceWeek: world?.currentWeek ?? null,
       });
       // Fire-and-forget (analytics never throws) — see AnalyticsPort.
       void deps.analytics.record({

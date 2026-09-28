@@ -68,7 +68,15 @@ export class DrizzleCoachConversionAdapter implements CoachConversionPort {
 
         const releaseRows = await tx
           .update(players)
-          .set({ managerId: null, updatedAt: new Date() })
+          .set({
+            managerId: null,
+            // Same "ownership and since-when move together" rule as the
+            // claim adapter: a released player is a free agent with no
+            // manager-adoption week (see Player.managerSinceWeek).
+            managerSinceSeason: null,
+            managerSinceWeek: null,
+            updatedAt: new Date(),
+          })
           .where(and(eq(players.id, input.playerId), eq(players.managerId, input.managerId)))
           .returning();
 

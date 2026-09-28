@@ -1,4 +1,4 @@
-import { PlayerId, ManagerId } from '../shared/ids';
+import { PlayerId, ManagerId, GameWeek } from '../shared/ids';
 import { PlayerAttributes, Surface, isPhysicalAttribute } from './PlayerAttributes';
 import { PhysicalCeilings } from './PlayerGenerationPolicy';
 import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
@@ -133,6 +133,23 @@ export interface PlayerProps {
    * why permanent fill-only status was chosen over some broader
    * reclaim mechanism. */
   fillOnly: boolean;
+  /** The GameWeek in which this player was signed by their CURRENT
+   * manager (null for a free agent, a released player, or any row written
+   * before this field existed). Stamped when ownership transfers
+   * (TalentClaimPort's atomic claim and CreateCustomPlayerUseCase) and
+   * cleared by releaseFromManager().
+   *
+   * Its ONE consumer is AdvanceWorldWeekUseCase's inactivity penalty: a
+   * manager whose entire active roster joined during the week that is
+   * ending had no digest in which to plan entries (the digest for that
+   * week was built before the claim), so the flat −500 deduction would
+   * wipe the onboarding week's practice ladder points for no fault of
+   * theirs — the measured agent-season bug where every new manager ate
+   * two deductions before their roster could possibly enter anything.
+   * Not a gameplay stat; never exposed in a DTO. Optional on purpose:
+   * test fixtures/reconstitution that predate the field read back as
+   * null (the conservative, non-exempt value). */
+  managerSinceWeek?: GameWeek | null;
   /** Cumulative on-site prize money earned across this player's entire
    * career (see StandardPrizeMoneyTable/qualifyingPrizeMoneyFor/
    * doublesPrizeMoneyFor). Never decreases, never reset — the career
@@ -219,6 +236,12 @@ export class Player {
      * Real entry points (ClaimTalentPoolCandidateUseCase,
      * CreateCustomPlayerUseCase) always pass the real generated value. */
     talent = 0,
+    /** The GameWeek this player joined the manager — see
+     * PlayerProps.managerSinceWeek. Optional trailing param with a null
+     * default, same test-compat convention as the others: a pre-existing
+     * call site that never heard of it writes null, and the inactivity
+     * exemption simply does not apply to a null (conservative). */
+    managerSinceWeek: GameWeek | null = null,
   ): Player {
     const player = new Player({
       id,
@@ -239,6 +262,7 @@ export class Player {
       careerPrizeMoney: 0,
       seasonPrizeMoney: 0,
       seasonAgeAnchorWeeks: ageInWeeks,
+      managerSinceWeek,
     });
     player._domainEvents.push({
       type: 'PlayerHired',
@@ -292,6 +316,7 @@ export class Player {
       careerPrizeMoney: 0,
       seasonPrizeMoney: 0,
       seasonAgeAnchorWeeks: ageInWeeks,
+      managerSinceWeek: null,
     });
     player._domainEvents.push({
       type: 'FillOnlyPlayerGenerated',
@@ -326,6 +351,13 @@ export class Player {
 
   get managerId() {
     return this.props.managerId;
+  }
+
+  /** The GameWeek this player joined the current manager — see
+   * PlayerProps.managerSinceWeek. Read ONLY by AdvanceWorldWeekUseCase's
+   * inactivity exemption and by repository adapters. */
+  get managerSinceWeek(): GameWeek | null {
+    return this.props.managerSinceWeek ?? null;
   }
 
   get attributes() {
@@ -591,7 +623,7 @@ export class Player {
   }
 
   releaseFromManager(): void {
-    this.props = { ...this.props, managerId: null };
+    this.props = { ...this.props, managerId: null, managerSinceWeek: null };
   }
 
   /** Refreshes `seasonAgeAnchorWeeks` to this player's just-aged current

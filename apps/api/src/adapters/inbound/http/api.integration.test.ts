@@ -11,6 +11,7 @@ import {
   BracketGenerator,
   DoublesPair,
   GameWeek,
+  GameWorld,
   ManagerId,
   MatchId,
   MatchParticipant,
@@ -19,6 +20,8 @@ import {
   Player,
   PlayerAttributes,
   PlayerId,
+  qualifierSlotsFor,
+  qualifyingDrawSizeFor,
   SimulatedMatch,
   Skill,
   StandardAgingPolicy,
@@ -31,6 +34,7 @@ import {
   SurfaceAffinities,
   Tournament,
   TournamentId,
+  wildCardSlotsFor,
   WorldId,
 } from '@tennis-manager/domain';
 import {
@@ -954,6 +958,327 @@ describe('API', () => {
     expect(profile.json().doublesPartner).toMatchObject({ playerId: 'dbl-d', chemistry: pairDto.chemistry });
     expect(profile.json().careerPrizeMoney).toBe(cAfterSweep!.careerPrizeMoney);
     expect(profile.json().seasonPrizeMoney).toBe(cAfterSweep!.seasonPrizeMoney);
+  });
+
+  it('concurrent singles and doubles registrations on the SAME tournament both land (agent-season A)', async () => {
+    // The reported flow: two managers acting at once, one entering
+    // singles and one entering doubles. Before the fix, whichever side
+    // committed second could be refused once the other manager's flow
+    // formed the doubles draw (which flipped the broad `hasStarted` gate).
+    expect(await hirePlayer('gate-s1', 'm-gate-a')).toBe(201);
+    expect(await hirePlayer('gate-d1', 'm-gate-b')).toBe(201);
+
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Gate Concurrent Open',
+        id: TournamentId('t-gate-concurrent'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+        doublesDrawSize: 8,
+      }),
+    );
+
+    const [singles, doubles] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-gate-concurrent/entrants',
+        headers: { 'x-dev-manager-id': 'm-gate-a' },
+        payload: { playerId: 'gate-s1' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-gate-concurrent/doubles-entrants',
+        headers: { 'x-dev-manager-id': 'm-gate-b' },
+        payload: { playerId: 'gate-d1' },
+      }),
+    ]);
+    expect(singles.statusCode).toBe(201);
+    expect(doubles.statusCode).toBe(201);
+
+    const after = await deps.tournaments.findById(TournamentId('t-gate-concurrent'));
+    expect(after!.entrants.some((e) => e.playerId === PlayerId('gate-s1'))).toBe(true);
+    expect(after!.doublesEntrants).toContain(PlayerId('gate-d1'));
+    // Neither competition has started — the tournament is still open.
+    expect(after!.hasSinglesStarted).toBe(false);
+    expect(after!.hasDoublesStarted).toBe(false);
+    expect((await deps.tournaments.findOpenForSinglesRegistration()).map((t) => t.id)).toContain('t-gate-concurrent');
+  });
+
+  it('a FORMED doubles draw no longer blocks singles entries on the same tournament (the live griefing shape)', async () => {
+    // Reproduces the verified live bug exactly: a 16-draw challenger
+    // closed singles registration after a doubles draw formed, with the
+    // singles field wide open. The doubles field here is formed through
+    // the REAL FormDoublesDrawUseCase (padding included), then a singles
+    // entry must still land.
+    expect(await hirePlayer('gate-s2', 'm-gate-c')).toBe(201);
+    expect(await hirePlayer('gate-d2', 'm-gate-c')).toBe(201);
+
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Gate Doubles First',
+        id: TournamentId('t-gate-doubles-first'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+        doublesDrawSize: 8,
+      }),
+    );
+
+    const doublesEntry = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-gate-doubles-first/doubles-entrants',
+      headers: { 'x-dev-manager-id': 'm-gate-c' },
+      payload: { playerId: 'gate-d2' },
+    });
+    expect(doublesEntry.statusCode).toBe(201);
+
+    const agingPolicy = new StandardAgingPolicy();
+    for (let i = 1; i <= 20; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId(`gate-filler-${i}`),
+          `Gate Filler ${i}`,
+          25 * 52,
+          agingPolicy.stageForAge(25 * 52),
+          fixedAttributes(30),
+          'BR',
+          100,
+          { speed: 100, stamina: 100, strength: 100 },
+        ),
+      );
+    }
+    const beforeForm = await deps.tournaments.findById(TournamentId('t-gate-doubles-first'));
+    await deps.formDoublesDraw.form(beforeForm!);
+
+    const formed = await deps.tournaments.findById(TournamentId('t-gate-doubles-first'));
+    expect(formed!.hasDoublesDrawStarted).toBe(true);
+    expect(formed!.hasStarted).toBe(true); // broad flag IS true now...
+    expect(formed!.hasSinglesStarted).toBe(false); // ...but singles has NOT begun
+    // Discovery: the formed doubles bracket must not hide the event from
+    // the still-open singles registration list.
+    expect((await deps.tournaments.findOpenForSinglesRegistration()).map((t) => t.id)).toContain('t-gate-doubles-first');
+
+    // The exact 409 from the season: this singles entry used to be
+    // refused with "Cannot register an entrant: ... has already started".
+    const lateSingles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-gate-doubles-first/entrants',
+      headers: { 'x-dev-manager-id': 'm-gate-c' },
+      payload: { playerId: 'gate-s2' },
+    });
+    expect(lateSingles.statusCode).toBe(201);
+
+    const after = await deps.tournaments.findById(TournamentId('t-gate-doubles-first'));
+    expect(after!.mainEntrants.some((e) => e.playerId === PlayerId('gate-s2'))).toBe(true);
+  });
+
+  it('the mirror: a STARTED singles draw no longer blocks doubles entries (the doubles draw forms from the late entry)', async () => {
+    expect(await hirePlayer('gate-d3', 'm-gate-d')).toBe(201);
+
+    // Seed the singles main draw directly through the aggregate (a real
+    // 16-draw needs 9+ entrants before BracketGenerator can produce a
+    // round-1 match), so the singles competition has genuinely begun.
+    // Player rows first: tournament_entries FKs to players.
+    const agingPolicy = new StandardAgingPolicy();
+    const seedPlayer = (id: string) =>
+      Player.generateFillOnly(
+        PlayerId(id),
+        `Gate Seed ${id}`,
+        25 * 52,
+        agingPolicy.stageForAge(25 * 52),
+        fixedAttributes(30),
+        'BR',
+        100,
+        { speed: 100, stamina: 100, strength: 100 },
+      );
+    const tournament = Tournament.open({
+      name: 'Gate Singles First',
+      id: TournamentId('t-gate-singles-first'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 52 },
+      drawSize: 16,
+      doublesDrawSize: 8,
+    });
+    for (let i = 0; i < 9; i++) {
+      await deps.players.save(seedPlayer(`gate-seed-${i}`));
+      tournament.registerEntrant({ playerId: PlayerId(`gate-seed-${i}`), seed: null });
+    }
+    tournament.startWithBracket(new BracketGenerator().generate(tournament.mainEntrants, 16));
+    await deps.tournaments.save(tournament);
+
+    for (let i = 1; i <= 20; i++) {
+      await deps.players.save(seedPlayer(`gate-mirror-filler-${i}`));
+    }
+
+    // The singles draw standing started must NOT have closed doubles
+    // entries — this is the mirror of the live bug. The doubles use case
+    // forms the draw from this late entry (the singles auto-start had no
+    // doubles entrants to form from).
+    const doubles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-gate-singles-first/doubles-entrants',
+      headers: { 'x-dev-manager-id': 'm-gate-d' },
+      payload: { playerId: 'gate-d3' },
+    });
+    expect(doubles.statusCode).toBe(201);
+
+    const after = await deps.tournaments.findById(TournamentId('t-gate-singles-first'));
+    expect(after!.doublesEntrants).toContain(PlayerId('gate-d3'));
+    expect(after!.hasDoublesDrawStarted).toBe(true);
+  });
+
+  it('a season-final (week-50) major produces a champion inside the season — the 17-day qualifying span (agent-season B)', async () => {
+    const worldId = WorldId('main');
+    const originalWorld = await deps.worlds.findById(worldId);
+    const agingPolicy = new StandardAgingPolicy();
+    const filler = (id: string) =>
+      Player.generateFillOnly(
+        PlayerId(id),
+        `Major Filler ${id}`,
+        25 * 52,
+        agingPolicy.stageForAge(25 * 52),
+        fixedAttributes(30),
+        'BR',
+        100,
+        { speed: 100, stamina: 100, strength: 100 },
+      );
+    try {
+      // The real schedule's last in-season major start: week 50 (phase 11
+      // → weeks 11/24/37/50). Its final lands S1W52 day 3 — in-season,
+      // unlike the old week-51 start whose final fell on S2W1 day 3 (the
+      // live bug: the agent season's fourth major never crowned anyone).
+      await deps.worlds.save(
+        GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 50 }, currentDay: 1, lastAppliedTick: null }),
+      );
+      const drawSize = 128 as const;
+      await deps.tournaments.save(
+        Tournament.open({
+          name: 'E2E Season Final Major',
+          id: TournamentId('t-major-e2e'),
+          tier: 'major',
+          surface: 'hard',
+          weekScheduled: { season: 1, week: 50 },
+          drawSize,
+          qualifyingDrawSize: qualifyingDrawSizeFor('major', drawSize),
+          qualifierSlots: qualifierSlotsFor('major', drawSize),
+          wildCardSlots: wildCardSlotsFor('major'),
+        }),
+      );
+      for (let i = 0; i < 260; i++) {
+        await deps.players.save(filler(`major-filler-${i}`));
+      }
+
+      await deps.startDueTournaments.execute({ worldId });
+      const seeded = await deps.tournaments.findById(TournamentId('t-major-e2e'));
+      expect(seeded!.hasQualifyingDrawStarted).toBe(true);
+      expect(seeded!.qualifyingEntrants.length).toBe(qualifyingDrawSizeFor('major', drawSize));
+
+      // Day 1 of the event is `currentDay`; the final is scheduled for
+      // event day 17 (16 days after the start) = S1W52 day 3, so 16 real
+      // day ticks carry the tournament through qualifying, the deferred
+      // main-draw seeding, and all seven main rounds.
+      for (let day = 0; day < 16; day++) {
+        await deps.advanceWorldWeek.execute({ worldId, tickKey: `e2e-major-tick-${day}` });
+        await deps.simulateDueMatches.execute({ worldId });
+        await deps.promoteQualifiers.execute({ worldId });
+        await deps.promoteDoublesQualifiers.execute({ worldId });
+      }
+
+      const finished = await deps.tournaments.findById(TournamentId('t-major-e2e'));
+      expect(finished!.isMainDrawFinished()).toBe(true);
+      expect(finished!.cancelledAt).toBeNull();
+      const titleRows = await db
+        .select()
+        .from(schema.titles)
+        .where(eq(schema.titles.tournamentId, 't-major-e2e'));
+      expect(titleRows).toHaveLength(1);
+      // The champion is one of the tournament's own entrants, and the
+      // world clock is still inside season 1 (the final did not leak).
+      const championId = titleRows[0].playerId;
+      expect(finished!.mainEntrants.map((e) => e.playerId as string)).toContain(championId);
+      const clock = await deps.worlds.findById(worldId);
+      expect(clock!.currentWeek.season).toBe(1);
+    } finally {
+      // The suite's shared world must be restored for every other test.
+      await deps.worlds.save(originalWorld!);
+    }
+  }, 120_000);
+
+  it('a brand-new roster is exempt from the inactivity deduction for its onboarding week, and penalized the next (agent-season E)', async () => {
+    const worldId = WorldId('main');
+    const originalWorld = await deps.worlds.findById(worldId);
+    const ladderPolicy = new StandardManagerLadderPolicy();
+    const factor = ladderPolicy.weeklyDecayFactor();
+    const penalty = ladderPolicy.inactivityPenaltyPoints();
+    const agingPolicy = new StandardAgingPolicy();
+    try {
+      // Park the world at S1W52 d7: the next tick ends week 52, the
+      // agent season's onboarding shape (claim mid-week, digest predates
+      // the claim, no entry possible yet).
+      await deps.worlds.save(
+        GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 52 }, currentDay: 7, lastAppliedTick: null }),
+      );
+
+      // Manager m-onboard signs their only player THROUGH THE REAL ROUTE
+      // during week 52.
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId('onboard-free'),
+          'Onboard Free',
+          24 * 52,
+          agingPolicy.stageForAge(24 * 52),
+          fixedAttributes(35),
+          'US',
+        ),
+      );
+      await deps.managerXp.credit(ManagerId('m-onboard'), 10_000);
+      const claimed = await app.inject({
+        method: 'POST',
+        url: '/talent-pool/onboard-free/claim',
+        headers: { 'x-dev-manager-id': 'm-onboard' },
+        payload: { managerId: 'm-onboard' },
+      });
+      expect(claimed.statusCode).toBe(201);
+
+      // The stamped week round-trips through real Postgres exactly.
+      const stamped = await deps.players.findById(PlayerId('onboard-free'));
+      expect(stamped!.managerSinceWeek).toEqual({ season: 1, week: 52 });
+
+      // The control: a roster that predates the ending week.
+      const veteran = Player.hire(
+        PlayerId('veteran-p'),
+        'Veteran',
+        24 * 52,
+        fixedAttributes(35),
+        ManagerId('m-veteran'),
+        'US',
+        100,
+        { speed: 100, stamina: 100, strength: 100 },
+        50,
+        { season: 1, week: 51 },
+      );
+      veteran.pullDomainEvents();
+      await deps.players.save(veteran);
+
+      await deps.managerLadder.credit(ManagerId('m-onboard'), 1000);
+      await deps.managerLadder.credit(ManagerId('m-veteran'), 1000);
+
+      const result = await deps.advanceWorldWeek.execute({ worldId, tickKey: 'e2e-onboarding-week-52' });
+      expect(result.weekRolledOver).toBe(true);
+
+      // The onboarding manager takes the routine decay only — the flat
+      // −500 that used to wipe their first practice points is skipped.
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-onboard'))).toBeCloseTo(1000 * factor);
+      // The veteran manager (zero entries, roster predating the week)
+      // still takes it.
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-veteran'))).toBeCloseTo(1000 * factor - penalty);
+    } finally {
+      await deps.worlds.save(originalWorld!);
+    }
   });
 
   it('surfaces doubles titles and recent doubles results to the digest feed and the API, reveal-gated like singles', async () => {
@@ -2111,6 +2436,54 @@ describe('API', () => {
     });
     expect(claimed.statusCode).toBe(201);
     expect((claimed.json() as { managerId: string }).managerId).toBe('m1');
+  });
+
+  it('entry-planner ?pastWeeks includes live entries from a past-labelled week; the default window excludes them (agent-season D)', async () => {
+    // The reported bug: a two-week major's matches play into the following
+    // week, and week-2 juniors that played in week 3 vanished from the
+    // digest's pendingEntries — the planner window started at "now" and a
+    // past-labelled (but still live) event was never returned at all.
+    const agingPolicy = new StandardAgingPolicy();
+    await deps.players.save(
+      Player.generateFillOnly(
+        PlayerId('past-entry-p'),
+        'Past Entry',
+        24 * 52,
+        agingPolicy.stageForAge(24 * 52),
+        fixedAttributes(35),
+        'US',
+      ),
+    );
+    const past = Tournament.open({
+      name: 'Past Labelled Major',
+      id: TournamentId('t-past-label'),
+      tier: 'major',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 50 }, // world is S1W52
+      drawSize: 32,
+    });
+    past.registerEntrant({ playerId: PlayerId('past-entry-p'), seed: null });
+    await deps.tournaments.save(past);
+
+    const defaultWindow = await app.inject({ method: 'GET', url: '/players/past-entry-p/entry-planner' });
+    expect(defaultWindow.statusCode).toBe(200);
+    const defaultIds = defaultWindow
+      .json()
+      .flatMap((w: { entries: Array<{ id: string }> }) => w.entries)
+      .map((t: { id: string }) => t.id);
+    expect(defaultIds).not.toContain('t-past-label');
+
+    const withPast = await app.inject({ method: 'GET', url: '/players/past-entry-p/entry-planner?weeks=3&pastWeeks=2' });
+    expect(withPast.statusCode).toBe(200);
+    const weeks = withPast.json();
+    expect(weeks[0].week).toEqual({ season: 1, week: 50 });
+    const pastIds = weeks
+      .flatMap((w: { entries: Array<{ id: string }> }) => w.entries)
+      .map((t: { id: string }) => t.id);
+    expect(pastIds).toContain('t-past-label');
+
+    const invalid = await app.inject({ method: 'GET', url: '/players/past-entry-p/entry-planner?pastWeeks=9' });
+    expect(invalid.statusCode).toBe(400);
   });
 
   it('rejects creating a custom player for a non-Pro manager', async () => {

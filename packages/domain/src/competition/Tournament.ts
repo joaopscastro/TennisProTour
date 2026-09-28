@@ -390,7 +390,7 @@ export class Tournament {
    */
   cancel(reason: string): void {
     if (this.isCancelled) return;
-    if (this.hasMainDraw || this.hasQualifyingDrawStarted) {
+    if (this.hasSinglesStarted) {
       throw new Error(`Cannot cancel tournament ${this.id}: its singles competition has already started`);
     }
     if (reason.trim().length === 0) {
@@ -554,6 +554,34 @@ export class Tournament {
     );
   }
 
+  /**
+   * The SINGLES competition has begun (main bracket seeded, or qualifying
+   * being played). This — NOT the broad `hasStarted` — is what gates
+   * singles registration and what `cancel()` keys on. A tournament whose
+   * DOUBLES draw formed while its singles field was still taking entries
+   * is exactly the griefing shape the 52-week agent season measured: any
+   * manager entering doubles made the next singles registration form the
+   * doubles bracket, which flipped `hasStarted` and closed SINGLES
+   * registration for everyone on a draw that was nowhere near full
+   * (verified live: an S1W51 128-draw major closed after 5 manager
+   * entries). The doubles bracket is a different competition; only its
+   * own `hasDoublesStarted` may close doubles entries.
+   */
+  get hasSinglesStarted(): boolean {
+    return this.hasMainDraw || this.hasQualifyingDrawStarted;
+  }
+
+  /**
+   * The DOUBLES competition has begun (main doubles bracket seeded, or
+   * doubles qualifying being played). The doubles analogue of
+   * `hasSinglesStarted`, and the gate `registerDoublesEntrant` uses — a
+   * singles draw standing full/started must not close doubles entries
+   * before doubles itself starts.
+   */
+  get hasDoublesStarted(): boolean {
+    return this.hasDoublesDrawStarted || this.hasDoublesQualifyingDrawStarted;
+  }
+
   /** The singles MAIN draw has been played to its final and every match
    * there has an outcome — the aggregate's own "this event is over"
    * predicate. Deliberately false for a tournament still in qualifying
@@ -595,7 +623,11 @@ export class Tournament {
 
   registerEntrant(entrant: TournamentEntrant): void {
     this.assertNotCancelled('register an entrant');
-    if (this.hasStarted) {
+    // The SINGLES competition having started is the only thing that may
+    // close singles registration — deliberately NOT the broad
+    // `hasStarted`, which also answers true for a formed DOUBLES bracket
+    // (see hasSinglesStarted's doc comment for the live bug this fixes).
+    if (this.hasSinglesStarted) {
       throw new Error(`Cannot register an entrant: tournament ${this.id} has already started`);
     }
     if (this._entrants.some((e) => e.playerId === entrant.playerId)) {
@@ -1008,7 +1040,11 @@ export class Tournament {
     if (!this.hasDoubles) {
       throw new Error(`Tournament ${this.id} holds no doubles draw`);
     }
-    if (this.hasStarted) {
+    // Only the DOUBLES competition starting may close doubles entries
+    // (see hasDoublesStarted's doc comment) — a singles draw standing
+    // full must not, or doubles would be strictly dominated by whoever
+    // registers a single first.
+    if (this.hasDoublesStarted) {
       throw new Error(`Cannot register a doubles entrant: tournament ${this.id} has already started`);
     }
     if (this._doublesEntrants.includes(playerId)) {

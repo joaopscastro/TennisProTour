@@ -143,4 +143,49 @@ describe('PlayerEntryPlannerQuery', () => {
     const query = new PlayerEntryPlannerQuery(tournaments, worlds);
     await expect(query.forPlayer(WorldId('nope'), PlayerId('p1'))).rejects.toThrow(/not found/);
   });
+
+  it('pastWeeks includes recent PAST weeks, so a live entry whose event label has passed stays visible (the D fix)', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const worlds = new InMemoryGameWorldRepository();
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 5 }, lastAppliedTick: null }));
+    const query = new PlayerEntryPlannerQuery(tournaments, worlds);
+    const player = PlayerId('p1');
+
+    // A two-week major started in week 3 whose later rounds spill into
+    // week 4/5 — the entry's weekScheduled label is week 3.
+    const major = openTournament('t-past-live-major', { season: 1, week: 3 });
+    major.registerEntrant({ playerId: player, seed: null });
+    await tournaments.save(major);
+
+    // Default: starts at "now" — the past-labelled entry is invisible.
+    const withoutPast = await query.forPlayer(worldId, player, 2);
+    expect(withoutPast.map((r) => r.week)).toEqual([
+      { season: 1, week: 5 },
+      { season: 1, week: 6 },
+    ]);
+    expect(withoutPast.flatMap((r) => r.entries)).toEqual([]);
+
+    // pastWeeks=2: the window starts at week 3 and the live entry is back.
+    const withPast = await query.forPlayer(worldId, player, 3, undefined, 2);
+    expect(withPast.map((r) => r.week)).toEqual([
+      { season: 1, week: 3 },
+      { season: 1, week: 4 },
+      { season: 1, week: 5 },
+    ]);
+    expect(withPast[0].entries.map((t) => t.id)).toEqual([TournamentId('t-past-live-major')]);
+  });
+
+  it('pastWeeks rolls back across a season boundary correctly', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const worlds = new InMemoryGameWorldRepository();
+    await worlds.save(GameWorld.reconstitute({ id: worldId, currentWeek: { season: 2, week: 1 }, lastAppliedTick: null }));
+    const query = new PlayerEntryPlannerQuery(tournaments, worlds);
+
+    const result = await query.forPlayer(worldId, PlayerId('p1'), 3, undefined, 2);
+    expect(result.map((r) => r.week)).toEqual([
+      { season: 1, week: 51 },
+      { season: 1, week: 52 },
+      { season: 2, week: 1 },
+    ]);
+  });
 });

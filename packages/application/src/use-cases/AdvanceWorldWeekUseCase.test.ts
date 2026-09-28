@@ -457,6 +457,92 @@ describe('AdvanceWorldWeekUseCase', () => {
     expect(ladder.deductManagersCalls).toEqual([{ managerIds: [], points: expect.any(Number) }]);
   });
 
+  it('exempts a manager whose ENTIRE roster joined during the week that just ended (onboarding — agent-season E)', async () => {
+    const { worldId, useCase, ladder, ladderPolicy, players } = await setup(0);
+    await ladder.credit(ManagerId('m1'), 1000);
+    const ceilings = { speed: 100, stamina: 100, strength: 100 };
+    // The world sits at S1W1 d7 — this tick ends week 1, and this manager
+    // signed both players DURING week 1 (the digest for week 1 was built
+    // before the claims, so no entry was possible yet).
+    for (const id of ['onboard-a', 'onboard-b']) {
+      const player = Player.hire(
+        PlayerId(id),
+        `Onboard ${id}`,
+        25 * 52,
+        startingAttributes(),
+        ManagerId('m1'),
+        'XX',
+        100,
+        ceilings,
+        50,
+        { season: 1, week: 1 },
+      );
+      player.pullDomainEvents();
+      await players.save(player);
+    }
+
+    await useCase.execute({ worldId, tickKey: 'onboard-week-1' });
+
+    // Routine decay only — the flat −500 is skipped.
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * ladderPolicy.weeklyDecayFactor());
+    expect(ladder.deductManagersCalls).toEqual([{ managerIds: [], points: ladderPolicy.inactivityPenaltyPoints() }]);
+  });
+
+  it('the onboarding exemption applies ONLY to the joining week — the next inactive week is penalized as normal', async () => {
+    const { worldId, useCase, ladder, ladderPolicy, players } = await setup(0);
+    await ladder.credit(ManagerId('m1'), 1000);
+    const ceilings = { speed: 100, stamina: 100, strength: 100 };
+    const player = Player.hire(
+      PlayerId('onboard-only'),
+      'Onboard Only',
+      25 * 52,
+      startingAttributes(),
+      ManagerId('m1'),
+      'XX',
+      100,
+      ceilings,
+      50,
+      { season: 1, week: 1 },
+    );
+    player.pullDomainEvents();
+    await players.save(player);
+
+    await advanceOneWeek(useCase, worldId); // ends week 1 -> exempt
+    const factor = ladderPolicy.weeklyDecayFactor();
+    const afterFirst = await ladder.scoreFor(ManagerId('m1'));
+    expect(afterFirst).toBeCloseTo(1000 * factor);
+
+    await advanceOneWeek(useCase, worldId); // ends week 2 -> roster predates it
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(afterFirst * factor - ladderPolicy.inactivityPenaltyPoints());
+  });
+
+  it('a mixed roster (any player acquired before the ending week) is NOT exempt', async () => {
+    // setup(1) rosters p1 with NO managerSinceWeek — the conservative
+    // non-exempt read — plus a second player who joined this week.
+    const { worldId, useCase, ladder, ladderPolicy, players } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 1000);
+    const late = Player.hire(
+      PlayerId('late-joiner'),
+      'Late Joiner',
+      25 * 52,
+      startingAttributes(),
+      ManagerId('m1'),
+      'XX',
+      100,
+      { speed: 100, stamina: 100, strength: 100 },
+      50,
+      { season: 1, week: 1 },
+    );
+    late.pullDomainEvents();
+    await players.save(late);
+
+    await useCase.execute({ worldId, tickKey: 'mixed-roster-week-1' });
+
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(
+      1000 * ladderPolicy.weeklyDecayFactor() - ladderPolicy.inactivityPenaltyPoints(),
+    );
+  });
+
   it('does not decay the ladder on a mid-week day tick (no rollover)', async () => {
     const worlds = new InMemoryGameWorldRepository();
     const players = new InMemoryPlayerRepository();

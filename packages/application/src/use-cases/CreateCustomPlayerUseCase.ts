@@ -1,4 +1,4 @@
-import { ManagerId, Player, PlayerGenerationPolicy, PlayerId, RandomSource } from '@tennis-manager/domain';
+import { GameWeek, ManagerId, Player, PlayerGenerationPolicy, PlayerId, RandomSource } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, PlayerRepository } from '../ports/ports';
 import { activeRosterCount, PRO_ROSTER_CAP } from './rosterCap';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
@@ -8,6 +8,10 @@ export interface CreateCustomPlayerCommand {
   managerId: ManagerId;
   name: string;
   nationality: string;
+  /** The game week of this creation (see Player.managerSinceWeek) — the
+   * inactivity exemption's input, same as the talent-pool claim path.
+   * Optional for test compatibility; the route passes the live clock. */
+  managerSinceWeek?: GameWeek | null;
 }
 
 /**
@@ -73,6 +77,7 @@ export class CreateCustomPlayerUseCase {
       generated.potentialCeiling,
       generated.physicalCeilings,
       generated.talent,
+      command.managerSinceWeek ?? null,
     );
     await this.players.save(player);
     await this.events.publish(player.pullDomainEvents());

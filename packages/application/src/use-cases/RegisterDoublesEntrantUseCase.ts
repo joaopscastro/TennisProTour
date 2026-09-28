@@ -10,6 +10,7 @@ import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '..
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { seasonTierEntryCountFor } from './seasonEntryCap';
+import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { retryOnConflict } from './retryOnConflict';
 
 export interface RegisterDoublesEntrantCommand {
@@ -63,6 +64,16 @@ export class RegisterDoublesEntrantUseCase {
      * for the same test-compat reason: omitted, the rule is inert, exactly
      * as it is in the pre-existing doubles unit tests. */
     private readonly seniorRankPosition?: RankPositionQuery,
+    /** Doubles draw formation (P7b), used ONLY for a doubles entry made
+     * AFTER the singles draw already exists — the tournament's normal
+     * "entries close" moment (RegisterEntrantUseCase's auto-start) had no
+     * doubles entrants to form a draw from, so this late registration is
+     * what kicks the draw into existence. Before that moment, doubles
+     * entries deliberately accumulate without forming anything (forming on
+     * the first entrant would make doubles a first-mover field close —
+     * see RegisterEntrantUseCase's doc comment). Optional for test
+     * compatibility; the composition root always passes it. */
+    private readonly formDoublesDraw?: FormDoublesDrawUseCase,
   ) {}
 
   async execute(command: RegisterDoublesEntrantCommand): Promise<void> {
@@ -164,9 +175,20 @@ export class RegisterDoublesEntrantUseCase {
         }
       }
 
-      // The aggregate enforces "holds a doubles draw", "not started", and
-      // "not already entered".
+      // The aggregate enforces "holds a doubles draw", "the doubles
+      // competition has not started" and "not already entered" (see
+      // hasDoublesStarted — a singles draw standing full no longer closes
+      // doubles entries).
       tournament.registerDoublesEntrant(command.playerId);
+
+      // If the singles draw already exists, the tournament's normal
+      // "entries close" formation moment has passed with (possibly) no
+      // doubles entrants — this late entry is what forms the draw, so the
+      // event actually plays doubles. Before that moment formation is
+      // deliberately left to the singles auto-start / weekly trigger.
+      if (this.formDoublesDraw && tournament.hasSinglesStarted) {
+        await this.formDoublesDraw.form(tournament);
+      }
 
       await this.tournaments.save(tournament);
     });

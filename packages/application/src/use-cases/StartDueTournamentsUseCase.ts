@@ -691,26 +691,30 @@ export class StartDueTournamentsUseCase {
    * tournament's current state — the ONE fork the due loop and the
    * rescue pass share:
    *
-   *  - An OPEN tournament (its singles never began) registers normally
-   *    (`registerEntrant` for a qualifying place, `addMainDrawEntrant`
+   *  - An OPEN tournament (its SINGLES competition never began) registers
+   *    normally (`registerEntrant` for a qualifying place, `addMainDrawEntrant`
    *    for a main-draw one, which itself preserves the direct-place vs
-   *    reserved-wildcard-place capacity distinction).
-   *  - A STARTED tournament (its doubles draw formed while the singles
-   *    field could not be filled — the rescue path) cannot use
+   *    reserved-wildcard-place capacity distinction). Deliberately keyed on
+   *    `hasSinglesStarted`, NOT `hasStarted`: a tournament whose DOUBLES
+   *    draw formed while its singles field stayed open is still legally
+   *    registering singles entrants (see hasSinglesStarted), and this fill
+   *    path must take the same normal route for it.
+   *  - A STARTED tournament (its singles competition began while the
+   *    singles field could not be filled — the rescue path) cannot use
    *    `registerEntrant`, so it places the filler through
    *    `addQualifyingFiller` / `addMainDrawFiller`, whose own guards
    *    still refuse anything past the relevant bracket's deadline.
    */
   private addFiller(tournament: Tournament, entrant: TournamentEntrant): void {
     if (entrant.draw === 'qualifying') {
-      if (tournament.hasStarted) {
+      if (tournament.hasSinglesStarted) {
         tournament.addQualifyingFiller(entrant.playerId);
         return;
       }
       tournament.registerEntrant(entrant);
       return;
     }
-    if (!tournament.hasStarted) {
+    if (!tournament.hasSinglesStarted) {
       this.addMainDrawEntrant(tournament, entrant);
       return;
     }

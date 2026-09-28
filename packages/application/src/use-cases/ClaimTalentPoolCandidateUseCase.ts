@@ -1,4 +1,4 @@
-import { ManagerId, Player, PlayerId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
+import { GameWeek, ManagerId, Player, PlayerId, TalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { BillingPort, EventPublisherPort, PlayerRepository, TalentClaimPort } from '../ports/ports';
 import { maxRosterSizeFor, activeRosterCount } from './rosterCap';
 import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
@@ -6,6 +6,10 @@ import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 export interface ClaimTalentPoolCandidateCommand {
   playerId: PlayerId;
   managerId: ManagerId;
+  /** The game week of this signing (see Player.managerSinceWeek) — the
+   * inactivity exemption's input. Optional for test compatibility; the
+   * HTTP route always passes the live world clock. */
+  managerSinceWeek?: GameWeek | null;
 }
 
 /**
@@ -75,7 +79,12 @@ export class ClaimTalentPoolCandidateUseCase {
     // as everywhere else a generated player's age is judged against it.
     const xpCost = this.pricingPolicy.priceFor(player.attributes.overallRating(), player.ageInWeeks, TALENT_POOL_AGE_RANGE);
 
-    const outcome = await this.talentClaim.claimAndCharge(command.playerId, command.managerId, xpCost);
+    const outcome = await this.talentClaim.claimAndCharge(
+      command.playerId,
+      command.managerId,
+      xpCost,
+      command.managerSinceWeek ?? null,
+    );
     if (outcome.kind === 'player-unavailable') {
       throw new Error(`Free agent ${command.playerId} is no longer available to sign`);
     }

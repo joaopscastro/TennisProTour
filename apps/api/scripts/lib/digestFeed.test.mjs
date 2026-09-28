@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_CAN_ENTER_NOW,
+  MAX_COMMITTED_SHOWN,
   buildCandidateView,
   compactDoublesTitles,
   compactLastResults,
@@ -9,6 +10,7 @@ import {
   enterabilityBlockReason,
   hashDecisionContent,
   reconcileDecisions,
+  selectTalentPool,
   selectWeekEvents,
   tournamentConcluded,
 } from './digestFeed.mjs';
@@ -494,5 +496,54 @@ describe('enterabilityBlockReason', () => {
     expect(enterabilityBlockReason(tournament({ mainDrawEntrants: 32 }), 57)).toBe('the draw is full');
     expect(enterabilityBlockReason(tournament({ weekScheduled: { season: 1, week: 1 } }), 57)).toBe('the week has already passed');
     expect(enterabilityBlockReason(tournament(), 57)).toBeNull();
+  });
+});
+
+describe('selectTalentPool (the C fix: server-filtered signable pool)', () => {
+  const agent = (id, extras = {}) => ({ id, name: `Agent ${id}`, ...extras });
+
+  it('takes signable options from the signableOnly page even when the unfiltered youngest page is fully committed', () => {
+    // The exact measured blindness: the unfiltered youngest page has no
+    // signable row at all, while the signable page has real options.
+    const all = { candidates: [agent('locked-1', { signingBlocked: true }), agent('locked-2', { signingBlocked: true })], availableTotal: 26, poolTotal: 1400 };
+    const signable = { candidates: [agent('open-1'), agent('open-2')], availableTotal: 26, poolTotal: 1400 };
+    const { signable: shown, committed, meta } = selectTalentPool(signable, all);
+    expect(shown.map((a) => a.id)).toEqual(['open-1', 'open-2']);
+    expect(committed.map((a) => a.id)).toEqual(['locked-1', 'locked-2']);
+    expect(meta).toEqual({ availableTotal: 26, poolTotal: 1400, committedShown: 2 });
+  });
+
+  it('carries the API’s own availableTotal through unchanged (the digest count can never drift from the server count)', () => {
+    const body = { candidates: [agent('open-1')], availableTotal: 31, poolTotal: 2044 };
+    const { meta } = selectTalentPool(body, { candidates: [], availableTotal: 0, poolTotal: 2044 });
+    expect(meta.availableTotal).toBe(31);
+    expect(meta.poolTotal).toBe(2044);
+  });
+
+  it('never lists a signable agent as committed, and caps the committed affordance', () => {
+    const all = {
+      candidates: [agent('open-1', { signingBlocked: false }), ...Array.from({ length: 12 }, (_, i) => agent(`locked-${i}`, { signingBlocked: true }))],
+      availableTotal: 1,
+      poolTotal: 13,
+    };
+    const { signable, committed } = selectTalentPool({ candidates: [agent('open-1')], availableTotal: 1, poolTotal: 13 }, all);
+    expect(signable.map((a) => a.id)).toEqual(['open-1']);
+    expect(committed).toHaveLength(MAX_COMMITTED_SHOWN);
+    expect(committed.map((a) => a.id)).not.toContain('open-1');
+  });
+
+  it('still accepts a legacy array body from both reads', () => {
+    const { signable, committed, meta } = selectTalentPool([agent('open-1')], [agent('locked-1', { signingBlocked: true })]);
+    expect(signable.map((a) => a.id)).toEqual(['open-1']);
+    expect(committed.map((a) => a.id)).toEqual(['locked-1']);
+    expect(meta.availableTotal).toBe(1);
+    expect(meta.poolTotal).toBe(1);
+  });
+
+  it('treats an unavailable API body as an empty pool rather than throwing', () => {
+    const { signable, committed, meta } = selectTalentPool(null, undefined);
+    expect(signable).toEqual([]);
+    expect(committed).toEqual([]);
+    expect(meta.availableTotal).toBe(0);
   });
 });

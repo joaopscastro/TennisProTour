@@ -729,8 +729,19 @@ export interface TalentClaimPort {
    * player's attributes barely move week-to-week — pricing off a
    * pre-fetched read stays accurate even though the actual sign+charge
    * happens atomically moments later. Succeeds only if the player is
-   * still a free agent (manager_id IS NULL) at sign time. */
-  claimAndCharge(playerId: PlayerId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome>;
+   * still a free agent (manager_id IS NULL) at sign time.
+   *
+   * `managerSinceWeek` (optional) is the game week of the signing (see
+   * Player.managerSinceWeek) — stamped onto the players row in the SAME
+   * UPDATE so ownership and the week it began can never disagree. null
+   * (or omitted) leaves it unset, and the inactivity exemption simply
+   * does not apply. */
+  claimAndCharge(
+    playerId: PlayerId,
+    managerId: ManagerId,
+    xpCost: number,
+    managerSinceWeek?: GameWeek | null,
+  ): Promise<TalentClaimOutcome>;
 }
 
 /** Outcome of an atomic player-to-coach conversion. */

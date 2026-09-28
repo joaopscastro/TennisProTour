@@ -28,16 +28,33 @@ export interface TournamentSchedulePolicy {
  * (all senior sub-major tiers and every junior j-grade) runs inside a
  * single week, one round per day.
  *
- * THE WEEK-51 RULE: a 14-day event must START by season week 51 to
- * finish inside its own season. A two-week tier's final lands on day
- * 14 (roundDay below), so a week-52 start would run into S2W1 day 7 —
- * after the season bonus pool has paid out and after the season prize
- * reset, landing the result in the wrong season. Both schedule
- * policies that open two-week tiers are bound by this:
- * StandardSeniorTournamentSchedulePolicy keeps `major` off week 52 via
+ * THE DEADLINE RULE: a two-week event must start early enough that its
+ * FINAL ROUND lands by the season's last day (S1W52 d7) — a final in
+ * the next season lands after the season bonus pool has paid out and
+ * after the season prize reset, i.e. the result counts for the wrong
+ * season (and for the season harness, past its final week entirely).
+ *
+ * The deadline therefore depends on the event's REAL span, not just the
+ * policy's 14-day main-draw `durationDays`:
+ *   - a tier that holds QUALIFYING plays `qualifyingRoundCount` extra
+ *     days FIRST (the deferred-main-draw model — see roundScheduledDay),
+ *     so its span is qualifyingDays + 14. A senior `major` holds 3
+ *     qualifying days (128-player field, 16 places): span 17 days, so
+ *     the latest in-season start is week 50 (final = S1W52 d3). A
+ *     week-51 start would finish on S2W1 d3 — the exact live bug the
+ *     52-week agent season hit, where the season's fourth major was
+ *     left unplayed at the harness's end. This is why the senior major
+ *     phase is 11 (weeks 11/24/37/50).
+ *   - a tier with NO qualifying (juniorMasters) spans exactly 14 days,
+ *     so week 51 is still the latest valid start (final = S1W52 d7).
+ *
+ * Both schedule policies that open two-week tiers are bound by this:
+ * StandardSeniorTournamentSchedulePolicy keeps `major` off week 51 via
  * its every-13-week phase, and
  * StandardJuniorTournamentSchedulePolicy.isJuniorMastersWeek is week
- * 51 rather than 52. */
+ * 51. TwoWeekTierScheduling.test.ts checks the rule against the REAL
+ * round-day map INCLUDING the qualifying shift.
+ */
 const TWO_WEEK_TIERS: ReadonlySet<TournamentTier> = new Set<TournamentTier>(['major', 'juniorMasters']);
 
 export function isTwoWeekTier(tier: TournamentTier): boolean {

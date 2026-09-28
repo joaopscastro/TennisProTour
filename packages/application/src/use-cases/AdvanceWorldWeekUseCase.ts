@@ -10,6 +10,7 @@ import {
   resolveTrainingFocusForWeek,
   TrainingPolicy,
   weakestTrainableAttribute,
+  weeksBetween,
   WEEKS_PER_SEASON,
   WorldId,
 } from '@tennis-manager/domain';
@@ -356,6 +357,21 @@ export class AdvanceWorldWeekUseCase {
     }
     const inactiveManagerIds: ManagerId[] = [];
     for (const [managerId, roster] of playersByManager) {
+      // Onboarding exemption (agent-season E): a manager whose ENTIRE
+      // active roster was acquired DURING the week that just ended had no
+      // digest in which to plan entries — that week's digest was built
+      // before the claim (and its player-scoped event list was empty), so
+      // the flat deduction would wipe exactly the practice ladder points
+      // their onboarding week earned. The exemption applies to that one
+      // week: from the next rollover the roster predates the week and the
+      // normal rule applies in full. `managerSinceWeek` unset (a
+      // pre-feature row, or a path that didn't stamp one) is treated
+      // conservatively as NON-exempt, exactly like a player acquired
+      // before the week.
+      const allJoinedThisWeek = roster.every(
+        (player) => player.managerSinceWeek !== null && weeksBetween(player.managerSinceWeek, endingWeek) === 0,
+      );
+      if (allJoinedThisWeek) continue;
       let active = false;
       for (const player of roster) {
         const [singles, doubles] = await Promise.all([

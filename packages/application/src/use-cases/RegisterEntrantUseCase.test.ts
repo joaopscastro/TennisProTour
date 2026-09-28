@@ -3,6 +3,7 @@ import {
   GameWeek,
   GameWorld,
   ManagerId,
+  PairId,
   Player,
   PlayerAttributes,
   PlayerId,
@@ -18,6 +19,7 @@ import { BracketGenerator } from '@tennis-manager/domain';
 import { CHALLENGER_SEASON_ENTRY_CAP, qualifierSlotsFor, qualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
+import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
 import { RegisterEntrantUseCase } from './RegisterEntrantUseCase';
 import { RegisterDoublesEntrantUseCase } from './RegisterDoublesEntrantUseCase';
@@ -1091,6 +1093,129 @@ describe('RegisterEntrantUseCase — ranking-based tier entry restrictions', () 
     await expect(
       doubles.execute({ tournamentId: futuresId, playerId, managerId: ManagerId('m1') }),
     ).rejects.toThrow(/too high to enter a futures event/);
+  });
+});
+
+describe('registration gates follow the SINGLES/DOUBLES competition, not the broad hasStarted (agent-season A)', () => {
+  /** Records WHICH tournaments had form() attempted on them without
+   * building a real bracket — the interaction under test is WHEN
+   * formation runs, which FormDoublesDrawUseCase's own suite already
+   * covers behaviorally. */
+  function recordingForm(): { calls: string[]; useCase: FormDoublesDrawUseCase } {
+    const calls: string[] = [];
+    const useCase = {
+      form: async (t: Tournament) => {
+        calls.push(t.id);
+      },
+    } as unknown as FormDoublesDrawUseCase;
+    return { calls, useCase };
+  }
+
+  it('does NOT form the doubles draw on an ordinary singles entry that leaves the draw open', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const id = TournamentId('gate-open-t1');
+    await tournaments.save(openDoublesTournament(id, { season: 1, week: 1 }));
+
+    const { calls, useCase } = recordingForm();
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), undefined, useCase);
+    await expect(singles.execute({ tournamentId: id, playerId: PlayerId('p1') })).resolves.toBeUndefined();
+
+    // The field is nowhere near full — formation must not happen, or a
+    // single later doubles entrant turns into a first-mover field close.
+    expect(calls).toHaveLength(0);
+    const after = await tournaments.findById(id);
+    expect(after!.hasDoublesDrawStarted).toBe(false);
+  });
+
+  it('forms the doubles draw when the singles draw actually fills (the tournament’s entries-close moment)', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const id = TournamentId('gate-fill-t1');
+    await tournaments.save(openDoublesTournament(id, { season: 1, week: 1 }));
+
+    const { calls, useCase } = recordingForm();
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), undefined, useCase);
+    for (let i = 0; i < 16; i++) {
+      await singles.execute({ tournamentId: id, playerId: PlayerId(`p${i}`) });
+    }
+
+    const after = await tournaments.findById(id);
+    expect(after!.hasMainDraw).toBe(true);
+    expect(calls).toEqual([id]);
+  });
+
+  it('accepts a doubles entry AFTER the singles draw was made, and forms the doubles draw from it (the mirror case)', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const week: GameWeek = { season: 1, week: 1 };
+    const player = PlayerId('late-doubles');
+    await savePlayer(players, player, SENIOR_AGE);
+    const id = TournamentId('gate-mirror-t1');
+    await tournaments.save(openDoublesTournament(id, week));
+
+    const { calls, useCase } = recordingForm();
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), undefined, useCase);
+    for (let i = 0; i < 16; i++) {
+      await singles.execute({ tournamentId: id, playerId: PlayerId(`p${i}`) });
+    }
+    const made = await tournaments.findById(id);
+    expect(made!.hasSinglesStarted).toBe(true);
+    expect(made!.hasDoublesDrawStarted).toBe(false); // no doubles entrants at close
+    expect(calls).toEqual([id]);
+
+    // The singles draw standing full/started must NOT have closed doubles
+    // entries — this entry succeeds and kicks off the doubles draw.
+    const doubles = new RegisterDoublesEntrantUseCase(tournaments, players, undefined, undefined, useCase);
+    await expect(doubles.execute({ tournamentId: id, playerId: player, managerId: ManagerId('m1') })).resolves.toBeUndefined();
+
+    const after = await tournaments.findById(id);
+    expect(after!.doublesEntrants).toContain(player);
+    expect(calls).toEqual([id, id]); // the late entry triggered formation
+  });
+
+  it('still refuses a singles entry once the SINGLES competition has begun', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const id = TournamentId('gate-singles-closed-t1');
+    await tournaments.save(openDoublesTournament(id, { season: 1, week: 1 }));
+
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    for (let i = 0; i < 16; i++) {
+      await singles.execute({ tournamentId: id, playerId: PlayerId(`p${i}`) });
+    }
+    await expect(singles.execute({ tournamentId: id, playerId: PlayerId('too-late') })).rejects.toThrow(
+      /already started/,
+    );
+  });
+
+  it('lets a SINGLES entry through after the DOUBLES bracket was seeded while the singles field was open (the live griefing shape)', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const player = PlayerId('late-single');
+    await savePlayer(players, player, SENIOR_AGE);
+    const id = TournamentId('gate-doubles-started-t1');
+    const tournament = openDoublesTournament(id, { season: 1, week: 1 });
+
+    // Seed the doubles bracket first, exactly as the live bug produced:
+    // a doubles draw exists while the singles draw is wide open.
+    const pairs = [
+      { pairId: PairId('t-g-d0'), playerA: PlayerId('a'), playerB: PlayerId('b') },
+      { pairId: PairId('t-g-d1'), playerA: PlayerId('c'), playerB: PlayerId('d') },
+      { pairId: PairId('t-g-d2'), playerA: PlayerId('e'), playerB: PlayerId('f') },
+      { pairId: PairId('t-g-d3'), playerA: PlayerId('g'), playerB: PlayerId('h') },
+    ];
+    tournament.startDoublesWithBracket(
+      pairs,
+      new BracketGenerator().generate(pairs.map((p) => ({ playerId: p.pairId, seed: null })), 4),
+    );
+    await tournaments.save(tournament);
+
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator());
+    await expect(singles.execute({ tournamentId: id, playerId: player })).resolves.toBeUndefined();
+
+    const after = await tournaments.findById(id);
+    expect(after!.entrants.some((e) => e.playerId === player)).toBe(true);
   });
 });
 

@@ -44,6 +44,18 @@
  *             soak.mjs uses, write `week-NNN.ADVANCED.json`, append
  *             `decisions.jsonl`, update `report.json`.
  *
+ * Resilience (F, see lib/runnerResilience.mjs): `--supervise` wraps the
+ * runner in a self-restarting supervisor — an UNEXPECTED child exit (1)
+ * restarts it from the same filesystem position, up to
+ * MAX_SUPERVISOR_RESTARTS consecutive failures; a clean stop (0) or a
+ * deliberate StopRunError (3) propagates instead of looping. A crash
+ * interrupted mid-atomic-write leaves a `<file>.tmp-*` orphan: boot
+ * cleanup (after the lock is held) removes runner-owned orphans and
+ * `readJsonWithTmpFallback` recovers from a temp when the final file is
+ * missing or unparseable — the observed incident left a
+ * `weeks/week-039/state.json.tmp-…` behind and the world stalled until a
+ * human reran the same command.
+ *
  * Resume: position = newest `ADVANCED.json` + the world clock. An
  * in-flight week skips actions already `ok:true` in `apply/*.jsonl` and
  * days already checkpointed, so a day is NEVER ticked twice. A tick child
@@ -102,9 +114,16 @@ import {
   compactSinglesTitles,
   compactTournamentBase,
   reconcileDecisions,
+  selectTalentPool,
   selectWeekEvents,
   tournamentConcluded,
 } from './lib/digestFeed.mjs';
+import {
+  MAX_SUPERVISOR_RESTARTS,
+  cleanupRunnerTempFiles,
+  decideSupervisorAction,
+  readJsonWithTmpFallback,
+} from './lib/runnerResilience.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../..');
@@ -155,6 +174,11 @@ const DEFAULTS = {
   prune: true,
   archive: true,
   evidence: true,
+  /** F (harness resilience): run the runner under a self-restarting
+   * wrapper — an UNEXPECTED crash (exit 1) is retried automatically from
+   * the same filesystem position; a clean stop (0) or a deliberate
+   * StopRunError (3) still exits. See superviseRunner(). */
+  supervise: false,
 };
 
 class StopRunError extends Error {
@@ -211,6 +235,7 @@ function parseArgs(argv) {
     prune: bool(raw.prune, DEFAULTS.prune),
     archive: bool(raw.archive, DEFAULTS.archive),
     evidence: bool(raw.evidence, DEFAULTS.evidence),
+    supervise: bool(raw.supervise, DEFAULTS.supervise),
   };
 }
 
@@ -628,7 +653,10 @@ Run this exact command first:
    prize, potential projection, the last 3 AIRED singles + doubles results
    tagged by \`discipline\`, the next match still to be PLAYED, and every entry
    whose event has not concluded), the signable talent pool (claim cost
-   included), your pairs, last week's apply outcomes, and this week's event
+   included; \`talentPool\` is SERVER-FILTERED to agents you can sign right
+   now, \`talentPoolCommitted\` shows a few currently locked by a live draw,
+   and \`talentPoolMeta.availableTotal\` is the API's own signable count),
+   your pairs, last week's apply outcomes, and this week's event
    candidates (\`events.canEnterNow\` per player with \`enterable\`/\`blockedReason\`
    on every row and a \`canEnterNowMeta\` truncation summary, plus
    \`events.openByWeek\` with a per-week \`hiddenCount\` for scouting further
@@ -753,7 +781,7 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     const [profileRes, matchesRes, plannerRes, openRes] = await Promise.all([
       api('GET', `/players/${encodeURIComponent(player.id)}/profile`),
       api('GET', `/players/${encodeURIComponent(player.id)}/current-matches`),
-      api('GET', `/players/${encodeURIComponent(player.id)}/entry-planner?weeks=${MAX_OPEN_WEEKS}`),
+      api('GET', `/players/${encodeURIComponent(player.id)}/entry-planner?weeks=${MAX_OPEN_WEEKS}&pastWeeks=2`),
       api('GET', `/tournaments?status=open&playerId=${encodeURIComponent(player.id)}`),
     ]);
     const profile = profileRes.ok ? profileRes.body : null;
@@ -773,6 +801,13 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     // empty — the exact "I just registered and pendingEntries is []"
     // report. A started-but-unfinished draw is the normal live state of
     // an entry; only a fully-decided (or cancelled) event drops out.
+    // The planner request above includes `pastWeeks=2`: a live event
+    // whose WEEK LABEL is already in the past (a 14-day major's main
+    // draw spilling into the following week, a late-running junior draw)
+    // used to vanish the moment its label passed — verified live on the
+    // agent season's week-2 juniors that played into week 3. Two past
+    // weeks is the real maximum: a qualifying two-week major spans 17
+    // days, so its rounds can fall at most two week-labels after its own.
     const pendingEntries = [];
     for (const week of planner) {
       for (const entry of week.entries ?? []) {
@@ -868,25 +903,34 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     });
   }
 
-  // The pool route is paginated (P1-A2): the digest asks for a large page
-  // and maps its `candidates`. A legacy array body is still accepted.
-  const poolRes = await api('GET', '/talent-pool?limit=256');
-  const poolBody = Array.isArray(poolRes.body) ? poolRes.body : poolRes.body?.candidates;
-  const freeAgents = (Array.isArray(poolBody) ? poolBody : [])
-    .filter((a) => a.signingBlocked !== true)
-    .map((a) => ({
-      id: a.id,
-      name: a.name,
-      nationality: a.nationality,
-      ageInWeeks: a.ageInWeeks,
-      overall: overallOf(a.attributes),
-      claimCost: a.claimCost,
-      titleCount: a.titleCount ?? 0,
-      careerPrizeMoney: a.careerPrizeMoney ?? 0,
-      attributes: compactAttributes(a.attributes),
-    }))
+  // The talent pool — SERVER-FILTERED to signable (C fix). The old digest
+  // asked for the youngest 256 free agents and filtered `signingBlocked`
+  // client-side, so once that young cohort was committed to draws the list
+  // read ZERO even though the API guarantees ~25+ signable free agents
+  // deeper in the pool (measured: one agent made exactly one signing all
+  // season, another escaped only via ids from an earlier week's digest).
+  // `signableOnly=true` applies the SAME predicate the atomic claim
+  // enforces; the unfiltered page supplies a small committed-affordance
+  // list so an agent can still see locked prospects.
+  const compactAgent = (a) => ({
+    id: a.id,
+    name: a.name,
+    nationality: a.nationality,
+    ageInWeeks: a.ageInWeeks,
+    overall: overallOf(a.attributes),
+    claimCost: a.claimCost,
+    titleCount: a.titleCount ?? 0,
+    careerPrizeMoney: a.careerPrizeMoney ?? 0,
+    attributes: compactAttributes(a.attributes),
+  });
+  const poolRes = await api('GET', '/talent-pool?limit=256&signableOnly=true');
+  const poolAllRes = await api('GET', '/talent-pool?limit=48');
+  const { signable, committed, meta: talentPoolMeta } = selectTalentPool(poolRes.body, poolAllRes.body);
+  const freeAgents = signable
+    .map(compactAgent)
     .sort((a, b) => b.overall - a.overall || a.claimCost - b.claimCost)
     .slice(0, MAX_TALENT_POOL);
+  const committedFreeAgents = committed.map(compactAgent);
 
   const pairs = (Array.isArray(pairsRes.body) ? pairsRes.body : []).map((pair) => ({
     id: pair.id,
@@ -960,6 +1004,11 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     },
     roster,
     talentPool: freeAgents,
+    talentPoolCommitted: committedFreeAgents,
+    // The API's own counts, carried through unchanged: `availableTotal` is
+    // exactly what GET /talent-pool reports for the signable filter, so the
+    // digest's number can never drift from the server's.
+    talentPoolMeta,
     pairs,
     events: { canEnterNow, canEnterNowMeta, openByWeek },
     lastApply: lastApplyCompact,
@@ -1406,7 +1455,13 @@ async function phaseOpen() {
       const file = join(state.weekDir, `digest.${managerId}.json`);
       writeJsonAtomic(file, digest);
       digests[managerId] = { file, bytes: Buffer.byteLength(JSON.stringify(digest)) };
-      log(`digest built for ${managerId}`, { bytes: digests[managerId].bytes, roster: digest.roster.length, pool: digest.talentPool.length });
+      log(`digest built for ${managerId}`, {
+        bytes: digests[managerId].bytes,
+        roster: digest.roster.length,
+        pool: digest.talentPool.length,
+        poolAvailable: digest.talentPoolMeta?.availableTotal ?? null,
+        poolCommittedShown: digest.talentPoolCommitted.length,
+      });
     }
     open = { runId: run.runId, weekIndex: state.weekIndex, worldWeek: state.worldWeek, openedAt: nowIso(), readyDeadlineAt, decisionDeadlineAt, clock, digests };
     writeJsonAtomic(openFile, open);
@@ -1689,7 +1744,7 @@ async function runWeek(weekIndex) {
   ensureDir(join(state.weekDir, 'decisions'));
   ensureDir(join(state.weekDir, 'apply'));
 
-  const resumeState = readJson(join(state.weekDir, 'state.json'));
+  const resumeState = readJsonWithTmpFallback(join(state.weekDir, 'state.json'));
   if (resumeState && resumeState.weekIndex === weekIndex) {
     state = { ...state, ...resumeState, weekDir: state.weekDir };
     log(`resuming week ${weekIndex} in phase "${state.phase}"`, {
@@ -1846,6 +1901,58 @@ function validateDbName(dbUrl, allow) {
   return name;
 }
 
+// ---------------------------------------------------------------------------
+// Supervisor (F: harness resilience)
+// ---------------------------------------------------------------------------
+
+/** Restart delay between supervised attempts — long enough for a
+ * transient failure (Postgres/Redis restart, a stale lock's pid check) to
+ * clear, short enough that a real crash does not stall the world for long
+ * (the incident this exists for: ~80 minutes of stall until a human
+ * reran the same command). */
+const SUPERVISOR_RESTART_DELAY_MS = 10_000;
+
+/**
+ * The `--supervise` wrapper: spawns the runner as a CHILD with the same
+ * arguments (minus `--supervise`), and — when the child exits
+ * UNEXPECTEDLY — restarts it from the same filesystem position (the
+ * runner's normal resume logic re-reads the newest ADVANCED week + world
+ * clock, and skips already-applied days through the tick checkpoints).
+ * A clean stop (0) or a deliberate StopRunError (3) propagates and ends
+ * the loop; `MAX_SUPERVISOR_RESTARTS` consecutive unexpected exits abort
+ * rather than looping forever. The parent deliberately does NOT take the
+ * run lock — the child does, on every attempt, so the stale-lock takeover
+ * path covers an abruptly-killed child.
+ */
+async function superviseRunner(argv) {
+  const childArgs = argv.filter((token) => token !== '--supervise');
+  const self = fileURLToPath(import.meta.url);
+  let restarts = 0;
+  for (;;) {
+    console.log(`[agent-season:supervisor] starting runner (restart ${restarts}/${MAX_SUPERVISOR_RESTARTS})`);
+    const code = await new Promise((resolvePromise) => {
+      const child = spawn(process.execPath, [self, ...childArgs], { stdio: 'inherit' });
+      child.on('error', () => resolvePromise(-1));
+      child.on('exit', (childCode) => resolvePromise(childCode ?? -1));
+    });
+    const decision = decideSupervisorAction(code);
+    if (decision.action === 'stop') {
+      console.log(`[agent-season:supervisor] stopping: ${decision.reason}`);
+      process.exit(code === 3 ? 3 : 0);
+    }
+    restarts += 1;
+    if (restarts > MAX_SUPERVISOR_RESTARTS) {
+      console.error(
+        `[agent-season:supervisor] giving up after ${MAX_SUPERVISOR_RESTARTS} unexpected exits — ` +
+          `fix the cause and rerun the same command`,
+      );
+      process.exit(1);
+    }
+    console.log(`[agent-season:supervisor] ${decision.reason}; restarting in ${SUPERVISOR_RESTART_DELAY_MS / 1000}s`);
+    await sleep(SUPERVISOR_RESTART_DELAY_MS);
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   runCtx = {
@@ -1867,12 +1974,22 @@ async function main() {
   apiBase = args.api;
   ratePerSec = args.ratePerSec;
 
+  // F: the self-restarting wrapper. It never runs the runner itself —
+  // it only spawns children, so the child's own lock/heartbeat/resume
+  // logic is unchanged.
+  if (args.supervise) {
+    await superviseRunner(process.argv.slice(2));
+    return;
+  }
+
   const dbName = validateDbName(args.db, args.allowDb);
   const runRoot = resolve(REPO_ROOT, args.runRoot);
   const runId = args.runId ?? `agents-${todayStamp()}`;
   const runDir = join(runRoot, runId);
   const runFile = join(runDir, 'run.json');
-  const existingRun = readJson(runFile);
+  // F: recover a run.json that was lost/corrupted mid-write from its
+  // newest atomic-write temp (see runnerResilience.mjs).
+  const existingRun = readJsonWithTmpFallback(runFile);
   const fresh = !existingRun;
 
   if (fresh) {
@@ -1923,11 +2040,21 @@ async function main() {
 
   runnerLogPath = join(runDir, 'runner.log');
   acquireLock();
+  // F: remove orphaned atomic-write temps now that the lock guarantees no
+  // live writer. The observed incident left
+  // weeks/week-039/state.json.tmp-19232-… behind when the process crashed
+  // mid-collect; the resume then kept working, but the orphans accumulated
+  // and a crash before the FIRST write of a file had no final copy to read
+  // at all (handled by readJsonWithTmpFallback).
+  const staleRunnerTemps = cleanupRunnerTempFiles(runDir);
+  if (staleRunnerTemps.length > 0) {
+    log('removed stale runner temp files', { count: staleRunnerTemps.length, sample: staleRunnerTemps.slice(0, 5) });
+  }
 
   const pool = new pg.Pool({ connectionString: args.db, max: 4 });
   db = await pool.connect();
 
-  report = readJson(join(runDir, 'report.json')) ?? {
+  report = readJsonWithTmpFallback(join(runDir, 'report.json')) ?? {
     meta: {
       kind: 'agent-season',
       runId,

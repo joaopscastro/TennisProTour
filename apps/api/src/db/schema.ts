@@ -432,6 +432,16 @@ export const players = pgTable('players', {
    * false) or a fillOnly player, which never had a manager at all (see
    * fillOnly below). */
   managerId: text('manager_id'),
+  /** The GameWeek this player joined their CURRENT manager (see
+   * Player.managerSinceWeek) — flattened to season/week like every other
+   * GameWeek column, both null for a free agent/released player and for
+   * every pre-existing row. Its one consumer is AdvanceWorldWeekUseCase's
+   * inactivity exemption: a manager whose whole active roster joined in
+   * the week that is ending had no digest in which to plan (the
+   * onboarding-week bug where new managers' practice points were wiped
+   * by a flat −500 they could not have avoided). */
+  managerSinceSeason: integer('manager_since_season'),
+  managerSinceWeek: integer('manager_since_week'),
   ageInWeeks: integer('age_in_weeks').notNull(),
   /** See Player.seasonAgeAnchorWeeks' doc comment (packages/domain) —
    * this, never ageInWeeks, is what junior age-band eligibility is
@@ -652,6 +662,14 @@ export const tournaments = pgTable('tournaments', {
    * findOpenForRegistration() is a flag filter, not an EXISTS probe
    * against tournament_matches. */
   hasStarted: boolean('has_started').notNull().default(false),
+  /** Mirrors Tournament.hasSinglesStarted (the SINGLES competition has
+   * begun: main or qualifying bracket seeded). Deliberately separate
+   * from `has_started`, which also flips for a formed DOUBLES bracket:
+   * registration discovery must key on the singles competition (a
+   * doubles draw forming must never hide an event that is still
+   * accepting singles entries — the 52-week agent season's griefing
+   * shape). Denormalized for the same reason as has_started. */
+  singlesStarted: boolean('singles_started').notNull().default(false),
   /** Optimistic-concurrency token (see Tournament.persistenceVersion).
    * Bumped on every DrizzleTournamentRepository.save; a whole-aggregate
    * write only lands if the stored token still matches the one the

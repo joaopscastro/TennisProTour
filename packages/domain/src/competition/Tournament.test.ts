@@ -435,6 +435,101 @@ describe('Tournament doubles draw (P7b)', () => {
   });
 });
 
+describe('a doubles draw starting never closes SINGLES registration (and vice versa)', () => {
+  // The exact live griefing shape from the 52-week agent season: any
+  // manager entering doubles made the next singles registration form the
+  // doubles bracket, which flipped the old broad `hasStarted` gate and
+  // closed SINGLES registration for everyone on a draw that was nowhere
+  // near full. The gate is now the SINGLES competition's own start
+  // (hasSinglesStarted) / the DOUBLES competition's own start
+  // (hasDoublesStarted).
+  function withDoubles(): Tournament {
+    return Tournament.open(baseProps({ tier: 'challenger', drawSize: 16, doublesDrawSize: 4 }));
+  }
+
+  function seedDoubles(t: Tournament): void {
+    const pairs = [
+      { pairId: PairId('t1-d0'), playerA: PlayerId('a'), playerB: PlayerId('b') },
+      { pairId: PairId('t1-d1'), playerA: PlayerId('c'), playerB: PlayerId('d') },
+      { pairId: PairId('t1-d2'), playerA: PlayerId('e'), playerB: PlayerId('f') },
+      { pairId: PairId('t1-d3'), playerA: PlayerId('g'), playerB: PlayerId('h') },
+    ];
+    const generator = new BracketGenerator();
+    t.startDoublesWithBracket(pairs, generator.generate(pairs.map((p) => ({ playerId: p.pairId, seed: null })), 4));
+  }
+
+  function seedSingles(t: Tournament): void {
+    // A 16-draw needs at least 9 entrants before BracketGenerator can
+    // produce a real round-1 match (every smaller field would be all
+    // byes — see startWithBracket's guard).
+    for (let i = 0; i < 9; i++) {
+      t.registerEntrant({ playerId: PlayerId(`s${i}`), seed: null });
+    }
+    t.startWithBracket(new BracketGenerator().generate(t.mainEntrants, 16));
+  }
+
+  it('still accepts a singles entrant after the DOUBLES bracket has been seeded', () => {
+    const t = withDoubles();
+    seedDoubles(t);
+
+    // Preconditions: the tournament is broadly "started" via its doubles
+    // bracket, but its singles competition has NOT begun.
+    expect(t.hasStarted).toBe(true);
+    expect(t.hasDoublesStarted).toBe(true);
+    expect(t.hasSinglesStarted).toBe(false);
+
+    // The regression: this used to throw "has already started" for every
+    // manager, even though the singles draw was wide open.
+    t.registerEntrant({ playerId: PlayerId('late-single'), seed: null });
+    expect(t.mainEntrants.map((e) => e.playerId)).toContain(PlayerId('late-single'));
+  });
+
+  it('still accepts a doubles entrant after the SINGLES bracket has been seeded', () => {
+    const t = withDoubles();
+    seedSingles(t);
+
+    expect(t.hasSinglesStarted).toBe(true);
+    expect(t.hasDoublesStarted).toBe(false);
+
+    t.registerDoublesEntrant(PlayerId('late-doubles'));
+    expect(t.doublesEntrants).toContain(PlayerId('late-doubles'));
+  });
+
+  it('still refuses a singles entrant once the SINGLES competition has begun', () => {
+    const t = withDoubles();
+    seedSingles(t);
+    expect(() => t.registerEntrant({ playerId: PlayerId('too-late'), seed: null })).toThrow(/already started/);
+  });
+
+  it('still refuses a doubles entrant once the DOUBLES competition has begun', () => {
+    const t = withDoubles();
+    seedDoubles(t);
+    expect(() => t.registerDoublesEntrant(PlayerId('too-late'))).toThrow(/already started/);
+  });
+
+  it('refuses a doubles entrant once DOUBLES QUALIFYING has been seeded even though no singles draw exists', () => {
+    const t = Tournament.open(
+      baseProps({ tier: 'major', drawSize: 32, doublesDrawSize: 16, doublesQualifyingDrawSize: 8, doublesQualifierSlots: 2 }),
+    );
+    const qpairs = [
+      { pairId: PairId('t1-qd0'), playerA: PlayerId('a'), playerB: PlayerId('b') },
+      { pairId: PairId('t1-qd1'), playerA: PlayerId('c'), playerB: PlayerId('d') },
+      { pairId: PairId('t1-qd2'), playerA: PlayerId('e'), playerB: PlayerId('f') },
+      { pairId: PairId('t1-qd3'), playerA: PlayerId('g'), playerB: PlayerId('h') },
+      { pairId: PairId('t1-qd4'), playerA: PlayerId('i'), playerB: PlayerId('j') },
+      { pairId: PairId('t1-qd5'), playerA: PlayerId('k'), playerB: PlayerId('l') },
+      { pairId: PairId('t1-qd6'), playerA: PlayerId('m'), playerB: PlayerId('n') },
+      { pairId: PairId('t1-qd7'), playerA: PlayerId('o'), playerB: PlayerId('p') },
+    ];
+    t.startDoublesQualifyingWithBracket(
+      qpairs,
+      new BracketGenerator().generate(qpairs.map((p) => ({ playerId: p.pairId, seed: null })), 8),
+    );
+    expect(t.hasDoublesStarted).toBe(true);
+    expect(() => t.registerDoublesEntrant(PlayerId('too-late'))).toThrow(/already started/);
+  });
+});
+
 describe('Tournament.addMainDrawFiller — rescuing a too-sparse promoted draw', () => {
   function startedWithQualifying(): Tournament {
     const t = Tournament.open(

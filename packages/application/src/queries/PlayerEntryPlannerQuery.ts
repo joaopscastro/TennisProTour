@@ -41,17 +41,26 @@ export class PlayerEntryPlannerQuery {
   ) {}
 
   /** `startWeek` defaults to the world's current week (inclusive) —
-   * the planner always starts from "now," never the past, unless a
-   * caller explicitly asks otherwise. */
+   * `pastWeeks` (default 0) pushes that start BACKWARD by N weeks, so a
+   * caller that must keep a LIVE entry visible even when its event's
+   * label is already in the past (a 14-day major's main draw spilling
+   * into the following week, a late-running draw) can ask for it. The
+   * planner itself stays date-agnostic: it returns whatever weeks the
+   * caller asks for, and the caller decides whether an entry is still
+   * alive (the digest's `tournamentConcluded` is exactly that filter).
+   * Without this, a past-labelled live event silently vanished from the
+   * digest's `pendingEntries` the moment its week passed — the "week-2
+   * juniors that played in week 3 vanished" bug. */
   async forPlayer(
     worldId: WorldId,
     playerId: PlayerId,
     weeksAhead: number = DEFAULT_PLANNER_WEEKS,
     startWeek?: GameWeek,
+    pastWeeks: number = 0,
   ): Promise<PlannerWeek[]> {
     const world = await this.worlds.findById(worldId);
     if (!world) throw new Error(`Game world ${worldId} not found`);
-    const from = startWeek ?? world.currentWeek;
+    const from = addWeeks(startWeek ?? world.currentWeek, -Math.max(0, Math.trunc(pastWeeks)));
 
     const result: PlannerWeek[] = [];
     for (let i = 0; i < weeksAhead; i++) {

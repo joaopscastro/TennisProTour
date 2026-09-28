@@ -93,18 +93,20 @@ describe('bootstrapWorld', () => {
     expect(first.currentWeekSlateOpened).toBeGreaterThan(0);
 
     // Phase 4: the whole-season sweep opens exactly four majors, on the
-    // week-51-safe cadence (weeks 12/25/38/51 of season 1) — never week
-    // 52, which a 14-day event could not finish inside its season (see
-    // the schedule policy's week-51 rule).
+    // in-season cadence (weeks 11/24/37/50 of season 1) — never week 52,
+    // and never week 51 either: a qualifying major spans 3 qualifying
+    // days + 14 main-draw days, so a week-51 start would finish on S2W1
+    // day 3 (see TournamentSchedulePolicy's deadline rule; this was the
+    // live agent-season bug where the fourth major crowned no champion).
     const majorWeeks = open
       .filter((t) => t.tier === 'major')
       .map((t) => ({ season: t.weekScheduled.season, week: t.weekScheduled.week }))
       .sort((a, b) => a.week - b.week);
     expect(majorWeeks).toEqual([
-      { season: 1, week: 12 },
-      { season: 1, week: 25 },
-      { season: 1, week: 38 },
-      { season: 1, week: 51 },
+      { season: 1, week: 11 },
+      { season: 1, week: 24 },
+      { season: 1, week: 37 },
+      { season: 1, week: 50 },
     ]);
 
     // Phase 2: the fixed demo draw exists AND has been seeded.

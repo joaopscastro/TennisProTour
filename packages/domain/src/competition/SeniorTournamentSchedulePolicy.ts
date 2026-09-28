@@ -40,22 +40,29 @@ export interface SeniorOpening {
  * per week (`SENIOR_WEEKLY_ENTRY_CAP` = 1), so the two are a genuine
  * choice, never two entries.
  *
- * The major's 13-week cadence carries a `phase: 12` offset rather than
- * firing on absolute week ≡ 0 (mod 13) — see TWO_WEEK_TIERS' week-51
+ * The major's 13-week cadence carries a `phase: 11` offset rather than
+ * firing on absolute week ≡ 0 (mod 13) — see TWO_WEEK_TIERS' deadline
  * rule in TournamentSchedulePolicy.ts. Absolute weeks ≡ 0 (mod 13) are
- * season weeks 13/26/39/52, and week 52 is forbidden for a two-week
- * tier (its final would land on S2W1 day 7, after the season bonus pool
- * and the season prize reset). `phase: 12` shifts every major one week
- * earlier — season weeks 12/25/38/51, still exactly four per 13-week-
+ * season weeks 13/26/39/52; week 52 is forbidden for a two-week tier,
+ * and so is week 51 — a `major` holds 3 qualifying days (128-player
+ * field, 16 places), so its real span is 3 + 14 = 17 days and a week-51
+ * start would play its final on S2W1 day 3: after the season bonus pool
+ * has paid out and after the season prize reset, landing the result in
+ * the wrong season. This was a real, live bug (the agent-played
+ * season's fourth major never crowned a champion): Batch 3 moved the
+ * phase off week 52 believing the 14-day main draw was the whole event,
+ * but the qualifying shift was not counted. `phase: 11` shifts every
+ * major to season weeks 11/24/37/50 — still exactly four per 13-week-
  * spaced season, still a major every 13 weeks across season boundaries
- * (51 → 64 = S2W12). Because 52 ≡ 0 (mod 13), the phase holds for
- * EVERY season, not just the first.
+ * (50 → 63 = S2W11), and the week-50 major's final lands on S1W52 day 3,
+ * in-season and before the rollover. Because 52 ≡ 0 (mod 13), the phase
+ * holds for EVERY season, not just the first.
  */
 const SCHEDULE: ReadonlyArray<SeniorOpening & { everyNWeeks: number; phase?: number }> = [
   { tier: 'futures', drawSize: 32, count: 2, everyNWeeks: 1 },
   { tier: 'challenger', drawSize: 32, count: 2, everyNWeeks: 1 },
   { tier: 'tour', drawSize: 64, count: 2, everyNWeeks: 1 },
-  { tier: 'major', drawSize: 128, count: 1, everyNWeeks: 13, phase: 12 },
+  { tier: 'major', drawSize: 128, count: 1, everyNWeeks: 13, phase: 11 },
 ];
 
 export interface SeniorTournamentSchedulePolicy {

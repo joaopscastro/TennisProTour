@@ -379,6 +379,20 @@
       "when": 1790593963760,
       "tag": "0053_neat_the_hunter",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1790613171223,
+      "tag": "0054_giant_shockwave",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1790614629282,
+      "tag": "0055_petite_nightcrawler",
+      "breakpoints": true
     }
   ]
 }

@@ -558,7 +558,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     new MathRandomSource(),
   );
   const weeklyEntryGuard = new DrizzleWeeklyEntryGuardAdapter(options.db);
-  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players, weeklyEntryGuard, rankPosition);
+  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players, weeklyEntryGuard, rankPosition, formDoublesDraw);
 
   // Masters Cup (P8b): the season-end capstone, generated on a season-end
   // rollover, simulated match-by-match, and advanced from groups to

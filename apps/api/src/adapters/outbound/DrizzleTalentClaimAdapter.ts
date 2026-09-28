@@ -1,5 +1,5 @@
 import { and, eq, gte, isNull, sql } from 'drizzle-orm';
-import { ManagerId, PlayerId } from '@tennis-manager/domain';
+import { GameWeek, ManagerId, PlayerId } from '@tennis-manager/domain';
 import { TalentClaimOutcome, TalentClaimPort } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { managerProgression, players } from '../../db/schema';
@@ -52,7 +52,12 @@ class ClaimRollback extends Error {
 export class DrizzleTalentClaimAdapter implements TalentClaimPort {
   constructor(private readonly db: Db) {}
 
-  async claimAndCharge(playerId: PlayerId, managerId: ManagerId, xpCost: number): Promise<TalentClaimOutcome> {
+  async claimAndCharge(
+    playerId: PlayerId,
+    managerId: ManagerId,
+    xpCost: number,
+    managerSinceWeek?: GameWeek | null,
+  ): Promise<TalentClaimOutcome> {
     try {
       return await this.db.transaction(async (tx) => {
         const spendRows = await tx
@@ -77,7 +82,17 @@ export class DrizzleTalentClaimAdapter implements TalentClaimPort {
         // seeded concurrently) can never slip through a race window.
         const signRows = await tx
           .update(players)
-          .set({ managerId, fillOnly: false, updatedAt: new Date() })
+          .set({
+            managerId,
+            fillOnly: false,
+            // Stamped in the SAME conditional UPDATE as ownership, so
+            // "this manager owns the player" and "since when" can never
+            // disagree (see Player.managerSinceWeek — the inactivity
+            // exemption's input).
+            managerSinceSeason: managerSinceWeek?.season ?? null,
+            managerSinceWeek: managerSinceWeek?.week ?? null,
+            updatedAt: new Date(),
+          })
           .where(and(eq(players.id, playerId), isNull(players.managerId), noUnfinishedCommitment(playerId)))
           .returning();
 

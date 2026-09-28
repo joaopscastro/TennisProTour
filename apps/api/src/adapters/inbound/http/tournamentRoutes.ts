@@ -582,7 +582,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
   app.get<{ Querystring: { status?: string; playerId?: string } }>('/tournaments', async (request, reply) => {
     const playerId = request.query.playerId ? PlayerId(request.query.playerId) : null;
     if (request.query.status === 'open') {
-      const list = await deps.tournaments.findOpenForRegistration();
+      const list = await deps.tournaments.findOpenForSinglesRegistration();
       // "Open for entries" means "still accepting entrants for a week
       // that hasn't fully passed." A tournament scheduled for a PAST
       // week should have been started by StartDueTournamentsUseCase, but

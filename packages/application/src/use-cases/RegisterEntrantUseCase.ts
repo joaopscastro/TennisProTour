@@ -274,14 +274,22 @@ export class RegisterEntrantUseCase {
           const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
           tournament.startWithBracket(bracket);
         }
-      }
 
-      // Form the doubles draw too (P7b), if wired — the singles auto-start
-      // closes registration, so whatever doubles entrants signed up during
-      // the open window are paired and seeded here rather than waiting for
-      // the weekly trigger.
-      if (this.formDoublesDraw) {
-        await this.formDoublesDraw.form(tournament);
+        // The singles draw being made is the tournament's "entries
+        // close" moment, so the doubles draw is formed HERE — only here
+        // and in the weekly StartDueTournaments trigger, never on every
+        // ordinary singles registration. That scoping is load-bearing:
+        // formation pads and seeds the doubles bracket, and the 52-week
+        // agent season proved that doing it mid-window turns ANY single
+        // doubles entrant into a first-mover field close (and, before
+        // the hasSinglesStarted/hasDoublesStarted gates, into a
+        // singles-registration kill-switch for every other manager).
+        // A doubles field with no entrants at this moment simply stays
+        // open; the doubles route forms it from the first entry made
+        // after the singles draw exists (see RegisterDoublesEntrantUseCase).
+        if (this.formDoublesDraw) {
+          await this.formDoublesDraw.form(tournament);
+        }
       }
 
       await this.tournaments.save(tournament);

@@ -44,13 +44,40 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   async findOpenForRegistration(): Promise<Tournament[]> {
-    // A CANCELLED draw is terminal and never offered again (see
-    // Tournament.cancel) — it would otherwise sit in the due list
-    // forever because its has_started flag stays false.
+    // NO bracket has started at all — deliberately `has_started`, NOT
+    // `singles_started`: this is the START/FILL path's input
+    // (StartDueTournamentsUseCase's due loop, generation idempotency,
+    // the fill-only demand sizing), where a tournament whose doubles
+    // bracket formed is handled by the dedicated singles-unseeded rescue
+    // pass instead. Discovery of singles-enterable events uses
+    // `findOpenForSinglesRegistration` below. A CANCELLED draw is
+    // terminal and never offered again (see Tournament.cancel) — it
+    // would otherwise sit in the due list forever because its
+    // has_started flag stays false.
     const rows = await this.db
       .select()
       .from(tournaments)
       .where(and(eq(tournaments.hasStarted, false), isNull(tournaments.cancelledAt)));
+    return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  /**
+   * The DISCOVERY counterpart: every tournament still accepting SINGLES
+   * entries — its singles competition (main or qualifying) has not
+   * begun. Deliberately `singles_started`, NOT `has_started`: a
+   * tournament whose DOUBLES draw formed is still singles-enterable
+   * (see Tournament.hasSinglesStarted / registerEntrant), and hiding it
+   * from the open list is exactly how the 52-week agent season's
+   * griefing bug became invisible-but-real. Used by the HTTP open list
+   * (`GET /tournaments?status=open`), never by the start/fill loops —
+   * those keep `findOpenForRegistration`'s "nothing started at all"
+   * semantics.
+   */
+  async findOpenForSinglesRegistration(): Promise<Tournament[]> {
+    const rows = await this.db
+      .select()
+      .from(tournaments)
+      .where(and(eq(tournaments.singlesStarted, false), isNull(tournaments.cancelledAt)));
     return Promise.all(rows.map((row) => this.load(row)));
   }
 
@@ -384,6 +411,7 @@ export class DrizzleTournamentRepository implements TournamentRepository {
       doublesQualifierSlots: tournament.doublesQualifierSlots,
       hostCountry: tournament.hostCountry,
       hasStarted: tournament.hasStarted,
+      singlesStarted: tournament.hasSinglesStarted,
       cancelledAt: tournament.cancelledAt ? new Date(tournament.cancelledAt) : null,
       cancelReason: tournament.cancelReason,
     };

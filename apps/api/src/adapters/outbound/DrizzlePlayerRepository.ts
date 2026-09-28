@@ -136,6 +136,10 @@ export function toDomain(row: PlayerRow): Player {
     name: row.name,
     nationality: row.nationality,
     managerId: row.managerId === null ? null : ManagerId(row.managerId),
+    managerSinceWeek:
+      row.managerSinceSeason !== null && row.managerSinceWeek !== null
+        ? { season: row.managerSinceSeason, week: row.managerSinceWeek }
+        : null,
     ageInWeeks: row.ageInWeeks,
     seasonAgeAnchorWeeks: row.seasonAgeAnchorWeeks,
     stage: row.stage as PlayerLifecycleStage,
@@ -183,6 +187,8 @@ function toRow(player: Player): typeof players.$inferInsert {
     name: player.name,
     nationality: player.nationality,
     managerId: player.managerId,
+    managerSinceSeason: player.managerSinceWeek?.season ?? null,
+    managerSinceWeek: player.managerSinceWeek?.week ?? null,
     ageInWeeks: player.ageInWeeks,
     seasonAgeAnchorWeeks: player.seasonAgeAnchorWeeks,
     stage: player.stage,

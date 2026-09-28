@@ -78,11 +78,16 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
     async (request, reply) => {
       const manager = await requireManager(request, reply, deps);
       if (!manager) return;
+      // The world clock is read so the new player is stamped with its
+      // real game week — the AdvanceWorldWeekUseCase inactivity
+      // exemption's input, same as the talent-pool claim route.
+      const world = await deps.worlds.findById(WORLD_ID);
       const player = await deps.createCustomPlayer.execute({
         playerId: PlayerId(deps.idGenerator.generate()),
         managerId: manager.id,
         name: request.body.name,
         nationality: request.body.nationality,
+        managerSinceWeek: world?.currentWeek ?? null,
       });
       // Fire-and-forget (analytics never throws) — see AnalyticsPort.
       void deps.analytics.record({
@@ -271,25 +276,40 @@ export function registerPlayerRoutes(app: FastifyInstance, deps: Dependencies): 
   // in ONE response — what a frontend planner UI needs to show several
   // weeks at a glance without firing one request per week. ?weeks=
   // overrides the default span (DEFAULT_PLANNER_WEEKS); a caller can't
-  // ask for zero or a negative span, or an unbounded one.
-  app.get<{ Params: { id: string }; Querystring: { weeks?: string } }>('/players/:id/entry-planner', async (request, reply) => {
-    const player = await deps.players.findById(PlayerId(request.params.id));
-    if (!player) {
-      return reply.code(404).send({ error: `Player ${request.params.id} not found` });
-    }
-    let weeksAhead: number | undefined;
-    if (request.query.weeks !== undefined) {
-      weeksAhead = Number(request.query.weeks);
-      if (!Number.isInteger(weeksAhead) || weeksAhead < 1 || weeksAhead > 52) {
-        return reply.code(400).send({ error: '?weeks must be an integer between 1 and 52' });
+  // ask for zero or a negative span, or an unbounded one. ?pastWeeks=
+  // (0-4, default 0) additionally includes that many weeks BEFORE the
+  // current one — the digest's `pendingEntries` needs a live event whose
+  // week label has passed (a major's main draw spilling into the next
+  // week) to stay visible until it concludes; the caller filters out the
+  // concluded ones.
+  app.get<{ Params: { id: string }; Querystring: { weeks?: string; pastWeeks?: string } }>(
+    '/players/:id/entry-planner',
+    async (request, reply) => {
+      const player = await deps.players.findById(PlayerId(request.params.id));
+      if (!player) {
+        return reply.code(404).send({ error: `Player ${request.params.id} not found` });
       }
-    }
-    const planner = await deps.entryPlanner.forPlayer(WORLD_ID, player.id, weeksAhead);
-    return planner.map(({ week, entries }) => ({
-      week,
-      entries: entries.map((t) => toTournamentDto(t)),
-    }));
-  });
+      let weeksAhead: number | undefined;
+      if (request.query.weeks !== undefined) {
+        weeksAhead = Number(request.query.weeks);
+        if (!Number.isInteger(weeksAhead) || weeksAhead < 1 || weeksAhead > 52) {
+          return reply.code(400).send({ error: '?weeks must be an integer between 1 and 52' });
+        }
+      }
+      let pastWeeks = 0;
+      if (request.query.pastWeeks !== undefined) {
+        pastWeeks = Number(request.query.pastWeeks);
+        if (!Number.isInteger(pastWeeks) || pastWeeks < 0 || pastWeeks > 4) {
+          return reply.code(400).send({ error: '?pastWeeks must be an integer between 0 and 4' });
+        }
+      }
+      const planner = await deps.entryPlanner.forPlayer(WORLD_ID, player.id, weeksAhead, undefined, pastWeeks);
+      return planner.map(({ week, entries }) => ({
+        week,
+        entries: entries.map((t) => toTournamentDto(t)),
+      }));
+    },
+  );
 
   // Roster read for the dashboard. An empty roster is a 200 with [],
   // not a 404 — a manager with no players is a normal state.
