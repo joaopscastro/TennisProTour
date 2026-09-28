@@ -111,6 +111,7 @@ import {
   buildCandidateView,
   compactDoublesTitles,
   compactLastResults,
+  compactShop,
   compactSinglesTitles,
   compactTournamentBase,
   reconcileDecisions,
@@ -140,6 +141,9 @@ const ACTION_ORDER = [
   'enterSingles',
   'enterDoubles',
   'setTrainingFocus',
+  // Cosmetic-only, no game-state interaction — applied last so it can
+  // never influence a competitive action's outcome in the same week.
+  'purchaseCosmetic',
 ];
 const FORBIDDEN_DIGEST_KEYS = ['experience', 'talent', 'potentialCeiling', 'physicalCeilings'];
 
@@ -506,9 +510,17 @@ your behalf. You read your digest and write one decision file per week.
 | enterDoubles | playerId, tournamentId | POST /tournaments/:tournamentId/doubles-entrants {playerId} |
 | setTrainingFocus | playerId, attribute, effectiveFrom? | PUT /players/:playerId/training-focus |
 | practice | playerId, days[1..7] | POST /players/:playerId/practice on each listed day |
+| purchaseCosmetic | itemId | POST /managers/cosmetics/purchase {itemId} |
 
 - Trainable attributes: serve, forehand, backhand, volley, speed, stamina,
   strength, doubles. Mental attributes (consistency, clutch) are NEVER trainable.
+- \`purchaseCosmetic\` buys one item from the XP cosmetics shop using the
+  \`shop\` section of your digest (\`shop.items[].itemId\`, \`price\`, \`owned\`,
+  \`affordable\`). Cosmetics are STRICTLY presentation-only — they change a
+  banner, a badge glyph or a celebration skin and NOTHING competitive
+  (never attributes, training, fatigue, rankings or match results). Buying
+  is optional self-expression for leftover XP; XP is otherwise only spent
+  on claims and coach conversions.
 - \`effectiveFrom\` is optional \`{season, week}\`; it must be the current or a
   future week. Omit it to start now.
 - \`practice\` days are game days 1..7 of THIS week; practice runs before that
@@ -557,12 +569,19 @@ your behalf. You read your digest and write one decision file per week.
   week's senior \`tour\`/major is always included, and \`hiddenCount\` tells
   you how many of that week's events were left out (never assume the list
   is the whole week).
+- \`shop\` — the XP cosmetics shop for your manager: \`{ xpBalance, owned,
+  items }\`. Every item carries \`{ itemId, kind, name, description, price,
+  glyph, owned, affordable }\`. Cosmetics have NO competitive effect of any
+  kind — they are the deliberate sink for XP you have no other use for
+  (buy with a \`purchaseCosmetic\` action). \`xpBalance\` is the same figure
+  as \`manager.xpBalance\`.
 
 ## Apply order (per manager, sequential)
 release → claim → dissolvePair → createPair → acceptPair → enterSingles /
-enterDoubles in the order you list them → setTrainingFocus. Practice actions
-are deferred to their listed days. Different managers apply CONCURRENTLY, so
-two claims for the same free agent are a real race: exactly one wins.
+enterDoubles in the order you list them → setTrainingFocus → purchaseCosmetic.
+Practice actions are deferred to their listed days. Different managers apply
+CONCURRENTLY, so two claims for the same free agent are a real race: exactly
+one wins.
 
 ## Limits and failures
 - At most 40 actions per week. Empty actions are a valid week (you sat out).
@@ -630,6 +649,9 @@ CLI and the digest file it points you at.
   a tournament. Form has a sweet spot (digest shows form/fatigue).
 - Doubles pairs gain chemistry over matches; enter pairs together.
 - Manage fatigue: it accrues per match and recovers a little each game day.
+- Leftover XP can buy purely COSMETIC items from the digest's \`shop\` section
+  (\`purchaseCosmetic\`). Cosmetics never affect a match, training, fatigue or
+  a ranking — they only change presentation.
 
 Record your reasoning in the \`summary\` field every week — it is your log.
 `;
@@ -656,11 +678,12 @@ Run this exact command first:
    included; \`talentPool\` is SERVER-FILTERED to agents you can sign right
    now, \`talentPoolCommitted\` shows a few currently locked by a live draw,
    and \`talentPoolMeta.availableTotal\` is the API's own signable count),
-   your pairs, last week's apply outcomes, and this week's event
+   your pairs, last week's apply outcomes, this week's event
    candidates (\`events.canEnterNow\` per player with \`enterable\`/\`blockedReason\`
    on every row and a \`canEnterNowMeta\` truncation summary, plus
    \`events.openByWeek\` with a per-week \`hiddenCount\` for scouting further
-   ahead).
+   ahead), and the XP cosmetics \`shop\` (catalog, owned set, balance) for
+   any leftover XP — strictly cosmetic, never competitive.
 2. Choose up to 40 actions (schema and action list in RULES.md). Prefer
    concrete moves: enter eligible events in the nearest week, set training
    focus, spend practice days, claim/enter/release to fit the roster cap.
@@ -754,6 +777,11 @@ const MAX_OPEN_WEEKS = 13;
 async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, report, managerId }) {
   const entitlementRes = await api('GET', '/me/entitlement', undefined, managerId);
   if (!entitlementRes.ok) throw new StopRunError(`entitlement fetch failed for ${managerId} (status ${entitlementRes.status})`);
+  // The XP cosmetics shop (design item 3). A failed fetch is NOT fatal —
+  // the mapper degrades to an empty catalog with an unknown balance,
+  // which is honest; the measured bug was the shop being invisible even
+  // when everything else worked.
+  const cosmeticsRes = await api('GET', '/managers/cosmetics', undefined, managerId);
   const rosterRes = await api('GET', '/me/players', undefined, managerId);
   if (!rosterRes.ok) throw new StopRunError(`roster fetch failed for ${managerId} (status ${rosterRes.status})`);
   const dashboardRes = await api('GET', '/me/roster-dashboard', undefined, managerId);
@@ -1003,6 +1031,12 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
       ladder: ladderRes.ok ? ladderRes.body?.self ?? null : null,
     },
     roster,
+    // The XP cosmetics shop, so leftover XP has a discoverable sink (four
+    // measured seasons ended with 100k+ unspent XP and zero purchases).
+    // Catalog + owned set + live balance; strictly presentation-only
+    // items (the domain source-guard test proves no competitive module
+    // can read one). `purchaseCosmetic` in a decision buys one.
+    shop: compactShop(cosmeticsRes.ok ? cosmeticsRes.body : null),
     talentPool: freeAgents,
     talentPoolCommitted: committedFreeAgents,
     // The API's own counts, carried through unchanged: `availableTotal` is
@@ -1060,6 +1094,12 @@ async function actionHttp(action, managerId) {
       );
     case 'practice':
       return api('POST', `/players/${pid}/practice`, undefined, managerId);
+    case 'purchaseCosmetic':
+      // The XP cosmetics shop (agent-season design item 3): the digest
+      // carries `shop` (catalog + owned + balance) so this affordance is
+      // discoverable; strictly cosmetic, enforced by the domain's source
+      // guard — no purchase can change any competitive value.
+      return api('POST', '/managers/cosmetics/purchase', { itemId: action.itemId }, managerId);
     default:
       return { status: 0, ok: false, body: { error: `unknown action type "${action.type}"` } };
   }
@@ -1461,6 +1501,8 @@ async function phaseOpen() {
         pool: digest.talentPool.length,
         poolAvailable: digest.talentPoolMeta?.availableTotal ?? null,
         poolCommittedShown: digest.talentPoolCommitted.length,
+        shopItems: digest.shop?.items?.length ?? 0,
+        shopOwned: digest.shop?.owned?.length ?? 0,
       });
     }
     open = { runId: run.runId, weekIndex: state.weekIndex, worldWeek: state.worldWeek, openedAt: nowIso(), readyDeadlineAt, decisionDeadlineAt, clock, digests };

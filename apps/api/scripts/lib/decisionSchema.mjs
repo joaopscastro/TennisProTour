@@ -52,6 +52,7 @@ export const ACTION_TYPES = [
   'enterDoubles',
   'setTrainingFocus',
   'practice',
+  'purchaseCosmetic',
 ];
 
 /** Per-type allowed keys; anything else is rejected (typo protection). */
@@ -65,6 +66,7 @@ const ACTION_FIELDS = {
   enterDoubles: ['type', 'playerId', 'tournamentId'],
   setTrainingFocus: ['type', 'playerId', 'attribute', 'effectiveFrom'],
   practice: ['type', 'playerId', 'days'],
+  purchaseCosmetic: ['type', 'itemId'],
 };
 
 /** The HTTP call the RUNNER issues for each action type, for RULES.md. */
@@ -78,6 +80,7 @@ export const ACTION_HTTP = {
   enterDoubles: 'POST /tournaments/:tournamentId/doubles-entrants  {playerId}',
   setTrainingFocus: 'PUT /players/:playerId/training-focus  {focus:{kind:"attribute",attribute}, week?:{season,week}}',
   practice: 'POST /players/:playerId/practice  (run on each listed game day, before that day\'s tick)',
+  purchaseCosmetic: 'POST /managers/cosmetics/purchase  {itemId}',
 };
 
 function isPlainObject(value) {
@@ -174,6 +177,10 @@ export function validateDecision(decision, ctx) {
       case 'release':
       case 'claim': {
         requireString(errors, action.playerId, `${p}.playerId`);
+        break;
+      }
+      case 'purchaseCosmetic': {
+        requireString(errors, action.itemId, `${p}.itemId`);
         break;
       }
       case 'dissolvePair':

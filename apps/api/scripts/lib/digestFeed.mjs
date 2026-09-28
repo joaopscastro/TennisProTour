@@ -249,6 +249,47 @@ export function selectTalentPool(signableBody, allBody) {
 }
 
 /**
+ * The XP cosmetics shop, mapped into the digest (agent-season design
+ * item 3). The measured problem: four 52-week seasons ended with
+ * 104k-130k unspent manager XP and ZERO cosmetics purchased, because the
+ * digest never mentioned the shop — one agent explicitly noted it "never
+ * appeared anywhere in my digest". XP's only sinks otherwise are claims
+ * and one-time coach conversions, so the shop IS the affordance for
+ * leftover XP.
+ *
+ * Pure mapper over the `GET /managers/cosmetics` body: catalog, owned
+ * item ids, and the manager's live balance, with each item pre-marked
+ * `owned` and `affordable`. `xpBalance` is `null` (never 0) when the
+ * body doesn't carry a number — same "unknown is not zero" discipline
+ * the web app's xpAffordability helper uses, so an absent balance can
+ * never render as "you can afford nothing".
+ *
+ * Strictly cosmetic by construction: every item carries presentation
+ * data only, and the domain's own source-guard test proves no
+ * simulator/training/ranking module can read a cosmetic. Exposing the
+ * catalog cannot leak an edge.
+ */
+export function compactShop(shopBody) {
+  const catalog = Array.isArray(shopBody?.catalog) ? shopBody.catalog : [];
+  const owned = Array.isArray(shopBody?.owned) ? shopBody.owned : [];
+  const balance = typeof shopBody?.xpBalance === 'number' ? shopBody.xpBalance : null;
+  return {
+    xpBalance: balance,
+    owned: [...owned],
+    items: catalog.map((item) => ({
+      itemId: item.id,
+      kind: item.kind,
+      name: item.name,
+      description: item.description,
+      price: item.price,
+      glyph: item.glyph,
+      owned: owned.includes(item.id),
+      affordable: balance === null ? null : balance >= item.price,
+    })),
+  };
+}
+
+/**
  * Nearest week first, then SENIOR circuit before junior, then tier
  * prestige. The senior-first key is the fix for a measured ordering bug:
  * with only the flat `TIER_PRESTIGE` map, a junior j200 (prestige 4)

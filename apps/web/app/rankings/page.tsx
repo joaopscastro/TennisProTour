@@ -13,7 +13,15 @@ import { PageShell } from '../../components/ui/primitives';
 import { Tabs } from '../../components/ui/Tabs';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
-import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, juniorCarryoverNote, rankingBandScopeNote } from '../../lib/format';
+import {
+  RANKING_EARNED_NOTE,
+  RANK_BAND_LABEL,
+  bestResultsCountForBand,
+  bestResultsCountNote,
+  disambiguatedNames,
+  juniorCarryoverNote,
+  rankingBandScopeNote,
+} from '../../lib/format';
 import { MEDAL } from '../../lib/ui/medals';
 
 const BANDS: Array<{ key: RankingBand; label: string }> = [
@@ -103,6 +111,15 @@ export default function RankingsPage() {
           className="mb-4"
         />
 
+        {/* The best-N cap, stated where the ladder is read: only a
+            player's best N results in the rolling 52-week window count
+            (6 for every junior band — the real ITF rule — and 18 for
+            the senior tour). This is why winning a junior event can
+            leave a total unchanged once N better results exist. */}
+        <div className="t-body-sm" style={{ marginBottom: 14 }} title={bestResultsCountNote(band)}>
+          {bestResultsCountNote(band)}
+        </div>
+
         {/* "Where am I?" — the standings answer it directly instead of
             making a manager scan 100 rows and fall back to /managers to
             conclude they are unranked. */}
@@ -172,7 +189,9 @@ export default function RankingsPage() {
                     <th className="r" style={{ width: 100 }}>Rank · {ladderLabel}</th>
                     <th>Player</th>
                     <th>Nationality</th>
-                    <th className="r">Points</th>
+                    <th className="r" title={bestResultsCountNote(band)}>
+                      Points · best {bestResultsCountForBand(band)}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -207,7 +226,9 @@ export default function RankingsPage() {
                           )}
                         </td>
                         <td style={{ color: 'var(--ink-2)' }}>{row.nationality ?? '—'}</td>
-                        <td className="r num" style={{ fontWeight: 600 }}>{row.points.toLocaleString()}</td>
+                        <td className="r num" style={{ fontWeight: 600 }} title={bestResultsCountNote(band)}>
+                          {row.points.toLocaleString()}
+                        </td>
                       </tr>
                     );
                   })}

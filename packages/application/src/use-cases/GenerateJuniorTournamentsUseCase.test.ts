@@ -229,6 +229,41 @@ describe('GenerateJuniorTournamentsUseCase', () => {
     expect(bySeed[15].playerId).toBe(PlayerId('p16')); // 16th-ranked
   });
 
+  it('invites a dual-qualified player to the HIGHEST band only, and the younger band backfills the freed place with the next-ranked player (agent-season design item 2)', async () => {
+    const { tournaments, rankingLedger, useCase } = await setup({ season: 1, week: 50 }); // opens week 51
+
+    // "dual" is the top-ranked player in BOTH the U16 and U18 ladders —
+    // structurally possible because the invite is per-band independent
+    // and playing up is allowed. The rule: one invitation per season,
+    // the highest band they qualify for.
+    await rankingLedger.append(juniorEntry('dual', 400, 'u18')); // U18 #1
+    await rankingLedger.append(juniorEntry('dual', 400, 'u16')); // U16 #1 too (separate ladder)
+    for (let i = 1; i <= 16; i++) await rankingLedger.append(juniorEntry(`u18-p${i}`, 300 - i, 'u18'));
+    for (let i = 1; i <= 17; i++) await rankingLedger.append(juniorEntry(`u16-p${i}`, 200 - i, 'u16'));
+    // U14 has only 3 ranked players — skipped, proving the cap did not
+    // change the "not enough ranked players" rule.
+    for (let i = 1; i <= 3; i++) await rankingLedger.append(juniorEntry(`u14-p${i}`, 50 - i, 'u14'));
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.mastersHeld).toBe(2); // U18 + U16; U14 skipped
+    const masters = (await tournaments.findStarted()).filter((t) => t.tier === 'juniorMasters');
+    const u18 = masters.find((t) => t.ageBand === 'u18')!;
+    const u16 = masters.find((t) => t.ageBand === 'u16')!;
+
+    // Both fields are still full — the freed place is REALLOCATED, the
+    // draw never shrinks: the 17th-ranked U16 player (u16-p16 after
+    // excluding dual) takes the vacant slot, while u16-p17 misses out.
+    expect(u18.entrants).toHaveLength(16);
+    expect(u16.entrants).toHaveLength(16);
+    const u18Ids = u18.entrants.map((e) => e.playerId);
+    const u16Ids = u16.entrants.map((e) => e.playerId);
+    expect(u18Ids).toContain(PlayerId('dual'));
+    expect(u16Ids).not.toContain(PlayerId('dual'));
+    expect(u16Ids).toContain(PlayerId('u16-p16'));
+    expect(u16Ids).not.toContain(PlayerId('u16-p17'));
+  });
+
   it("does not manufacture a ranking or a player to fill juniorMasters — a band with zero ranked players is simply skipped", async () => {
     const { tournaments, useCase } = await setup({ season: 1, week: 50 }); // opens week 51; no ledger entries at all
     const result = await useCase.execute({ worldId });

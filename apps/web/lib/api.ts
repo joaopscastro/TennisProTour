@@ -893,6 +893,11 @@ export interface PlayerTournamentHistoryEntryDto {
   /** On-site prize money earned in THIS tournament — 0 for an entry
    * with no decided match yet. */
   prizeMoney: number;
+  /** The SINGLES ranking points this tournament actually put on this
+   * player's ledger (real ledger read, includes a graduation-carryover
+   * amplification where one fired) — 0 for an entry not yet eliminated
+   * or won. Used by the best-N legibility helpers in lib/format.ts. */
+  pointsEarned: number;
 }
 
 /** The single aggregated read the player profile page needs — see

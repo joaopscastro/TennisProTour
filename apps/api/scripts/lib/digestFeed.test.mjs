@@ -5,6 +5,7 @@ import {
   buildCandidateView,
   compactDoublesTitles,
   compactLastResults,
+  compactShop,
   compareCandidates,
   decisionNeedsReaccept,
   enterabilityBlockReason,
@@ -545,5 +546,53 @@ describe('selectTalentPool (the C fix: server-filtered signable pool)', () => {
     expect(signable).toEqual([]);
     expect(committed).toEqual([]);
     expect(meta.availableTotal).toBe(0);
+  });
+});
+
+describe('compactShop (the XP cosmetics shop, design item 3)', () => {
+  const catalog = [
+    { id: 'badge-star', kind: 'badge', name: 'Star Badge', description: 'A star glyph.', price: 200, glyph: '★' },
+    { id: 'banner-aurora', kind: 'banner', name: 'Aurora Banner', description: 'A gradient.', price: 700, glyph: '≈' },
+    { id: 'celebration-gold', kind: 'celebration', name: 'Gold Rush', description: 'A shower of gold.', price: 2000, glyph: '❖' },
+  ];
+
+  it('maps the live GET /managers/cosmetics body: catalog, owned set and balance all survive', () => {
+    const shop = compactShop({ catalog, owned: ['badge-star'], badge: { itemId: 'badge-star' }, xpBalance: 1500 });
+    expect(shop.xpBalance).toBe(1500);
+    expect(shop.owned).toEqual(['badge-star']);
+    expect(shop.items).toHaveLength(3);
+    expect(shop.items[0]).toEqual({
+      itemId: 'badge-star',
+      kind: 'badge',
+      name: 'Star Badge',
+      description: 'A star glyph.',
+      price: 200,
+      glyph: '★',
+      owned: true,
+      affordable: true,
+    });
+  });
+
+  it('marks owned and affordable per item — an unaffordable, unowned item is plainly false', () => {
+    const shop = compactShop({ catalog, owned: ['banner-aurora'], xpBalance: 250 });
+    const byId = Object.fromEntries(shop.items.map((i) => [i.itemId, i]));
+    expect(byId['badge-star']).toMatchObject({ owned: false, affordable: true }); // 250 >= 200
+    expect(byId['banner-aurora']).toMatchObject({ owned: true, affordable: false }); // already theirs
+    expect(byId['celebration-gold']).toMatchObject({ owned: false, affordable: false }); // 250 < 2000
+  });
+
+  it('an absent balance is UNKNOWN (null), never an invented 0 — affordability is not guessed', () => {
+    const shop = compactShop({ catalog, owned: [] });
+    expect(shop.xpBalance).toBeNull();
+    expect(shop.items.every((i) => i.affordable === null)).toBe(true);
+  });
+
+  it('a failed shop fetch degrades to an empty catalog with an unknown balance, never a throw', () => {
+    for (const body of [null, undefined, {}, { catalog: null }]) {
+      const shop = compactShop(body);
+      expect(shop.items).toEqual([]);
+      expect(shop.owned).toEqual([]);
+      expect(shop.xpBalance).toBeNull();
+    }
   });
 });

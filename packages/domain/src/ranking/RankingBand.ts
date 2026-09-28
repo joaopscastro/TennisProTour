@@ -54,8 +54,13 @@ const U18_MAX_AGE_WEEKS = 18 * 52;
 /** Every junior band, youngest to oldest — the one place "play up" order
  * is expressed, so `isAgeEligibleForTournamentBand` never has to
  * hardcode pairwise comparisons that'd need touching every time a band
- * is added or removed. */
-const AGE_BAND_ORDER: readonly AgeBand[] = ['u14', 'u16', 'u18'];
+ * is added or removed. EXPORTED because a second caller now needs the
+ * same ordering in the opposite direction: juniorMasters invitations
+ * are awarded oldest-band-first (a dual-qualified player takes the
+ * HIGHEST band's place, the younger band's place passing to the next
+ * eligible player — see GenerateJuniorTournamentsUseCase), and a second
+ * hardcoded band list there would drift the moment this one changes. */
+export const AGE_BAND_ORDER: readonly AgeBand[] = ['u14', 'u16', 'u18'];
 
 /**
  * Which junior band a player is eligible for, GIVEN an age in weeks —

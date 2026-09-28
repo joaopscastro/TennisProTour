@@ -44,3 +44,22 @@ export function compactSinglesTitles(profile: unknown): Array<{
 export function compactDoublesTitles(profile: unknown): CompactedDoublesTitle[];
 
 export function compactLastResults(matches: unknown, limitPerDiscipline?: number): CompactedResult[];
+
+export interface CompactedShop {
+  /** The manager's live XP balance, or null when the response carries no
+   * number (unknown, never an invented 0). */
+  xpBalance: number | null;
+  owned: string[];
+  items: Array<{
+    itemId: string;
+    kind: string;
+    name: string;
+    description: string;
+    price: number;
+    glyph: string;
+    owned: boolean;
+    affordable: boolean | null;
+  }>;
+}
+
+export function compactShop(shopBody: unknown): CompactedShop;

@@ -17,7 +17,18 @@ import { DEAD_PHYSICAL_FOCUS_NOTE, deadPhysicalFocusWarning } from '../lib/focus
 import type { PlannerWeekDto, PotentialProjectionDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
 import { titleSummaryLabel } from '../lib/titles';
-import { RANK_BAND_LABEL, disambiguatedNames, juniorCarryoverNote, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
+import {
+  RANK_BAND_LABEL,
+  absoluteWeekOf,
+  bandResultRankingVerdict,
+  bestResultsCountForBand,
+  bestResultsCountNote,
+  disambiguatedNames,
+  juniorCarryoverNote,
+  juniorResultVerdicts,
+  rankingBandScopeNote,
+  tournamentHistoryResultLabel,
+} from '../lib/format';
 
 /**
  * Pure-logic regression tests for two first-time-visitor bugs. These need
@@ -402,6 +413,83 @@ test.describe('rank bands are always labelled', () => {
       expect(note).toContain('first win');
     }
     expect(juniorCarryoverNote('senior')).toBeNull();
+  });
+});
+
+test.describe('best-N ranking legibility (junior best-6 cap, agent-season design item 1)', () => {
+  test('the cap and its note name the right N per ladder', () => {
+    expect(bestResultsCountForBand('senior')).toBe(18);
+    for (const band of ['u14', 'u16', 'u18'] as const) {
+      expect(bestResultsCountForBand(band)).toBe(6);
+      expect(bestResultsCountNote(band)).toContain('best 6');
+      expect(bestResultsCountNote(band)).toContain(`toward the ${RANK_BAND_LABEL[band]} ranking`);
+    }
+    expect(bestResultsCountNote('senior')).toContain('best 18');
+  });
+
+  test('a j100 title is marked as NOT improving once six better results exist (the measured case)', () => {
+    // The live agent-season case: 45 results dropped, 22 of them j100
+    // titles, and nothing in the UI said so. Six bigger results + one
+    // fresh j100-level title -> the title must read "won't improve",
+    // never silently leave the total flat.
+    const sixBetter = [700, 420, 252, 126, 63, 32].map((points, i) => ({ points, weekAbsolute: 40 + i }));
+    const j100Title = { points: 30, weekAbsolute: 60 };
+    const verdict = bandResultRankingVerdict({ band: 'u16', result: j100Title, otherResults: sixBetter, currentWeekAbsolute: 62 });
+    expect(verdict.improves).toBe(false);
+    expect(verdict.note).toContain("Won't improve the U16 ranking");
+    expect(verdict.note).toContain('6 better results');
+  });
+
+  test('a result that breaks into the best N is marked as counting', () => {
+    const weaker = [100, 90, 80, 70, 60, 50].map((points, i) => ({ points, weekAbsolute: 40 + i }));
+    const verdict = bandResultRankingVerdict({
+      band: 'u14',
+      result: { points: 95, weekAbsolute: 60 },
+      otherResults: weaker,
+      currentWeekAbsolute: 62,
+    });
+    expect(verdict.improves).toBe(true);
+    expect(verdict.note).toContain('Counts toward the U14 ranking');
+  });
+
+  test('a first-round loss never claims the cap displaced it', () => {
+    const verdict = bandResultRankingVerdict({
+      band: 'u16',
+      result: { points: 0, weekAbsolute: 60 },
+      otherResults: [{ points: 100, weekAbsolute: 59 }],
+      currentWeekAbsolute: 61,
+    });
+    expect(verdict.improves).toBe(false);
+    expect(verdict.note).toContain('first-round loss');
+  });
+
+  test('a result older than the rolling window is aged out, not counted toward the N', () => {
+    const verdict = bandResultRankingVerdict({
+      band: 'u14',
+      result: { points: 999, weekAbsolute: 40 },
+      otherResults: [],
+      currentWeekAbsolute: 120, // 80 weeks later — outside the 52-week window
+    });
+    expect(verdict.improves).toBe(false);
+    expect(verdict.note).toContain('52-week');
+  });
+
+  test('juniorResultVerdicts annotates only the live junior band, and only with a known clock', () => {
+    const history = [
+      { tournamentId: 'a', ageBand: 'u16' as const, pointsEarned: 100, weekScheduled: { season: 1, week: 10 } },
+      { tournamentId: 'b', ageBand: 'u16' as const, pointsEarned: 30, weekScheduled: { season: 1, week: 11 } },
+      { tournamentId: 'c', ageBand: null, pointsEarned: 900, weekScheduled: { season: 1, week: 12 } },
+    ];
+    const nowAbs = absoluteWeekOf({ season: 1, week: 12 });
+    // Fewer than six results: every U16 result counts.
+    const verdicts = juniorResultVerdicts(history, 'u16', nowAbs);
+    expect(verdicts.get('a')?.improves).toBe(true);
+    expect(verdicts.get('b')?.improves).toBe(true);
+    // The senior result is not on the live junior band, so it is not judged.
+    expect(verdicts.has('c')).toBe(false);
+    // A senior player and an unknown clock both yield NO verdicts (never guessed).
+    expect(juniorResultVerdicts(history, 'senior', nowAbs).size).toBe(0);
+    expect(juniorResultVerdicts(history, 'u16', null).size).toBe(0);
   });
 });
 

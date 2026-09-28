@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { PlayerProfileDto, fetchPlayerProfile } from '../../../../lib/api';
+import { PlayerProfileDto, fetchPlayerProfile, fetchWorldClock } from '../../../../lib/api';
 import { AppShell } from '../../../../components/ui/AppShell';
 import { PageShell, Flag } from '../../../../components/ui/primitives';
 import { Icon } from '../../../../components/ui/Icon';
 import { SURFACE_COLOR } from '../../../../lib/ui/surfaces';
-import { formatMoney, tournamentHistoryResultLabel } from '../../../../lib/format';
+import { absoluteWeekOf, bestResultsCountNote, formatMoney, juniorResultVerdicts, tournamentHistoryResultLabel } from '../../../../lib/format';
 import { useDevManagerId } from '../../../../lib/managerContext';
 import { useEntitlement } from '../../../../lib/entitlement';
 
@@ -20,11 +20,22 @@ export default function PlayerHistoryPage() {
   const devManagerId = useDevManagerId() ?? '';
   const { entitlement } = useEntitlement(devManagerId);
 
+  // The world clock's current week drives the junior best-N verdicts (the
+  // rolling 52-week window). null until loaded — never guessed.
+  const [currentWeekAbsolute, setCurrentWeekAbsolute] = useState<number | null>(null);
   useEffect(() => {
     fetchPlayerProfile(playerId)
       .then(setProfile)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+    fetchWorldClock()
+      .then((clock) => setCurrentWeekAbsolute(absoluteWeekOf(clock.currentWeek)))
+      .catch(() => setCurrentWeekAbsolute(null));
   }, [playerId]);
+
+  const rankingVerdicts = useMemo(
+    () => juniorResultVerdicts(profile?.tournamentHistory ?? [], profile?.currentEligibleBand ?? null, currentWeekAbsolute),
+    [profile, currentWeekAbsolute],
+  );
 
   if (error) {
     return (
@@ -91,6 +102,12 @@ export default function PlayerHistoryPage() {
           </div>
         </div>
 
+        {profile.currentEligibleBand !== 'senior' && (
+          <div className="t-body-sm" style={{ marginBottom: 12 }}>
+            {bestResultsCountNote(profile.currentEligibleBand)}
+          </div>
+        )}
+
         {profile.tournamentHistory.length === 0 ? (
           <div className="t-body-sm">No tournament entries yet.</div>
         ) : (
@@ -128,6 +145,11 @@ export default function PlayerHistoryPage() {
                       </td>
                       <td className="r" style={{ color: entry.won ? 'var(--gold)' : 'var(--ink-3)', fontWeight: 600, fontSize: 12 }}>
                         {tournamentHistoryResultLabel(entry)}
+                        {rankingVerdicts.get(entry.tournamentId) && (
+                          <div style={{ fontWeight: 400, fontStyle: 'italic', fontSize: 10, marginTop: 2, color: 'var(--ink-4)' }}>
+                            {rankingVerdicts.get(entry.tournamentId)!.note}
+                          </div>
+                        )}
                       </td>
                       <td className="r num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
                         {entry.prizeMoney > 0 ? formatMoney(entry.prizeMoney) : '—'}

@@ -52,7 +52,7 @@ import { DrizzleDoublesPeakRankingRepository } from '../../outbound/DrizzleDoubl
 // The pure agent-harness digest mappers — imported through a small
 // digestFeed.d.mts declaration so this suite exercises the EXACT
 // production mapping the season harness uses, not a reimplementation.
-import { compactDoublesTitles, compactLastResults } from '../../../../scripts/lib/digestFeed.mjs';
+import { compactDoublesTitles, compactLastResults, compactShop } from '../../../../scripts/lib/digestFeed.mjs';
 
 const connectionString = testConnectionString();
 process.env.INTERNAL_ADMIN_TOKEN ??= 'test-admin';
@@ -1281,6 +1281,74 @@ describe('API', () => {
     }
   });
 
+  it('a player ranked top-16 in two junior bands takes ONE juniorMasters invitation — the highest band — and the freed place is reallocated, not dropped (design item 2, real Postgres)', async () => {
+    const worldId = WorldId('main');
+    const originalWorld = await deps.worlds.findById(worldId);
+    const agingPolicy = new StandardAgingPolicy();
+    try {
+      // Park the world at S1W50: the next generated week is 51, the
+      // once-a-season juniorMasters week (see the junior schedule policy).
+      await deps.worlds.save(
+        GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 50 }, currentDay: 1, lastAppliedTick: null }),
+      );
+
+      const saveRankedPlayer = async (id: string, ageWeeks: number) => {
+        await deps.players.save(
+          Player.generateFillOnly(
+            PlayerId(id),
+            `Player ${id}`,
+            ageWeeks,
+            agingPolicy.stageForAge(ageWeeks),
+            fixedAttributes(40),
+            'BR',
+            70,
+            { speed: 70, stamina: 70, strength: 70 },
+          ),
+        );
+      };
+      const rank = (playerId: string, ageBand: 'u14' | 'u16' | 'u18', points: number) => ({
+        playerId: PlayerId(playerId),
+        tournamentId: TournamentId(`masters-rank-${playerId}-${ageBand}`),
+        tier: 'j100' as const,
+        ageBand,
+        points,
+        weekEarned: { season: 1, week: 30 },
+      });
+
+      // "dual" is top-ranked in BOTH the U16 and U18 ladders.
+      await saveRankedPlayer('dual', 16 * 52);
+      for (let i = 1; i <= 16; i++) await saveRankedPlayer(`u18-p${i}`, 17 * 52);
+      for (let i = 1; i <= 17; i++) await saveRankedPlayer(`u16-p${i}`, 15 * 52);
+
+      await deps.rankingLedger.append(rank('dual', 'u18', 400));
+      await deps.rankingLedger.append(rank('dual', 'u16', 400));
+      for (let i = 1; i <= 16; i++) await deps.rankingLedger.append(rank(`u18-p${i}`, 'u18', 300 - i));
+      for (let i = 1; i <= 17; i++) await deps.rankingLedger.append(rank(`u16-p${i}`, 'u16', 200 - i));
+
+      const result = await deps.generateJuniorTournaments.execute({ worldId });
+      expect(result.mastersHeld).toBe(2); // U18 + U16; U14 has nobody ranked
+
+      const masters = (await deps.tournaments.findStarted()).filter((t) => t.tier === 'juniorMasters');
+      const u18 = masters.find((t) => t.ageBand === 'u18')!;
+      const u16 = masters.find((t) => t.ageBand === 'u16')!;
+      const u18Ids = u18.entrants.map((e) => e.playerId as string);
+      const u16Ids = u16.entrants.map((e) => e.playerId as string);
+
+      // One invitation for "dual", in the highest band — and both fields
+      // still exactly 16 strong: the U16 place went to the next-ranked
+      // eligible player (u16-p16), not into the void.
+      expect(u18Ids).toContain('dual');
+      expect(u16Ids).not.toContain('dual');
+      expect(u18.entrants).toHaveLength(16);
+      expect(u16.entrants).toHaveLength(16);
+      expect(u16Ids).toContain('u16-p16');
+      expect(u16Ids).not.toContain('u16-p17');
+    } finally {
+      // The suite's shared world must be restored for every other test.
+      await deps.worlds.save(originalWorld!);
+    }
+  });
+
   it('surfaces doubles titles and recent doubles results to the digest feed and the API, reveal-gated like singles', async () => {
     const agingPolicy = new StandardAgingPolicy();
     const freeAt = (id: string, ageWeeks = 20 * 52) =>
@@ -1314,6 +1382,21 @@ describe('API', () => {
       { id: 'dig-air', name: 'Digested Air Open', tier: 'challenger', surface: 'hard', seasonScheduled: 1, weekScheduled: 5, drawSize: 16, doublesDrawSize: 8 },
       { id: 'dig-unaired', name: 'Digested Reveal Open', tier: 'challenger', surface: 'hard', seasonScheduled: 1, weekScheduled: 6, drawSize: 16, doublesDrawSize: 8 },
     ]);
+    // A singles entry in each draw, plus a REAL ledger row for dig-air only:
+    // the profile history's new `pointsEarned` must read the ledger value
+    // for the concluded event and 0 (not undefined) for the other.
+    await db.insert(schema.tournamentEntries).values([
+      { tournamentId: 'dig-air', playerId: PlayerId('dig-main') },
+      { tournamentId: 'dig-unaired', playerId: PlayerId('dig-main') },
+    ]);
+    await deps.rankingLedger.append({
+      playerId: PlayerId('dig-main'),
+      tournamentId: TournamentId('dig-air'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 90,
+      weekEarned: { season: 1, week: 5 },
+    });
     await db.insert(schema.tournamentDoublesPairs).values([
       { tournamentId: 'dig-air', pairId: 'dig-mine-air', playerA: PlayerId('dig-main'), playerB: PlayerId('dig-partner') },
       { tournamentId: 'dig-air', pairId: 'dig-opp-air', playerA: PlayerId('dig-opp-a'), playerB: PlayerId('dig-opp-b') },
@@ -1390,13 +1473,19 @@ describe('API', () => {
 
     const profileRes = await app.inject({ method: 'GET', url: '/players/dig-main/profile' });
     expect(profileRes.statusCode).toBe(200);
-    const profile = profileRes.json() as { doublesTitles: Array<Record<string, unknown>> };
+    const profile = profileRes.json() as {
+      doublesTitles: Array<Record<string, unknown>>;
+      tournamentHistory: Array<{ tournamentId: string; pointsEarned: number }>;
+    };
     expect(profile.doublesTitles).toHaveLength(1);
     expect(profile.doublesTitles[0]).toMatchObject({
       tournamentId: 'dig-title-t',
       partnerId: 'dig-partner',
       partnerName: 'Player dig-partner',
     });
+    // pointsEarned (design item 1): the real ledger value, never re-derived.
+    expect(profile.tournamentHistory.find((h) => h.tournamentId === 'dig-air')?.pointsEarned).toBe(90);
+    expect(profile.tournamentHistory.find((h) => h.tournamentId === 'dig-unaired')?.pointsEarned).toBe(0);
 
     // The digest feed the season harness builds — via the EXACT production
     // mappers — now sees both the doubles title and the doubles result.
@@ -1832,6 +1921,21 @@ describe('API', () => {
     // The entitlement/sidebar read sees the same post-spend balance.
     const entitlement = await app.inject({ method: 'GET', url: `/managers/${managerId}/entitlement`, headers });
     expect(entitlement.json().xpBalance).toBe(1_800);
+
+    // Design item 3: the season digest now carries the shop. The runner's
+    // digest builder fetches this SAME GET /managers/cosmetics response
+    // through the SAME production mapper — so a live response mapped by
+    // `compactShop` (the exact function agentSeason.mjs calls) proves the
+    // shop and the balance reach the digest. Four measured seasons ended
+    // with 100k+ unspent XP and zero purchases because the affordance was
+    // never visible; it now is.
+    const digestShop = compactShop((await app.inject({ method: 'GET', url: '/managers/cosmetics', headers })).json());
+    expect(digestShop.xpBalance).toBe(1_800);
+    expect(digestShop.owned).toContain('badge-star');
+    const star = digestShop.items.find((i) => i.itemId === 'badge-star')!;
+    expect(star).toMatchObject({ owned: true, affordable: true, price: 200 });
+    const gold = digestShop.items.find((i) => i.itemId === 'celebration-gold')!;
+    expect(gold).toMatchObject({ owned: false, affordable: false });
 
     // The owned badge renders next to the name on the public leaderboard,
     // for the caller's own echoed row too.

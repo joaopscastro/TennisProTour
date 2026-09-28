@@ -21,6 +21,7 @@ import {
   fetchPlayerProfile,
   fetchRosterDashboard,
   fetchTrainingSchedule,
+  fetchWorldClock,
   setTrainingScheduleEntry,
 } from '../../../lib/api';
 import { useDevManagerId } from '../../../lib/managerContext';
@@ -35,9 +36,12 @@ import { Icon } from '../../../components/ui/Icon';
 import {
   RANKING_EARNED_NOTE,
   WEEKS_PER_SEASON,
+  absoluteWeekOf,
+  bestResultsCountNote,
   formatMoney,
   formatScoreline,
   juniorCarryoverNote,
+  juniorResultVerdicts,
   matchRoundLabel,
   rankingBandScopeNote,
   tournamentHistoryResultLabel,
@@ -395,6 +399,16 @@ export default function PlayerProfilePage() {
     loadSchedule();
   }, [loadSchedule]);
 
+  // The world clock's current week, needed by the junior best-N verdicts
+  // below (their rolling 52-week window). null until loaded — a verdict
+  // is never guessed from a missing clock.
+  const [currentWeekAbsolute, setCurrentWeekAbsolute] = useState<number | null>(null);
+  useEffect(() => {
+    fetchWorldClock()
+      .then((clock) => setCurrentWeekAbsolute(absoluteWeekOf(clock.currentWeek)))
+      .catch(() => setCurrentWeekAbsolute(null));
+  }, []);
+
   const scheduleByWeekKey = useMemo(() => {
     const map = new Map<string, TrainingScheduleWeekDto>();
     scheduleWeeks?.forEach((w) => map.set(`${w.week.season}-${w.week.week}`, w));
@@ -416,6 +430,16 @@ export default function PlayerProfilePage() {
   }
 
   const currentBands = useMemo(() => (profile ? visibleCurrentBands(profile) : []), [profile]);
+
+  // Best-N legibility: which of this player's CURRENT-band junior results
+  // count toward the band ranking, and which are displaced by six better
+  // results. Empty for a senior player or before the clock loads — the
+  // verdict is derived, never guessed (see format.ts's
+  // juniorResultVerdicts/bandResultRankingVerdict).
+  const rankingVerdicts = useMemo(
+    () => juniorResultVerdicts(profile?.tournamentHistory ?? [], profile?.currentEligibleBand ?? null, currentWeekAbsolute),
+    [profile, currentWeekAbsolute],
+  );
 
   // 3.2 — "dead training focus" warning: when THIS week's resolved focus
   // (the schedule window starts at the world's current week) is a
@@ -805,6 +829,15 @@ export default function PlayerProfilePage() {
                     {juniorCarryoverNote(band)}
                   </div>
                 )}
+                {/* Only a player's best N results count (the real ITF
+                    best-6 junior rule). Without this, "I won a j100 and
+                    my points didn't move" reads as a bug — the exact
+                    measured agent-season complaint. */}
+                {band !== 'senior' && (
+                  <div style={{ fontSize: 10, marginTop: 4, lineHeight: 1.4, color: 'var(--ink-4)' }}>
+                    {bestResultsCountNote(band)}
+                  </div>
+                )}
               </div>
             );
           })}
@@ -1148,6 +1181,15 @@ export default function PlayerProfilePage() {
                       </td>
                       <td className="r" style={{ color: entry.won ? 'var(--gold)' : 'var(--ink-3)', fontWeight: 600, fontSize: 12 }}>
                         {tournamentHistoryResultLabel(entry)}
+                        {/* Does this junior result actually move the band
+                            ranking? Only the best 6 count — marked here
+                            rather than left for the manager to infer
+                            from an unchanged total. */}
+                        {rankingVerdicts.get(entry.tournamentId) && (
+                          <div style={{ fontWeight: 400, fontStyle: 'italic', fontSize: 10, marginTop: 2, color: 'var(--ink-4)' }}>
+                            {rankingVerdicts.get(entry.tournamentId)!.note}
+                          </div>
+                        )}
                       </td>
                       <td className="r num" style={{ fontSize: 11.5, color: 'var(--ink-3)' }}>
                         {entry.prizeMoney > 0 ? formatMoney(entry.prizeMoney) : '—'}

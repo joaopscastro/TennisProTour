@@ -71,6 +71,133 @@ export function juniorCarryoverNote(band: RankBand): string | null {
   );
 }
 
+/** How many results each ladder actually counts — the real ITF best-6
+ * rule for every junior band, the ATP-derived best-18 for the senior
+ * tour. Mirrors `RankingBand.bestResultsCapFor` in the domain (kept as a
+ * local literal so this presentation module has no client dependency);
+ * pinned against it by the balance of the two literals in
+ * display-logic.spec.ts. */
+export function bestResultsCountForBand(band: RankBand): number {
+  return band === 'senior' ? 18 : 6;
+}
+
+/** The one explanation of the best-N cap shown where a manager looks
+ * (the standings table, the player profile's junior band cards) so
+ * "winning this j100 added nothing" reads as a rule, not a bug: only a
+ * player's BEST N results in the rolling 52-week window count, and extra
+ * results stay on record but can't add points once N better ones exist. */
+export function bestResultsCountNote(band: RankBand): string {
+  const cap = bestResultsCountForBand(band);
+  const label = band === 'senior' ? 'Senior' : RANK_BAND_LABEL[band];
+  return band === 'senior'
+    ? `Only a player's best ${cap} results from the rolling 52-week window count toward the ${label} ranking — more results stay on record but can't push the total past the best ${cap}.`
+    : `Only a player's best ${cap} results from the rolling 52-week window count toward the ${label} ranking — a further win stays on record, but once ${cap} better results exist it can't add points.`;
+}
+
+/** One dated result's ranking-point value, for the best-N verdict below.
+ * `weekAbsolute` is `season × 52 + week`, the same continuous week
+ * counter the domain's rolling-window maths uses. */
+export interface BandRankingResult {
+  points: number;
+  weekAbsolute: number;
+}
+
+export interface BandRankingVerdict {
+  /** True when adding this result to the player's other counted results
+   * strictly raises their band total (i.e. it is inside the best N and
+   * is not merely tied with results already counted). */
+  improves: boolean;
+  /** Plain-language one-liner for the result row. */
+  note: string;
+}
+
+/** Absolute week (`season × 52 + week`) for a DTO's season/week pair. */
+export function absoluteWeekOf(week: { season: number; week: number }): number {
+  return week.season * WEEKS_PER_SEASON + week.week;
+}
+
+/** Would this result raise the player's band ranking total? The exact
+ * test, not a heuristic: the player's best-N sum WITH the result vs
+ * WITHOUT it, both restricted to the rolling 52-week window — the same
+ * mechanism `RankingCalculationService` applies (a junior band has no
+ * obligatory events, so its total is simply the best N within the
+ * window). A result already inside the top N but tied with the results
+ * at the cutoff changes nothing and reads "won't improve"; that is
+ * deliberate, and it is exactly the measured case of a j100 title
+ * adding nothing once six bigger results exist. */
+export function bandResultRankingVerdict(opts: {
+  band: RankBand;
+  result: BandRankingResult;
+  otherResults: readonly BandRankingResult[];
+  currentWeekAbsolute: number;
+}): BandRankingVerdict {
+  const cap = bestResultsCountForBand(opts.band);
+  const label = opts.band === 'senior' ? 'Senior' : RANK_BAND_LABEL[opts.band];
+  const inWindow = (r: BandRankingResult): boolean => {
+    const age = opts.currentWeekAbsolute - r.weekAbsolute;
+    return age >= 0 && age <= WEEKS_PER_SEASON;
+  };
+  if (!inWindow(opts.result)) {
+    return { improves: false, note: `No longer counts — outside the ${label} rolling 52-week window.` };
+  }
+  if (opts.result.points <= 0) {
+    return { improves: false, note: "Won't add ranking points — a first-round loss pays none." };
+  }
+  const topSum = (results: readonly BandRankingResult[]): number =>
+    [...results]
+      .filter(inWindow)
+      .sort((a, b) => b.points - a.points)
+      .slice(0, cap)
+      .reduce((sum, r) => sum + r.points, 0);
+  const improves = topSum([...opts.otherResults, opts.result]) > topSum(opts.otherResults);
+  return {
+    improves,
+    note: improves
+      ? `Counts toward the ${label} ranking — now inside the best ${cap}.`
+      : `Won't improve the ${label} ranking — you already have ${cap} better results.`,
+  };
+}
+
+/** The subset of a profile history row the best-N verdict needs — kept
+ * structural so both the profile preview and the full history page can
+ * pass their DTO rows without an adapter. */
+export interface BandRankingHistoryEntry {
+  tournamentId: string;
+  ageBand: RankBand | null;
+  pointsEarned: number;
+  weekScheduled: { season: number; week: number };
+}
+
+/** Per-tournament best-N verdicts for the player's CURRENT junior band,
+ * keyed by tournament id. Empty for a senior player (no junior band is
+ * live for them) or before the world clock is known — never guessed. */
+export function juniorResultVerdicts(
+  history: readonly BandRankingHistoryEntry[],
+  band: RankBand | null,
+  currentWeekAbsolute: number | null,
+): Map<string, BandRankingVerdict> {
+  const verdicts = new Map<string, BandRankingVerdict>();
+  if (band === null || band === 'senior' || currentWeekAbsolute === null) return verdicts;
+  const bandEntries = history.filter((entry) => entry.ageBand === band);
+  if (bandEntries.length === 0) return verdicts;
+  const asResult = (entry: BandRankingHistoryEntry): BandRankingResult => ({
+    points: entry.pointsEarned,
+    weekAbsolute: absoluteWeekOf(entry.weekScheduled),
+  });
+  for (const entry of bandEntries) {
+    verdicts.set(
+      entry.tournamentId,
+      bandResultRankingVerdict({
+        band,
+        result: asResult(entry),
+        otherResults: bandEntries.filter((other) => other.tournamentId !== entry.tournamentId).map(asResult),
+        currentWeekAbsolute,
+      }),
+    );
+  }
+  return verdicts;
+}
+
 export interface SetScore {
   winnerGames: number;
   loserGames: number;

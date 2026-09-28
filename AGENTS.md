@@ -2603,7 +2603,7 @@ Six fixes (A–F) plus the measured design signals the owner asked for (G, delib
 
 **G — design signals, measured, report only (no code changed for these).** (1) **Doubles is an uncontested economy**: manager doubles entries 134 total (m4 72, m3 58, m2 4, m1 0); doubles titles m4 30, m3 25, m2 2 (+2 unowned); rolling best-N senior totals (52-week window, best-18 singles / best-14 doubles) — m3 singles 23,380 + doubles 19,680 (**45.7% doubles**), m4 30,550 + 19,200 (**38.6%**), m2 32,800 + 5,100 (13.5%), m1 34,050 + 0; earned doubles points in the window: m4 90,660 (vs 45,300 singles), m3 70,260 (vs 31,895). Tour doubles pays the same 1000 champion points as a tour singles title. Batch 4A's ranked-filler padding did not fix this. **FIXED by the third pass — the field, not the points (see the final section of this file): a real replay shows the best padded pair go from 89.0 to 122.4 against a 124.0 winning pair, 0/58 draws with a padded pair above the weakest manager pair, and the top pair's title rate falls from near-automatic to ~32%.**
 (2) **Fatigue is a one-way ratchet at high volume**: m3's Sofia Petrov averaged **9.5 matches/week**, was at fatigue ≥80 for **38 of 52 weeks** and ≥90 for **9 consecutive weeks** (S1W14–W22), finishing at 98; Marta Müller 9.1/week, 25 weeks ≥80, 5 consecutive ≥90; only full idle weeks reset it (m1's two players, at 3.8–4.6 matches/week, never exceeded 68). **FIXED: recovery fraction 0.05 → 0.08 — 9-11 match weeks now oscillate 47-66.**
-(3) **Form is a dead lever for deep runners**: the equilibrium is ≈ matches/week ÷ 0.15, so the `[12,25]` sweet spot needs ≤ ~3.75 matches/week; measured — Rafael Yamamoto 7.4 matches/week with 12 weeks stale (>40) and only 2 in-band weeks, Sofia Petrov/Marta Müller ~9/week with 37/39 stale weeks and 2/3 in-band. **FIXED: decay 0.85 → 0.75 + band max 25 → 28 — a 5-9 match week now sits at form 15-27, inside the sweet spot.** (4) **Junior ladders saturate at the best-6 cap**: Sofia Petrov had 51 scoring u14 results totalling 2,174 points but only 1,200 counted — 45 results dropped, **22 of them j100 titles** (the best-6 minimum was 180); Marta Müller 912 of 1,841 with 22 j100 wins dropped. Winning j100s does literally nothing once six bigger results exist. (5) **A dual juniorMasters invite is structurally possible**: the S1W51 fields had NO overlap this season (u14/u16 top-16s were disjoint), but the invite is per-band independent (`ranked.slice(0, 16)` per band) and playing up is allowed, so a player ranked top-16 in two bands would be entered in two concurrent draws — flagged for the owner, not changed. (6) **XP/money sinks remain thin**: season-end balances m4 129,652 / m3 125,924 / m2 107,386 / m1 104,216 XP unspent, **0 cosmetics purchased**, career prize $11.4M–$16.3M; the digest exposes no cosmetics field, so the shop is invisible to an agent.
+(3) **Form is a dead lever for deep runners**: the equilibrium is ≈ matches/week ÷ 0.15, so the `[12,25]` sweet spot needs ≤ ~3.75 matches/week; measured — Rafael Yamamoto 7.4 matches/week with 12 weeks stale (>40) and only 2 in-band weeks, Sofia Petrov/Marta Müller ~9/week with 37/39 stale weeks and 2/3 in-band. **FIXED: decay 0.85 → 0.75 + band max 25 → 28 — a 5-9 match week now sits at form 15-27, inside the sweet spot.** (4) **Junior ladders saturate at the best-6 cap**: Sofia Petrov had 51 scoring u14 results totalling 2,174 points but only 1,200 counted — 45 results dropped, **22 of them j100 titles** (the best-6 minimum was 180); Marta Müller 912 of 1,841 with 22 j100 wins dropped. Winning j100s does literally nothing once six bigger results exist. **ADDRESSED by the design-item pass below — legibility only; the real ITF best-6 cap itself is unchanged and correct.** (5) **A dual juniorMasters invite is structurally possible**: the S1W51 fields had NO overlap this season (u14/u16 top-16s were disjoint), but the invite is per-band independent (`ranked.slice(0, 16)` per band) and playing up is allowed, so a player ranked top-16 in two bands would be entered in two concurrent draws — flagged for the owner, not changed. **FIXED by the design-item pass below — one invitation per season, the highest band, the freed place reallocated.** (6) **XP/money sinks remain thin**: season-end balances m4 129,652 / m3 125,924 / m2 107,386 / m1 104,216 XP unspent, **0 cosmetics purchased**, career prize $11.4M–$16.3M; the digest exposes no cosmetics field, so the shop is invisible to an agent. **The XP half is ADDRESSED by the design-item pass below (the shop is now in the digest); the money half remains a documented pre-launch gap, also in that section.**
 
 Test counts after this pass: domain 432 (was 426), application 324 (was 314), api 259 (was 238; +3 A HTTP/PG, +1 B e2e, +1 D HTTP, +1 E HTTP/PG, +5 C pure, +10 F pure), worker 18 (unchanged). All green; full `tsc --build --force` and `apps/web` typecheck clean.
 
@@ -2681,3 +2681,119 @@ are PLACEHOLDER-flagged.
 Test counts after this pass: domain 432 → **442**, application 324 → **325**,
 api **259** (unchanged), worker **18** (unchanged). All green; full
 `tsc --build --force` and `apps/web` typecheck clean.
+
+## Agent-season design-item pass — junior best-N legibility, one juniorMasters invite, the digest shop, and the money-sink gap
+
+The last four opening items from the completed 52-week agent seasons
+(`agents-season-2b` / `agents-season-3`), built on `8d66769` (season-3
+post-mortem) and `a707b89` (fatigue/form + doubles field). Exactly ONE
+game-rule change (item 2's invitation cap, a duplication fix); no ranking
+points, prize money, chemistry or balance constant touched. The frozen
+`advance-world-day` system ORDER is untouched.
+
+1. **Junior ladders saturate at the best-6 cap and nothing told the player
+   (FIXED — legibility only).** Measured: a player earned 2,174 u14 points
+   but only 1,200 counted — 45 results dropped, **22 of them j100 titles**;
+   another dropped 22 j100 wins. Winning a j100 does literally nothing once
+   six bigger results exist, and no surface said so. The best-6 cap is the
+   real ITF rule and is CORRECT — this is a legibility fix, not a scoring
+   change; `RankingCalculationService` / `RankingBand` / the points tables
+   are byte-identical and every existing ranking test is unchanged and
+   green. What shipped: `apps/web/lib/format.ts` gained
+   `bestResultsCountForBand` (6/18), `bestResultsCountNote` (the
+   plain-language rule), and the pure `bandResultRankingVerdict` /
+   `juniorResultVerdicts` pair — the EXACT test, "the player's best-N sum
+   WITH this result vs WITHOUT it, both restricted to the rolling 52-week
+   window", the same mechanism the calculator applies (a junior band has no
+   obligatory events). A result that cannot raise the total reads
+   "Won't improve the U16 ranking — you already have 6 better results"; one
+   inside the best N reads "Counts toward the … ranking"; a 0-point result
+   says a first-round loss pays none; an aged-out one says so. Rendered
+   where a manager looks: the `/rankings` standings page states the rule
+   under the band tabs and labels the Points column "Points · best N" (with
+   the explanation on every cell), the player profile's junior band cards
+   state it, and every recent result of the player's CURRENT junior band in
+   BOTH the profile's history preview and the full `/players/:id/history`
+   table carries its verdict. The one additive DTO field this needed:
+   `PlayerTournamentHistoryEntry.pointsEarned`, read straight from the
+   player's real `ranking_ledger` row for that tournament (never
+   re-derived from tier/roundsWon, so qualifying payouts and the
+   graduation-carryover amplification stay exact; 0 before
+   elimination/final). Pinned by 6 pure cases in `display-logic.spec.ts`, a
+   real-Postgres/HTTP assertion (90 earned vs 0 not-yet-decided), and a new
+   mocked-browser spec (`apps/web/e2e/junior-best-n.spec.ts`) proving both
+   notes render on the profile.
+2. **A player could be auto-invited to two concurrent juniorMasters draws
+   (FIXED).** The invite was per-band independent (`ranked.slice(0, 16)`
+   per band) and playing up is allowed, so a player ranked top-16 in two
+   bands was entered in two concurrent draws (u14 + u16/u18) — flagged in
+   the season-3 post-mortem as structurally possible, and now fixed in
+   `GenerateJuniorTournamentsUseCase`: regular grades open exactly as
+   before, and the invitation loop is separate, OLDEST BAND FIRST
+   (`JUNIOR_MASTERS_BAND_ORDER`, derived from the domain's single
+   `AGE_BAND_ORDER` — now exported — so a future band addition can't drift
+   the two lists), carrying an `invited` set forward. A dual-qualified
+   player takes the HIGHEST band's place; the younger band's field is
+   rebuilt from its ranked list MINUS everyone already invited, so the
+   freed place passes to the next eligible player and the field is never
+   short. One invitation per player per season; no points/draw-size/scoring
+   change. Verified by a unit case (dual player → U18 only; U16 still 16
+   strong with the next-ranked player in) and a real-Postgres case through
+   the real composition (`deps.generateJuniorTournaments.execute`), where
+   both U18 and U16 fields hold 16, the dual player appears only in U18,
+   `u16-p16` receives the freed place and `u16-p17` misses out.
+3. **The XP cosmetics shop was invisible, so nobody used it (FIXED —
+   harness only).** Measured: four 52-week seasons ended with 104k-130k
+   unspent manager XP and **0 cosmetics purchased**; one agent finished
+   with 129k XP and explicitly wrote the shop "never appeared anywhere in
+   my digest". `digestFeed.mjs` gained the pure `compactShop` mapper
+   (catalog, owned set, live `xpBalance`, per-item `owned`/`affordable`; a
+   missing balance maps to `null`, never an invented 0 — the same
+   unknown-is-not-zero discipline as the web's `xpAffordability`), and
+   `agentSeason.mjs`'s digest now carries
+   `shop: compactShop(GET /managers/cosmetics)`, degrading to an empty
+   catalog (with an unknown balance) on a failed fetch rather than
+   throwing. The harness also gained the `purchaseCosmetic` action (shared
+   decision schema → `POST /managers/cosmetics/purchase`), applied AFTER
+   every competitive action so a cosmetic can never influence a week's
+   play. Strictly cosmetic by construction: the domain source-guard test
+   (`ManagerCosmetics.test.ts`) still proves no simulator/training/ranking
+   module can read a cosmetic, and no competitive item was added. Verified
+   LIVE end to end, not just unit-tested: against a throwaway world/DB
+   (`tennis_manager_shopcheck_agents`) with the real API and the real
+   runner, a week-0 digest carried `shop` with all 9 items and
+   `xpBalance: 100000`, and a second run applying
+   `purchaseCosmetic {badge-star}` logged `1 ok / 0 failed`, wrote
+   `manager_cosmetics(agent-m1, badge-star)` and debited XP 100000 →
+   99800. Tests: 4 `compactShop` cases in `digestFeed.test.mjs` plus a
+   real-HTTP integration case mapping the live `/managers/cosmetics`
+   response through the exact production mapper.
+4. **Money has no sink — a known pre-launch DESIGN ITEM, reported and
+   documented, deliberately NOT built here.** Measured across the
+   completed agent seasons: managers finished with **$11.4M–$16.3M career
+   prize money**, and one agent's own note called it "pure scoreboard,
+   nothing to buy". There is no game-money spending system anywhere today:
+   prize money is cumulative/season-reset only and cannot be spent on
+   anything. This is accepted as an open design item, not silently ignored
+   — and NOT invented in this pass, deliberately: a money sink (facilities,
+   staff hires, training camps, entry fees) is a real economy feature that
+   needs its own balance design, and because principle #1 says anything
+   purchasable must never buy an unconditional win-rate boost, it needs the
+   same "paired with a real cost" treatment the roster-slot perk received
+   and the same explicit disclosure the coach-cap exception received.
+   Building one here would have meant an unmeasured economy change hidden
+   inside a legibility pass. What IS confirmed: the digest already exposes
+   the scoreboard — each roster player's `prizeMoney: { career, season }`
+   (and every talent-pool candidate's `careerPrizeMoney`) has been carried
+   since the prize-money work — so the scoreboard is legible today; the
+   only actionable economy levers remain XP (claims, coach conversions,
+   cosmetics).
+
+Test counts after this pass: domain **442** (unchanged), application
+**326** (was 325; +1 dual-invite case), api **264** (was 259; +1
+real-Postgres dual-invite case, +4 `compactShop` cases), worker **18**
+(unchanged); the mocked Playwright suite **102** (was 94; +6 pure best-N
+cases in `display-logic.spec.ts` and +2 browser cases in the new
+`junior-best-n` spec, one per surface: the j100-that-counts-nothing case
+and the breaks-into-the-best-N case). Full `tsc --build --force`,
+`apps/web` typecheck and the mocked suite all clean.

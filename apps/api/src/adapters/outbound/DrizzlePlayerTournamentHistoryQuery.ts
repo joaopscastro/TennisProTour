@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray, or } from 'drizzle-orm';
 import { AgeBand, PlayerId, StandardPrizeMoneyTable, TournamentId, TournamentTier } from '@tennis-manager/domain';
 import { Db } from '../../db/client';
-import { tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
+import { rankingLedger, tournamentEntries, tournamentMatches, tournaments } from '../../db/schema';
 import { isMatchAired } from './matchAir';
 
 /** Same "shared, stateless lookup" reasoning as tournamentRoutes.ts's
@@ -45,6 +45,17 @@ export interface PlayerTournamentHistoryEntry {
    * tournamentRoutes.ts's pointsBreakdown). 0 for a not-yet-played
    * entry (no match decided yet) and always 0 for a junior tier. */
   prizeMoney: number;
+  /** The SINGLES ranking points this tournament actually put on this
+   * player's ledger — read straight from `ranking_ledger` (one row per
+   * player per tournament by construction), never re-derived from
+   * `roundsWon`/`tier` and never a duplicated amount. This is what the
+   * junior best-N legibility feature needs: a profile can show whether
+   * a recent junior result counts toward the band's best-6 ranking or
+   * is displaced by six better results, and that question can only be
+   * answered with the real point values. 0 for an entry that has not
+   * been eliminated/won yet (no ledger row). Additive field; nothing
+   * else on the profile changes. */
+  pointsEarned: number;
 }
 
 /**
@@ -97,6 +108,27 @@ export class DrizzlePlayerTournamentHistoryQuery {
       matchesByTournament.set(row.tournamentId, bucket);
     }
 
+    // pointsEarned comes from the ledger itself, not a second
+    // computation: it is the exact figure the band ranking reads, it
+    // already includes a graduation-carryover amplification where one
+    // fired, and it exists only for tournaments that actually concluded
+    // for this player (elimination or the final). Singles only — this
+    // history is the singles entry list, and a doubles row shares the
+    // same (player, tournament) key space.
+    const ledgerRows = await this.db
+      .select({ tournamentId: rankingLedger.tournamentId, points: rankingLedger.points, discipline: rankingLedger.discipline })
+      .from(rankingLedger)
+      .where(eq(rankingLedger.playerId, playerId));
+    const pointsByTournament = new Map<string, number>();
+    for (const row of ledgerRows) {
+      if (row.discipline !== 'singles') continue;
+      // At most one row per (player, tournament) by construction (the
+      // sim awards a player exactly once per event), so the first value
+      // IS the value; summing keeps a defensive multi-row case additive
+      // rather than silently keeping only the last.
+      pointsByTournament.set(row.tournamentId, (pointsByTournament.get(row.tournamentId) ?? 0) + row.points);
+    }
+
     const now = Date.now();
     return entryRows.map(({ tournament }) => {
       const ownMatches = matchesByTournament.get(tournament.id) ?? [];
@@ -134,6 +166,7 @@ export class DrizzlePlayerTournamentHistoryQuery {
         won,
         eliminated,
         prizeMoney,
+        pointsEarned: pointsByTournament.get(tournament.id) ?? 0,
       };
     });
   }
