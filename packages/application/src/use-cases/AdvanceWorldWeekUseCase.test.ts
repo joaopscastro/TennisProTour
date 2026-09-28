@@ -63,6 +63,15 @@ class InMemoryManagerLadderRepository implements ManagerLadderRepository {
       if (score !== undefined) this.scores.set(id, score * factor);
     }
   }
+  readonly deductManagersCalls: Array<{ managerIds: ManagerId[]; points: number }> = [];
+  async deductManagers(managerIds: ManagerId[], points: number): Promise<void> {
+    this.deductManagersCalls.push({ managerIds, points });
+    if (points <= 0) return;
+    for (const id of managerIds) {
+      const score = this.scores.get(id);
+      if (score !== undefined) this.scores.set(id, Math.max(0, score - points));
+    }
+  }
   async topStandings(limit: number): Promise<ManagerLadderStanding[]> {
     return [...this.scores.entries()]
       .filter(([, s]) => s > 0)
@@ -346,26 +355,56 @@ describe('AdvanceWorldWeekUseCase', () => {
     const factor = ladderPolicy.weeklyDecayFactor();
     // setup(1) rosters a single player under m1, and this test never
     // registers any tournament entry — so m1 is genuinely inactive and
-    // also takes the extra inactivity penalty on top of the routine
+    // also takes the flat inactivity deduction on top of the routine
     // decay (see the dedicated inactivity-penalty tests below for that
     // mechanic in isolation). m2 owns no players at all, so it's never
     // considered for the inactivity check and only ever takes the
     // routine decay.
-    const inactivityFactor = ladderPolicy.inactivityPenaltyFactor();
-    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor * inactivityFactor);
+    const penalty = ladderPolicy.inactivityPenaltyPoints();
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(Math.max(0, 1000 * factor - penalty));
     expect(await ladder.scoreFor(ManagerId('m2'))).toBeCloseTo(500 * factor);
   });
 
-  it('applies the extra inactivity penalty to a manager who registered nobody all week', async () => {
-    const { worldId, useCase, ladder, ladderPolicy, tournaments } = await setup(1);
+  it('applies the flat inactivity deduction to a manager who registered nobody all week', async () => {
+    const { worldId, useCase, ladder, ladderPolicy } = await setup(1);
     await ladder.credit(ManagerId('m1'), 1000);
 
     await useCase.execute({ worldId, tickKey: 'inactive-week-1' });
 
     const factor = ladderPolicy.weeklyDecayFactor();
-    const inactivityFactor = ladderPolicy.inactivityPenaltyFactor();
-    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor * inactivityFactor);
-    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [ManagerId('m1')], factor: inactivityFactor }]);
+    const penalty = ladderPolicy.inactivityPenaltyPoints();
+    // The flat deduction lands AFTER the routine decay: 1000 × 0.99 − 500.
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor - penalty);
+    expect(ladder.deductManagersCalls).toEqual([{ managerIds: [ManagerId('m1')], points: penalty }]);
+  });
+
+  it('a rest week at a mid-ladder score costs less than one tour title banks (the Batch 3 property)', async () => {
+    const { worldId, useCase, ladder, ladderPolicy } = await setup(1);
+    // The live agent-season finding: at m3's 25,139 the old ×0.95 cost
+    // ≈ −1,495 while a `tour` title banks +1,000. The flat deduction
+    // must keep a rest week strictly cheaper than that title.
+    const score = 25_139;
+    await ladder.credit(ManagerId('m1'), score);
+
+    await useCase.execute({ worldId, tickKey: 'rest-week-mid-ladder' });
+
+    const after = await ladder.scoreFor(ManagerId('m1'));
+    expect(after).toBeCloseTo(score * ladderPolicy.weeklyDecayFactor() - ladderPolicy.inactivityPenaltyPoints(), 6);
+    const oneTourTitle = 1000; // StandardRankingPointsTable.pointsFor('tour', 6)
+    // What the OLD multiplicative penalty would have cost at this score.
+    const oldCost = score - score * 0.99 * 0.95;
+    const newCost = score - after;
+    expect(newCost).toBeLessThan(oneTourTitle);
+    expect(oldCost).toBeGreaterThan(oneTourTitle); // the inversion that was fixed
+  });
+
+  it('floors an inactive manager’s score at 0 — a penalty can never go negative', async () => {
+    const { worldId, useCase, ladder } = await setup(1);
+    await ladder.credit(ManagerId('m1'), 100);
+
+    await useCase.execute({ worldId, tickKey: 'inactive-small-score' });
+
+    expect(await ladder.scoreFor(ManagerId('m1'))).toBe(0);
   });
 
   it('spares a manager who registered at least one player in a tournament this week', async () => {
@@ -386,7 +425,7 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     const factor = ladderPolicy.weeklyDecayFactor();
     expect(await ladder.scoreFor(ManagerId('m1'))).toBeCloseTo(1000 * factor);
-    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: ladderPolicy.inactivityPenaltyFactor() }]);
+    expect(ladder.deductManagersCalls).toEqual([{ managerIds: [], points: ladderPolicy.inactivityPenaltyPoints() }]);
   });
 
   it('spares a manager whose only activity this week was a doubles entry', async () => {
@@ -406,7 +445,7 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     await useCase.execute({ worldId, tickKey: 'doubles-active-week-1' });
 
-    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: expect.any(Number) }]);
+    expect(ladder.deductManagersCalls).toEqual([{ managerIds: [], points: expect.any(Number) }]);
   });
 
   it('never penalizes a manager with no rostered players at all', async () => {
@@ -415,7 +454,7 @@ describe('AdvanceWorldWeekUseCase', () => {
 
     await useCase.execute({ worldId, tickKey: 'no-players-week-1' });
 
-    expect(ladder.decayManagersCalls).toEqual([{ managerIds: [], factor: expect.any(Number) }]);
+    expect(ladder.deductManagersCalls).toEqual([{ managerIds: [], points: expect.any(Number) }]);
   });
 
   it('does not decay the ladder on a mid-week day tick (no rollover)', async () => {

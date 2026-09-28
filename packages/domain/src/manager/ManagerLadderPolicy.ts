@@ -29,21 +29,29 @@ export interface ManagerLadderPolicy {
    * or climbing the public leaderboard requires continuing to play. */
   weeklyDecayFactor(): number;
 
-  /** An EXTRA, harsher decay multiplier applied — on top of
-   * `weeklyDecayFactor`, not instead of it — only to a manager who
-   * registered NONE of their rostered players into ANY tournament
-   * (singles or doubles) during the week just ended. Inspired by the
-   * real ATP rulebook's withdrawal-penalty concept (Chapter IX,
-   * 9.03.C — a scheduled-but-skipped ATP 500 costs ranking points),
-   * reinterpreted for this game's actual failure mode: not a
-   * withdrawal (there is no such action here), but an absentee
-   * manager simply forgetting to enter anyone for a whole week. Scoped
-   * to the MANAGER LADDER specifically (not the player's own ranking,
-   * which already has no equivalent "forced zero" outside the
-   * obligatory-major rule) because the ladder is this game's own
-   * "come back and stay active" retention mechanic — the natural home
-   * for a real activity penalty. */
-  inactivityPenaltyFactor(): number;
+  /** A FLAT point deduction applied — AFTER the routine weekly decay,
+   * not instead of it — only to a manager who registered NONE of their
+   * rostered players into ANY tournament (singles or doubles) during
+   * the week just ended. Inspired by the real ATP rulebook's
+   * withdrawal-penalty concept (Chapter IX, 9.03.C — a
+   * scheduled-but-skipped ATP 500 costs ranking points), reinterpreted
+   * for this game's actual failure mode: not a withdrawal (there is no
+   * such action here), but an absentee manager simply forgetting to
+   * enter anyone for a whole week. Scoped to the MANAGER LADDER
+   * specifically (not the player's own ranking, which already has no
+   * equivalent "forced zero" outside the obligatory-major rule) because
+   * the ladder is this game's own "come back and stay active" retention
+   * mechanic — the natural home for a real activity penalty.
+   *
+   * FLAT POINTS, deliberately not a multiplier: the original ×0.95
+   * design cost a rest week in proportion to standing — at a 25k score
+   * ≈ −1,495, MORE than a `tour` title banks (+1,000) — so resting
+   * became strictly worse than playing at exactly the moment the
+   * fatigue system starts asking for rest. A bounded flat deduction
+   * keeps a real consequence while staying below one tournament's
+   * reward at the intended ladder scale: a rest week costs
+   * `1% of score + this value` (at 25k ≈ −750, at 83k ≈ −1,338). */
+  inactivityPenaltyPoints(): number;
 }
 
 /**
@@ -64,17 +72,16 @@ export class StandardManagerLadderPolicy implements ManagerLadderPolicy {
   private static readonly WEEKLY_DECAY = 0.99;
 
   /** PLACEHOLDER: a fully inactive week (zero entries anywhere on the
-   * whole roster) costs an EXTRA 5% on top of the routine 1%. Softened
-   * 0.85 → 0.95 by the second fatigue/form pass (docs/balance-tuning-
-   * report.md): fatigue recovery is now self-limiting, so a deep run
-   * settles at a real, finite fatigue instead of pinning at 100 — but
-   * that only makes "take a rest week" a viable plan if a rest week
-   * isn't itself punished by a 15% score cliff. 5% is still a real,
-   * felt consequence (a manager who forgets entirely keeps sliding
-   * ~6%/week including the routine decay) without making rest the wrong
-   * move at the exact moment the fatigue system starts asking for it.
-   * Not tuned against live data — same status as WEEKLY_DECAY. */
-  private static readonly INACTIVITY_PENALTY = 0.95;
+   * whole roster) deducts a flat 500 ladder points AFTER the routine 1%
+   * decay. Replaced the previous extra ×0.95 multiplier (softened
+   * 0.85 → 0.95 by the second fatigue/form pass): that design punished
+   * rest in proportion to standing, so at a 25k score a rest week cost
+   * ~1,495 — more than a `tour` title banks — directly contradicting
+   * the fatigue system's own encouragement to take a rest week. A flat,
+   * bounded deduction keeps a real "come back and stay active" pull
+   * without ever outweighing a tournament win at the intended ladder
+   * scale. Not tuned against live data — same status as WEEKLY_DECAY. */
+  private static readonly INACTIVITY_PENALTY_POINTS = 500;
 
   creditFor(rankingPoints: number): number {
     return rankingPoints;
@@ -84,7 +91,7 @@ export class StandardManagerLadderPolicy implements ManagerLadderPolicy {
     return StandardManagerLadderPolicy.WEEKLY_DECAY;
   }
 
-  inactivityPenaltyFactor(): number {
-    return StandardManagerLadderPolicy.INACTIVITY_PENALTY;
+  inactivityPenaltyPoints(): number {
+    return StandardManagerLadderPolicy.INACTIVITY_PENALTY_POINTS;
   }
 }

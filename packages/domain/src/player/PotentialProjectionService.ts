@@ -32,6 +32,13 @@ import { PhysicalCeilings, PotentialTier, ageInterpolationFactor, tierForPotenti
  *      "Ages and plays" collapses to one axis here on purpose: a player
  *      only ages by surviving weekly ticks, which only happen as the
  *      world (and their matches) progress, so age IS the play-time proxy.
+ *   4. NEVER PROMISES IMPOSSIBLE PHYSICAL HEADROOM. Physical attribute
+ *      projections are fuzzed one-sided downward, so a projected value
+ *      can never exceed that attribute's true (hidden) ceiling — a
+ *      maxed attribute (`current === ceiling`) always reads
+ *      `projected === current` and draws no ghost bar. Technical
+ *      projections and the headline overall band stay two-sided
+ *      (technical has no hard cap; the overall gamble is deliberate).
  *
  * All the numeric constants below are PLACEHOLDER game-balance values,
  * flagged the same way aging thresholds / ranking points / development
@@ -70,7 +77,16 @@ const PROJECTION_AGE_RANGE = { minWeeks: PROJECTION_YOUNG_AGE_WEEKS, maxWeeks: P
  * does). `mature: true` marks an attribute with no training headroom at
  * all (the mental cluster, which generates already-mature and never
  * trains — see docs/training-redesign-per-attribute.md): its projection
- * is exactly its current value, no ghost extension. */
+ * is exactly its current value, no ghost extension.
+ *
+ * PHYSICAL attributes additionally project AT OR BELOW their own true
+ * ceiling (one-sided-downward fuzz, see projectAttribute): a physical
+ * cap is real and can never be exceeded, so the read must never promise
+ * headroom that cannot exist. A maxed physical attribute
+ * (`current === ceiling`) therefore always renders `projected ===
+ * current` — no ghost bar — at every age. Technical projections stay
+ * two-sided (no hard cap exists there) and the headline overall band
+ * stays two-sided (the overall gamble is deliberate). */
 export interface AttributeProjection {
   current: number;
   projected: number;
@@ -163,16 +179,28 @@ function confidenceForAge(ageInWeeks: number): number {
 /** Projects a single attribute toward its own true ceiling, fuzzed by
  * the same age-driven half-width and a per-attribute stable bias, then
  * clamped so the projection never drops below the current value and
- * never exceeds 100. */
+ * never exceeds 100.
+ *
+ * `downwardOnly` is passed for PHYSICAL attributes: their fuzz draw is
+ * one-sided (always <= 0), so the read can never exceed the true
+ * ceiling and a maxed attribute (`current === ceiling`) always renders
+ * `projected === current` — the ghost bar disappears rather than
+ * promising headroom that provably cannot exist. Technical attributes
+ * and the headline overall band stay two-sided (deliberate: technical
+ * has no hard cap, and the overall gamble is the emotional core of
+ * P5). */
 function projectAttribute(
   playerId: string,
   salt: string,
   current: number,
   trueCeiling: number,
   confidence: number,
+  downwardOnly = false,
 ): number {
   const halfWidth = PROJECTION_MAX_HALF_WIDTH * (1 - confidence);
-  const bias = stableUnit(playerId, salt) * 2 - 1; // [-1, 1]
+  const unit = stableUnit(playerId, salt); // [0, 1)
+  // Two-sided bias in [-1, 1], or one-sided-downward in (-1, 0].
+  const bias = downwardOnly ? -unit : unit * 2 - 1;
   const projected = trueCeiling + bias * halfWidth * PROJECTION_BIAS_FRACTION;
   return Math.round(clamp(projected, current, 100));
 }
@@ -221,7 +249,12 @@ export function projectPotential(input: PotentialProjectionInput): PotentialProj
     const current = attributes.physical[attr].value;
     physical[attr] = {
       current,
-      projected: projectAttribute(playerId, `phys:${attr}`, current, physicalCeilings[attr], confidence),
+      // One-sided downward (downwardOnly=true): a physical ceiling is a
+      // real hard cap (see Player.applyTraining's
+      // applyPotentialDiminishingReturns gating), so the scout's read
+      // must never exceed it — a maxed attribute always reads
+      // projected === current and draws no ghost bar.
+      projected: projectAttribute(playerId, `phys:${attr}`, current, physicalCeilings[attr], confidence, true),
       mature: false,
     };
   }

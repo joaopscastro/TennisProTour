@@ -9,9 +9,11 @@ import { managerLadder } from '../../db/schema';
  * ManagerLadderRepository). credit() is a commutative upsert (score =
  * score + amount) exactly like DrizzleManagerXpRepository.credit;
  * decayAll() is a single whole-table UPDATE so its cost is independent
- * of the number of managers who played that week; topStandings() is the
- * public leaderboard read, ordered by the indexed score column and
- * excluding never-scored (0) managers.
+ * of the number of managers who played that week; deductManagers() is
+ * the flat targeted inactivity deduction (GREATEST(0, score - points),
+ * so a score can never go negative); topStandings() is the public
+ * leaderboard read, ordered by the indexed score column and excluding
+ * never-scored (0) managers.
  */
 export class DrizzleManagerLadderRepository implements ManagerLadderRepository {
   constructor(private readonly db: Db) {}
@@ -45,6 +47,14 @@ export class DrizzleManagerLadderRepository implements ManagerLadderRepository {
     await this.db
       .update(managerLadder)
       .set({ score: sql`${managerLadder.score} * ${factor}` })
+      .where(inArray(managerLadder.managerId, managerIds));
+  }
+
+  async deductManagers(managerIds: ManagerId[], points: number): Promise<void> {
+    if (managerIds.length === 0 || points <= 0) return;
+    await this.db
+      .update(managerLadder)
+      .set({ score: sql`GREATEST(0, ${managerLadder.score} - ${points})`, updatedAt: new Date() })
       .where(inArray(managerLadder.managerId, managerIds));
   }
 

@@ -45,6 +45,7 @@ import { SURFACE_COLOR } from '../../../lib/ui/surfaces';
 import { stageLabel, stageMeta } from '../../../lib/ui/stage';
 import { titleSummaryLabel } from '../../../lib/titles';
 import { FOCUS_GROUPS, focusEquals, trainingFocusLabel } from '../../../lib/ui/focus';
+import { deadPhysicalFocusWarning } from '../../../lib/focusHeadroom';
 
 const BAND_LABEL: Record<RankingBand, string> = { senior: 'Senior', u14: 'U14', u16: 'U16', u18: 'U18' };
 
@@ -414,6 +415,16 @@ export default function PlayerProfilePage() {
   }
 
   const currentBands = useMemo(() => (profile ? visibleCurrentBands(profile) : []), [profile]);
+
+  // 3.2 — "dead training focus" warning: when THIS week's resolved focus
+  // (the schedule window starts at the world's current week) is a
+  // physical attribute whose projection promises no headroom, say so
+  // instead of letting a manager burn weeks of XP on nothing. The helper
+  // reads only already-exposed projection fields (current/projected);
+  // the hidden ceiling is never involved (see focusHeadroom.ts).
+  const currentWeekFocusWarning = profile
+    ? deadPhysicalFocusWarning(scheduleWeeks?.[0]?.focus ?? null, profile.potential)
+    : null;
 
   if (error) {
     return (
@@ -913,6 +924,19 @@ export default function PlayerProfilePage() {
             not a new backend concept. Same lookahead window as the
             tournament planner elsewhere in this app. */}
         <SectionLabel>Schedule</SectionLabel>
+        {currentWeekFocusWarning && (
+          <div
+            className="gc-notice"
+            style={{
+              marginBottom: 12,
+              color: 'var(--warn)',
+              borderColor: 'color-mix(in srgb, var(--warn) 35%, transparent)',
+              background: 'color-mix(in srgb, var(--warn) 10%, transparent)',
+            }}
+          >
+            This week&apos;s training focus: {currentWeekFocusWarning}
+          </div>
+        )}
         {!profile.managerId && (
           <div className="gc-tbl-note" style={{ padding: 0, marginBottom: 10 }}>
             Free agent — no manager to schedule tournaments or training for.

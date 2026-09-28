@@ -36,7 +36,17 @@ async function mockApi(page: Page): Promise<void> {
       // Before the race: one available agent. After the 409: empty, so the
       // stale card is gone with the explanation. (A flag rather than a fetch
       // counter — React StrictMode double-invokes effects in dev.)
-      await route.fulfill({ contentType: 'application/json', body: JSON.stringify(raceLost ? [] : [candidate]) });
+      // Paged DTO shape ({ candidates, total, poolTotal, availableTotal }) —
+      // this mock predated the paging change and had drifted.
+      await route.fulfill({
+        contentType: 'application/json',
+        body: JSON.stringify({
+          candidates: raceLost ? [] : [candidate],
+          total: raceLost ? 0 : 1,
+          poolTotal: raceLost ? 0 : 1,
+          availableTotal: raceLost ? 0 : 1,
+        }),
+      });
       return;
     }
     if (/^\/talent-pool\/[^/]+\/claim$/.test(url.pathname)) {

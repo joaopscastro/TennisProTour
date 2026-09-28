@@ -139,6 +139,51 @@ describe('projectPotential', () => {
     expect(p.attributes.physical.strength.projected).toBe(74);
   });
 
+  it('a maxed physical attribute reads projected === current at EVERY age — no impossible ghost headroom', () => {
+    // The live Amara case: speed raw ~81.5 / ceiling 82. The old
+    // two-sided fuzz could render a projected ~87 that provably cannot
+    // exist (the attribute is at its hard cap). Physical fuzz is now
+    // one-sided-downward, so current === ceiling always renders exactly
+    // current.
+    const maxed: PhysicalCeilings = { speed: 82, stamina: 61, strength: 40 };
+    const ages = [10 * 52, PROJECTION_YOUNG_AGE_WEEKS, 19 * 52, PROJECTION_MATURE_AGE_WEEKS, 34 * 52];
+    for (const ageInWeeks of ages) {
+      for (const playerId of ['aaa', 'player-abc', 'zzz', 'm4-amara']) {
+        const p = projectPotential(
+          input({
+            playerId,
+            ageInWeeks,
+            attributes: attrs({ physical: { speed: 82, stamina: 61, strength: 40 } }),
+            physicalCeilings: maxed,
+          }),
+        );
+        expect(p.attributes.physical.speed).toEqual({ current: 82, projected: 82, mature: false });
+        expect(p.attributes.physical.stamina).toEqual({ current: 61, projected: 61, mature: false });
+        expect(p.attributes.physical.strength).toEqual({ current: 40, projected: 40, mature: false });
+      }
+    }
+  });
+
+  it('a physical attribute with real headroom still projects strictly above current, and never above its true ceiling', () => {
+    const ceilings: PhysicalCeilings = { speed: 90, stamina: 90, strength: 90 };
+    for (const ageInWeeks of [PROJECTION_YOUNG_AGE_WEEKS, 19 * 52, PROJECTION_MATURE_AGE_WEEKS]) {
+      for (const playerId of ['aaa', 'player-abc', 'zzz', 'm4-amara']) {
+        const p = projectPotential(
+          input({
+            playerId,
+            ageInWeeks,
+            attributes: attrs({ physical: { speed: 40, stamina: 40, strength: 40 } }),
+            physicalCeilings: ceilings,
+          }),
+        );
+        for (const a of Object.values(p.attributes.physical)) {
+          expect(a.projected).toBeGreaterThan(a.current);
+          expect(a.projected).toBeLessThanOrEqual(90);
+        }
+      }
+    }
+  });
+
   it('treats mental attributes as mature — projection equals current, flagged mature', () => {
     const p = projectPotential(input({ attributes: attrs({ mental: { consistency: 66, clutch: 71 } }) }));
     expect(p.attributes.mental.consistency).toEqual({ current: 66, projected: 66, mature: true });

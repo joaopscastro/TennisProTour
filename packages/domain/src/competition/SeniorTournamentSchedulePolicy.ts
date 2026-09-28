@@ -30,12 +30,23 @@ export interface SeniorOpening {
  * (128-draw), and — like the junior schedule — everyNWeeks values are
  * arranged so a major week still also fires the smaller tiers, never
  * feeling arbitrary.
+ *
+ * The major's 13-week cadence carries a `phase: 12` offset rather than
+ * firing on absolute week ≡ 0 (mod 13) — see TWO_WEEK_TIERS' week-51
+ * rule in TournamentSchedulePolicy.ts. Absolute weeks ≡ 0 (mod 13) are
+ * season weeks 13/26/39/52, and week 52 is forbidden for a two-week
+ * tier (its final would land on S2W1 day 7, after the season bonus pool
+ * and the season prize reset). `phase: 12` shifts every major one week
+ * earlier — season weeks 12/25/38/51, still exactly four per 13-week-
+ * spaced season, still a major every 13 weeks across season boundaries
+ * (51 → 64 = S2W12). Because 52 ≡ 0 (mod 13), the phase holds for
+ * EVERY season, not just the first.
  */
-const SCHEDULE: ReadonlyArray<SeniorOpening & { everyNWeeks: number }> = [
+const SCHEDULE: ReadonlyArray<SeniorOpening & { everyNWeeks: number; phase?: number }> = [
   { tier: 'futures', drawSize: 32, count: 2, everyNWeeks: 1 },
   { tier: 'challenger', drawSize: 32, count: 2, everyNWeeks: 1 },
   { tier: 'tour', drawSize: 64, count: 1, everyNWeeks: 1 },
-  { tier: 'major', drawSize: 128, count: 1, everyNWeeks: 13 },
+  { tier: 'major', drawSize: 128, count: 1, everyNWeeks: 13, phase: 12 },
 ];
 
 export interface SeniorTournamentSchedulePolicy {
@@ -49,7 +60,7 @@ export interface SeniorTournamentSchedulePolicy {
 
 export class StandardSeniorTournamentSchedulePolicy implements SeniorTournamentSchedulePolicy {
   weeklyOpenings(absoluteWeek: number): ReadonlyArray<SeniorOpening> {
-    return SCHEDULE.filter((row) => absoluteWeek % row.everyNWeeks === 0).map((row) => ({
+    return SCHEDULE.filter((row) => absoluteWeek % row.everyNWeeks === (row.phase ?? 0)).map((row) => ({
       tier: row.tier,
       drawSize: row.drawSize,
       count: row.count,

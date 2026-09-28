@@ -54,7 +54,11 @@ export interface AdvanceWorldWeekCommand {
  * tuning-report.md), which left a fixed drain a deep schedule could
  * always out-accrue; the second pass (same report) made recovery
  * self-limiting and softened the form stale side + inactivity penalty to
- * turn "rest" into a real option. Still a PLACEHOLDER. */
+ * turn "rest" into a real option. The inactivity half was then replaced
+ * outright by a flat deduction (Batch 3 — see
+ * ManagerLadderPolicy.inactivityPenaltyPoints), because any penalty
+ * proportional to standing could still outweigh a tournament win. Still
+ * a PLACEHOLDER. */
 export { FATIGUE_RECOVERY_PER_DAY };
 
 /** Multiplicative form decay applied once per WEEKLY rollover (0.85 =
@@ -334,12 +338,15 @@ export class AdvanceWorldWeekUseCase {
     await this.managerLadder.decayAll(this.managerLadderPolicy.weeklyDecayFactor());
     profiler.mark('ladderDecay');
 
-    // The EXTRA inactivity penalty (see ManagerLadderPolicy.inactivityPenaltyFactor's
-    // doc comment): a manager whose WHOLE roster registered zero entries
-    // (singles or doubles) anywhere during the week that just ended gets
-    // hit with a second, harsher decay on top of the routine one above.
-    // A manager with no active players at all owes nothing here — there
-    // was nobody to forget to register.
+    // The EXTRA inactivity penalty (see
+    // ManagerLadderPolicy.inactivityPenaltyPoints' doc comment): a
+    // manager whose WHOLE roster registered zero entries (singles or
+    // doubles) anywhere during the week that just ended takes a FLAT
+    // deduction on top of the routine decay above — deliberately not a
+    // multiplier, so a rest week stays cheaper than a tournament win
+    // (a ×0.95 at a 25k score cost ~1,495, more than a `tour` title
+    // banks). A manager with no active players at all owes nothing
+    // here — there was nobody to forget to register.
     const playersByManager = new Map<ManagerId, typeof allPlayers>();
     for (const player of allPlayers) {
       if (player.managerId === null || player.isRetired()) continue;
@@ -362,7 +369,7 @@ export class AdvanceWorldWeekUseCase {
       }
       if (!active) inactiveManagerIds.push(managerId);
     }
-    await this.managerLadder.decayManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyFactor());
+    await this.managerLadder.deductManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyPoints());
     profiler.mark('inactivityPenalty', { inactiveManagers: inactiveManagerIds.length });
 
     await this.worlds.save(world);

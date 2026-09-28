@@ -49,6 +49,7 @@ import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepo
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
+import { DrizzleManagerLadderRepository } from './DrizzleManagerLadderRepository';
 import { DrizzleManagerAccountCreationAdapter } from './DrizzleManagerAccountCreationAdapter';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
 import { DrizzleCoachConversionAdapter } from './DrizzleCoachConversionAdapter';
@@ -109,6 +110,7 @@ beforeEach(async () => {
   await db.delete(schema.practiceSessions);
   await db.delete(schema.players);
   await db.delete(schema.managerProgression); // no FKs, order doesn't matter
+  await db.delete(schema.managerLadder); // no FKs, order doesn't matter
   await db.delete(schema.coaches); // no FKs, order doesn't matter
 });
 
@@ -2138,6 +2140,44 @@ describe('DrizzleManagerXpRepository', () => {
       expect(await repository.balanceFor(ManagerId('m1'))).toBe(10);
     },
   );
+});
+
+describe('DrizzleManagerLadderRepository.deductManagers (Batch 3.3, real Postgres)', () => {
+  const ladder = new DrizzleManagerLadderRepository(db);
+
+  it('applies a flat deduction to ONLY the listed managers, floored at 0', async () => {
+    await ladder.credit(ManagerId('ladder-m1'), 20_000);
+    await ladder.credit(ManagerId('ladder-m2'), 400); // less than the deduction
+    await ladder.credit(ManagerId('ladder-m3'), 1_000); // not listed
+
+    await ladder.deductManagers([ManagerId('ladder-m1'), ManagerId('ladder-m2')], 500);
+
+    expect(await ladder.scoreFor(ManagerId('ladder-m1'))).toBeCloseTo(19_500, 6);
+    // GREATEST(0, 400 - 500) — a score can never go negative.
+    expect(await ladder.scoreFor(ManagerId('ladder-m2'))).toBe(0);
+    expect(await ladder.scoreFor(ManagerId('ladder-m3'))).toBe(1_000);
+  });
+
+  it('composes with the routine decay exactly as the weekly tick applies it (decay, then deduct)', async () => {
+    // The live agent-season score the policy's rest-week property is
+    // stated against: 25,139 → 25,139 × 0.99 − 500.
+    await ladder.credit(ManagerId('ladder-m1'), 25_139);
+
+    await ladder.decayAll(0.99);
+    await ladder.deductManagers([ManagerId('ladder-m1')], 500);
+
+    expect(await ladder.scoreFor(ManagerId('ladder-m1'))).toBeCloseTo(25_139 * 0.99 - 500, 6);
+  });
+
+  it('is a no-op for an empty list or a non-positive amount', async () => {
+    await ladder.credit(ManagerId('ladder-m1'), 1_000);
+
+    await ladder.deductManagers([], 500);
+    await ladder.deductManagers([ManagerId('ladder-m1')], 0);
+    await ladder.deductManagers([ManagerId('ladder-m1')], -50);
+
+    expect(await ladder.scoreFor(ManagerId('ladder-m1'))).toBe(1_000);
+  });
 });
 
 describe('DrizzleTalentClaimAdapter', () => {

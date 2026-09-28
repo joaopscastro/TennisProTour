@@ -72,7 +72,7 @@ async function setup(week: GameWeek) {
 
 describe('GenerateSeniorTournamentsUseCase', () => {
   it('opens the real StandardSeniorTournamentSchedulePolicy tiers for a typical (non-major) week — senior tour only, no age band', async () => {
-    // 1*52 + 1 = 53 -> odd, not divisible by 13 (no major this week).
+    // 1*52 + 1 = 53 -> 53 % 13 = 1, not the major's phase 12 (no major this week).
     const { tournaments, useCase } = await setup({ season: 1, week: 1 });
 
     const result = await useCase.execute({ worldId });
@@ -97,9 +97,10 @@ describe('GenerateSeniorTournamentsUseCase', () => {
   });
 
   it('adds a 128-draw major on its every-13-week cadence, on top of the weekly futures/challenger/tour', async () => {
-    // Generation opens for NEXT week: setup week 12 -> opens week 13,
-    // abs 1*52 + 13 = 65 -> divisible by 13 (major week).
-    const { tournaments, useCase } = await setup({ season: 1, week: 12 });
+    // Generation opens for NEXT week: setup week 11 -> opens week 12,
+    // abs 1*52 + 12 = 64 -> 64 % 13 = 12 (the major's phase — see the
+    // policy's week-51 rule; majors are weeks 12/25/38/51, never 52).
+    const { tournaments, useCase } = await setup({ season: 1, week: 11 });
 
     await useCase.execute({ worldId });
 

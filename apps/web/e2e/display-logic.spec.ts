@@ -13,7 +13,8 @@ import {
 } from '../lib/matchAir';
 import { latestCancelledEntry, nextPendingEntry } from '../lib/pendingEntry';
 import { resolveDecidedSide } from '../lib/decidedIt';
-import type { PlannerWeekDto } from '../lib/api';
+import { DEAD_PHYSICAL_FOCUS_NOTE, deadPhysicalFocusWarning } from '../lib/focusHeadroom';
+import type { PlannerWeekDto, PotentialProjectionDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
 import { titleSummaryLabel } from '../lib/titles';
 import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
@@ -453,5 +454,52 @@ test.describe('cancelled entries are legible (P1-C3)', () => {
     expect(
       tournamentHistoryResultLabel({ hasStarted: false, won: false, eliminated: false, roundsWon: 0, drawSize: 16 }),
     ).toBe('Not yet started');
+  });
+});
+
+test.describe('dead physical training focus warns (3.2)', () => {
+  const projection = (speed: { current: number; projected: number }): PotentialProjectionDto =>
+    ({
+      attributes: {
+        technical: {},
+        physical: {
+          speed: { ...speed, mature: false },
+          stamina: { current: 40, projected: 60, mature: false },
+          strength: { current: 40, projected: 55, mature: false },
+        },
+        mental: {},
+      },
+    }) as unknown as PotentialProjectionDto;
+
+  test('a physical focus with no projected headroom warns', () => {
+    // The live Amara case: speed 82, projected 82 (at its ceiling, no
+    // ghost bar) — training it cannot move it, and now says so.
+    expect(
+      deadPhysicalFocusWarning({ kind: 'attribute', attribute: 'speed' }, projection({ current: 82, projected: 82 })),
+    ).toBe(DEAD_PHYSICAL_FOCUS_NOTE);
+  });
+
+  test('a physical focus with real projected headroom does not warn', () => {
+    expect(
+      deadPhysicalFocusWarning({ kind: 'attribute', attribute: 'speed' }, projection({ current: 40, projected: 70 })),
+    ).toBeNull();
+  });
+
+  test('a technical or surface focus never warns — only physical attributes have a hard cap', () => {
+    // Even a "no headroom" technical read (projected === current) is a
+    // different claim: technical attributes have no ceiling, so the normal
+    // training advice still applies.
+    expect(
+      deadPhysicalFocusWarning({ kind: 'attribute', attribute: 'serve' }, projection({ current: 82, projected: 82 })),
+    ).toBeNull();
+    expect(
+      deadPhysicalFocusWarning({ kind: 'surface', surface: 'clay' }, projection({ current: 82, projected: 82 })),
+    ).toBeNull();
+    expect(deadPhysicalFocusWarning(null, projection({ current: 82, projected: 82 }))).toBeNull();
+  });
+
+  test('an unknown/loading projection never warns', () => {
+    expect(deadPhysicalFocusWarning({ kind: 'attribute', attribute: 'speed' }, null)).toBeNull();
+    expect(deadPhysicalFocusWarning({ kind: 'attribute', attribute: 'speed' }, undefined)).toBeNull();
   });
 });

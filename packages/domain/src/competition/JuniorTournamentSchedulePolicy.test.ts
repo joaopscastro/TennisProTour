@@ -47,10 +47,15 @@ describe('StandardJuniorTournamentSchedulePolicy', () => {
     }
   });
 
-  it('is juniorMasters week exactly once per 52-week season', () => {
-    expect(policy.isJuniorMastersWeek({ season: 1, week: 52 })).toBe(true);
-    expect(policy.isJuniorMastersWeek({ season: 2, week: 52 })).toBe(true);
-    for (let week = 1; week < 52; week++) {
+  it('is juniorMasters week exactly once per 52-week season — week 51, so the 14-day field finishes in-season', () => {
+    expect(policy.isJuniorMastersWeek({ season: 1, week: 51 })).toBe(true);
+    expect(policy.isJuniorMastersWeek({ season: 2, week: 51 })).toBe(true);
+    // Week 52 is deliberately NOT masters week: juniorMasters is a
+    // two-week tier, and a week-52 start would finish on S2W1 day 7
+    // (see TournamentSchedulePolicy.ts's week-51 rule and
+    // TwoWeekTierScheduling.test.ts).
+    expect(policy.isJuniorMastersWeek({ season: 1, week: 52 })).toBe(false);
+    for (let week = 1; week < 51; week++) {
       expect(policy.isJuniorMastersWeek({ season: 1, week })).toBe(false);
     }
   });

@@ -136,6 +136,7 @@ class InMemoryManagerLadderRepository implements ManagerLadderRepository {
   }
   async decayAll(): Promise<void> {}
   async decayManagers(): Promise<void> {}
+  async deductManagers(): Promise<void> {}
   async topStandings(): Promise<ManagerLadderStanding[]> {
     return [];
   }

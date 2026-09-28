@@ -604,11 +604,22 @@ export interface ManagerLadderRepository {
   decayAll(factor: number): Promise<void>;
 
   /** Multiplies ONLY the listed managers' scores by `factor` — the
-   * targeted counterpart to `decayAll`, for the extra inactivity
-   * penalty (see `ManagerLadderPolicy.inactivityPenaltyFactor`), which
-   * must hit just the managers who registered nobody that week, not
-   * the whole table. Empty `managerIds` is a no-op (no query at all). */
+   * targeted counterpart to `decayAll`. Retained as the targeted
+   * multiplicative capability; the weekly inactivity penalty itself is
+   * now the flat `deductManagers` below, not a multiplier (see
+   * `ManagerLadderPolicy.inactivityPenaltyPoints`). Empty `managerIds`
+   * is a no-op (no query at all). */
   decayManagers(managerIds: ManagerId[], factor: number): Promise<void>;
+
+  /** Subtracts a FLAT `points` amount from ONLY the listed managers'
+   * scores, floored at 0 — the targeted counterpart for the weekly
+   * inactivity penalty (`ManagerLadderPolicy.inactivityPenaltyPoints`),
+   * which must hit just the managers who registered nobody that week,
+   * not the whole table. A single set-based
+   * `UPDATE ... SET score = GREATEST(0, score - $1) WHERE manager_id
+   * IN (...)`. Empty `managerIds` or a non-positive `points` is a no-op
+   * (no query at all). */
+  deductManagers(managerIds: ManagerId[], points: number): Promise<void>;
 
   /** The public leaderboard: the top `limit` managers by score,
    * descending, excluding zero/negative scores (a manager who has

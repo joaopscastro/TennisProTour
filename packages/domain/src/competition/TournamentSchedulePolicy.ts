@@ -26,7 +26,18 @@ export interface TournamentSchedulePolicy {
 /** Tiers that run over two weeks (14 days) with rest days between
  * rounds — the majors and the masters-class capstone. Every other tier
  * (all senior sub-major tiers and every junior j-grade) runs inside a
- * single week, one round per day. */
+ * single week, one round per day.
+ *
+ * THE WEEK-51 RULE: a 14-day event must START by season week 51 to
+ * finish inside its own season. A two-week tier's final lands on day
+ * 14 (roundDay below), so a week-52 start would run into S2W1 day 7 —
+ * after the season bonus pool has paid out and after the season prize
+ * reset, landing the result in the wrong season. Both schedule
+ * policies that open two-week tiers are bound by this:
+ * StandardSeniorTournamentSchedulePolicy keeps `major` off week 52 via
+ * its every-13-week phase, and
+ * StandardJuniorTournamentSchedulePolicy.isJuniorMastersWeek is week
+ * 51 rather than 52. */
 const TWO_WEEK_TIERS: ReadonlySet<TournamentTier> = new Set<TournamentTier>(['major', 'juniorMasters']);
 
 export function isTwoWeekTier(tier: TournamentTier): boolean {

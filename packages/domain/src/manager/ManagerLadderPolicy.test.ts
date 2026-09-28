@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { StandardManagerLadderPolicy } from './ManagerLadderPolicy';
+import { StandardRankingPointsTable } from '../competition/CompetitionTypes';
 
 describe('StandardManagerLadderPolicy', () => {
   const policy = new StandardManagerLadderPolicy();
@@ -26,14 +27,26 @@ describe('StandardManagerLadderPolicy', () => {
     expect(score).toBeGreaterThan(0);
   });
 
-  it('applies a softened inactivity penalty — 5% extra on top of the routine 1%, not the old 15% cliff', () => {
-    // Retuned 0.85 → 0.95 by the second fatigue/form pass: with fatigue
-    // recovery now self-limiting, a rest week is a legitimate plan the
-    // system itself nudges toward — so an inactive week must still cost
-    // something real (~6% composed with the routine decay), but not so
-    // much that resting is the wrong move at the exact moment fatigue
-    // asks for it.
-    expect(policy.inactivityPenaltyFactor()).toBe(0.95);
-    expect(policy.weeklyDecayFactor() * policy.inactivityPenaltyFactor()).toBeCloseTo(0.9405, 4);
+  it('pins the flat inactivity deduction (Batch 3: replaced the ×0.95 multiplier)', () => {
+    expect(policy.inactivityPenaltyPoints()).toBe(500);
+  });
+
+  it('a rest week at a mid-ladder score can never cost more than one tour title banks', () => {
+    // The live agent-season finding this replaced: at m3's 25,139 the
+    // old multiplicative penalty cost ≈ −1,495 while a `tour` title
+    // banks +1,000 — resting was strictly worse than playing at exactly
+    // the moment the fatigue system asked for rest. With the flat
+    // deduction the composed rest-week cost is `1% of score + 500`.
+    const midLadderScore = 25_139;
+    const titlePoints = new StandardRankingPointsTable().pointsFor('tour', 6); // a 64-draw tour title
+    expect(titlePoints).toBe(1000); // the number the property is stated against
+
+    const restWeekCost = midLadderScore * (1 - policy.weeklyDecayFactor()) + policy.inactivityPenaltyPoints();
+    expect(restWeekCost).toBeLessThan(titlePoints);
+
+    // What the old ×0.95 on top of the routine decay would have cost —
+    // pinned so a regression to a proportional penalty fails here.
+    const oldMultiplierCost = midLadderScore - midLadderScore * policy.weeklyDecayFactor() * 0.95;
+    expect(oldMultiplierCost).toBeGreaterThan(titlePoints);
   });
 });

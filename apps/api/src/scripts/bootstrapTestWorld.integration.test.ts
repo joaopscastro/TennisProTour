@@ -91,6 +91,21 @@ describe('bootstrapWorld', () => {
     expect(currentWeekSenior.length).toBeGreaterThan(0);
     expect(first.currentWeekSlateOpened).toBeGreaterThan(0);
 
+    // Phase 4: the whole-season sweep opens exactly four majors, on the
+    // week-51-safe cadence (weeks 12/25/38/51 of season 1) — never week
+    // 52, which a 14-day event could not finish inside its season (see
+    // the schedule policy's week-51 rule).
+    const majorWeeks = open
+      .filter((t) => t.tier === 'major')
+      .map((t) => ({ season: t.weekScheduled.season, week: t.weekScheduled.week }))
+      .sort((a, b) => a.week - b.week);
+    expect(majorWeeks).toEqual([
+      { season: 1, week: 12 },
+      { season: 1, week: 25 },
+      { season: 1, week: 38 },
+      { season: 1, week: 51 },
+    ]);
+
     // Phase 2: the fixed demo draw exists AND has been seeded.
     const demo = await deps.tournaments.findById(TournamentId(DEMO_TOURNAMENT_ID));
     expect(demo).not.toBeNull();

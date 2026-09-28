@@ -36,7 +36,10 @@ export interface JuniorTournamentSchedulePolicy {
    * every-N-week cadence doesn't reset at each season boundary. */
   weeklyOpenings(absoluteWeek: number): ReadonlyArray<JuniorOpening>;
   /** Whether juniorMasters should be held this GameWeek — once a
-   * season, per band. */
+   * season, per band. Week 51, NOT week 52: juniorMasters is a
+   * two-week (14-day) tier, so a week-52 start would finish on S2W1
+   * day 7 — after the season bonus pool and the season prize reset (see
+   * TWO_WEEK_TIERS' week-51 rule in TournamentSchedulePolicy.ts). */
   isJuniorMastersWeek(week: GameWeek): boolean;
   /** Draw size for the ranking-gated juniorMasters field — also how
    * many top-ranked players get invited per band. */
@@ -75,6 +78,9 @@ export class StandardJuniorTournamentSchedulePolicy implements JuniorTournamentS
   }
 
   isJuniorMastersWeek(week: GameWeek): boolean {
-    return week.week === 52;
+    // Week 51, not 52 — juniorMasters is a two-week tier and a 14-day
+    // event must start by week 51 to finish inside its season (see the
+    // interface doc above and TournamentSchedulePolicy.ts).
+    return week.week === 51;
   }
 }
