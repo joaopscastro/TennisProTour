@@ -38,6 +38,15 @@ export interface PlayerMatchesResult {
    * (bounded — profile-facing, not a full history; that's the history
    * subpage's job via DrizzlePlayerTournamentHistoryQuery). */
   recent: PlayerMatchSummary[];
+  /** Most recent DECIDED AND AIRED DOUBLES matches this player was in,
+   * newest first — the doubles sibling of `recent`, added because no
+   * doubles recent-results read existed anywhere (a measured agent season
+   * had doubles results invisible to every consumer). Same air gating
+   * (`isMatchAired`), same bounded size, same summary shape; the
+   * opponent fields describe the opposing PAIR (name = "A & B", id =
+   * the opposing pair id) via the same pair join `liveTournamentByPlayer`
+   * already uses. Additive: every existing singles field is untouched. */
+  recentDoubles: PlayerMatchSummary[];
   /** The player's earliest not-yet-simulated match, if they're still
    * alive in a started/open tournament — else null. */
   next: PlayerMatchSummary | null;
@@ -83,6 +92,13 @@ export class DrizzlePlayerMatchesQuery {
   constructor(private readonly db: Db) {}
 
   async forPlayer(playerId: PlayerId): Promise<PlayerMatchesResult> {
+    const now = Date.now();
+    // The doubles half runs independently of the singles rows — a player
+    // can have doubles matches without ever appearing in a singles
+    // bracket, so this must NOT sit behind the `rows.length === 0`
+    // early-return below.
+    const recentDoubles = await this.recentDoublesForPlayer(playerId, now);
+
     const rows = await this.db
       .select({
         match: tournamentMatches,
@@ -94,7 +110,7 @@ export class DrizzlePlayerMatchesQuery {
         or(eq(tournamentMatches.entrantA, playerId), eq(tournamentMatches.entrantB, playerId)),
       );
 
-    if (rows.length === 0) return { recent: [], next: null, nextPending: null };
+    if (rows.length === 0) return { recent: [], next: null, nextPending: null, recentDoubles };
 
     // Resolve opponent identities in one extra query.
     const opponentIds = new Set<string>();
@@ -133,7 +149,6 @@ export class DrizzlePlayerMatchesQuery {
       };
     };
 
-    const now = Date.now();
     const aired = (r: (typeof rows)[number]): boolean => isMatchAired(r.match, now);
 
     const decided = rows
@@ -193,7 +208,104 @@ export class DrizzlePlayerMatchesQuery {
       );
     const nextPending = undecided.length > 0 ? toSummary(undecided[0], 'pending') : null;
 
-    return { recent, next, nextPending };
+    return { recent, next, nextPending, recentDoubles };
+  }
+
+  /**
+   * The doubles sibling of the `recent` half of `forPlayer`: the
+   * player's most recent decided AND AIRED doubles matches, newest first,
+   * bounded by the same RECENT_LIMIT.
+   *
+   * Doubles match rows are keyed by PAIR id, not player id, so this needs
+   * its own two joins: the player's `tournament_doubles_pairs` rows find
+   * the pair ids they played under, and each match's OPPOSING entrant is
+   * resolved back through `tournament_doubles_pairs` to name the opposing
+   * pair (exactly the pair join `liveTournamentByPlayer` already uses).
+   * Air gating is the same `isMatchAired` predicate as singles — a
+   * decided-but-still-revealing doubles result is NOT reported here, so
+   * the API and the replay/bracket views can never disagree.
+   */
+  private async recentDoublesForPlayer(playerId: PlayerId, now: number): Promise<PlayerMatchSummary[]> {
+    const playerPairs = await this.db
+      .select({ pair: tournamentDoublesPairs })
+      .from(tournamentDoublesPairs)
+      .where(or(eq(tournamentDoublesPairs.playerA, playerId), eq(tournamentDoublesPairs.playerB, playerId)));
+    if (playerPairs.length === 0) return [];
+    const myPairIds = new Set(playerPairs.map((r) => r.pair.pairId));
+
+    const rows = await this.db
+      .select({ match: tournamentDoublesMatches, tournament: tournaments })
+      .from(tournamentDoublesMatches)
+      .innerJoin(tournaments, eq(tournaments.id, tournamentDoublesMatches.tournamentId))
+      .where(
+        or(
+          inArray(tournamentDoublesMatches.entrantA, [...myPairIds]),
+          inArray(tournamentDoublesMatches.entrantB, [...myPairIds]),
+        ),
+      );
+    if (rows.length === 0) return [];
+
+    // Resolve the opposing pair -> its two players, in one extra read.
+    const opponentPairIds = new Set<string>();
+    for (const { match } of rows) {
+      if (myPairIds.has(match.entrantA)) opponentPairIds.add(match.entrantB);
+      if (myPairIds.has(match.entrantB)) opponentPairIds.add(match.entrantA);
+    }
+    const opponentPairs = opponentPairIds.size
+      ? await this.db
+          .select({ pair: tournamentDoublesPairs })
+          .from(tournamentDoublesPairs)
+          .where(inArray(tournamentDoublesPairs.pairId, [...opponentPairIds]))
+      : [];
+    const opponentPairById = new Map(opponentPairs.map((r) => [r.pair.pairId, r.pair]));
+    const opponentPlayerIds = new Set<string>();
+    for (const { pair } of opponentPairs) {
+      opponentPlayerIds.add(pair.playerA);
+      opponentPlayerIds.add(pair.playerB);
+    }
+    const opponentPlayers = opponentPlayerIds.size
+      ? await this.db
+          .select({ id: players.id, name: players.name, nationality: players.nationality })
+          .from(players)
+          .where(inArray(players.id, [...opponentPlayerIds]))
+      : [];
+    const playerById = new Map(opponentPlayers.map((p) => [p.id, p]));
+
+    return rows
+      .filter((r) => isMatchAired(r.match, now))
+      .sort(
+        (a, b) =>
+          b.tournament.seasonScheduled - a.tournament.seasonScheduled ||
+          b.tournament.weekScheduled - a.tournament.weekScheduled ||
+          b.match.roundNumber - a.match.roundNumber,
+      )
+      .slice(0, RECENT_LIMIT)
+      .map(({ match, tournament }) => {
+        const myPairId = myPairIds.has(match.entrantA) ? match.entrantA : match.entrantB;
+        const opponentPairId = myPairId === match.entrantA ? match.entrantB : match.entrantA;
+        const opponentPair = opponentPairById.get(opponentPairId);
+        const playerA = opponentPair ? playerById.get(opponentPair.playerA) : undefined;
+        const playerB = opponentPair ? playerById.get(opponentPair.playerB) : undefined;
+        return {
+          tournamentId: TournamentId(tournament.id),
+          tournamentName: tournament.name,
+          tier: tournament.tier,
+          ageBand: tournament.ageBand as AgeBand | null,
+          surface: tournament.surface,
+          roundNumber: match.roundNumber,
+          drawSize: tournament.doublesDrawSize ?? tournament.drawSize,
+          weekScheduled: { season: tournament.seasonScheduled, week: tournament.weekScheduled },
+          opponentId: opponentPairId,
+          opponentName: opponentPair
+            ? `${playerA?.name ?? opponentPair.playerA} & ${playerB?.name ?? opponentPair.playerB}`
+            : 'Unknown pair',
+          opponentNationality: playerA?.nationality ?? 'XX',
+          result: match.winnerId === myPairId ? 'win' : 'loss',
+          setScores: match.setScores ?? [],
+          scheduledStartAt: match.scheduledStartAt ? match.scheduledStartAt.toISOString() : null,
+          revealSeconds: match.revealSeconds ?? 0,
+        };
+      });
   }
 
   /**

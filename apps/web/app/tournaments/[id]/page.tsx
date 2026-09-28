@@ -3,11 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import {
+  DoublesPairDto,
   MatchOutcomeDto,
   PlayerDto,
   RosterDashboardEntryDto,
   TournamentDto,
   WorldClockDto,
+  createDoublesPair,
+  fetchDoublesPairs,
   fetchPlayerProfile,
   fetchPlayersByIds,
   fetchRosterDashboard,
@@ -682,6 +685,11 @@ export default function TournamentBracketPage() {
   const [doublesBusy, setDoublesBusy] = useState(false);
   const [doublesNotice, setDoublesNotice] = useState<string | null>(null);
   const [doublesError, setDoublesError] = useState<string | null>(null);
+  // The manager's existing partnerships, so "pair with my other roster
+  // player" never re-creates a pair that already exists (and the copy can
+  // say when a partner is already paired).
+  const [doublesPairs, setDoublesPairs] = useState<DoublesPairDto[] | null>(null);
+  const [pairBusy, setPairBusy] = useState(false);
 
   const openDoublesEntry = useCallback(async () => {
     setDoublesError(null);
@@ -692,7 +700,16 @@ export default function TournamentBracketPage() {
         setDoublesError(e instanceof Error ? e.message : String(e));
       }
     }
-  }, [devManagerId, doublesRoster]);
+    if (doublesPairs === null) {
+      try {
+        setDoublesPairs(await fetchDoublesPairs(devManagerId));
+      } catch {
+        // The pair read is a nicety (it prevents a duplicate-pair error);
+        // its failure must not block signing up solo.
+        setDoublesPairs([]);
+      }
+    }
+  }, [devManagerId, doublesRoster, doublesPairs]);
 
   async function submitDoublesEntry() {
     if (!doublesPick) return;
@@ -707,6 +724,43 @@ export default function TournamentBracketPage() {
       setDoublesError(e instanceof Error ? e.message : String(e));
     } finally {
       setDoublesBusy(false);
+    }
+  }
+
+  /**
+   * The one-click "pair with my other roster player" affordance (F3): a
+   * same-manager pair is created ACTIVE immediately (see
+   * CreateDoublesPairUseCase — no acceptance step), and both players are
+   * entered into this event's doubles field in one action. That is the
+   * deliberate alternative to signing up solo, where draw formation pairs
+   * you with another solo entrant or a free agent and the fresh
+   * partnership starts at 0 chemistry; a persistent pair is kept together
+   * by the pairing service and grows chemistry every match it plays.
+   */
+  async function pairWithRosterPlayer(partnerId: string) {
+    if (!doublesPick || doublesPick === partnerId) return;
+    setPairBusy(true);
+    setDoublesError(null);
+    setDoublesNotice(null);
+    try {
+      const alreadyPaired = (doublesPairs ?? []).some(
+        (p) =>
+          p.status !== 'dissolved' &&
+          ((p.playerA.playerId === doublesPick && p.playerB.playerId === partnerId) ||
+            (p.playerB.playerId === doublesPick && p.playerA.playerId === partnerId)),
+      );
+      if (!alreadyPaired) await createDoublesPair(doublesPick, partnerId, devManagerId);
+      const alreadyEntered = new Set(tournament?.doublesEntrants ?? []);
+      if (!alreadyEntered.has(doublesPick)) await registerDoublesEntrant(tournamentId, doublesPick, devManagerId);
+      if (!alreadyEntered.has(partnerId)) await registerDoublesEntrant(tournamentId, partnerId, devManagerId);
+      setDoublesNotice('Pair formed — both players are in the doubles draw. Chemistry grows with every match they play together.');
+      setDoublesPick(null);
+      await load();
+      setDoublesPairs(await fetchDoublesPairs(devManagerId));
+    } catch (e) {
+      setDoublesError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPairBusy(false);
     }
   }
 
@@ -1021,28 +1075,50 @@ export default function TournamentBracketPage() {
             </PanelHeader>
             <div style={{ padding: 16 }}>
               <div className="t-body-sm" style={{ marginBottom: 10, lineHeight: 1.5 }}>
-                {tournament.doublesDrawSize}-pair draw. Players sign up solo and are paired when the tournament starts — the
-                top pairs by combined ranking make the cut.
+                {tournament.doublesDrawSize}-pair draw. Sign up solo and draw formation pairs you with another solo entrant or a
+                free agent — a fresh partnership starts at <strong>0 chemistry</strong>. Pair with one of your own roster players
+                instead: the pair stays together, and chemistry grows with every match you play together. Either way, the top
+                pairs by combined ranking make the cut.
               </div>
               {!tournament.hasStarted && (
-                <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
-                  <Button variant="primary" onClick={openDoublesEntry}>
-                    {doublesRoster === null ? 'Enter a player in doubles' : 'Choose a player'}
-                  </Button>
-                  {doublesRoster !== null && (
-                    <>
-                      <select className="gc-select" value={doublesPick ?? ''} onChange={(e) => setDoublesPick(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
-                        <option value="">Select player…</option>
-                        {(doublesRoster ?? []).map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
+                <>
+                  <div className="flex items-center gap-[10px] flex-wrap" style={{ marginBottom: 10 }}>
+                    <Button variant="primary" onClick={openDoublesEntry}>
+                      {doublesRoster === null ? 'Enter a player in doubles' : 'Choose a player'}
+                    </Button>
+                    {doublesRoster !== null && (
+                      <>
+                        <select className="gc-select" value={doublesPick ?? ''} onChange={(e) => setDoublesPick(e.target.value || null)} style={{ padding: '7px 10px', fontSize: 12.5 }}>
+                          <option value="">Select player…</option>
+                          {(doublesRoster ?? []).filter((p) => p.stage !== 'retired').map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                        <Button onClick={submitDoublesEntry} disabled={!doublesPick || doublesBusy || pairBusy}>
+                          {doublesBusy ? 'Signing up…' : 'Sign up solo'}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {/* The one-click pairing affordance: when a player is
+                      selected and the roster holds another active player,
+                      form the persistent pair AND enter both into this
+                      event's doubles field in one action. */}
+                  {doublesPick && (doublesRoster ?? []).filter((p) => p.stage !== 'retired' && p.id !== doublesPick).length > 0 && (
+                    <div className="flex items-center gap-[8px] flex-wrap mb-[10px]">
+                      <span className="text-[11.5px]" style={{ color: 'var(--ink-3)' }}>
+                        Or pair with your own roster player and enter both:
+                      </span>
+                      {(doublesRoster ?? [])
+                        .filter((p) => p.stage !== 'retired' && p.id !== doublesPick)
+                        .map((p) => (
+                          <Button key={p.id} onClick={() => void pairWithRosterPlayer(p.id)} disabled={pairBusy || doublesBusy}>
+                            {pairBusy ? 'Pairing…' : `Pair with ${p.name}`}
+                          </Button>
                         ))}
-                      </select>
-                      <Button onClick={submitDoublesEntry} disabled={!doublesPick || doublesBusy}>
-                        {doublesBusy ? 'Signing up…' : 'Sign up'}
-                      </Button>
-                    </>
+                    </div>
                   )}
-                </div>
+                </>
               )}
               {doublesError && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--loss)' }}>{doublesError}</div>}
               {doublesNotice && <div className="text-[12px] mb-[8px]" style={{ color: 'var(--win)' }}>{doublesNotice}</div>}

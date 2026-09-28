@@ -175,7 +175,7 @@ async function setup(currentWeek: GameWeek) {
     bracketGenerator,
     { next: () => 0.5 },
   );
-  return { tournaments, players, pairs, useCase };
+  return { tournaments, players, pairs, rankingLedger, useCase };
 }
 
 function doublesTournament(id: string, weekScheduled: GameWeek = { season: 1, week: 4 }): Tournament {
@@ -282,6 +282,60 @@ describe('FormDoublesDrawUseCase', () => {
     const usedIds = tournament.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
     expect(usedIds).not.toContain(PlayerId('busy-filler'));
     expect(usedIds.some((id) => (id as string).startsWith('free-filler-'))).toBe(true);
+  });
+
+  it('prefers RANKED free agents when padding, instead of the pool youngest-first order (F3)', async () => {
+    const { tournaments, players, pairs, rankingLedger, useCase } = await setup({ season: 1, week: 4 });
+
+    const tournament = doublesTournament('t-ranked-pad');
+    const a = fillOnlyPlayer('a');
+    const b = fillOnlyPlayer('b');
+    tournament.registerDoublesEntrant(a.id);
+    tournament.registerDoublesEntrant(b.id);
+    await players.save(a);
+    await players.save(b);
+    await pairs.save(DoublesPair.activate(PairId('pp-ab'), a.id, b.id));
+    await tournaments.save(tournament);
+
+    // The pool's own read order is youngest-first: the 14 young, unranked
+    // fillers are saved FIRST, so before this fix the padding took all 14
+    // of them and the two genuinely-ranked (older) free agents never made
+    // the draw. An 8-pair draw needs 14 padded players, and there are 16
+    // free agents — so exactly two are left out, and they must now be the
+    // young unranked ones, not the ranked pair.
+    for (let i = 1; i <= 14; i++) await players.save(fillOnlyPlayer(`young-${i}`, 18 * 52));
+    const rankedA = fillOnlyPlayer('ranked-a', 30 * 52);
+    const rankedB = fillOnlyPlayer('ranked-b', 31 * 52);
+    await players.save(rankedA);
+    await players.save(rankedB);
+    await rankingLedger.append({
+      playerId: rankedA.id,
+      tournamentId: TournamentId('t-ranked-a'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 90,
+      weekEarned: { season: 1, week: 4 },
+    });
+    await rankingLedger.append({
+      playerId: rankedB.id,
+      tournamentId: TournamentId('t-ranked-b'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 40,
+      weekEarned: { season: 1, week: 4 },
+    });
+
+    await useCase.form(tournament);
+    await tournaments.save(tournament);
+
+    const formed = await tournaments.findById(TournamentId('t-ranked-pad'));
+    const usedIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
+    expect(usedIds).toContain(rankedA.id);
+    expect(usedIds).toContain(rankedB.id);
+    const excludedYoung = Array.from({ length: 14 }, (_, i) => PlayerId(`young-${i + 1}`)).filter(
+      (id) => !usedIds.includes(id),
+    );
+    expect(excludedYoung).toHaveLength(2);
   });
 
   it('adds every padded filler to the run-wide commitment set so a later draw in the same run cannot reuse them', async () => {

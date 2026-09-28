@@ -3,19 +3,37 @@
  * (`agentSeason.mjs`), extracted so it is unit-testable without importing
  * the runner module (which executes `main()` on import).
  *
- * Two feed fixes live here, both driven by first-session agent reports:
+ * What lives here, all driven by agent-reported harness findings:
  *   - `tournamentConcluded` — the `pendingEntries` filter. The old filter
  *     was `if (entry.hasStarted) continue`, but by the time a week's
  *     digest is built the rollover has already STARTED every tournament
  *     scheduled for that week, so a registration made last week always
  *     read `hasStarted: true` and the list was permanently empty.
  *   - `buildCandidateView` — the `canEnterNow` view. Rank-restricted
- *     events are LISTED as disabled-with-reason instead of vanishing, and
- *     the cap carries a truncation indicator.
+ *     events are LISTED as disabled-with-reason instead of vanishing,
+ *     the cap is honest (`truncated`, `enterableTotal`, `hiddenCount`),
+ *     and it is high enough to cover the observed slate — the old cap of
+ *     10 truncated 302 of 304 measured snapshots, hiding up to 22
+ *     enterable events.
+ *   - `compareCandidates` / `selectWeekEvents` — the ordering and the
+ *     `openByWeek` per-week selection. Senior tiers now sort above junior
+ *     tiers (a j200 used to outrank a `tour` event purely on tier
+ *     prestige), and a week can never silently drop its senior `tour`/
+ *     `major` events; anything not shown is reported as `hiddenCount`.
+ *   - the digest's roster mappers (`compactSinglesTitles`,
+ *     `compactDoublesTitles`, `compactLastResults`) — doubles titles and
+ *     doubles results are first-class digest content, not invisible.
+ *   - the decision-replacement predicate + reconciler (`hashDecisionContent`,
+ *     `decisionNeedsReaccept`, `reconcileDecisions`) — a rewritten
+ *     decision file used to be ignored forever once the manager was
+ *     accepted; now it replaces the accepted snapshot while the phase is
+ *     still pre-apply.
  *
  * Everything here is pure: no I/O, no hidden fields, no API shapes beyond
- * the `toTournamentDto` fields the digest already reads.
+ * the `toTournamentDto` / profile / matches fields the digest already
+ * reads.
  */
+import { createHash } from 'node:crypto';
 import { absoWeek } from './soakEvidence.mjs';
 
 /** Tier prestige ordering for the nearest-week/tier candidate sort. */
@@ -33,12 +51,42 @@ export const TIER_PRESTIGE = {
   juniorMasters: 7,
 };
 
-export const MAX_CAN_ENTER_NOW = 10;
+/**
+ * How many enterable candidates `canEnterNow` shows. Raised from 10 to 32:
+ * measured across 304 harness snapshots the old cap truncated 302 of them,
+ * hiding up to 22 enterable events at once — enough for a senior `tour`
+ * tier to be invisible for a whole week (25 snapshots), which the agents
+ * could not tell apart from "no tour event exists". 32 covers the
+ * observed maximum; anything beyond it is reported honestly via
+ * `canEnterNowMeta` (`truncated`, `enterableTotal`, `hiddenCount`).
+ */
+export const MAX_CAN_ENTER_NOW = 32;
 /** How many rank-restricted events are appended (disabled-with-reason)
  * after the enterable slice — a separate, small cap so the rule that
  * narrowed a player's slate is always visible without crowding out
  * actionable events. */
 export const MAX_RESTRICTED_SHOWN = 3;
+
+/**
+ * `openByWeek`'s per-week caps. The old single cap of 6 events per week
+ * (with no per-tier cap) let a junior-heavy week push the week's senior
+ * `tour` event out of the list entirely. Now at most
+ * `MAX_EVENTS_PER_WEEK_TIER` events of any one tier are shown, every
+ * senior `tour`/`major` is ALWAYS included, and whatever is left out is
+ * counted per week as `hiddenCount`.
+ */
+export const MAX_EVENTS_PER_WEEK = 24;
+export const MAX_EVENTS_PER_WEEK_TIER = 2;
+
+/** The tiers `openByWeek` must never hide for their own week, and that
+ * `canEnterNow` pins into its shown slice even when the cap truncates —
+ * a senior tour/major event is exactly what an agent cannot afford to
+ * miss (obligatory events, the biggest points/prize). */
+export const PINNED_SENIOR_TIERS = ['tour', 'major'];
+
+export function isPinnedSeniorEvent(t) {
+  return t.circuit === 'senior' && PINNED_SENIOR_TIERS.includes(t.tier);
+}
 
 export function compactTournamentBase(t) {
   const totalRounds = Math.round(Math.log2(t.drawSize));
@@ -126,24 +174,51 @@ export function enterabilityBlockReason(t, currentAbs) {
   return null;
 }
 
+/**
+ * Nearest week first, then SENIOR circuit before junior, then tier
+ * prestige. The senior-first key is the fix for a measured ordering bug:
+ * with only the flat `TIER_PRESTIGE` map, a junior j200 (prestige 4)
+ * sorted above a senior `tour` (prestige 3) in the same week, so a
+ * truncated list could show a junior event while hiding the tour event
+ * the player actually needed. Within one circuit the tier ordering is
+ * unchanged.
+ */
 export function compareCandidates(a, b) {
   const weekDiff = absoWeek(a.weekScheduled) - absoWeek(b.weekScheduled);
   if (weekDiff !== 0) return weekDiff;
+  const circuitDiff = (a.circuit === 'senior' ? 0 : 1) - (b.circuit === 'senior' ? 0 : 1);
+  if (circuitDiff !== 0) return circuitDiff;
   const tierDiff = (TIER_PRESTIGE[b.tier] ?? 0) - (TIER_PRESTIGE[a.tier] ?? 0);
   if (tierDiff !== 0) return tierDiff;
   return String(a.name).localeCompare(String(b.name));
 }
 
 /**
- * The player-scoped entry candidates, with the two feed fixes the agents
+ * The shown slice of the sorted enterable list. Normally the first `cap`
+ * rows; when the cap truncates, every pinned senior `tour`/`major` is
+ * guaranteed a place (the lowest-priority shown rows make way for them),
+ * so "a tour is hidden while a junior event is shown" is structurally
+ * impossible, not merely unlikely.
+ */
+export function selectEnterableSlice(sorted, cap = MAX_CAN_ENTER_NOW) {
+  const slice = sorted.slice(0, cap);
+  const missingPinned = sorted.filter((t) => isPinnedSeniorEvent(t) && !slice.includes(t));
+  if (missingPinned.length === 0) return slice;
+  const kept = slice.slice(0, Math.max(0, cap - missingPinned.length));
+  return [...kept, ...missingPinned].sort(compareCandidates);
+}
+
+/**
+ * The player-scoped entry candidates, with the feed fixes the agents
  * asked for:
  *   - rank-restricted events are INCLUDED as `enterable: false` rows with
  *     `blockedReason` (they used to vanish silently, which read as a bug
  *     rather than a rule) — appended AFTER the enterable slice and capped
  *     separately, so a long enterable list can never squeeze them out;
  *   - the cap carries a truncation indicator (`canEnterNowMeta`), so the
- *     shown slice is never mistaken for the whole slate.
- * Enterable rows sort first (nearest week, then tier).
+ *     shown slice is never mistaken for the whole slate, and reports
+ *     `hiddenCount` explicitly.
+ * Enterable rows sort first (nearest week, then senior-first, then tier).
  */
 export function buildCandidateView(openList, currentAbs) {
   const enterable = [];
@@ -158,7 +233,7 @@ export function buildCandidateView(openList, currentAbs) {
   }
   enterable.sort(compareCandidates);
   restricted.sort(compareCandidates);
-  const enterableShown = enterable.slice(0, MAX_CAN_ENTER_NOW);
+  const enterableShown = selectEnterableSlice(enterable);
   const restrictedShown = restricted.slice(0, MAX_RESTRICTED_SHOWN);
   const rows = [...enterableShown, ...restrictedShown].map(compactCandidate);
   return {
@@ -170,6 +245,207 @@ export function buildCandidateView(openList, currentAbs) {
       restrictedShown: restrictedShown.length,
       restrictedTotal: restricted.length,
       truncated: enterable.length > enterableShown.length || restricted.length > restrictedShown.length,
+      hiddenCount: Math.max(0, enterable.length - enterableShown.length) + Math.max(0, restricted.length - restrictedShown.length),
     },
   };
+}
+
+/**
+ * Which of one week's open events `openByWeek` shows, and how many it
+ * leaves out. Pure and deterministic:
+ *   - every senior `tour`/`major` of the week is ALWAYS included;
+ *   - at most `maxPerTier` events of any one tier (the "at most 2-3 per
+ *     (week, tier)" rule — stops a junior-heavy week from monopolising
+ *     the list);
+ *   - at most `maxPerWeek` events in total;
+ *   - `hiddenCount` is exactly `events.length - shown.length`, so a
+ *     capped week is never presented as complete.
+ */
+export function selectWeekEvents(events, maxPerWeek = MAX_EVENTS_PER_WEEK, maxPerTier = MAX_EVENTS_PER_WEEK_TIER) {
+  const sorted = [...events].sort(compareCandidates);
+  const selected = [];
+  const perTier = new Map();
+  const seen = new Set();
+  const take = (t, force) => {
+    if (seen.has(t.id)) return;
+    const count = perTier.get(t.tier) ?? 0;
+    if (!force && count >= maxPerTier) return;
+    if (!force && selected.length >= maxPerWeek) return;
+    selected.push(t);
+    seen.add(t.id);
+    perTier.set(t.tier, count + 1);
+  };
+  for (const t of sorted) if (isPinnedSeniorEvent(t)) take(t, true);
+  for (const t of sorted) take(t, false);
+  selected.sort(compareCandidates);
+  return { events: selected, hiddenCount: Math.max(0, events.length - selected.length) };
+}
+
+// ---------------------------------------------------------------------------
+// Digest roster mappers (titles + results, doubles included)
+// ---------------------------------------------------------------------------
+
+/** The digest's singles-titles mapping — field shape unchanged. */
+export function compactSinglesTitles(profile) {
+  return (profile?.titles ?? []).map((t) => ({
+    tournamentId: t.tournamentId,
+    name: t.name,
+    tier: t.tier,
+    ageBand: t.ageBand,
+    weekEarned: t.weekEarned,
+  }));
+}
+
+/**
+ * Doubles titles were previously invisible in the digest (`titles` mapped
+ * only `profile.titles`), so 28 doubles titles across a measured season
+ * were only ever inferred from prize-money jumps — even though a senior
+ * doubles title pays real ranking points. The DTO already carries the
+ * interesting half (the partner), so this is a straight map.
+ */
+export function compactDoublesTitles(profile) {
+  return (profile?.doublesTitles ?? []).map((t) => ({
+    tournamentId: t.tournamentId,
+    tier: t.tier,
+    partnerId: t.partnerId,
+    partnerName: t.partnerName,
+    partnerNationality: t.partnerNationality,
+    weekEarned: t.weekEarned,
+  }));
+}
+
+function compactResult(m, discipline) {
+  return {
+    tournamentId: m.tournamentId,
+    tournamentName: m.tournamentName,
+    tier: m.tier,
+    roundNumber: m.roundNumber,
+    result: m.result,
+    setScores: m.setScores,
+    weekScheduled: m.weekScheduled,
+    /** Which draw this result came from — the digest's one new tag, so a
+     * doubles win can never be misread as a singles win. */
+    discipline,
+  };
+}
+
+/**
+ * The digest's `lastResults`: the API's `recent` (singles) and the new
+ * `recentDoubles`, each capped, tagged with `discipline`, merged and
+ * sorted newest-first by scheduled week then round. A pre-`recentDoubles`
+ * API response still maps fine (doubles simply absent).
+ */
+export function compactLastResults(matches, limitPerDiscipline = 3) {
+  const weekOf = (m) => (m?.weekScheduled ? absoWeek(m.weekScheduled) : 0);
+  const singles = (matches?.recent ?? []).slice(0, limitPerDiscipline).map((m) => compactResult(m, 'singles'));
+  const doubles = (matches?.recentDoubles ?? []).slice(0, limitPerDiscipline).map((m) => compactResult(m, 'doubles'));
+  return [...singles, ...doubles].sort((a, b) => {
+    const weekDiff = weekOf(b) - weekOf(a);
+    if (weekDiff !== 0) return weekDiff;
+    return (b.roundNumber ?? 0) - (a.roundNumber ?? 0);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Decision replacement (a rewritten file must replace an accepted snapshot)
+// ---------------------------------------------------------------------------
+
+/** Phases during which the runner still re-reads a REWRITTEN decision
+ * file and replaces the accepted snapshot. Everything from `apply`
+ * onward keeps the snapshot taken when apply began — a contract stated in
+ * the generated protocol docs. */
+export const REACCEPT_DECISION_PHASES = ['open', 'ready', 'collect'];
+
+export function isReacceptDecisionPhase(phase) {
+  return REACCEPT_DECISION_PHASES.includes(phase);
+}
+
+/** Stable content hash of a decision file's raw text. */
+export function hashDecisionContent(raw) {
+  return createHash('sha256').update(String(raw)).digest('hex');
+}
+
+/**
+ * The pure replacement predicate: an ALREADY-ACCEPTED manager's decision
+ * file needs re-reading (and its accepted snapshot replacing) exactly when
+ * the phase is still pre-apply AND the file's content hash differs from
+ * the accepted one. Same hash (no rewrite) or a post-collect phase
+ * (apply/advance/close) → false; the accepted snapshot stands. A legacy
+ * snapshot without a stored hash is re-read once (pre-apply), which
+ * stamps the hash and makes every later pass hash-comparable.
+ */
+export function decisionNeedsReaccept({ phase, acceptedHash, currentHash }) {
+  if (!isReacceptDecisionPhase(phase)) return false;
+  if (acceptedHash === undefined || acceptedHash === null) return true;
+  return acceptedHash !== currentHash;
+}
+
+/**
+ * One collect pass's decision reconciliation, as a pure function: given
+ * the phase, the manager list, each manager's raw decision-file content
+ * (null when absent) and the already-accepted snapshots, it returns one
+ * instruction per manager. `collectDecisionsOnce` in the runner is the
+ * thin I/O wrapper (read files → reconcile → apply results → persist), so
+ * the write→accept→rewrite-before-apply race is unit-testable without a
+ * file system or the runner module.
+ *
+ * Actions:
+ *   - `none` — no file on disk; nothing to do.
+ *   - `accept` — first acceptance of a valid file.
+ *   - `reaccept` — an ACCEPTED manager's file changed while the phase is
+ *     still pre-apply; this snapshot REPLACES the old one (the caller
+ *     stamps `replacedAt`).
+ *   - `keep` — accepted and unchanged (or no re-accept window left and
+ *     unchanged).
+ *   - `ignored-rewrite` — the file changed, but the phase is past the
+ *     re-accept window; the accepted snapshot stands (the caller logs the
+ *     warning).
+ *   - `nack` — invalid JSON or schema failure; the caller records it.
+ */
+export function reconcileDecisions({ phase, managers, files, accepted, validate }) {
+  const results = [];
+  for (const managerId of managers) {
+    const raw = files?.[managerId] ?? null;
+    if (raw === null) {
+      results.push({ managerId, action: 'none' });
+      continue;
+    }
+    const currentHash = hashDecisionContent(raw);
+    const snapshot = accepted?.[managerId] ?? null;
+    if (snapshot) {
+      if (!isReacceptDecisionPhase(phase)) {
+        results.push({
+          managerId,
+          action: snapshot.contentHash === currentHash ? 'keep' : 'ignored-rewrite',
+          currentHash,
+        });
+        continue;
+      }
+      if (!decisionNeedsReaccept({ phase, acceptedHash: snapshot.contentHash, currentHash })) {
+        results.push({ managerId, action: 'keep', currentHash });
+        continue;
+      }
+    }
+    let parsed = null;
+    try {
+      parsed = JSON.parse(raw);
+    } catch (error) {
+      results.push({ managerId, action: 'nack', errors: [{ path: '$', message: `invalid JSON: ${error.message}` }] });
+      continue;
+    }
+    const { ok, errors } = validate(parsed, managerId);
+    if (!ok) {
+      results.push({ managerId, action: 'nack', errors });
+      continue;
+    }
+    results.push({
+      managerId,
+      action: snapshot ? 'reaccept' : 'accept',
+      contentHash: currentHash,
+      summary: parsed.summary,
+      actionCount: Array.isArray(parsed.actions) ? parsed.actions.length : 0,
+      decision: parsed,
+    });
+  }
+  return results;
 }

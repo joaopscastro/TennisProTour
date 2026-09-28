@@ -236,8 +236,9 @@ export function SinglesEntryPanel({ tournamentId, managerId, onEntered }: Props)
             </div>
             <div className="text-[11.5px] mt-[4px]" style={{ color: 'var(--ink-3)', lineHeight: 1.5 }}>
               {enteredName}&apos;s singles and doubles entries at the same tournament count as one tournament toward
-              the weekly cap. Add them — or a partner from your roster — to the {enteredTournament.doublesDrawSize}-pair
-              doubles draw.
+              the weekly cap. Adding them solo means draw formation pairs them with another solo entrant or a free
+              agent — pick a partner from your roster instead to pair them together (a persistent pair grows chemistry
+              every match). Add them to the {enteredTournament.doublesDrawSize}-pair doubles draw.
             </div>
             <div className="flex items-center gap-[8px] flex-wrap mt-[8px]">
               <select

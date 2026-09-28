@@ -45,6 +45,10 @@ import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
 import { DrizzleDoublesTitleRepository } from '../../outbound/DrizzleDoublesTitleRepository';
 import { DrizzleDoublesPeakRankingRepository } from '../../outbound/DrizzleDoublesPeakRankingRepository';
+// The pure agent-harness digest mappers — imported through a small
+// digestFeed.d.mts declaration so this suite exercises the EXACT
+// production mapping the season harness uses, not a reimplementation.
+import { compactDoublesTitles, compactLastResults } from '../../../../scripts/lib/digestFeed.mjs';
 
 const connectionString = testConnectionString();
 process.env.INTERNAL_ADMIN_TOKEN ??= 'test-admin';
@@ -817,6 +821,202 @@ describe('API', () => {
     expect(profile.json().doublesPartner).toMatchObject({ playerId: 'dbl-d', chemistry: pairDto.chemistry });
     expect(profile.json().careerPrizeMoney).toBe(cAfterSweep!.careerPrizeMoney);
     expect(profile.json().seasonPrizeMoney).toBe(cAfterSweep!.seasonPrizeMoney);
+  });
+
+  it('surfaces doubles titles and recent doubles results to the digest feed and the API, reveal-gated like singles', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    const freeAt = (id: string, ageWeeks = 20 * 52) =>
+      Player.generateFillOnly(
+        PlayerId(id),
+        `Player ${id}`,
+        ageWeeks,
+        agingPolicy.stageForAge(ageWeeks),
+        fixedAttributes(40),
+        'BR',
+        70,
+        { speed: 70, stamina: 70, strength: 70 },
+      );
+    await deps.players.save(freeAt('dig-main'));
+    await deps.players.save(freeAt('dig-partner'));
+    await deps.players.save(freeAt('dig-opp-a'));
+    await deps.players.save(freeAt('dig-opp-b'));
+
+    // A real doubles title (the partner is the interesting half).
+    await db.insert(schema.doublesTitles).values({
+      tournamentId: 'dig-title-t',
+      playerA: PlayerId('dig-main'),
+      playerB: PlayerId('dig-partner'),
+      tier: 'challenger',
+      ageBand: null,
+      seasonEarned: 1,
+      weekEarned: 4,
+    });
+
+    await db.insert(schema.tournaments).values([
+      { id: 'dig-air', name: 'Digested Air Open', tier: 'challenger', surface: 'hard', seasonScheduled: 1, weekScheduled: 5, drawSize: 16, doublesDrawSize: 8 },
+      { id: 'dig-unaired', name: 'Digested Reveal Open', tier: 'challenger', surface: 'hard', seasonScheduled: 1, weekScheduled: 6, drawSize: 16, doublesDrawSize: 8 },
+    ]);
+    await db.insert(schema.tournamentDoublesPairs).values([
+      { tournamentId: 'dig-air', pairId: 'dig-mine-air', playerA: PlayerId('dig-main'), playerB: PlayerId('dig-partner') },
+      { tournamentId: 'dig-air', pairId: 'dig-opp-air', playerA: PlayerId('dig-opp-a'), playerB: PlayerId('dig-opp-b') },
+      { tournamentId: 'dig-unaired', pairId: 'dig-mine-unaired', playerA: PlayerId('dig-main'), playerB: PlayerId('dig-partner') },
+      { tournamentId: 'dig-unaired', pairId: 'dig-opp-unaired', playerA: PlayerId('dig-opp-a'), playerB: PlayerId('dig-opp-b') },
+    ]);
+    await db.insert(schema.tournamentDoublesMatches).values([
+      // Decided AND fully aired -> a real recent doubles result.
+      {
+        tournamentId: 'dig-air',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: 'dig-mine-air',
+        entrantB: 'dig-opp-air',
+        winnerId: 'dig-mine-air',
+        loserId: 'dig-opp-air',
+        setScores: [{ winnerGames: 6, loserGames: 3 }],
+        scheduledStartAt: new Date(Date.now() - 60 * 60_000),
+        revealSeconds: 900,
+      },
+      // Decided but still inside its reveal window -> hidden, exactly like
+      // a singles result in the same state.
+      {
+        tournamentId: 'dig-unaired',
+        draw: 'main',
+        roundNumber: 1,
+        matchIndex: 0,
+        entrantA: 'dig-mine-unaired',
+        entrantB: 'dig-opp-unaired',
+        winnerId: 'dig-opp-unaired',
+        loserId: 'dig-mine-unaired',
+        setScores: [{ winnerGames: 6, loserGames: 4 }],
+        scheduledStartAt: new Date(Date.now() + 60 * 60_000),
+        revealSeconds: 900,
+      },
+    ]);
+    // A singles match for the same player, so "singles unchanged" is
+    // proven in the same read.
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 'dig-air',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('dig-main'),
+      entrantB: PlayerId('dig-opp-a'),
+      winnerId: PlayerId('dig-main'),
+      loserId: PlayerId('dig-opp-a'),
+      setScores: [{ winnerGames: 6, loserGames: 1 }],
+      scheduledStartAt: new Date(Date.now() - 60 * 60_000),
+      revealSeconds: 900,
+    });
+
+    const matchesRes = await app.inject({ method: 'GET', url: '/players/dig-main/current-matches' });
+    expect(matchesRes.statusCode).toBe(200);
+    const matches = matchesRes.json() as {
+      recent: Array<Record<string, unknown>>;
+      recentDoubles: Array<Record<string, unknown>>;
+    };
+    // Existing singles behaviour: exactly the aired singles match, untouched.
+    expect(matches.recent).toHaveLength(1);
+    expect(matches.recent[0]).toMatchObject({ tournamentId: 'dig-air', result: 'win', opponentName: 'Player dig-opp-a' });
+    // The new doubles half: the aired match only; the revealing one is hidden.
+    expect(matches.recentDoubles).toHaveLength(1);
+    expect(matches.recentDoubles[0]).toMatchObject({
+      tournamentId: 'dig-air',
+      roundNumber: 1,
+      result: 'win',
+      opponentId: 'dig-opp-air',
+      opponentName: 'Player dig-opp-a & Player dig-opp-b',
+      opponentNationality: 'BR',
+    });
+    expect(matches.recentDoubles[0].setScores).toEqual([{ winnerGames: 6, loserGames: 3 }]);
+
+    const profileRes = await app.inject({ method: 'GET', url: '/players/dig-main/profile' });
+    expect(profileRes.statusCode).toBe(200);
+    const profile = profileRes.json() as { doublesTitles: Array<Record<string, unknown>> };
+    expect(profile.doublesTitles).toHaveLength(1);
+    expect(profile.doublesTitles[0]).toMatchObject({
+      tournamentId: 'dig-title-t',
+      partnerId: 'dig-partner',
+      partnerName: 'Player dig-partner',
+    });
+
+    // The digest feed the season harness builds — via the EXACT production
+    // mappers — now sees both the doubles title and the doubles result.
+    const digestDoublesTitles = compactDoublesTitles(profile);
+    expect(digestDoublesTitles).toHaveLength(1);
+    expect(digestDoublesTitles[0].partnerName).toBe('Player dig-partner');
+    const lastResults = compactLastResults(matches);
+    expect(lastResults).toHaveLength(2);
+    const byDiscipline = Object.fromEntries(lastResults.map((r) => [r.discipline, r]));
+    expect(byDiscipline.singles.tournamentId).toBe('dig-air');
+    expect(byDiscipline.doubles.tournamentId).toBe('dig-air');
+    expect(byDiscipline.doubles.result).toBe('win');
+  });
+
+  it('pads a doubles field from RANKED free agents, not the pool youngest-first order (F3, real Postgres)', async () => {
+    const agingPolicy = new StandardAgingPolicy();
+    const freeAt = (id: string, ageWeeks: number) =>
+      Player.generateFillOnly(
+        PlayerId(id),
+        `Player ${id}`,
+        ageWeeks,
+        agingPolicy.stageForAge(ageWeeks),
+        fixedAttributes(40),
+        'BR',
+        70,
+        { speed: 70, stamina: 70, strength: 70 },
+      );
+    // 14 young unranked fillers are saved FIRST, so the real
+    // findFreeAgents() (youngest-first) would pick exactly these; the two
+    // genuinely-ranked, older free agents come later in that order.
+    for (let i = 1; i <= 14; i++) await deps.players.save(freeAt(`pad-young-${i}`, 18 * 52));
+    await deps.players.save(freeAt('pad-ranked-a', 30 * 52));
+    await deps.players.save(freeAt('pad-ranked-b', 31 * 52));
+    await deps.rankingLedger.append({
+      playerId: PlayerId('pad-ranked-a'),
+      tournamentId: TournamentId('pad-rank-t-a'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 90,
+      weekEarned: { season: 1, week: 52 },
+    });
+    await deps.rankingLedger.append({
+      playerId: PlayerId('pad-ranked-b'),
+      tournamentId: TournamentId('pad-rank-t-b'),
+      tier: 'challenger',
+      ageBand: null,
+      points: 40,
+      weekEarned: { season: 1, week: 52 },
+    });
+
+    const tournament = Tournament.open({
+      name: 'Ranked Pad Open',
+      id: TournamentId('t-ranked-pad'),
+      tier: 'challenger',
+      surface: 'hard',
+      weekScheduled: { season: 1, week: 52 },
+      drawSize: 16,
+      doublesDrawSize: 8,
+    });
+    const a = freeAt('pad-pair-a', 26 * 52);
+    const b = freeAt('pad-pair-b', 27 * 52);
+    await deps.players.save(a);
+    await deps.players.save(b);
+    tournament.registerDoublesEntrant(a.id);
+    tournament.registerDoublesEntrant(b.id);
+    await deps.tournaments.save(tournament);
+    await deps.doublesPairs.save(DoublesPair.activate(PairId('pad-pair'), a.id, b.id));
+
+    const loaded = await deps.tournaments.findById(TournamentId('t-ranked-pad'));
+    await deps.formDoublesDraw.form(loaded!);
+    const formed = await deps.tournaments.findById(TournamentId('t-ranked-pad'));
+    expect(formed!.hasDoublesDrawStarted).toBe(true);
+    const usedIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
+    // The two ranked free agents are IN the formed field; before the fix
+    // the youngest-first padding excluded both (they were positions 15-16
+    // of a 16-deep pool that only needed 14).
+    expect(usedIds).toContain(PlayerId('pad-ranked-a'));
+    expect(usedIds).toContain(PlayerId('pad-ranked-b'));
   });
 
   it('automatically promotes a real Brazilian qualifying registrant to a wild card, never a French one, driven against real Postgres data', async () => {

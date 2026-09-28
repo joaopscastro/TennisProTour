@@ -97,8 +97,12 @@ import {
 import { formatValidationErrors, validateDecision } from './lib/decisionSchema.mjs';
 import {
   buildCandidateView,
+  compactDoublesTitles,
+  compactLastResults,
+  compactSinglesTitles,
   compactTournamentBase,
-  compareCandidates,
+  reconcileDecisions,
+  selectWeekEvents,
   tournamentConcluded,
 } from './lib/digestFeed.mjs';
 
@@ -493,10 +497,16 @@ your behalf. You read your digest and write one decision file per week.
   weeks you did not submit. Read both before repeating a rejected action.
 
 ## Reading the digest (what each feed field means)
-- \`roster[].lastResults\` — the player's most recent AIRED singles results,
-  newest first (up to 3), with set scores and the tournament week. A result
-  appears here once it has aired; in this harness that is seconds after it is
-  played, so this is genuinely "what happened last week".
+- \`roster[].lastResults\` — the player's most recent AIRED results, singles
+  AND doubles, newest first (up to 3 of each), with set scores and the
+  tournament week. Every row carries \`discipline\` ("singles" or "doubles"),
+  so a doubles win is never misread as a singles win. A result appears here
+  once it has aired; in this harness that is seconds after it is played, so
+  this is genuinely "what happened last week".
+- \`roster[].titles\` — singles titles. \`roster[].doublesTitles\` — doubles
+  titles, each naming the PARTNER (partnerId/partnerName). Both pay ranking
+  points, so read both; \`roster[].titleCounts\` gives
+  \`{ singles, doubles }\` at a glance.
 - \`roster[].nextMatch\` — the next match the player still has TO PLAY (null
   when they are not alive in any draw). A match that has already been decided
   (even one whose result has not aired yet) is NOT reported here; it shows up
@@ -504,16 +514,22 @@ your behalf. You read your digest and write one decision file per week.
 - \`roster[].pendingEntries\` — every entry whose event has not CONCLUDED yet:
   a seeded-and-playing draw counts, only a fully-decided or cancelled event
   drops out. \`hasStarted\` tells you whether the draw is live.
-- \`events.canEnterNow[playerId]\` — up to 10 ENTERABLE candidate events
-  (nearest week, then tier), followed by up to 3 rank-restricted events
-  appended as disabled rows. Every row carries \`enterable\` and
-  \`blockedReason\`; a rank-restricted event is LISTED with
+- \`events.canEnterNow[playerId]\` — up to 32 ENTERABLE candidate events
+  (nearest week, then SENIOR circuit before junior, then tier — a senior
+  \`tour\`/major is always included even if the cap truncates), followed by
+  up to 3 rank-restricted events appended as disabled rows. Every row carries
+  \`enterable\` and \`blockedReason\`; a rank-restricted event is LISTED with
   \`enterable: false\` and the reason (e.g. "ranked #37 on the senior ladder —
   too high to enter a futures event") instead of silently disappearing.
 - \`events.canEnterNowMeta[playerId]\` — \`{ shown, enterableShown,
-  enterableTotal, restrictedShown, restrictedTotal, truncated }\`. If
-  \`enterableTotal > enterableShown\`, the list was capped; check
+  enterableTotal, restrictedShown, restrictedTotal, truncated, hiddenCount }\`.
+  If \`enterableTotal > enterableShown\`, the list was capped; check
   \`events.openByWeek\` (or next week's digest) for the rest.
+- \`events.openByWeek[]\` — the next 13 weeks, each \`{ week, events,
+  hiddenCount }\`. At most 2 events per (week, tier) and 24 per week; a
+  week's senior \`tour\`/major is always included, and \`hiddenCount\` tells
+  you how many of that week's events were left out (never assume the list
+  is the whole week).
 
 ## Apply order (per manager, sequential)
 release → claim → dissolvePair → createPair → acceptPair → enterSingles /
@@ -527,6 +543,13 @@ two claims for the same free agent are a real race: exactly one wins.
   bad attribute, past effectiveFrom, duplicate practice day, >40 actions):
   the runner NACKs the file, records why in \`NACK.json\`, and keeps waiting
   until the deadline — you may fix it and resubmit before the deadline.
+- REPLACING a submitted decision: while the phase is \`open\`/\`collect\`, writing
+  a corrected decision file replaces your accepted one on the runner's next
+  collect pass (it re-reads and re-validates the file; the snapshot is stamped
+  \`replacedAt\`). Once the phase reaches \`apply\` (or later), rewrites are
+  IGNORED — the snapshot taken when apply began is what runs, and the runner
+  logs a warning. Submit corrections while the phase still reads \`open\` or
+  \`collect\`.
 - Missed deadline = the week is recorded as a miss; the world still advances.
 - The digest NEVER contains hidden values (\`experience\`, \`talent\`,
   \`potentialCeiling\`, \`physicalCeilings\`). Judge the visible attributes,
@@ -599,13 +622,15 @@ Run this exact command first:
 ## When status exits 0
 1. Read the \`digestFile\` named in the status JSON. It is the ONLY game state
    you get, and it was built from the live world moments ago. It contains your
-   roster (attributes, fatigue, form, rank/peaks/titles/prize, potential
-   projection, the last 3 AIRED results, the next match still to be PLAYED,
-   and every entry whose event has not concluded), the signable talent pool
-   (claim cost included), your pairs, last week's apply outcomes, and this
-   week's event candidates (\`events.canEnterNow\` per player with
-   \`enterable\`/\`blockedReason\` on every row and a \`canEnterNowMeta\`
-   truncation summary, plus \`events.openByWeek\` for scouting further ahead).
+   roster (attributes, fatigue, form, rank/peaks, singles AND doubles titles,
+   prize, potential projection, the last 3 AIRED singles + doubles results
+   tagged by \`discipline\`, the next match still to be PLAYED, and every entry
+   whose event has not concluded), the signable talent pool (claim cost
+   included), your pairs, last week's apply outcomes, and this week's event
+   candidates (\`events.canEnterNow\` per player with \`enterable\`/\`blockedReason\`
+   on every row and a \`canEnterNowMeta\` truncation summary, plus
+   \`events.openByWeek\` with a per-week \`hiddenCount\` for scouting further
+   ahead).
 2. Choose up to 40 actions (schema and action list in RULES.md). Prefer
    concrete moves: enter eligible events in the nearest week, set training
    focus, spend practice days, claim/enter/release to fit the roster cap.
@@ -682,13 +707,13 @@ function overallOf(attributes) {
 }
 
 // `compactTournamentBase`, `tournamentConcluded`, `compactCandidate`,
-// `enterabilityBlockReason`, `buildCandidateView` and `compareCandidates`
+// `enterabilityBlockReason`, `buildCandidateView`, `compareCandidates`,
+// `selectWeekEvents`, the roster mappers and the decision reconciler
 // moved to lib/digestFeed.mjs (imported above, unit-tested in
 // digestFeed.test.mjs).
 
 const MAX_TALENT_POOL = 24;
 const MAX_OPEN_WEEKS = 13;
-const MAX_EVENTS_PER_WEEK = 6;
 
 /**
  * Builds one manager's weekly digest from the REAL endpoints. The digest is
@@ -791,27 +816,24 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
       rank: { band, rank: ownRank.rank, points: ownRank.totalPoints },
       allRankings: rankings,
       peaks: profile?.peakRankings ?? [],
-      titles: (profile?.titles ?? []).map((t) => ({
-        tournamentId: t.tournamentId,
-        name: t.name,
-        tier: t.tier,
-        ageBand: t.ageBand,
-        weekEarned: t.weekEarned,
-      })),
+      titles: compactSinglesTitles(profile),
+      // Doubles titles are a distinct list (a doubles trophy names the
+      // PARTNER, not a singles tournament name) and count in the title
+      // summary alongside singles — a measured season had 28 doubles
+      // titles invisible in the digest.
+      doublesTitles: compactDoublesTitles(profile),
+      titleCounts: {
+        singles: (profile?.titles ?? []).length,
+        doubles: (profile?.doublesTitles ?? []).length,
+      },
       prizeMoney: {
         career: profile?.careerPrizeMoney ?? player.careerPrizeMoney ?? 0,
         season: profile?.seasonPrizeMoney ?? player.seasonPrizeMoney ?? 0,
       },
       potential: profile?.potential ?? null,
-      lastResults: (matches?.recent ?? []).slice(0, 3).map((m) => ({
-        tournamentId: m.tournamentId,
-        tournamentName: m.tournamentName,
-        tier: m.tier,
-        roundNumber: m.roundNumber,
-        result: m.result,
-        setScores: m.setScores,
-        weekScheduled: m.weekScheduled,
-      })),
+      // Singles AND doubles, each row tagged with its `discipline` — the
+      // doubles half comes from the API's additive `recentDoubles` read.
+      lastResults: compactLastResults(matches),
       // `nextMatch` = the next match still TO BE PLAYED. The response's
       // `nextPending` field (added alongside this fix) is exactly that;
       // the fallback keeps an un-rebuilt API from breaking the digest,
@@ -872,7 +894,11 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     playerB: { playerId: pair.playerB?.playerId, name: pair.playerB?.name },
   }));
 
-  // Event catalogue shared across managers: nearest <=13 weeks, <=6 events each.
+  // Event catalogue shared across managers: nearest <=13 weeks, selected
+  // per week by `selectWeekEvents` (at most 2 per tier, the week's senior
+  // tour/major always included, per-week `hiddenCount` when capped) — the
+  // old flat "6 events per week, sorted by tier prestige" could silently
+  // drop a week's senior `tour` behind junior events.
   const byWeek = new Map();
   for (const t of openTournamentUnion.values()) {
     if (t.hasStarted) continue;
@@ -884,13 +910,14 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
   const openByWeek = [...byWeek.entries()]
     .sort((a, b) => a[0] - b[0])
     .slice(0, MAX_OPEN_WEEKS)
-    .map(([, bucket]) => ({
-      week: bucket[0].weekScheduled,
-      events: bucket
-        .sort(compareCandidates)
-        .slice(0, MAX_EVENTS_PER_WEEK)
-        .map(compactTournamentBase),
-    }));
+    .map(([, bucket]) => {
+      const selection = selectWeekEvents(bucket);
+      return {
+        week: bucket[0].weekScheduled,
+        events: selection.events.map(compactTournamentBase),
+        hiddenCount: selection.hiddenCount,
+      };
+    });
 
   // Last week's apply outcomes, so the agent learns what was rejected.
   const lastApply = weekIndex > 0 ? readJsonl(join(run.runDir, 'weeks', weekDirName(weekIndex - 1), 'apply', `${managerId}.jsonl`)) : [];
@@ -1257,41 +1284,81 @@ function recordNack(managerId, file, errors) {
   log(`NACK ${managerId}: ${errors.length} schema error(s)`, { first: errors[0] });
 }
 
-/** Validates any not-yet-accepted decision files. Returns how many were accepted. */
+/**
+ * One collect pass: reads every manager's decision file, lets the pure
+ * `reconcileDecisions` (lib/digestFeed.mjs) decide what each one means,
+ * and applies the results to `state.accepted`.
+ *
+ * The replacement contract this implements (and the protocol docs state):
+ * while the phase is still `open`/`ready`/`collect`, a manager who
+ * REWRITES their decision file has it re-read, re-validated and the
+ * accepted snapshot REPLACED (stamped `replacedAt`) — the exact case a
+ * measured season got wrong, where a manager resubmitted a corrected file,
+ * `agentWeek.mjs write` reported `replaced: true`, and the runner still
+ * applied the ORIGINAL content because an accepted manager was skipped
+ * forever. Once the phase reaches apply/advance, rewrites are ignored and
+ * the snapshot taken when apply began is what runs.
+ *
+ * Returns how many managers' accepted snapshots changed (accept/reaccept),
+ * matching the old "changed" semantics for the caller.
+ */
 function collectDecisionsOnce(open) {
-  let changed = false;
+  const files = {};
   for (const managerId of run.managers) {
-    if (state.accepted?.[managerId]) continue;
     const file = join(state.weekDir, 'decisions', `${managerId}.json`);
-    if (!existsSync(file)) continue;
-    let parsed = null;
     try {
-      parsed = JSON.parse(readFileSync(file, 'utf8'));
-    } catch (error) {
-      recordNack(managerId, file, [{ path: '$', message: `invalid JSON: ${error.message}` }]);
+      files[managerId] = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    } catch {
+      // The file can vanish between existsSync and read (a concurrent
+      // NACK rename); treat that exactly like "absent" this pass.
+      files[managerId] = null;
+    }
+  }
+  const results = reconcileDecisions({
+    phase: state.phase ?? 'open',
+    managers: run.managers,
+    files,
+    accepted: state.accepted ?? {},
+    validate: (parsed, managerId) =>
+      validateDecision(parsed, {
+        runId: run.runId,
+        weekIndex: state.weekIndex,
+        managerId,
+        currentWeek: open?.clock?.currentWeek ?? state.worldWeek,
+      }),
+  });
+
+  let changed = false;
+  for (const result of results) {
+    if (result.action === 'none' || result.action === 'keep') continue;
+    if (result.action === 'ignored-rewrite') {
+      console.warn(
+        `[agent-season] ${result.managerId} rewrote their decision after the collect window closed — ` +
+          `the accepted snapshot stands (rewrites are only re-accepted while the phase is open/collect)`,
+      );
+      continue;
+    }
+    if (result.action === 'nack') {
+      recordNack(result.managerId, join(state.weekDir, 'decisions', `${result.managerId}.json`), result.errors);
       changed = true;
       continue;
     }
-    const { ok, errors } = validateDecision(parsed, {
-      runId: run.runId,
-      weekIndex: state.weekIndex,
-      managerId,
-      currentWeek: open?.clock?.currentWeek ?? state.worldWeek,
-    });
-    if (!ok) {
-      recordNack(managerId, file, errors);
-      changed = true;
-      continue;
-    }
+    const previous = state.accepted?.[result.managerId] ?? null;
     state.accepted = { ...(state.accepted ?? {}) };
-    state.accepted[managerId] = {
-      receivedAt: nowIso(),
-      summary: parsed.summary,
-      actions: parsed.actions.length,
-      decision: parsed,
+    state.accepted[result.managerId] = {
+      receivedAt: previous?.receivedAt ?? nowIso(),
+      ...(previous ? { replacedAt: nowIso() } : {}),
+      summary: result.summary,
+      actions: result.actionCount,
+      contentHash: result.contentHash,
+      decision: result.decision,
     };
     changed = true;
-    log(`accepted decision for ${managerId}`, { actions: parsed.actions.length });
+    if (result.action === 'reaccept') {
+      log(`re-accepted REPLACED decision for ${result.managerId}`, { actions: result.actionCount });
+    } else {
+      log(`accepted decision for ${result.managerId}`, { actions: result.actionCount });
+    }
   }
   // Persist acceptance/NACK state immediately so a crash cannot lose a
   // decision or double-count a NACK (the decision file itself is the

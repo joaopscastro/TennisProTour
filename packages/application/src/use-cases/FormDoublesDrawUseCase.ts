@@ -111,6 +111,35 @@ export class FormDoublesDrawUseCase {
       .map((p) => p.id)
       .filter((id) => !entrants.includes(id));
 
+    // Prefer genuinely RANKED free agents over the pool's youngest-first
+    // order (F3 — the doubles-viability finding). The pool read
+    // (`findFreeAgents()`) is ordered youngest-first, so before this a
+    // strong persistent pair was padded against raw teenagers/first-week
+    // players — one measured season had a real pair go 114-0 against
+    // 48-OVR fillers, which read as "doubles is a free 1,000-point
+    // dominant strategy" rather than a measurement artifact. Ranking is
+    // the same real, earned signal the singles fill already prefers
+    // (`fillDrawSlots`); never a skill/OVR proxy. Effective rank position
+    // = the player's DOUBLES-else-SINGLES position in the tournament's
+    // own band (the same doublesEntryRanking fallback the cut uses),
+    // ranked candidates first in rank order, then everyone else in the
+    // pool's own order (stable sort). A released/never-ranked free agent
+    // is still fillable — it just no longer jumps the queue.
+    const doublesRankIndex = new Map(doublesRanked.map((r, index) => [r.playerId, index]));
+    const singlesRankIndex = new Map(singlesRanked.map((r, index) => [r.playerId, index]));
+    const effectiveRankIndex = (id: PlayerId): number | undefined =>
+      doublesRankIndex.get(id) ?? singlesRankIndex.get(id);
+    fillerIds = [...fillerIds].sort((a, b) => {
+      const aRank = effectiveRankIndex(a);
+      const bRank = effectiveRankIndex(b);
+      if (aRank !== undefined || bRank !== undefined) {
+        if (aRank === undefined) return 1;
+        if (bRank === undefined) return -1;
+        return aRank - bRank;
+      }
+      return 0;
+    });
+
     // A doubles field never forms a bracket below 2 pairs — see
     // DoublesPairingService.pair: persistent partnerships pair off,
     // remaining solo entrants pair two-by-two, and only ONE odd leftover
