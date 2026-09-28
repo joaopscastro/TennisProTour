@@ -35,11 +35,16 @@ export const MAX_STAMINA_FATIGUE_RESISTANCE = 0.4;
  * given stamina (0–100). Higher stamina → less fatigue, down to a floor
  * of BASE_MATCH_FATIGUE * (1 - MAX_STAMINA_FATIGUE_RESISTANCE). Rounded
  * to a whole point (fatigue is stored as an integer).
+ *
+ * `base` overrides BASE_MATCH_FATIGUE for one call — the same
+ * compare-candidates-against-real-data seam `fatigueRecoveredPerDay`'s
+ * own `base` parameter gives the balance tool. Production callers pass
+ * nothing, so they always get the constant above.
  */
-export function fatigueCostForMatch(stamina: number): number {
+export function fatigueCostForMatch(stamina: number, base: number = BASE_MATCH_FATIGUE): number {
   const clampedStamina = Math.max(0, Math.min(100, stamina));
   const resistance = (clampedStamina / 100) * MAX_STAMINA_FATIGUE_RESISTANCE;
-  return Math.round(BASE_MATCH_FATIGUE * (1 - resistance));
+  return Math.round(base * (1 - resistance));
 }
 
 // ---------------------------------------------------------------------------
@@ -63,22 +68,37 @@ export const FATIGUE_RECOVERY_PER_DAY = 3;
  *
  * Quantified (continuous math; the balance tool reports the real
  * integer-stepped values): a senior's 32-draw title run (5 matches/week
- * × ~6 fatigue) settles around fatigue 26, a 128-draw major title run
- * (7 matches) around 60, and a player at 60 recovers to ~26 in about 7
- * idle days — while ordinary play (≤3 matches/week) stays at 0.
+ * × ~6 fatigue) settles around fatigue 15-20, a 9-11-match elite week
+ * (singles + doubles deep runs) oscillates around 47-66 (mid-week peaks
+ * 55-76), a 128-draw major title run (7 matches) around 26, and ordinary
+ * play (≤3 matches/week) stays at 0.
+ *
+ * Retuned 0.05 → 0.08 (docs/balance-tuning-report.md's third fatigue/
+ * form pass) because a measured 52-week agent season showed the previous
+ * value was calibrated against a match volume that no longer exists:
+ * Batch 4B added a second weekly `tour` event, so a realistic elite
+ * weekly load is ~9-14 matches (singles + doubles), and at 0.05 those
+ * schedules sat at fatigue ≥80 for 38 of 52 weeks — including 9
+ * consecutive weeks ≥90 — making singles deep runs coin-flips. At 0.08
+ * the same schedules oscillate in the intended 40-80 band while a rest
+ * week still visibly recovers (an 11-match week's ~66 drops to ~22 in an
+ * idle week), so the fatigue penalty still forces real rest/taper
+ * decisions. STILL AN EXPLICIT PLACEHOLDER, same as every constant here.
+ *
  * Deliberately retuned as a PAIR with FORM_STALE_THRESHOLD /
  * FORM_OUT_OF_BAND_PENALTY_PER_POINT in StatisticalMatchSimulator:
  * fatigue now carries the overplay cost, form stays the rust/rhythm
  * signal (see docs/balance-tuning-report.md's second fatigue/form pass).
  */
-export const FATIGUE_RECOVERY_FRACTION = 0.05;
+export const FATIGUE_RECOVERY_FRACTION = 0.08;
 
 /**
  * Fatigue recovered over ONE advanced day by a player currently at
  * `fatigue`: the flat `base` (FATIGUE_RECOVERY_PER_DAY in production;
  * callers may pass an override, e.g. the balance tool's candidate
- * comparison) PLUS FATIGUE_RECOVERY_FRACTION × current fatigue, rounded
- * to a whole point so the stored integer never gains a fraction.
+ * comparison) PLUS `fraction` × current fatigue (FATIGUE_RECOVERY_FRACTION
+ * in production; the same override seam), rounded to a whole point so
+ * the stored integer never gains a fraction.
  *
  * This is the ONE place the recovery formula lives — `Player.recoverFatigue`
  * applies it, and `DrizzlePlayerRepository.recoverFatigueForAll` mirrors
@@ -86,7 +106,11 @@ export const FATIGUE_RECOVERY_FRACTION = 0.05;
  * The two must never diverge; `DrizzleRepositories.integration.test.ts`
  * pins that against real Postgres.
  */
-export function fatigueRecoveredPerDay(fatigue: number, base: number = FATIGUE_RECOVERY_PER_DAY): number {
+export function fatigueRecoveredPerDay(
+  fatigue: number,
+  base: number = FATIGUE_RECOVERY_PER_DAY,
+  fraction: number = FATIGUE_RECOVERY_FRACTION,
+): number {
   const clampedFatigue = Math.max(0, Math.min(100, fatigue));
-  return Math.round(base + clampedFatigue * FATIGUE_RECOVERY_FRACTION);
+  return Math.round(base + clampedFatigue * fraction);
 }

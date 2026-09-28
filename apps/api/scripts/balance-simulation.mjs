@@ -50,7 +50,17 @@ const {
   FORM_RUSTY_THRESHOLD,
   FORM_STALE_THRESHOLD,
   fatigueCostForMatch,
+  fatigueRecoveredPerDay,
   FATIGUE_RECOVERY_FRACTION,
+  BASE_MATCH_FATIGUE,
+  FATIGUE_PENALTY_PER_POINT,
+  DoublesPairingService,
+  StandardDoublesPairPolicy,
+  doublesSideStrength,
+  doublesPairStrength,
+  orderDoublesFieldFillers,
+  PairId,
+  TournamentId,
 } = domain;
 // The weekly form decay lives in the application layer (applied by
 // AdvanceWorldWeekUseCase, not the domain), so it's imported rather than
@@ -61,14 +71,23 @@ const {
 // FLAT BASE is re-exported through the application layer for the same
 // reason it always was.
 const { FORM_WEEKLY_DECAY, FATIGUE_RECOVERY_PER_DAY } = application;
-// FATIGUE_RECOVERY_PER_DAY overrides the production FLAT BASE for this run
-// only, so a retuning pass can compare candidate values against real
-// trajectory data (same pattern as DIVISOR). The self-limiting FRACTION is
-// part of the formula now, so it is always applied on top (see the report):
-//   for r in 5 4 3 2; do FATIGUE_RECOVERY_PER_DAY=$r node apps/api/scripts/balance-simulation.mjs; done
+// Candidate overrides for this run only, same compare-candidates workflow
+// as DIVISOR: the recovery FLAT BASE and FRACTION, the per-match BASE
+// cost, and the weekly form decay. Unset = the production constant.
+//   for b in 3 4; do for k in 0.05 0.08 0.10; do
+//     FATIGUE_RECOVERY_PER_DAY=$b FATIGUE_RECOVERY_FRACTION=$k \
+//       node apps/api/scripts/balance-simulation.mjs
+//   done; done
 const FATIGUE_RECOVERY = process.env.FATIGUE_RECOVERY_PER_DAY
   ? Number(process.env.FATIGUE_RECOVERY_PER_DAY)
   : FATIGUE_RECOVERY_PER_DAY;
+const FATIGUE_FRACTION = process.env.FATIGUE_RECOVERY_FRACTION
+  ? Number(process.env.FATIGUE_RECOVERY_FRACTION)
+  : FATIGUE_RECOVERY_FRACTION;
+const FATIGUE_BASE_COST = process.env.FATIGUE_BASE_COST
+  ? Number(process.env.FATIGUE_BASE_COST)
+  : BASE_MATCH_FATIGUE;
+const FORM_DECAY = process.env.FORM_WEEKLY_DECAY ? Number(process.env.FORM_WEEKLY_DECAY) : FORM_WEEKLY_DECAY;
 
 const TRIALS_PER_BUCKET = Number(process.env.TRIALS_PER_BUCKET ?? 3000);
 const REPORT_PATH = process.env.BALANCE_REPORT ?? 'balance-report.json';
@@ -314,7 +333,7 @@ for (let week = 1; week <= maxWeeks; week++) {
 // re-checked fatigue/home/surface, but form is applied on the same scale
 // and was left unmeasured), which is exactly what docs/rocking-rackets-
 // competitive-analysis.md §5 flags as the main open balance question.
-const FORM_LEVELS = [0, 4, 7, 8, 11, 12, 18, 25, 26, 30, 31, 40, 50];
+const FORM_LEVELS = [0, 4, 7, 8, 11, 12, 18, 25, 26, 28, 30, 31, 40, 50];
 const formResults = FORM_LEVELS.map((form) => {
   const playerA = participant('formA', { skill: 50, form });
   const playerB = participant('formB', { skill: 50, form: 0 });
@@ -349,6 +368,8 @@ const FORM_SCHEDULES = [
   { name: 'senior: deep run', matchesPerWeek: 3 },
   { name: 'senior: title run', matchesPerWeek: 5 },
   { name: 'junior: 3 tournaments/week', matchesPerWeek: 6 },
+  { name: 'elite: singles + doubles deep runs', matchesPerWeek: 9 },
+  { name: 'extreme: both finals at a major', matchesPerWeek: 14 },
 ];
 const formTrajectories = FORM_SCHEDULES.map(({ name, matchesPerWeek, startForm = 0 }) => {
   const player = makeCatchupPlayer(`form-${name}`, { skill: 50, ceilingHeadroom: EXPECTED_CEILING_HEADROOM });
@@ -356,7 +377,7 @@ const formTrajectories = FORM_SCHEDULES.map(({ name, matchesPerWeek, startForm =
   const samples = [];
   for (let week = 1; week <= FORM_TRAJECTORY_WEEKS; week++) {
     for (let m = 0; m < matchesPerWeek; m++) player.applyMatchForm(1);
-    player.decayForm(FORM_WEEKLY_DECAY);
+    player.decayForm(FORM_DECAY);
     if (week > FORM_TRAJECTORY_WEEKS - 4) samples.push(player.form);
   }
   const steadyStateForm = Math.round(samples.reduce((a, b) => a + b, 0) / samples.length);
@@ -395,20 +416,36 @@ const FATIGUE_SCHEDULES = [
   { name: 'senior: 32-draw title', matchesPerWeek: 5 },
   { name: 'junior: 3 tournaments', matchesPerWeek: 6 },
   { name: 'senior: 128-draw major title', matchesPerWeek: 7 },
+  // The measured agent-season elite loads: a senior at one tournament a
+  // week plays singles AND doubles, so deep runs are ~9-14 matches — the
+  // volume Batch 4B's second weekly `tour` event made routine.
+  { name: 'elite: singles+doubles deep runs', matchesPerWeek: 9 },
+  { name: 'elite: 11-match week', matchesPerWeek: 11 },
+  { name: 'peak: 14-match week (both finals)', matchesPerWeek: 14 },
 ];
 const FATIGUE_STAMINAS = [50, 20];
 const fatigueTrajectories = [];
 for (const { name, matchesPerWeek } of FATIGUE_SCHEDULES) {
   for (const stamina of FATIGUE_STAMINAS) {
     const player = makeCatchupPlayer(`fatigue-${name}-${stamina}`, { skill: 50, ceilingHeadroom: EXPECTED_CEILING_HEADROOM });
-    const costPerMatch = fatigueCostForMatch(stamina);
+    const costPerMatch = fatigueCostForMatch(stamina, FATIGUE_BASE_COST);
     const samples = [];
     const peaks = [];
     for (let week = 1; week <= FATIGUE_TRAJECTORY_WEEKS; week++) {
       let weekPeak = 0;
+      // A real week's matches are spread across its days (a 14-match week
+      // is two per day, not one a day for 14 days) — identical to the old
+      // one-per-day shape for every schedule of 7 or fewer.
+      const perDay = Math.floor(matchesPerWeek / 7);
+      const extra = matchesPerWeek % 7;
       for (let day = 1; day <= 7; day++) {
-        if (day <= matchesPerWeek) player.applyMatchFatigue(costPerMatch);
-        player.recoverFatigue(FATIGUE_RECOVERY);
+        const matchesToday = perDay + (day <= extra ? 1 : 0);
+        for (let m = 0; m < matchesToday; m++) player.applyMatchFatigue(costPerMatch);
+        // Replays the production recovery formula through the real Player
+        // mutator (Player.applyMatchFatigue), with the candidate fraction
+        // in place of the production one — the same override seam as the
+        // flat base.
+        player.applyMatchFatigue(-fatigueRecoveredPerDay(player.fatigue, FATIGUE_RECOVERY, FATIGUE_FRACTION));
         if (player.fatigue > weekPeak) weekPeak = player.fatigue;
       }
       if (week > FATIGUE_TRAJECTORY_WEEKS - 4) {
@@ -425,13 +462,233 @@ for (const { name, matchesPerWeek } of FATIGUE_SCHEDULES) {
   }
 }
 
+// --- Bucket 9: doubles field strength (the padding fix) -----------------
+// The measured problem (docs/balance-tuning-report.md's doubles section):
+// in the 52-week agent season two persistent manager pairs (combined
+// strength ~125-132 on the effective-rating scale) won 29-30 tour doubles
+// titles each against fields that were largely filler — the padding
+// selection drew from RANKED free agents and then SHUFFLED everyone
+// together, so the pool's strongest free agents were diluted into one
+// weak average pair. This bucket models the real end-of-season free-agent
+// pool (measured on tennis_manager_agents3: OVR median ~44, p90 ~65, max
+// ~89; doubles avg ~42; composite strength median ~70) with a
+// deterministic seeded source, then runs the REAL production padding path
+// twice on the SAME pool:
+//   BEFORE: pool-order selection + the legacy random-shuffle pairing
+//   AFTER:  orderDoublesFieldFillers (cap = the manager pair) + the
+//           strength-aware pairing in DoublesPairingService
+// Each field is reported as average/best padded-pair strength vs the
+// manager pair, the manager pair's head-to-head win rate against the best
+// padded pair, and a real 16-pair bracket replay (StatisticalMatchSimulator
+// + StandardDoublesPairPolicy) giving the manager pair's title probability.
+const DOUBLES_FIELD_DRAW_SIZE = 16; // pairs
+const DOUBLES_FIELD_POOL_SIZE = 200;
+const DOUBLES_FIELD_BUILDS = 10;
+const DOUBLES_FIELD_BRACKET_TRIALS = 50;
+const DOUBLES_FIELD_H2H_TRIALS = 1000;
+
+function doublesPlayer(id, ovr, doublesSkill, affinityHard = 20) {
+  return {
+    playerId: PlayerId(id),
+    attributes: new PlayerAttributes({
+      technical: { serve: Skill.of(ovr), forehand: Skill.of(ovr), backhand: Skill.of(ovr), volley: Skill.of(ovr) },
+      physical: { speed: Skill.of(ovr), stamina: Skill.of(ovr), strength: Skill.of(ovr) },
+      mental: { consistency: Skill.of(ovr), clutch: Skill.of(ovr) },
+      doubles: Skill.of(doublesSkill),
+      surfaceAffinities: SurfaceAffinities.of({ clay: affinityHard, grass: affinityHard, hard: affinityHard, indoor: affinityHard }),
+    }),
+  };
+}
+
+function makeSeededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state * 1664525 + 1013904223) >>> 0;
+    return state / 0x100000000;
+  };
+}
+
+// The manager pair mirrors the measured m4 pair on tennis_manager_agents3
+// (OVR ~84/~84, doubles ~32/~30, affinity_hard 60, chemistry 100 —
+// strength ~125 on neutral hard, matching the real 124.9).
+const doublesManagerA = doublesPlayer('doubles-mgr-a', 84, 31, 60);
+const doublesManagerB = doublesPlayer('doubles-mgr-b', 84, 32, 60);
+const DOUBLES_MANAGER_STRENGTH = doublesPairStrength(doublesManagerA.attributes, doublesManagerB.attributes, 'hard', 100);
+
+const doublesPoolRandom = makeSeededRandom(20260928);
+// Piecewise-linear inverse CDF of the measured end-of-season free-agent
+// pool strength on tennis_manager_agents3 (p0 48, p25 64, p50 70, p75 80,
+// p90 94, p100 132 — the real pool fattens at the top because fill-only
+// players train every week for seasons). Deriving attributes to hit each
+// sampled strength exactly (affinity 60, doubles 50 => flat attributes =
+// strength - 38) keeps the bracket replay's effective rating equal to the
+// sampled number.
+const DOUBLES_POOL_STRENGTH_STOPS = [48, 64, 70, 80, 94, 132];
+function sampleDoublesPoolStrength(u) {
+  const stops = DOUBLES_POOL_STRENGTH_STOPS;
+  const slots = stops.length - 1;
+  const x = Math.min(u, 0.999999) * slots;
+  const i = Math.floor(x);
+  const t = x - i;
+  return stops[i] + (stops[i + 1] - stops[i]) * t;
+}
+const doublesPool = [];
+for (let i = 0; i < DOUBLES_FIELD_POOL_SIZE; i++) {
+  const sampledStrength = sampleDoublesPoolStrength(doublesPoolRandom());
+  doublesPool.push(doublesPlayer(`doubles-fa-${i}`, Math.max(0, sampledStrength - 38), 50, 60));
+}
+// The pool's own read order (production: youngest-first) — deliberately
+// shuffled so it is uncorrelated with strength, modelling the measured
+// reality that the old ranked-first pick produced BELOW-average fillers.
+const doublesPoolOrder = (() => {
+  const items = [...doublesPool];
+  const random = makeSeededRandom(7);
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+})();
+
+const doublesAttributesById = new Map();
+for (const p of [doublesManagerA, doublesManagerB, ...doublesPool]) doublesAttributesById.set(p.playerId, p.attributes);
+const doublesStrengthById = new Map(doublesPool.map((p) => [p.playerId, doublesSideStrength(p.attributes, 'hard')]));
+
+const doublesPairingService = new DoublesPairingService();
+const doublesPairPolicy = new StandardDoublesPairPolicy();
+// The doubles bucket is a REGRESSION bucket — its numbers must be
+// reproducible run to run, so it uses its own deterministic source for
+// the field shuffle and the match trials (unlike the probability buckets
+// above, which deliberately sample the full distribution via
+// Math.random).
+const doublesRandom = makeSeededRandom(4242);
+const doublesSimulator = new StatisticalMatchSimulator({ next: doublesRandom }, DIVISOR);
+
+function buildDoublesField(mode) {
+  const fillerCount = DOUBLES_FIELD_DRAW_SIZE * 2 - 2;
+  let selectedIds;
+  const pairingInput = {
+    tournamentId: TournamentId(`doubles-field-${mode}`),
+    entrants: [],
+    entryRanking: new Map(),
+    persistentPairs: [
+      {
+        playerA: doublesManagerA.playerId,
+        playerB: doublesManagerB.playerId,
+        pairId: PairId(`doubles-field-${mode}-manager`),
+        chemistry: 100,
+      },
+    ],
+    freeAgentFillers: [],
+    drawSize: DOUBLES_FIELD_DRAW_SIZE,
+    random: { next: doublesRandom },
+  };
+  if (mode === 'before') {
+    // The legacy path: take the pool's own order (the measurement showed
+    // the ranked-first pick landed BELOW the pool average) and let the
+    // service shuffle everyone together.
+    selectedIds = doublesPoolOrder.slice(0, fillerCount).map((p) => p.playerId);
+  } else {
+    // The new path: cap-aware strength order + strength-aware pairing.
+    const ordered = orderDoublesFieldFillers(
+      doublesPoolOrder.map((p) => ({ playerId: p.playerId, strength: doublesStrengthById.get(p.playerId) ?? 0 })),
+      DOUBLES_MANAGER_STRENGTH,
+    );
+    selectedIds = ordered.slice(0, fillerCount).map((c) => c.playerId);
+    pairingInput.strength = doublesStrengthById;
+    pairingInput.fillerEntrants = new Set(selectedIds);
+  }
+  pairingInput.entrants = [doublesManagerA.playerId, doublesManagerB.playerId, ...selectedIds];
+  return doublesPairingService.pair(pairingInput).pairs;
+}
+
+function doublesPairStrengthOf(pair) {
+  const a = doublesAttributesById.get(pair.playerA);
+  const b = doublesAttributesById.get(pair.playerB);
+  return doublesPairStrength(a, b, 'hard', pair.chemistry ?? 0);
+}
+
+function doublesParticipantFor(pair) {
+  const a = { playerId: pair.playerA, fatigue: 0, form: 0, attributes: doublesAttributesById.get(pair.playerA) };
+  const b = { playerId: pair.playerB, fatigue: 0, form: 0, attributes: doublesAttributesById.get(pair.playerB) };
+  return doublesPairPolicy.compositeParticipant(pair.pairId, a, b, pair.chemistry ?? 0);
+}
+
+/** One real 16-pair knockout: a fresh random draw each trial, every match
+ * through the real simulator, winner advanced. Returns the manager pair's
+ * title rate. */
+function doublesManagerTitleRate(pairs, trials) {
+  const managerPair = pairs.find((p) => p.persistentPairId !== undefined);
+  let titles = 0;
+  for (let t = 0; t < trials; t++) {
+    let survivors = [...pairs];
+    for (let i = survivors.length - 1; i > 0; i--) {
+      const j = Math.floor(doublesRandom() * (i + 1));
+      [survivors[i], survivors[j]] = [survivors[j], survivors[i]];
+    }
+    while (survivors.length > 1) {
+      const next = [];
+      for (let i = 0; i < survivors.length; i += 2) {
+        const { outcome } = doublesSimulator.simulate(doublesParticipantFor(survivors[i]), doublesParticipantFor(survivors[i + 1]), 'hard');
+        next.push(outcome.winner === survivors[i].pairId ? survivors[i] : survivors[i + 1]);
+      }
+      survivors = next;
+    }
+    if (survivors[0].pairId === managerPair.pairId) titles++;
+  }
+  return titles / trials;
+}
+
+function doublesManagerH2HWinRate(managerPair, opponentPair, trials) {
+  let wins = 0;
+  for (let i = 0; i < trials; i++) {
+    const { outcome } = doublesSimulator.simulate(doublesParticipantFor(managerPair), doublesParticipantFor(opponentPair), 'hard');
+    if (outcome.winner === managerPair.pairId) wins++;
+  }
+  return wins / trials;
+}
+
+const doublesFieldResults = { before: [], after: [] };
+for (const mode of ['before', 'after']) {
+  for (let build = 0; build < DOUBLES_FIELD_BUILDS; build++) {
+    const pairs = buildDoublesField(mode);
+    const managerPair = pairs.find((p) => p.persistentPairId !== undefined);
+    const fillerPairs = pairs.filter((p) => p.persistentPairId === undefined);
+    const fillerStrengths = fillerPairs.map(doublesPairStrengthOf);
+    const bestFillerPair = fillerPairs[fillerStrengths.indexOf(Math.max(...fillerStrengths))];
+    doublesFieldResults[mode].push({
+      managerPairStrength: doublesPairStrengthOf(managerPair),
+      averagePaddedPairStrength: fillerStrengths.reduce((a, b) => a + b, 0) / fillerStrengths.length,
+      bestPaddedPairStrength: Math.max(...fillerStrengths),
+      managerWinRateVsBestPaddedPair: doublesManagerH2HWinRate(managerPair, bestFillerPair, DOUBLES_FIELD_H2H_TRIALS),
+      managerTitleRate: doublesManagerTitleRate(pairs, DOUBLES_FIELD_BRACKET_TRIALS),
+    });
+  }
+}
+const averageOf = (rows, key) => rows.reduce((sum, row) => sum + row[key], 0) / rows.length;
+const doublesFieldSummary = {
+  before: {
+    managerPairStrength: averageOf(doublesFieldResults.before, 'managerPairStrength'),
+    averagePaddedPairStrength: averageOf(doublesFieldResults.before, 'averagePaddedPairStrength'),
+    bestPaddedPairStrength: averageOf(doublesFieldResults.before, 'bestPaddedPairStrength'),
+    managerWinRateVsBestPaddedPair: averageOf(doublesFieldResults.before, 'managerWinRateVsBestPaddedPair'),
+    managerTitleRate: averageOf(doublesFieldResults.before, 'managerTitleRate'),
+  },
+  after: {
+    managerPairStrength: averageOf(doublesFieldResults.after, 'managerPairStrength'),
+    averagePaddedPairStrength: averageOf(doublesFieldResults.after, 'averagePaddedPairStrength'),
+    bestPaddedPairStrength: averageOf(doublesFieldResults.after, 'bestPaddedPairStrength'),
+    managerWinRateVsBestPaddedPair: averageOf(doublesFieldResults.after, 'managerWinRateVsBestPaddedPair'),
+    managerTitleRate: averageOf(doublesFieldResults.after, 'managerTitleRate'),
+  },
+};
+
 function isMonotonicNonDecreasing(rows, key) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].winRateA < rows[i - 1].winRateA - 0.02) return false; // small tolerance for sampling noise
   }
   return true;
 }
-
 const report = {
   meta: {
     runAt: new Date().toISOString(),
@@ -444,7 +701,11 @@ const report = {
     xpPerSkillPoint: developmentPolicy.experienceCostPerSkillPoint(),
     baseGainYouth: BASE_GAIN_YOUTH,
     fatigueRecoveryPerDay: FATIGUE_RECOVERY,
-    fatigueRecoveryFraction: FATIGUE_RECOVERY_FRACTION,
+    fatigueRecoveryFraction: FATIGUE_FRACTION,
+    fatigueBaseCost: FATIGUE_BASE_COST,
+    fatiguePenaltyPerPoint: FATIGUE_PENALTY_PER_POINT,
+    formWeeklyDecay: FORM_DECAY,
+    formSweetSpot: { min: FORM_SWEET_SPOT_MIN, max: FORM_SWEET_SPOT_MAX },
   },
   ratingGap: {
     description: 'Win rate for A as a uniform skill-attribute gap over B widens, on neutral hard court.',
@@ -482,14 +743,25 @@ const report = {
   formTrajectory: {
     description:
       'Steady-state form a real schedule reaches over a 52-week season, replaying the production accrual (+1/match, SimulateMatchUseCase) and weekly decay (FORM_WEEKLY_DECAY, AdvanceWorldWeekUseCase) through the real Player mutators. Shows whether the sweet spot is reachable at all, and whether an idle player truly decays back to neutral.',
+    decay: FORM_DECAY,
     rows: formTrajectories,
   },
   fatigueTrajectory: {
     description:
       'Steady-state fatigue a real weekly schedule reaches over a 52-week season, replaying the production per-match cost (fatigueCostForMatch) and the production SELF-LIMITING per-day recovery (fatigueRecoveredPerDay: base + fatigue × fraction, applied on all 7 days) through the real Player mutators. Rows are per schedule × stamina and carry both the end-of-week value and the mid-week PEAK (the number a manager sees during a deep run). A senior plays at most 5-7 matches/week (the 1/week entry cap); this shows those schedules now settle at a finite equilibrium instead of climbing to the 100 ceiling forever.',
     recoveryPerDay: FATIGUE_RECOVERY,
-    recoveryFraction: FATIGUE_RECOVERY_FRACTION,
+    recoveryFraction: FATIGUE_FRACTION,
     rows: fatigueTrajectories,
+  },
+  doublesField: {
+    description:
+      'Real production padding path run twice on a deterministic pool modelled on the measured end-of-season free-agent distribution (tennis_manager_agents3): BEFORE = pool-order selection + legacy random-shuffle pairing; AFTER = orderDoublesFieldFillers (cap = the manager pair strength) + the strength-aware pairing. managerPairStrength is the padding cap; every padded pair in AFTER is at or below it by construction. managerWinRateVsBestPaddedPair is a real-simulator head-to-head against the field\'s best padded pair; managerTitleRate is a real 16-pair bracket replay (fresh random draw each trial, every match through StatisticalMatchSimulator + StandardDoublesPairPolicy).',
+    managerPairStrength: DOUBLES_MANAGER_STRENGTH,
+    builds: DOUBLES_FIELD_BUILDS,
+    bracketTrials: DOUBLES_FIELD_BRACKET_TRIALS,
+    h2hTrials: DOUBLES_FIELD_H2H_TRIALS,
+    before: doublesFieldSummary.before,
+    after: doublesFieldSummary.after,
   },
 };
 
@@ -533,10 +805,19 @@ for (const row of formTrajectories) {
   );
 }
 
-console.log(`\nFatigue trajectory (52-week steady state, recovery ${FATIGUE_RECOVERY}/day + ${FATIGUE_RECOVERY_FRACTION}×fatigue — self-limiting):`);
+console.log(`\nFatigue trajectory (52-week steady state, recovery ${FATIGUE_RECOVERY}/day + ${FATIGUE_FRACTION}×fatigue — self-limiting):`);
 console.log('  schedule                          matches/wk  stamina  cost/match  end-of-week  peak');
 for (const row of fatigueTrajectories) {
   console.log(
     `  ${row.schedule.padEnd(32)}  ${String(row.matchesPerWeek).padStart(10)}  ${String(row.stamina).padStart(7)}  ${String(row.costPerMatch).padStart(10)}  ${String(row.steadyStateFatigue).padStart(11)}  ${String(row.peakFatigue).padStart(4)}`,
+  );
+}
+
+console.log(`\nDoubles field strength (manager pair ${DOUBLES_MANAGER_STRENGTH.toFixed(1)} on the effective-rating scale; ${DOUBLES_FIELD_DRAW_SIZE}-pair draw, ${DOUBLES_FIELD_BUILDS} builds × ${DOUBLES_FIELD_BRACKET_TRIALS} bracket replays):`);
+console.log('  mode    avg padded pair  best padded pair  manager H2H vs best  manager title rate');
+for (const mode of ['before', 'after']) {
+  const s = doublesFieldSummary[mode];
+  console.log(
+    `  ${mode.padEnd(6)}  ${s.averagePaddedPairStrength.toFixed(1).padStart(15)}  ${s.bestPaddedPairStrength.toFixed(1).padStart(16)}  ${(s.managerWinRateVsBestPaddedPair * 100).toFixed(1).padStart(19)}%  ${(s.managerTitleRate * 100).toFixed(1).padStart(17)}%`,
   );
 }

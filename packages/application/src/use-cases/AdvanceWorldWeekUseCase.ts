@@ -2,6 +2,7 @@ import {
   bestResultsCapFor,
   computeGraduationCarryover,
   FATIGUE_RECOVERY_PER_DAY,
+  FORM_WEEKLY_DECAY,
   juniorEligibilityForAge,
   matchesRankingBand,
   ManagerId,
@@ -62,11 +63,17 @@ export interface AdvanceWorldWeekCommand {
  * a PLACEHOLDER. */
 export { FATIGUE_RECOVERY_PER_DAY };
 
-/** Multiplicative form decay applied once per WEEKLY rollover (0.85 =
- * lose 15%/week). RR decays −8%/week in a faster-moving real-time
- * world; a steeper weekly step keeps form responsive at our lower match
- * volume. PLACEHOLDER, same tuning pass as above. */
-export const FORM_WEEKLY_DECAY = 0.85;
+/** Multiplicative form decay applied once per WEEKLY rollover — LIVED
+ * HERE until the third fatigue/form pass moved the constant to the
+ * domain (StatisticalMatchSimulator.FORM_WEEKLY_DECAY, next to the rest
+ * of the form curve) and this re-export keeps every existing
+ * application-layer importer (the balance tool, this class's own tests)
+ * working unchanged — the same arrangement FATIGUE_RECOVERY_PER_DAY
+ * already uses. 0.75 = lose 25%/week; see the domain constant's doc
+ * comment for the measured retune rationale (equilibrium exactly 3 ×
+ * matches/week, putting a 5-9 match competitive week inside the
+ * sweet-spot band). PLACEHOLDER, same tuning pass as above. */
+export { FORM_WEEKLY_DECAY };
 
 export interface AdvanceWorldWeekResult {
   advanced: boolean;

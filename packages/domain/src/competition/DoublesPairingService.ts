@@ -5,7 +5,8 @@ import { RandomSource } from '../match-simulation/MatchSimulator';
 export interface DoublesPairingInput {
   tournamentId: TournamentId;
   /** Every player who signed up for this tournament's doubles field
-   * (solo entrants — doubles entry is per-player, not per-pair). */
+   * (solo entrants — doubles entry is per-player, not per-pair), plus any
+   * padded free agents the caller added to complete the field. */
   entrants: PlayerId[];
   /** Each involved player's doubles ENTRY ranking (see
    * DoublesRanking.doublesEntryRanking — doubles total, else singles),
@@ -24,6 +25,18 @@ export interface DoublesPairingInput {
   /** How many pairs the doubles bracket holds — the cutoff. */
   drawSize: number;
   random: RandomSource;
+  /** Per-player doubles strength (see `DoublesPairPolicy.doublesSideStrength`),
+   * optional. When supplied TOGETHER WITH `fillerEntrants`, the service
+   * pairs padded free agents strongest-with-strongest instead of
+   * shuffling them into the general pool — the field-strength fix for
+   * the "doubles is an uncontested economy" finding. Callers compute the
+   * cap-aware ORDER (see `orderDoublesFieldFillers`) when choosing which
+   * fillers to pad; this service only keeps that order. Absent = the
+   * legacy random pairing, byte-for-byte unchanged. */
+  strength?: ReadonlyMap<PlayerId, number>;
+  /** Which members of `entrants` are PADDED free agents (not real
+   * registrants). Only meaningful alongside `strength`. */
+  fillerEntrants?: ReadonlySet<PlayerId>;
 }
 
 export interface DoublesPairingResult {
@@ -86,13 +99,17 @@ export class DoublesPairingService {
       }
     }
 
-    const solo = DoublesPairingService.shuffle([...remaining], input.random);
-    for (let i = 0; i + 1 < solo.length; i += 2) {
-      formed.push({ playerA: solo[i], playerB: solo[i + 1], chemistry: 0 });
-    }
-    if (solo.length % 2 === 1) {
-      const filler = DoublesPairingService.pick(solo[solo.length - 1], input.freeAgentFillers, input.random);
-      if (filler) formed.push({ playerA: solo[solo.length - 1], playerB: filler, chemistry: 0 });
+    if (input.strength !== undefined && input.fillerEntrants !== undefined) {
+      this.pairStrengthAware(input, remaining, formed);
+    } else {
+      const solo = DoublesPairingService.shuffle([...remaining], input.random);
+      for (let i = 0; i + 1 < solo.length; i += 2) {
+        formed.push({ playerA: solo[i], playerB: solo[i + 1], chemistry: 0 });
+      }
+      if (solo.length % 2 === 1) {
+        const filler = DoublesPairingService.pick(solo[solo.length - 1], input.freeAgentFillers, input.random);
+        if (filler) formed.push({ playerA: solo[solo.length - 1], playerB: filler, chemistry: 0 });
+      }
     }
 
     const rankingOf = (id: PlayerId): number => input.entryRanking.get(id) ?? 0;
@@ -112,6 +129,61 @@ export class DoublesPairingService {
       accepted: pairs.slice(0, input.drawSize),
       cut: pairs.slice(input.drawSize),
     };
+  }
+
+  /**
+   * The strength-aware padding path (see `DoublesPairingInput.strength`).
+   * Real solo entrants still pair randomly among themselves; PADDED free
+   * agents are paired in the caller's strength order (strongest first,
+   * adjacent), so the field's top pairs draw from the best available
+   * fillers instead of diluting them across random mixes.
+   *
+   * Parity is preserved without ever falling back to the general shuffle:
+   * an odd solo leftover consumes one padded filler (preferring the
+   * strongest that does not exceed the solo's own strength — padding must
+   * never strengthen a manager past their own level), or, when the padded
+   * count is already even, a random spare from `freeAgentFillers` exactly
+   * like the legacy path.
+   */
+  private pairStrengthAware(input: DoublesPairingInput, remaining: Set<PlayerId>, formed: FormedPair[]): void {
+    const strengthOf = (id: PlayerId): number => input.strength!.get(id) ?? 0;
+    const solos: PlayerId[] = [];
+    const padded: PlayerId[] = [];
+    for (const id of remaining) {
+      if (input.fillerEntrants!.has(id)) padded.push(id);
+      else solos.push(id);
+    }
+
+    const shuffledSolos = DoublesPairingService.shuffle(solos, input.random);
+    for (let i = 0; i + 1 < shuffledSolos.length; i += 2) {
+      formed.push({ playerA: shuffledSolos[i], playerB: shuffledSolos[i + 1], chemistry: 0 });
+    }
+
+    let fillerPool = [...padded].sort((a, b) => strengthOf(b) - strengthOf(a) || a.localeCompare(b));
+
+    if (shuffledSolos.length % 2 === 1) {
+      const leftover = shuffledSolos[shuffledSolos.length - 1];
+      let partner: PlayerId | null;
+      if (fillerPool.length % 2 === 1) {
+        const fitting = fillerPool.filter((f) => strengthOf(f) <= strengthOf(leftover));
+        partner = fitting.length > 0 ? fitting[0] : fillerPool[fillerPool.length - 1];
+      } else {
+        partner = DoublesPairingService.pick(leftover, input.freeAgentFillers, input.random);
+      }
+      if (partner) {
+        formed.push({ playerA: leftover, playerB: partner, chemistry: 0 });
+        fillerPool = fillerPool.filter((f) => f !== partner);
+      }
+    }
+
+    for (let i = 0; i + 1 < fillerPool.length; i += 2) {
+      formed.push({ playerA: fillerPool[i], playerB: fillerPool[i + 1], chemistry: 0 });
+    }
+    if (fillerPool.length % 2 === 1) {
+      const oddFiller = fillerPool[fillerPool.length - 1];
+      const spare = DoublesPairingService.pick(oddFiller, input.freeAgentFillers, input.random);
+      if (spare) formed.push({ playerA: oddFiller, playerB: spare, chemistry: 0 });
+    }
   }
 
   private static shuffle<T>(items: T[], random: RandomSource): T[] {

@@ -149,6 +149,23 @@ function fillOnlyPlayer(id: string, ageInWeeks = 25 * 52): Player {
   return Player.generateFillOnly(PlayerId(id), `Filler ${id}`, ageInWeeks, 'prime', attributes(30), 'BR', 55, physicalCeilings);
 }
 
+/** A deliberately STRONG free agent (80 flat attributes, 60 doubles →
+ * ~110 doublesSideStrength) for the field-strength tests. */
+function strongFillOnlyPlayer(id: string, ageInWeeks = 25 * 52): Player {
+  const strongAttributes = new PlayerAttributes({
+    technical: { serve: Skill.of(80), forehand: Skill.of(80), backhand: Skill.of(80), volley: Skill.of(80) },
+    physical: { speed: Skill.of(80), stamina: Skill.of(80), strength: Skill.of(80) },
+    mental: { consistency: Skill.of(80), clutch: Skill.of(80) },
+    doubles: Skill.of(60),
+    surfaceAffinities: SurfaceAffinities.initial(),
+  });
+  return Player.generateFillOnly(PlayerId(id), `Strong ${id}`, ageInWeeks, 'prime', strongAttributes, 'BR', 100, {
+    speed: 100,
+    stamina: 100,
+    strength: 100,
+  });
+}
+
 const worldId = WorldId('main');
 
 async function setup(currentWeek: GameWeek) {
@@ -284,10 +301,50 @@ describe('FormDoublesDrawUseCase', () => {
     expect(usedIds.some((id) => (id as string).startsWith('free-filler-'))).toBe(true);
   });
 
-  it('prefers RANKED free agents when padding, instead of the pool youngest-first order (F3)', async () => {
-    const { tournaments, players, pairs, rankingLedger, useCase } = await setup({ season: 1, week: 4 });
+  it('pads with the STRONGEST free agents, not the pool order or their ranking (the measured field-strength fix)', async () => {
+    const { tournaments, players, pairs, useCase } = await setup({ season: 1, week: 4 });
 
-    const tournament = doublesTournament('t-ranked-pad');
+    const tournament = doublesTournament('t-strength-pad');
+    // A strong manager pair, so the padding cap does not exclude the
+    // strong candidates below (cap = their own pair strength).
+    const a = strongFillOnlyPlayer('a');
+    const b = strongFillOnlyPlayer('b');
+    tournament.registerDoublesEntrant(a.id);
+    tournament.registerDoublesEntrant(b.id);
+    await players.save(a);
+    await players.save(b);
+    await pairs.save(DoublesPair.activate(PairId('pp-ab'), a.id, b.id));
+    await tournaments.save(tournament);
+
+    // The pool's own read order is youngest-first: the 14 weak fillers
+    // are saved FIRST, so a pool-order (or ranked-first) pick would take
+    // them and leave the two genuinely strong free agents out. An 8-pair
+    // draw needs 14 padded players and there are 16 candidates — so
+    // exactly two are left out, and they must now be the two weakest.
+    for (let i = 1; i <= 14; i++) await players.save(fillOnlyPlayer(`young-${i}`, 18 * 52));
+    const strongA = strongFillOnlyPlayer('strong-a', 30 * 52);
+    const strongB = strongFillOnlyPlayer('strong-b', 31 * 52);
+    await players.save(strongA);
+    await players.save(strongB);
+
+    await useCase.form(tournament);
+    await tournaments.save(tournament);
+
+    const formed = await tournaments.findById(TournamentId('t-strength-pad'));
+    const usedIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
+    expect(usedIds).toContain(strongA.id);
+    expect(usedIds).toContain(strongB.id);
+    const excludedYoung = Array.from({ length: 14 }, (_, i) => PlayerId(`young-${i + 1}`)).filter(
+      (id) => !usedIds.includes(id),
+    );
+    expect(excludedYoung).toHaveLength(2);
+  });
+
+  it('never pads with a free agent stronger than the weakest real manager pair — the cap keeps padding from outmatching a manager (principle #1)', async () => {
+    const { tournaments, players, pairs, useCase } = await setup({ season: 1, week: 4 });
+
+    const tournament = doublesTournament('t-cap-pad');
+    // A weak manager pair: strength ~36 (30 attributes + baseline affinity).
     const a = fillOnlyPlayer('a');
     const b = fillOnlyPlayer('b');
     tournament.registerDoublesEntrant(a.id);
@@ -297,45 +354,24 @@ describe('FormDoublesDrawUseCase', () => {
     await pairs.save(DoublesPair.activate(PairId('pp-ab'), a.id, b.id));
     await tournaments.save(tournament);
 
-    // The pool's own read order is youngest-first: the 14 young, unranked
-    // fillers are saved FIRST, so before this fix the padding took all 14
-    // of them and the two genuinely-ranked (older) free agents never made
-    // the draw. An 8-pair draw needs 14 padded players, and there are 16
-    // free agents — so exactly two are left out, and they must now be the
-    // young unranked ones, not the ranked pair.
-    for (let i = 1; i <= 14; i++) await players.save(fillOnlyPlayer(`young-${i}`, 18 * 52));
-    const rankedA = fillOnlyPlayer('ranked-a', 30 * 52);
-    const rankedB = fillOnlyPlayer('ranked-b', 31 * 52);
-    await players.save(rankedA);
-    await players.save(rankedB);
-    await rankingLedger.append({
-      playerId: rankedA.id,
-      tournamentId: TournamentId('t-ranked-a'),
-      tier: 'challenger',
-      ageBand: null,
-      points: 90,
-      weekEarned: { season: 1, week: 4 },
-    });
-    await rankingLedger.append({
-      playerId: rankedB.id,
-      tournamentId: TournamentId('t-ranked-b'),
-      tier: 'challenger',
-      ageBand: null,
-      points: 40,
-      weekEarned: { season: 1, week: 4 },
-    });
+    // Enough AT-OR-BELOW-cap fillers to complete the field (an 8-pair
+    // draw needs 14 padded players), plus six far stronger candidates
+    // that must never be used while under-cap supply lasts.
+    for (let i = 1; i <= 14; i++) await players.save(fillOnlyPlayer(`weak-${i}`));
+    for (let i = 1; i <= 6; i++) await players.save(strongFillOnlyPlayer(`strong-${i}`));
 
     await useCase.form(tournament);
     await tournaments.save(tournament);
 
-    const formed = await tournaments.findById(TournamentId('t-ranked-pad'));
+    const formed = await tournaments.findById(TournamentId('t-cap-pad'));
     const usedIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
-    expect(usedIds).toContain(rankedA.id);
-    expect(usedIds).toContain(rankedB.id);
-    const excludedYoung = Array.from({ length: 14 }, (_, i) => PlayerId(`young-${i + 1}`)).filter(
-      (id) => !usedIds.includes(id),
-    );
-    expect(excludedYoung).toHaveLength(2);
+    expect(usedIds).not.toContain(PlayerId('strong-1'));
+    expect(usedIds).not.toContain(PlayerId('strong-6'));
+    // Every padded player is one of the weak cohort: no anonymous filler
+    // can sit above the manager pair's own level.
+    const paddedIds = usedIds.filter((id) => id !== a.id && id !== b.id);
+    expect(paddedIds).toHaveLength(14);
+    for (const id of paddedIds) expect(String(id).startsWith('weak-')).toBe(true);
   });
 
   it('adds every padded filler to the run-wide commitment set so a later draw in the same run cannot reuse them', async () => {

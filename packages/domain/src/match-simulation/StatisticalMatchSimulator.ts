@@ -26,9 +26,36 @@ function standardPointLabel(mine: number, theirs: number): PointScoreLabel {
  * small bonus, with a tolerance zone of no effect on either side of it.
  * ALL constants are illustrative placeholders — the fatigue/form tuning
  * pass (that doc's §5, the main open balance question) owns the real
- * values, especially their scaling to our day-tick cadence. */
+ * values, especially their scaling to our day-tick cadence.
+ *
+ * Third pass (docs/balance-tuning-report.md): the reachable band was
+ * re-derived after a measured agent season showed the sweet spot was
+ * reachable only at ≤~4 matches/week — every high-volume manager sat
+ * permanently stale or neutral, so the lever was dead. `FORM_WEEKLY_DECAY`
+ * is now 0.75 (equilibrium exactly 3× matches/week), which puts the
+ * typical competitive 5-9 match week at form 15-27, and the upper bound
+ * moved 25 → 28 so a 9-match week sits inside the band. An idle player
+ * still decays to ~2 (rusty) and a 14-match extreme week settles at ~42
+ * (stale). */
 export const FORM_SWEET_SPOT_MIN = 12;
-export const FORM_SWEET_SPOT_MAX = 25;
+export const FORM_SWEET_SPOT_MAX = 28;
+
+/** Multiplicative form decay applied once per WEEKLY rollover (0.75 =
+ * lose 25%/week). Lives here, with the other form constants, and is
+ * applied by AdvanceWorldWeekUseCase (which re-exports it for the
+ * application-layer importers: the balance tool, its own tests) — the
+ * same "one constant, one home" arrangement FATIGUE_RECOVERY_PER_DAY
+ * already has. Retuned 0.85 → 0.75 by the third fatigue/form pass
+ * (docs/balance-tuning-report.md): 0.85's equilibrium was ≈5.67 ×
+ * matches/week, so the sweet-spot band was reachable only at ≤~4
+ * matches/week and every measured high-volume manager (5-9+
+ * matches/week) sat permanently outside it — the lever was dead. At
+ * 0.75 the equilibrium is exactly 3 × matches/week, so a typical
+ * competitive 5-9 match week lands at form 15-27 (inside the band), an
+ * idle player still decays to ~2 (rusty), and a 14-match extreme week
+ * settles at ~42 (stale). PLACEHOLDER, same status as every other
+ * constant in this file. */
+export const FORM_WEEKLY_DECAY = 0.75;
 /** Below this, a player is "rusty" (under-played) and pays a penalty. */
 export const FORM_RUSTY_THRESHOLD = 8;
 /** Above this, a player is "stale" (over-played) and pays a penalty.
@@ -38,7 +65,9 @@ export const FORM_RUSTY_THRESHOLD = 8;
  * permanently stale; 40 leaves that schedule in the neutral tolerance
  * zone. FATIGUE now carries the overplay cost (its self-limiting
  * recovery settles at a finite value — see FatiguePolicy); form stays
- * the rust/rhythm signal. */
+ * the rust/rhythm signal. The third pass left 40 unchanged (a measured
+ * 14-match elite week settles at ~42 with the retuned decay — genuinely
+ * stale, exactly the "extreme every week" case the band is for). */
 export const FORM_STALE_THRESHOLD = 40;
 /** Flat effective-rating bonus while inside the sweet-spot band. */
 export const FORM_SWEET_SPOT_BONUS = 2;
@@ -73,6 +102,16 @@ export const DOUBLES_SKILL_WEIGHT = 0.4;
  * matter in a coin-flip, never enough to paper over a skill gap.
  * PLACEHOLDER, same status as DOUBLES_SKILL_WEIGHT. */
 export const CHEMISTRY_BONUS_PER_POINT = 0.1;
+
+/** Flat effective-rating penalty per point of current fatigue —
+ * `fatigue × this` in `effectiveRating` below. Extracted from the old
+ * inline `× 0.15` and left DELIBERATELY UNCHANGED by the third fatigue
+ * pass (docs/balance-tuning-report.md): the retune moved the recovery
+ * equilibrium instead, and re-measuring the win-rate cost of a given
+ * fatigue value confirmed 0.15 still makes rest/taper a real decision at
+ * the new 40-80 equilibrium band (~15 percentage points of win rate per
+ * 30 fatigue points). PLACEHOLDER, same status as every constant here. */
+export const FATIGUE_PENALTY_PER_POINT = 0.15;
 
 /**
  * Divides `ratingGap` before it feeds `pointWinProbabilityA`'s sigmoid —
@@ -217,7 +256,7 @@ export class StatisticalMatchSimulator implements MatchSimulator {
     const physicalAvg = weightedPhysicalAverage(participant.attributes, surface);
     const mentalAvg = weightedMentalAverage(participant.attributes, surface);
     const surfaceBonus = participant.attributes.surfaceAffinities.get(surface);
-    const fatiguePenalty = participant.fatigue * 0.15;
+    const fatiguePenalty = participant.fatigue * FATIGUE_PENALTY_PER_POINT;
     const homeBonus = participant.homeAdvantage ? HOME_ADVANTAGE_BONUS : 0;
     const doublesBonus = participant.doublesSkill !== undefined ? DOUBLES_SKILL_WEIGHT * participant.doublesSkill : 0;
     const chemistryBonus = participant.chemistry !== undefined ? CHEMISTRY_BONUS_PER_POINT * participant.chemistry : 0;

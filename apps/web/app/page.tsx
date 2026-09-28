@@ -54,12 +54,14 @@ function fatigueMeta(f: number): { color: string; label: string } {
 }
 
 // Mirrors the domain form bands (see StatisticalMatchSimulator.formModifier
-// / Player.form): rusty < 8, warming 8–11, sharp 12–25, well-played 26–30,
-// overplayed > 30. Both extremes cost effective rating in the sim.
+// / Player.form): rusty < 8, warming 8–11, match-sharp 12–28 (the +2
+// sweet-spot band, retuned to 12–28 in the third fatigue/form pass),
+// tolerated 29–40, overplayed > 40. Both extremes cost effective rating
+// in the sim.
 function formMeta(f: number): { color: string; label: string } {
-  if (f > 30) return { color: 'var(--loss)', label: `${f} · overplayed, needs rest` };
-  if (f >= 12 && f <= 25) return { color: 'var(--win)', label: `${f} · match sharp` };
-  if (f >= 26) return { color: 'var(--warn)', label: `${f} · well-played` };
+  if (f > 40) return { color: 'var(--loss)', label: `${f} · overplayed, needs rest` };
+  if (f >= 12 && f <= 28) return { color: 'var(--win)', label: `${f} · match sharp` };
+  if (f >= 29) return { color: 'var(--warn)', label: `${f} · high, tolerated` };
   if (f >= 8) return { color: 'var(--warn)', label: `${f} · warming up` };
   return { color: 'var(--warn)', label: `${f} · rusty, needs matches` };
 }
@@ -745,13 +747,13 @@ export default function RosterDashboardPage() {
                   })}
                 </div>
                 <div className="gc-tbl-note" style={{ paddingTop: 0 }}>
-                  Form sweet spot 12–25 = match sharp. Fatigue is a sim modifier, not a hard block.
+                  Form sweet spot 12–28 = match sharp. Fatigue is a sim modifier, not a hard block.
                 </div>
                 <details className="gc-details" style={{ margin: '4px 12px 12px' }}>
                   <summary>How to read fatigue and form</summary>
                   <div className="t-body-sm" style={{ marginTop: 8, fontSize: 12 }}>
                     <div>Fatigue: 70%+ high, rest recommended · 40–69% moderate · below 40% fresh.</div>
-                    <div style={{ marginTop: 4 }}>Form: below 8 rusty, needs matches · 8–11 warming up · 12–25 match sharp · 26–30 well-played · over 30 overplayed, needs rest.</div>
+                    <div style={{ marginTop: 4 }}>Form: below 8 rusty, needs matches · 8–11 warming up · 12–28 match sharp · 29–40 tolerated · over 40 overplayed, needs rest.</div>
                   </div>
                 </details>
                 {unrankedBands.length > 0 && (

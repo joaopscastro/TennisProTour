@@ -41,11 +41,11 @@ describe('fatigueRecoveredPerDay (self-limiting recovery)', () => {
 
   it('adds a rounded fraction of CURRENT fatigue, so the more tired a player the faster they recover', () => {
     // 50 × 0.05 = 2.5 → round = 3
-    expect(fatigueRecoveredPerDay(50)).toBe(FATIGUE_RECOVERY_PER_DAY + 3);
-    // 26 × 0.05 = 1.3 → round = 1
-    expect(fatigueRecoveredPerDay(26)).toBe(FATIGUE_RECOVERY_PER_DAY + 1);
-    // 100 × 0.05 = 5
-    expect(fatigueRecoveredPerDay(100)).toBe(FATIGUE_RECOVERY_PER_DAY + 5);
+    expect(fatigueRecoveredPerDay(50)).toBe(FATIGUE_RECOVERY_PER_DAY + 4);
+    // 26 × 0.08 = 2.08 -> round = 2
+    expect(fatigueRecoveredPerDay(26)).toBe(FATIGUE_RECOVERY_PER_DAY + 2);
+    // 100 × 0.08 = 8
+    expect(fatigueRecoveredPerDay(100)).toBe(FATIGUE_RECOVERY_PER_DAY + 8);
     for (let f = 1; f <= 100; f++) {
       expect(fatigueRecoveredPerDay(f)).toBeGreaterThanOrEqual(fatigueRecoveredPerDay(f - 1));
     }
@@ -57,41 +57,68 @@ describe('fatigueRecoveredPerDay (self-limiting recovery)', () => {
     const weeklySteadyState = (matchesPerWeek: number, costPerMatch: number): number => {
       let fatigue = 0;
       for (let week = 0; week < 52; week++) {
+        const perDay = Math.floor(matchesPerWeek / 7);
+        const extra = matchesPerWeek % 7;
         for (let day = 1; day <= 7; day++) {
-          if (day <= matchesPerWeek) fatigue = Math.min(100, fatigue + costPerMatch);
+          const today = perDay + (day <= extra ? 1 : 0);
+          for (let m = 0; m < today; m++) fatigue = Math.min(100, fatigue + costPerMatch);
           fatigue = Math.max(0, Math.min(100, fatigue - fatigueRecoveredPerDay(fatigue)));
         }
       }
       return fatigue;
     };
 
-    // A senior's title run (5 matches) settles at a real, finite value:
-    // end-of-week ≈ 18, mid-week peak ≈ 26 (the design pass's headline
-    // figure) — nowhere near the old ratchet to 100.
+    // A senior's title run (5 matches) settles LOW; the second pass's
+    // fixed drain put this at 91 before the self-limiting recovery, and
+    // the third pass (recovery fraction 0.05 → 0.08) brought it down
+    // further so the elite loads below have real headroom.
     const titleRun = weeklySteadyState(5, 6);
-    expect(titleRun).toBeGreaterThan(15);
-    expect(titleRun).toBeLessThan(40);
+    expect(titleRun).toBeGreaterThan(5);
+    expect(titleRun).toBeLessThan(15);
 
-    // A major title run (7 matches) settles higher but still finite, and
+    // A major title run (7 matches) settles higher but still low, and
     // strictly above the 5-match equilibrium — the mechanic is monotone.
     const majorRun = weeklySteadyState(7, 6);
     expect(majorRun).toBeGreaterThan(titleRun);
-    expect(majorRun).toBeLessThanOrEqual(100);
-    // The old fixed −3/day drain could only shed 21/week: at 42 fatigue
-    // accrued a week this would have pinned at (or climbed toward) 100.
-    // The fraction term is what keeps it finite.
+    expect(majorRun).toBeLessThan(35);
+    // The fraction term is what keeps the equilibrium finite.
     expect(FATIGUE_RECOVERY_FRACTION).toBeGreaterThan(0);
 
-    // Idle: a 60-fatigue player recovers to ~26 within about a week.
+    // The MEASURED PROBLEM this retune fixes: a realistic elite load of
+    // 9-11 matches/week (one senior tournament's singles + doubles deep
+    // runs — the volume Batch 4B's second weekly tour made routine) must
+    // oscillate inside the manageable 40-80 band. Before the retune the
+    // same schedules sat at 80/88 (9 matches) and 86/92 (11) and stayed
+    // there all season — singles deep runs became coin-flips.
+    const elite9 = weeklySteadyState(9, 6);
+    const elite11 = weeklySteadyState(11, 6);
+    expect(elite9).toBeGreaterThanOrEqual(40);
+    expect(elite9).toBeLessThanOrEqual(80);
+    expect(elite11).toBeGreaterThanOrEqual(40);
+    expect(elite11).toBeLessThanOrEqual(80);
+    expect(elite11).toBeGreaterThan(elite9);
+
+    // An occasional 14-match week (both finals at a major) stays finite
+    // and recovers in a following idle week — rest/taper is a real plan,
+    // not a trap, and fatigue never ratchets to the ceiling.
+    const peak14 = weeklySteadyState(14, 6);
+    expect(peak14).toBeGreaterThan(elite11);
+    expect(peak14).toBeLessThan(100);
+    let recoveredFromPeak = peak14;
+    for (let day = 0; day < 7; day++) recoveredFromPeak -= fatigueRecoveredPerDay(recoveredFromPeak);
+    expect(recoveredFromPeak).toBeLessThan(elite9);
+
+    // Idle: a 60-fatigue player recovers close to the title-run level
+    // within about a week.
     let idle = 60;
     for (let day = 0; day < 7; day++) idle -= fatigueRecoveredPerDay(idle);
-    expect(idle).toBeGreaterThan(15);
-    expect(idle).toBeLessThan(35);
+    expect(idle).toBeGreaterThan(10);
+    expect(idle).toBeLessThan(30);
   });
 
   it('clamps out-of-range fatigue and honours an explicit base override (the balance tool’s candidate comparison)', () => {
     expect(fatigueRecoveredPerDay(-50)).toBe(FATIGUE_RECOVERY_PER_DAY);
-    expect(fatigueRecoveredPerDay(500)).toBe(FATIGUE_RECOVERY_PER_DAY + 5);
-    expect(fatigueRecoveredPerDay(50, 5)).toBe(5 + 3);
+    expect(fatigueRecoveredPerDay(500)).toBe(FATIGUE_RECOVERY_PER_DAY + 8);
+    expect(fatigueRecoveredPerDay(50, 5)).toBe(5 + 4);
   });
 });

@@ -5,6 +5,15 @@ import { PlayerAttributes, Skill, SurfaceAffinities } from './PlayerAttributes';
 import { TrainingFocus, TrainingPolicy } from './TrainingPolicy';
 import { PlayerDevelopmentPolicy } from './PlayerDevelopmentPolicy';
 import { fatigueRecoveredPerDay, FATIGUE_RECOVERY_PER_DAY } from './FatiguePolicy';
+import {
+  formModifier,
+  FORM_RUSTY_THRESHOLD,
+  FORM_STALE_THRESHOLD,
+  FORM_SWEET_SPOT_BONUS,
+  FORM_SWEET_SPOT_MAX,
+  FORM_SWEET_SPOT_MIN,
+  FORM_WEEKLY_DECAY,
+} from '../match-simulation/StatisticalMatchSimulator';
 
 /** Deterministic development policy for Player's own funding tests —
  * only experienceCostPerSkillPoint matters here (the match/weekly XP
@@ -94,10 +103,10 @@ describe('Player', () => {
   it('recovers the self-limiting daily amount — flat base plus a rounded fraction of current fatigue', () => {
     const player = Player.hire(PlayerId('p1'), 'João Silva', 18 * 52, startingAttributes(), ManagerId('m1'));
     player.applyMatchFatigue(80);
-    // 80 × 0.05 = 4 → recovery 3 + 4 = 7 → 80 - 7 = 73.
+    // 80 × 0.08 = 6.4 → recovery 3 + 6 = 9 → 80 - 9 = 71.
     player.recoverFatigue(FATIGUE_RECOVERY_PER_DAY);
     expect(player.fatigue).toBe(80 - fatigueRecoveredPerDay(80));
-    expect(player.fatigue).toBe(73);
+    expect(player.fatigue).toBe(71);
 
     // A nearly-rested player recovers only the flat base (the fraction
     // rounds away), and recovery still floors at 0.
@@ -141,6 +150,40 @@ describe('Player', () => {
     // Repeated decay eventually rounds/clamps toward 0 but never negative.
     for (let i = 0; i < 100; i++) player.decayForm(0.85);
     expect(player.form).toBeGreaterThanOrEqual(0);
+  });
+
+  it('reaches the sweet-spot band at a typical competitive 5-9 match week, while idle still decays rusty (third fatigue/form pass)', () => {
+    // Replays the production loop exactly: +1 form per match, then one
+    // weekly decay at FORM_WEEKLY_DECAY, through the real Player mutators.
+    const steadyStateForm = (matchesPerWeek: number, startForm = 0): number => {
+      const player = Player.hire(PlayerId('form-p'), 'Form Player', 18 * 52, startingAttributes(), ManagerId('m1'));
+      if (startForm > 0) player.applyMatchForm(startForm);
+      for (let week = 0; week < 52; week++) {
+        for (let m = 0; m < matchesPerWeek; m++) player.applyMatchForm(1);
+        player.decayForm(FORM_WEEKLY_DECAY);
+      }
+      return player.form;
+    };
+
+    // A typical competitive schedule (5-9 matches/week) sits INSIDE the
+    // sweet-spot band: 0.75's equilibrium is exactly 3 × matches/week.
+    for (let matches = 5; matches <= 9; matches++) {
+      const form = steadyStateForm(matches);
+      expect(form).toBeGreaterThanOrEqual(FORM_SWEET_SPOT_MIN);
+      expect(form).toBeLessThanOrEqual(FORM_SWEET_SPOT_MAX);
+      expect(formModifier(form)).toBe(FORM_SWEET_SPOT_BONUS);
+    }
+
+    // An idle player still decays into the rusty band (the under-play cost).
+    const idle = steadyStateForm(0, 20);
+    expect(idle).toBeLessThan(FORM_RUSTY_THRESHOLD);
+    expect(formModifier(idle)).toBeLessThan(0);
+
+    // An extreme every-week player (14 matches, both finals at a major)
+    // still drifts into the stale band (the over-play cost).
+    const extreme = steadyStateForm(14);
+    expect(extreme).toBeGreaterThan(FORM_STALE_THRESHOLD);
+    expect(formModifier(extreme)).toBeLessThan(0);
   });
 
   it('applyMatchSurfaceGrowth bumps only the played surface, leaves the other three and every skill untouched', () => {

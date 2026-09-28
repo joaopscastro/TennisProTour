@@ -807,29 +807,35 @@ senior tour is capped at one tournament/week (5 matches for a 32-draw
 champion, ~6 fatigue each), so even a player who WON a title every week sat
 at fatigue 0 forever — the mechanic was dead on the senior tour. 3/day moves
 the accumulation threshold to ~4 matches/week. The sim penalty
-(`fatigue*0.15` in `effectiveRating`) is unchanged. Endurance is deliberately folded into the existing
+(`FATIGUE_PENALTY_PER_POINT=0.15` in `effectiveRating`, extracted to a
+named constant by the third pass with its value unchanged) is the other
+half of the cost. Endurance is deliberately folded into the existing
 `stamina` attribute rather than adding a new one (disclosed scope
 decision — RR keeps them separate; revisit if fatigue tuning needs an
 independent axis). **Form**: `applyMatchForm(1)` per match (both
-players), decays `×FORM_WEEKLY_DECAY=0.85` per week on rollover only
+players), decays `×FORM_WEEKLY_DECAY=0.75` per week on rollover only
 (`decayForm`, `Math.round` to stay integer-consistent with the DB
 column). `formModifier(form)` rewards a sweet-spot band
-`[FORM_SWEET_SPOT_MIN=12, MAX=25]` (`+SWEET_SPOT_BONUS=2`), is neutral
+`[FORM_SWEET_SPOT_MIN=12, MAX=28]` (`+SWEET_SPOT_BONUS=2`), is neutral
 in the tolerance zones just outside it, and penalizes both rusty
-(`<RUSTY_THRESHOLD=8`) and stale (`>STALE_THRESHOLD=30`) players
-(`OUT_OF_BAND_PENALTY_PER_POINT=0.3` per point past the band) — so both
+(`<RUSTY_THRESHOLD=8`) and stale (`>STALE_THRESHOLD=40`) players
+(`OUT_OF_BAND_PENALTY_PER_POINT=0.15` per point past the band) — so both
 never playing AND playing every single tournament hurt, which is the
-whole point. **Fatigue/form status after the balance pass**
-(`docs/balance-tuning-report.md`): the fatigue recovery constant is now
-data-retuned (still a PLACEHOLDER validated against simulated trajectories,
-not live play); `BASE_MATCH_FATIGUE`, the sim penalty, and every `form`
-constant were MEASURED and deliberately left unchanged — the form curve's
-peak is genuinely in the `[12,25]` sweet spot and the band is reachable
-under a deep-run schedule, so the data did not say to move anything. One
-disclosed, unfixed artifact: `decayForm`'s `Math.round(form × 0.85)` makes
-1-3 fixed points, so an idle player stalls at form 3 rather than decaying to
-0 — same shape as the `Skill` bug, but the band (`<8` rusty) is unaffected,
-so it's documented rather than hot-swapped for `Math.floor` (which would pin
+whole point. **Fatigue/form status after the balance passes**
+(`docs/balance-tuning-report.md`; the latest, measured against two full
+52-week agent seasons, is the "Third fatigue/form pass + doubles field
+strength" section at the end of this file): the recovery model is
+self-limiting (`FATIGUE_RECOVERY_PER_DAY=3 + fatigue ×
+FATIGUE_RECOVERY_FRACTION=0.08` per day) so a realistic elite load of
+9-11 matches/week oscillates in the 40-80 band (it used to ratchet to
+90+ and stay there), and the form decay puts a typical competitive 5-9
+match week inside the sweet-spot band (it used to be reachable only at
+≤~4 matches/week). All constants remain PLACEHOLDERs validated against
+simulated trajectories, not live play. One disclosed, unfixed artifact:
+`decayForm`'s `Math.round(form × 0.75)` makes 1-2 fixed points, so an
+idle player stalls at form 2 rather than decaying to 0 — same shape as
+the `Skill` bug, but the band (`<8` rusty) is unaffected, so it's
+documented rather than hot-swapped for `Math.floor` (which would pin
 1 match/week at 0 instead). Everything else here remains an explicit,
 comment-flagged placeholder (aging thresholds, ranking-point values, etc.).
 
@@ -1218,6 +1224,15 @@ disclosed gap" notes plus `docs/implementation-roadmap.md` and
    — same shape as the `Skill` bug but band-neutral, so it's documented
    rather than swapped for `Math.floor`. Domain 374, application 229, api 90,
    worker 8 — all green; full monorepo `tsc --build --force` clean.
+   **Update — this is itself now superseded in part by the third pass**
+   (`docs/balance-tuning-report.md`'s "Third fatigue/form pass + doubles
+   field strength" section; full write-up in this file's own third-pass
+   section at the end): the recovery FRACTION 0.05 → 0.08, the form decay
+   0.85 → 0.75, and the sweet-spot upper bound 25 → 28, after a 52-week
+   agent season measured elite 9-11 match weeks ratcheting to fatigue 80-92
+   and every high-volume manager pinned outside the form band. All other
+   fatigue/form constants (including the sim penalty) re-measured and left
+   unchanged.
 4. ~~**Surface × attribute training weighting** — `docs/training-redesign-per-attribute.md`'s
    table still isn't wired into `StatisticalMatchSimulator`.~~ **Built.**
    New `packages/domain/src/match-simulation/SurfaceAttributeWeightingPolicy.ts`
@@ -2548,6 +2563,7 @@ Four fixes building on Batch 3 (`7390bce`), from the agent-season harness findin
 **4.3 — a rewritten decision now REPLACES the accepted snapshot before apply (was: ignored forever).** Observed: a manager resubmitted a corrected decision file, `agentWeek.mjs write` reported `replaced: true`, and the runner still applied the ORIGINAL content — `collectDecisionsOnce` skipped any manager already accepted, so a rewritten file was never re-read. Now each acceptance stores a `contentHash`; every collect pass re-hashes accepted managers' files while the phase is `open`/`ready`/`collect`, and on change re-validates and replaces the snapshot (stamped `replacedAt`, logged). Once the phase reaches `apply`/`advance`, rewrites are ignored with a warning — documented in the generated protocol docs (RULES.md). The pure core is extracted and unit-tested: `hashDecisionContent`, `decisionNeedsReaccept` and `reconcileDecisions` in `digestFeed.mjs` (the write→accept→rewrite-before-apply race is simulated and proven to apply the rewritten actions); `collectDecisionsOnce` is now a thin I/O wrapper. A narrow test-facing `digestFeed.d.mts` lets the TS integration suite import the EXACT production mappers.
 
 **4.4 — doubles viability, visibility half only (design finding F3); points and chemistry deliberately untouched.** Two agents contradicted each other (one called doubles a "free 1,000-point dominant strategy", 114-0; another called it dead content). The 114-0 was amplified by the now-fixed discipline bug AND by doubles fields being padded from youngest-first free agents — a strong persistent pair met 48-OVR fillers. (a) `FormDoublesDrawUseCase` now orders its filler pool ranked-first: the effective rank position is the player's DOUBLES-else-SINGLES position in the tournament's own band (the same `doublesEntryRanking` fallback the cut uses, from the preloaded ranked lists `StartDueTournamentsUseCase` already threads in), ranked candidates first in rank order, everyone else in the pool's own order — never a skill/OVR proxy. (b) The doubles entry flow states the trade-off plainly: signing up solo pairs you with another solo entrant or a free agent (0 chemistry), pairing with your own roster player keeps the pair together and grows chemistry every match. (c) A one-click "Pair with <roster player>" affordance on the tournament page's doubles panel creates the same-manager pair (active immediately — no acceptance step) and enters BOTH players into the event's doubles field in one action, never re-creating a pair that already exists.
+**Update — the ranked-first selection (a) is itself SUPERSEDED by the third-pass strength/cap-aware selection** (the "Third fatigue/form pass + doubles field strength" section at the end of this file): a measured 52-week season showed rank was not a strength proxy at all — real padded fields averaged 75 vs winning pairs at 124, and two pairs won 55 of 59 titles. Points and chemistry remain untouched, exactly as this section insisted; only the FIELD composition changed.
 
 Tests: `digestFeed.test.mjs` 25 (was 11: +14 — truncation/pinning/week-selection/doubles-mapping/replacement cases), application 307 (+1 ranked-filler unit case), api 229 (+16: 14 digest + 2 real-Postgres+HTTP — a doubles-title/recent-doubles digest feed test with a decided-but-revealing doubles match hidden, and a real-`findFreeAgents()` youngest-first padding test proving the ranked pair makes the field), domain 416, worker 18; full `tsc --build --force` and `apps/web` typecheck clean; mocked Playwright suite 93 passed. The before/after `canEnterNow` maximum-hidden count on the real snapshots: **22 → 0** (truncated snapshots 302 → 0).
 
@@ -2585,6 +2601,83 @@ Six fixes (A–F) plus the measured design signals the owner asked for (G, delib
 
 **F — the runner is now self-recovering (harness only).** The observed incident: the runner crashed mid-week-39 collect, left `weeks/week-039/state.json.tmp-19232-…` behind, and the world sat stalled (~80 min) until a human reran the same command from `run.json` args. New `apps/api/scripts/lib/runnerResilience.mjs`: `readJsonWithTmpFallback` recovers run/report/week-state from the newest valid atomic-write temp when the final file is missing or unparseable; `cleanupRunnerTempFiles` removes orphaned runner-owned temps at boot (after the lock is held, so no live writer can be mid-rename) and deliberately never touches agent decision temps (a live `agentWeek.mjs write` may be mid-rename); `decideSupervisorAction` restarts only an UNEXPECTED exit (code 1), stopping on a clean exit (0) or a deliberate `StopRunError` (3). `agentSeason.mjs` gained `--supervise`, which spawns the runner as a child with the same args and restarts it (from the same filesystem position, resume logic unchanged) up to `MAX_SUPERVISOR_RESTARTS` = 10 consecutive failures. Ten unit tests cover temp recovery/cleanup and the restart decision.
 
-**G — design signals, measured, report only (no code changed for these).** (1) **Doubles is an uncontested economy**: manager doubles entries 134 total (m4 72, m3 58, m2 4, m1 0); doubles titles m4 30, m3 25, m2 2 (+2 unowned); rolling best-N senior totals (52-week window, best-18 singles / best-14 doubles) — m3 singles 23,380 + doubles 19,680 (**45.7% doubles**), m4 30,550 + 19,200 (**38.6%**), m2 32,800 + 5,100 (13.5%), m1 34,050 + 0; earned doubles points in the window: m4 90,660 (vs 45,300 singles), m3 70,260 (vs 31,895). Tour doubles pays the same 1000 champion points as a tour singles title. Batch 4A's ranked-filler padding did not fix this. (2) **Fatigue is a one-way ratchet at high volume**: m3's Sofia Petrov averaged **9.5 matches/week**, was at fatigue ≥80 for **38 of 52 weeks** and ≥90 for **9 consecutive weeks** (S1W14–W22), finishing at 98; Marta Müller 9.1/week, 25 weeks ≥80, 5 consecutive ≥90; only full idle weeks reset it (m1's two players, at 3.8–4.6 matches/week, never exceeded 68). (3) **Form is a dead lever for deep runners**: the equilibrium is ≈ matches/week ÷ 0.15, so the `[12,25]` sweet spot needs ≤ ~3.75 matches/week; measured — Rafael Yamamoto 7.4 matches/week with 12 weeks stale (>40) and only 2 in-band weeks, Sofia Petrov/Marta Müller ~9/week with 37/39 stale weeks and 2/3 in-band. (4) **Junior ladders saturate at the best-6 cap**: Sofia Petrov had 51 scoring u14 results totalling 2,174 points but only 1,200 counted — 45 results dropped, **22 of them j100 titles** (the best-6 minimum was 180); Marta Müller 912 of 1,841 with 22 j100 wins dropped. Winning j100s does literally nothing once six bigger results exist. (5) **A dual juniorMasters invite is structurally possible**: the S1W51 fields had NO overlap this season (u14/u16 top-16s were disjoint), but the invite is per-band independent (`ranked.slice(0, 16)` per band) and playing up is allowed, so a player ranked top-16 in two bands would be entered in two concurrent draws — flagged for the owner, not changed. (6) **XP/money sinks remain thin**: season-end balances m4 129,652 / m3 125,924 / m2 107,386 / m1 104,216 XP unspent, **0 cosmetics purchased**, career prize $11.4M–$16.3M; the digest exposes no cosmetics field, so the shop is invisible to an agent.
+**G — design signals, measured, report only (no code changed for these).** (1) **Doubles is an uncontested economy**: manager doubles entries 134 total (m4 72, m3 58, m2 4, m1 0); doubles titles m4 30, m3 25, m2 2 (+2 unowned); rolling best-N senior totals (52-week window, best-18 singles / best-14 doubles) — m3 singles 23,380 + doubles 19,680 (**45.7% doubles**), m4 30,550 + 19,200 (**38.6%**), m2 32,800 + 5,100 (13.5%), m1 34,050 + 0; earned doubles points in the window: m4 90,660 (vs 45,300 singles), m3 70,260 (vs 31,895). Tour doubles pays the same 1000 champion points as a tour singles title. Batch 4A's ranked-filler padding did not fix this. **FIXED by the third pass — the field, not the points (see the final section of this file): a real replay shows the best padded pair go from 89.0 to 122.4 against a 124.0 winning pair, 0/58 draws with a padded pair above the weakest manager pair, and the top pair's title rate falls from near-automatic to ~32%.**
+(2) **Fatigue is a one-way ratchet at high volume**: m3's Sofia Petrov averaged **9.5 matches/week**, was at fatigue ≥80 for **38 of 52 weeks** and ≥90 for **9 consecutive weeks** (S1W14–W22), finishing at 98; Marta Müller 9.1/week, 25 weeks ≥80, 5 consecutive ≥90; only full idle weeks reset it (m1's two players, at 3.8–4.6 matches/week, never exceeded 68). **FIXED: recovery fraction 0.05 → 0.08 — 9-11 match weeks now oscillate 47-66.**
+(3) **Form is a dead lever for deep runners**: the equilibrium is ≈ matches/week ÷ 0.15, so the `[12,25]` sweet spot needs ≤ ~3.75 matches/week; measured — Rafael Yamamoto 7.4 matches/week with 12 weeks stale (>40) and only 2 in-band weeks, Sofia Petrov/Marta Müller ~9/week with 37/39 stale weeks and 2/3 in-band. **FIXED: decay 0.85 → 0.75 + band max 25 → 28 — a 5-9 match week now sits at form 15-27, inside the sweet spot.** (4) **Junior ladders saturate at the best-6 cap**: Sofia Petrov had 51 scoring u14 results totalling 2,174 points but only 1,200 counted — 45 results dropped, **22 of them j100 titles** (the best-6 minimum was 180); Marta Müller 912 of 1,841 with 22 j100 wins dropped. Winning j100s does literally nothing once six bigger results exist. (5) **A dual juniorMasters invite is structurally possible**: the S1W51 fields had NO overlap this season (u14/u16 top-16s were disjoint), but the invite is per-band independent (`ranked.slice(0, 16)` per band) and playing up is allowed, so a player ranked top-16 in two bands would be entered in two concurrent draws — flagged for the owner, not changed. (6) **XP/money sinks remain thin**: season-end balances m4 129,652 / m3 125,924 / m2 107,386 / m1 104,216 XP unspent, **0 cosmetics purchased**, career prize $11.4M–$16.3M; the digest exposes no cosmetics field, so the shop is invisible to an agent.
 
 Test counts after this pass: domain 432 (was 426), application 324 (was 314), api 259 (was 238; +3 A HTTP/PG, +1 B e2e, +1 D HTTP, +1 E HTTP/PG, +5 C pure, +10 F pure), worker 18 (unchanged). All green; full `tsc --build --force` and `apps/web` typecheck clean.
+
+## Third fatigue/form pass + doubles field strength (agent-season signals)
+
+Three measured signals from the completed 52-week agent seasons
+(`agents-season-2b`, `agents-season-3`; worlds `tennis_manager_agents` /
+`tennis_manager_agents3`), resolved with the same discipline as every prior
+balance pass: candidates measured with
+`apps/api/scripts/balance-simulation.mjs`, a constant moved only where the
+data said to, before/after tables in `docs/balance-tuning-report.md`'s
+"Third fatigue/form pass + doubles field strength" section. The frozen
+`advance-world-day` system ORDER is untouched; all new/changed constants
+are PLACEHOLDER-flagged.
+
+1. **Fatigue was a one-way ratchet at the new elite volume (FIXED:
+   `FATIGUE_RECOVERY_FRACTION` 0.05 → 0.08).** Measured: an agent's player
+   averaged 9.5 matches/week and sat at fatigue ≥80 for 38 of 52 weeks
+   (9 consecutive weeks ≥90) — the second pass's self-limiting recovery was
+   calibrated against ~5-match weeks, but Batch 4B's second weekly `tour`
+   event made singles + same-event doubles deep runs a routine 9-14-match
+   week. Candidate fractions 0.05/0.07/0.08/0.10 and bases 3/4 were run
+   through the tool's now-elite `fatigueTrajectory` schedules; 0.08 is the
+   only value keeping the whole 9-11 band inside the target 40-80 (end of
+   week AND mid-week peak) while a rest week still visibly recovers (~66 →
+   ~22 in an idle week). The sim penalty (`FATIGUE_PENALTY_PER_POINT`,
+   extracted from the old inline 0.15 with its value UNCHANGED) and
+   `BASE_MATCH_FATIGUE` (8) were re-measured and deliberately left alone.
+   New tests: `FatiguePolicy.test.ts` pins 9/11-match weeks inside [40,80]
+   via the real recurrence, 14 finite and recoverable, low loads near 0.
+2. **Form was a dead lever (FIXED: `FORM_WEEKLY_DECAY` 0.85 → 0.75,
+   `FORM_SWEET_SPOT_MAX` 25 → 28).** The old equilibrium was ≈5.67 ×
+   matches/week, so the sweet spot was reachable only at ≤~4 matches/week
+   and every high-volume manager sat permanently out of band (7.4/week →
+   12 stale weeks, 2 in-band). 0.85→0.80 was measured and rejected (a
+   9-match week lands at 34, still outside); 0.75 makes the equilibrium
+   exactly 3 × matches/week, putting a typical competitive 5-9 match week
+   at form 15-27 — inside the band — while an idle player still decays to 2
+   (rusty) and a 14-match extreme week settles at 41 (stale). The decay
+   constant MOVED to the domain (`StatisticalMatchSimulator.FORM_WEEKLY_DECAY`,
+   next to the rest of the form curve) and `AdvanceWorldWeekUseCase`
+   re-exports it (same arrangement `FATIGUE_RECOVERY_PER_DAY` uses); the
+   roster page's stale form copy (still 12-25 / >30) was corrected. New
+   test: `Player.test.ts` replays the real mutators and pins the 5-9 band,
+   idle→rusty, 14→stale.
+3. **Doubles was an uncontested economy — the FIELD was fixed, not the
+   points.** Measured on `tennis_manager_agents3`: 58 main-draw tournaments
+   carried a manager pair, and two persistent pairs won 55 of the 59
+   doubles titles. The real defect was field composition, not scoring —
+   ATP doubles points parity is SOURCED and deliberately untouched (no
+   points, prize, chemistry or draw-size constant changed). The old
+   ranked-first padding was not strength-aware and then shuffled every
+   filler together, so the stored fields' average padded pair measured 75
+   on the sim's effective-rating scale against a 124 winning pair (best
+   padded pair 89; one representative draw's fillers averaged 43.7 OVR
+   while the pool's max was 88.7). The fix is two pure domain additions —
+   `doublesSideStrength`/`doublesPairStrength` (`DoublesPairPolicy.ts`)
+   and cap-aware `orderDoublesFieldFillers` (`cap` = the WEAKEST real
+   manager pair; every padded individual at-or-below it, so no padded pair
+   can ever exceed it) — plus a strength-aware path in
+   `DoublesPairingService` that pairs padded free agents
+   strongest-with-strongest (real solo entrants still pair randomly; the
+   legacy path is byte-for-byte unchanged when the new optional inputs are
+   absent), and `FormDoublesDrawUseCase` computing the cap/strengths and
+   passing them through. Real replay against the same 58 draws: average
+   padded pair 75.0 → 112.9, best padded pair 89.0 → 122.4 vs the 124.0
+   winning pair, **0/58 fields with a padded pair above the weakest manager
+   pair**. Seeded `doublesField` bucket (16-pair bracket, production
+   simulator): manager title rate 84.8% → 32.2%. Tests: `DoublesPairPolicy.test.ts`
+   (strength scale exactly matches the composite pair), `DoublesPairingService.test.ts`
+   (strength pairing, odd-solo parity, legacy unchanged), `FormDoublesDrawUseCase.test.ts`
+   (strength-first selection; a weak pair's field contains NO above-cap
+   free agent).
+
+Test counts after this pass: domain 432 → **442**, application 324 → **325**,
+api **259** (unchanged), worker **18** (unchanged). All green; full
+`tsc --build --force` and `apps/web` typecheck clean.

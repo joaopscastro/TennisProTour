@@ -374,13 +374,15 @@ much more closely.
 
 ## Fatigue/form pass: the day-tick-scaling question, answered with data
 
-> **Superseded in part by the SECOND fatigue/form pass at the end of this
-> document.** Everything below is the record of the *first* pass (recovery
-> 5 → 3/day, no form change). Its measured tables remain accurate for the
-> formulas in force at the time, but the recovery model changed from a
-> fixed drain to a self-limiting one, the form stale boundary and penalty
-> were softened, and the inactivity penalty was relaxed. Read the first
-> pass as history; the second pass's section states what changed and why.
+> **Superseded in part by the SECOND and THIRD fatigue/form passes later
+> in this document.** Everything below is the record of the *first* pass
+> (recovery 5 → 3/day, no form change). Its measured tables remain
+> accurate for the formulas in force at the time, but the recovery model
+> changed from a fixed drain to a self-limiting one, the form stale
+> boundary and penalty were softened, the recovery FRACTION and the form
+> decay + sweet-spot bound were retuned again in the third pass, and the
+> inactivity penalty was relaxed. Read the first pass as history; the
+> later passes state what changed and why.
 
 The docs repeatedly flag the fatigue/form constants as "the main open
 balance question," specifically *"especially their scaling to our
@@ -510,6 +512,15 @@ reason to carry fractional player state.
 
 ## Fatigue/form pass #2: from a ratchet to an equilibrium (deliberate rest-pressure shift)
 
+> **Superseded in part by the THIRD pass (the last section of this
+> document).** The self-limiting recovery model introduced here stands,
+> but its FRACTION was retuned 0.05 → 0.08, `FORM_WEEKLY_DECAY` 0.85 →
+> 0.75, and the sweet-spot upper bound 25 → 28 after a measured 52-week
+> agent season showed the second pass's calibration was aimed at a match
+> volume that no longer exists (Batch 4B doubled the weekly `tour`
+> schedule). The tables below remain the correct record of the values in
+> force at the time.
+
 The first pass retuned the fixed recovery drain (5 → 3/day) to revive
 fatigue on the senior tour, and explicitly aimed its new steady state at
 "forcing a rest week." Live play over a full agent season then showed what
@@ -630,3 +641,282 @@ heaviest schedule out of stale:
   artifact from the first pass is also unchanged (band-neutral). Every
   constant here remains an explicit PLACEHOLDER validated against
   simulated trajectories, not live play.
+
+## Third fatigue/form pass + doubles field strength: the 52-week agent-season signals
+
+Source: the completed 52-week agent seasons (`agents-season-2b`,
+`agents-season-3`; worlds `tennis_manager_agents` /
+`tennis_manager_agents3`). Three measured signals, three decisions. Every
+new/changed constant is PLACEHOLDER-flagged exactly like every other
+balance constant in this codebase. The tool is the same one the previous
+passes built (`apps/api/scripts/balance-simulation.mjs`), extended with
+elite-load schedules, candidate env overrides, and a seeded `doublesField`
+regression bucket.
+
+### Before/after summary
+
+| system | constant | BEFORE | AFTER |
+|---|---|---|---|
+| Fatigue recovery (self-limiting) | `FATIGUE_RECOVERY_FRACTION` | 0.05 | **0.08** |
+| Form weekly decay | `FORM_WEEKLY_DECAY` | 0.85 | **0.75** |
+| Form sweet-spot upper bound | `FORM_SWEET_SPOT_MAX` | 25 | **28** |
+| (re-measured, deliberately unchanged) | `FATIGUE_RECOVERY_PER_DAY` 3, `BASE_MATCH_FATIGUE` 8, `FATIGUE_PENALTY_PER_POINT` 0.15, `FORM_STALE_THRESHOLD` 40 | | |
+
+No fatigue/form change touches the `advance-world-day` handler order: the
+same constants feed the same systems at the same points. The doubles fix
+lives entirely inside the two existing form-doubles call sites
+(`FormDoublesDrawUseCase` → `DoublesPairingService`).
+
+### 1 — Fatigue was a one-way ratchet at the new elite volume (FIXED)
+
+**The evidence, measured on `tennis_manager_agents3`.** One agent's player
+averaged **9.5 matches/week** and sat at fatigue ≥80 for **38 of 52
+weeks**, including **9 consecutive weeks ≥90**; another averaged 9.1/week
+with 25 weeks ≥80. The only cure was a full idle week. The consequence was
+visible in results: singles deep runs became fatigue coin-flips while
+doubles/juniors kept working (doubles is a second match on the same days).
+
+This is a problem the SECOND pass could not have seen: Batch 4B added a
+second weekly `tour` event, so a realistic elite week is now singles +
+same-event doubles = ~9-14 matches, not the ~5 the self-limiting recovery
+was calibrated against. The tool's old schedules topped out at 7 — the
+elite band was simply unmeasured.
+
+**Candidate comparison** (`fatigueTrajectory`, stamina 50, end-of-week /
+mid-week peak; the same table is in `balance-report*.json`):
+
+| recovery per day | 9 matches/wk | 11 matches/wk | 14 matches/wk |
+|---|---|---|---|
+| 3 + 0.05×f (before) | 80 / 88 | 86 / 92 | 92 / 92 |
+| 3 + 0.07×f | 55 / 63 | 77 / 87 | 90 / 90 |
+| **3 + 0.08×f (chosen)** | **47 / 55** | **66 / 76** | **89 / 89** |
+| 4 + 0.08×f | 34 / 42 | 53 / 63 | 82 / 82 |
+| 3 + 0.10×f | 35 / 43 | 49 / 59 | 73 / 73 |
+
+0.07 leaves an 11-match week at a 87 peak (still too close to the old
+problem); 0.08 puts the whole 9-11 band inside the target 40-80 for BOTH
+end-of-week and peak, with the occasional 14-match week at 89 (high but
+finite, and recovered by a following lighter week). Raising the base to 4
+instead (at 0.08) pushes a 9-match week BELOW 40 at end-of-week — rejected
+for the same target; 0.10 undershoots the same way. Per-match cost was
+left alone: the measured cause is recovery capacity at the new volume,
+and moving cost too would make the effect unattributable.
+
+**Before → after trajectories** (production tool run; stamina 50 and the
+low-stamina 20 reference):
+
+| schedule | matches/wk | BEFORE end/peak (stam 50) | AFTER end/peak | BEFORE (stam 20) | AFTER |
+|---|---|---|---|---|---|
+| idle | 0 | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 |
+| senior: R1 exit | 1 | 0 / 3 | 0 / 3 | 0 / 4 | 0 / 3 |
+| senior: deep run | 3 | 0 / 8 | 0 / 7 | 0 / 10 | 0 / 9 |
+| senior: 32-draw title | 5 | 18 / 26 | 7 / 15 | 25 / 35 | 14 / 24 |
+| junior: 3 tournaments | 6 | 39 / 44 | 21 / 26 | 44 / 50 | 26 / 32 |
+| senior: 128-draw major title | 7 | 44 / 44 | 26 / 26 | 63 / 63 | 37 / 37 |
+| **elite: singles+doubles deep runs** | **9** | **80 / 88** | **47 / 55** | **87 / 92** | **60 / 70** |
+| **elite: 11-match week** | **11** | **86 / 92** | **66 / 76** | **89 / 92** | **79 / 89** |
+| peak: 14-match week (both finals) | 14 | 92 / 92 | 89 / 89 | 92 / 92 | 89 / 89 |
+
+**The rest/taper decision is preserved, not neutered.** The sim penalty
+(`FATIGUE_PENALTY_PER_POINT = 0.15`) is deliberately unchanged; re-measured
+on the same tool, a given fatigue value still costs what it always did
+(30 → 34.3% win rate vs a fresh equal opponent, 60 → 21.4%, 80 → 15.7%).
+What changed is that elite players now oscillate at 47-66 instead of
+sitting at 86-92, so: (a) an 11-match week's ~66 recovers to ~22 in an
+idle week — a real taper edge of ~7 effective-rating points; (b) the
+14-match week's ~89 tail is genuinely painful but recoverable; (c)
+lighter schedules (≤5) visibly recover to near zero. The mechanic is still
+monotone in schedule depth (more matches → higher finite equilibrium).
+
+**Regression coverage**: `FatiguePolicy.test.ts`'s equilibrium test now
+pins 9 and 11 matches/week inside [40, 80] (via the real
+`fatigueRecoveredPerDay` recurrence), 14 finite and recoverable in an idle
+week, and the low-load recoveries; the tool's `fatigueTrajectory` gained
+the three elite schedules permanently.
+
+### 2 — Form was a dead lever (FIXED)
+
+**The evidence.** The sweet spot [12,25] is reachable only at ≤~4
+matches/week because the old decay's equilibrium was ≈5.67 ×
+matches/week; every measured high-volume manager sat permanently out of
+band (one player at 7.4 matches/week: 12 stale weeks, only 2 in-band), so
+agents stopped optimising form entirely. The intent — "never playing
+hurts, playing every single event hurts" — is right, but the curve was
+calibrated against a match volume that no longer exists.
+
+**Candidate comparison.** `FORM_WEEKLY_DECAY` 0.85 → 0.80 (equilibrium
+4 × matches/week) leaves a 9-match week at 34 — outside the band even at
+the new 28 bound. 0.75 makes the equilibrium EXACTLY 3 × matches/week
+(integer-rounding-free), which puts the whole 5-9 range at 15-27 — inside
+the band. `FORM_SWEET_SPOT_MAX` moved 25 → 28 so a 9-match week (27) is
+in-band rather than a boundary case. `FORM_SWEET_SPOT_MIN` (12),
+`FORM_STALE_THRESHOLD` (40) and `FORM_OUT_OF_BAND_PENALTY_PER_POINT`
+(0.15) were all left unchanged — the data did not ask for more.
+
+**Before → after trajectories** (`formTrajectory`; band labels as they
+stand AFTER the pass — note 26 was neutral under the old [12,25] band):
+
+| schedule | matches/wk | BEFORE steady form | AFTER steady form | AFTER band |
+|---|---|---|---|---|
+| idle (never plays) | 0 | 0 | 0 | rusty |
+| went idle from form 20 | 0 | 3 | 2 | rusty |
+| senior: first-round exits | 1 | 3 | 2 | rusty |
+| senior: mid run | 2 | 9 | 5 | rusty |
+| senior: deep run | 3 | 14 | 8 | neutral |
+| senior: title run | 5 | 26 (neutral then) | **14** | sweet-spot |
+| junior: 3 tournaments/week | 6 | 31 (neutral) | **17** | sweet-spot |
+| elite: singles + doubles deep runs | 9 | 48 (stale) | **26** | sweet-spot |
+| extreme: both finals at a major | 14 | 77 (stale) | **41** | stale |
+
+So a typical competitive 5-9 match week now sits IN the sweet spot and
+earns the +2 bonus; a genuinely idle player still decays to 2 (rusty, the
+under-play cost); an extreme 14-match every-week player still drifts stale
+— which is exactly the "every single event hurts" side, now carried mostly
+by fatigue (21.4% win rate at 60) with form as the nudge it was meant to
+be. The form value curve itself is unchanged (peak measured at form 18,
+inside the band; ~60% win rate vs the most-rusty anchor at any in-band
+value).
+
+**Regression coverage**: a new `Player.test.ts` case replays the real
+`applyMatchForm`/`decayForm` loop and pins 5-9 matches/week inside
+[`FORM_SWEET_SPOT_MIN`, `FORM_SWEET_SPOT_MAX`] with the +2 modifier, idle
+decay into the rusty band, and a 14-match week into the stale band. The
+constant moved to `StatisticalMatchSimulator.ts` (its domain home, next to
+the rest of the form curve) and `AdvanceWorldWeekUseCase` re-exports it,
+so the balance tool and the application tests keep importing it from the
+same place.
+
+### 3 — Doubles was an uncontested economy: the FIELD was fixed, not the points
+
+**The evidence, measured on `tennis_manager_agents3`.** 58 main-draw
+tournaments carried a manager pair (66 manager pairs, 134 manager doubles
+entries all season). Two persistent pairs won **55 of the 59 doubles
+titles** (m4 30, m3 25; m2 2; 2 unowned). Doubles accounted for 45.7%
+(m3) and 38.6% (m4) of their best-N senior totals.
+
+**The real-world note that scoped the fix.** At ATP Masters 1000 level,
+doubles winners genuinely receive the same ranking points as singles
+winners — the points parity is SOURCED (`docs/ranking-realism-proposal.md`;
+the 2026 ATP tables adopted earlier), not a bug. The defect is that the
+FIELD was uncontested, making a title nearly free. **No doubles points,
+prize money, chemistry, or draw-size constant was touched by this pass.**
+
+**What the padded fields actually looked like (before).** For the 58
+manager-entered draws, on the exact effective-rating scale the doubles sim
+uses (`doublesSideStrength`/`doublesPairStrength`: surface-weighted
+technical/physical/mental + surface affinity + 0.4 × doubles skill +
+chemistry):
+
+| metric (mean over the 58 draws) | value |
+|---|---|
+| winning / strongest manager pair strength | 124.0 |
+| average padded-pair strength (as stored) | 75.0 |
+| best padded-pair strength (as stored) | 89.0 |
+| gap, manager pair → average padded pair | 49.0 |
+
+One representative tournament (`62a1a568`, a `tour` m4 won): manager pair
+113.5, best padded pair 77.1, average padded pair 59.8. The padded cohort
+in that field (54 players) averaged 43.7 OVR while the free-agent pool
+(2,469 players) had a median of 44.2 and a max of 88.7 — the old
+ranked-first selection was not strength-aware, and then
+`DoublesPairingService` SHUFFLED every padded filler together, so even the
+strong free agents who did make the field were diluted into one weak
+average pair. There was no pair in the draw capable of pushing the manager
+pair.
+
+**The fix (field, not points).** Two pure domain additions and one
+pairing-path change:
+
+- `doublesSideStrength(attributes, surface)` / `doublesPairStrength(...)`
+  (`DoublesPairPolicy.ts`) measure a player/pair on the same
+  effective-rating scale the sim consumes (fatigue/form/home excluded —
+  those are per-match state). Adapter-internal only; nothing new is
+  serialized, so the value-hiding discipline is untouched.
+- `orderDoublesFieldFillers(candidates, cap)` orders padding candidates
+  strongest-first, EXCLUDING (to the back of the queue) any candidate whose
+  own strength exceeds the cap. The cap is the strength of the WEAKEST real
+  manager pair in the draw. Because a pair of two at-or-below-cap players
+  can never exceed the cap, "anonymous padding is never stronger than a
+  manager's own pair" is a structural property of the selection, not a
+  heuristic. (When no persistent pair exists yet, the fallback cap is the
+  weakest entrant's own strength — deliberately conservative.)
+- `DoublesPairingService` gained an optional strength-aware path: padded
+  free agents are paired strongest-with-strongest in the caller's order
+  (instead of shuffled into the pool), real solo entrants still pair
+  randomly among themselves, and the legacy random path is byte-for-byte
+  unchanged whenever `strength`/`fillerEntrants` are absent. An odd solo
+  leftover consumes the strongest padded filler AT OR BELOW its own
+  strength — padding never strengthens a manager past their own level.
+
+**Before → after, real replay against `tennis_manager_agents3`** (the
+stored fields vs the field the new algorithm builds for the same 58 draws
+from the end-of-season pool; disclosed caveat: the replay does not
+re-simulate each week's cross-tournament commitments, so the selected
+cohort is an availability-optimistic estimate — the structural cap
+guarantee holds regardless):
+
+| metric | BEFORE (stored) | AFTER (new padding) |
+|---|---|---|
+| winning / strongest manager pair | 124.0 | 124.0 |
+| average padded-pair strength | 75.0 | **112.9** |
+| best padded-pair strength | 89.0 | **122.4** |
+| gap, winning pair → best padded pair | 35.0 | **1.6** |
+| fields with a padded pair above the WEAKEST manager pair (the cap) | — | **0 / 58** |
+
+The best padded pair is now, on average, within ~2 rating points of the
+winning manager pair (a coin-flip final instead of a walkover), while no
+field in the replay contains a padded pair stronger than the weakest real
+manager pair.
+
+**Title probability, real simulator (seeded `doublesField` bucket).** A
+deterministic pool fitted to the measured end-of-season strength
+distribution (p0 48 / p25 64 / p50 70 / p75 80 / p90 94 / max 132) and a
+manager pair matching the real m4 pair (strength 124.6), 16-pair bracket,
+every match through the production simulator:
+
+| metric | BEFORE | AFTER |
+|---|---|---|
+| average padded-pair strength | 83.3 | 108.7 |
+| best padded-pair strength | 110.8 | 123.5 |
+| manager pair win rate vs the best padded pair (head-to-head) | 84.8% | **52.1%** |
+| manager pair TITLE rate (10 builds x 50 real bracket replays) | **84.8%** | **32.2%** |
+
+Caveat, stated plainly: the bucket's BEFORE is a lenient model (random
+selection from the full pool), so it understates the real before — the
+stored fields averaged a best padded pair of 89, not 110.8, and the real
+season's title rate for those two pairs was 55/59. The AFTER is the honest
+number: with the field fixed, a top pair's title probability drops from
+near-automatic to about one in three.
+
+**Regression coverage**: `DoublesPairPolicy.test.ts` (strength scale
+matches the composite pair's effective rating exactly; cap ordering
+under/over-cap, inclusive boundary, determinism);
+`DoublesPairingService.test.ts` (strength pairing keeps the caller order;
+odd-solo partner at-or-below its strength; spare parity; legacy path
+unchanged); `FormDoublesDrawUseCase.test.ts` (strength-first padding beats
+pool order; and a weak manager pair's field contains NO free agent above
+the cap even when strong candidates are available); the seeded
+`doublesField` bucket itself is the permanent regression measurement.
+
+### What this pass did and did not do
+
+- **Applied**: `FATIGUE_RECOVERY_FRACTION` 0.05 → 0.08; `FORM_WEEKLY_DECAY`
+  0.85 → 0.75 (moved to the domain, re-exported by the application);
+  `FORM_SWEET_SPOT_MAX` 25 → 28; the doubles field-completion path
+  (strength measure, cap-aware selection, strength-aware pairing).
+- **Built**: elite-load schedules + candidate env overrides
+  (`FATIGUE_RECOVERY_PER_DAY`, `FATIGUE_RECOVERY_FRACTION`,
+  `FATIGUE_BASE_COST`, `FORM_WEEKLY_DECAY`) and the seeded `doublesField`
+  bucket in `apps/api/scripts/balance-simulation.mjs`; `FATIGUE_PENALTY_PER_POINT`
+  extracted to a named constant (value unchanged); the player-facing form
+  copy on the roster page corrected to the real bands (it still described
+  the first pass's 12-25 / >30).
+- **Not done / deliberately unchanged**: `BASE_MATCH_FATIGUE` (8),
+  `FATIGUE_PENALTY_PER_POINT` (0.15), `FATIGUE_RECOVERY_PER_DAY` (3),
+  `FORM_SWEET_SPOT_MIN` (12), `FORM_STALE_THRESHOLD` (40),
+  `FORM_OUT_OF_BAND_PENALTY_PER_POINT` (0.15) — each re-measured, none
+  moved; every doubles points/prize/chemistry/draw-size constant; the
+  `advance-world-day` system order.
+- **Test counts**: domain 432 → **442**, application 324 → **325**, api
+  **259** (unchanged), worker **18** (unchanged). Full monorepo
+  `tsc --build --force` and `apps/web` typecheck clean.

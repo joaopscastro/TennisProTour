@@ -125,4 +125,107 @@ describe('DoublesPairingService', () => {
     expect(acceptedPlayers).toContain(PlayerId('b1'));
     expect(result.cut.flatMap((p) => [p.playerA, p.playerB])).toContain(PlayerId('c1'));
   });
+
+  describe('strength-aware padding path (field-strength fix)', () => {
+    const strengthOf = (entries: Array<[string, number]>) => new Map(entries.map(([id, s]) => [PlayerId(id), s]));
+
+    it('pairs padded fillers strongest-with-strongest (keeps the caller order) instead of shuffling them', () => {
+      const padded = ['f1', 'f2', 'f3', 'f4', 'f5', 'f6'].map(PlayerId);
+      const result = new DoublesPairingService().pair({
+        tournamentId: T,
+        entrants: [PlayerId('mgr-a'), PlayerId('mgr-b'), ...padded],
+        entryRanking: ranking([]),
+        persistentPairs: [{ playerA: PlayerId('mgr-a'), playerB: PlayerId('mgr-b'), pairId: PairId('pp'), chemistry: 100 }],
+        freeAgentFillers: [],
+        drawSize: 4,
+        random: neverRandom,
+        strength: strengthOf([
+          ['mgr-a', 100],
+          ['mgr-b', 100],
+          ['f1', 95],
+          ['f2', 90],
+          ['f3', 85],
+          ['f4', 80],
+          ['f5', 75],
+          ['f6', 70],
+        ]),
+        fillerEntrants: new Set(padded),
+      });
+
+      const fillerPairs = result.pairs.filter((p) => p.persistentPairId === undefined);
+      expect(fillerPairs).toHaveLength(3);
+      const members = fillerPairs.map((p) => [p.playerA, p.playerB]);
+      expect(members).toContainEqual([PlayerId('f1'), PlayerId('f2')]);
+      expect(members).toContainEqual([PlayerId('f3'), PlayerId('f4')]);
+      expect(members).toContainEqual([PlayerId('f5'), PlayerId('f6')]);
+    });
+
+    it('pairs an odd solo leftover with the strongest padded filler AT OR BELOW its own strength (padding never strengthens a manager past their level)', () => {
+      const padded = ['f1', 'f2', 'f3', 'f4', 'f5'].map(PlayerId);
+      const result = new DoublesPairingService().pair({
+        tournamentId: T,
+        entrants: [PlayerId('solo'), ...padded],
+        entryRanking: ranking([]),
+        persistentPairs: [],
+        freeAgentFillers: [],
+        drawSize: 4,
+        random: neverRandom,
+        strength: strengthOf([
+          ['solo', 60],
+          ['f1', 90],
+          ['f2', 80],
+          ['f3', 70],
+          ['f4', 50],
+          ['f5', 40],
+        ]),
+        fillerEntrants: new Set(padded),
+      });
+
+      expect(result.pairs).toHaveLength(3);
+      const soloPair = result.pairs.find((p) => p.playerA === PlayerId('solo') || p.playerB === PlayerId('solo'));
+      expect(soloPair).toBeDefined();
+      const partner = soloPair!.playerA === PlayerId('solo') ? soloPair!.playerB : soloPair!.playerA;
+      expect(partner).toBe(PlayerId('f4')); // 50 <= 60; f3 (70) is above the solo's own strength
+    });
+
+    it('uses a spare free agent for an odd solo when the padded count is already even (legacy parity), leaving the padded pairs intact', () => {
+      const padded = ['f1', 'f2', 'f3', 'f4'].map(PlayerId);
+      const result = new DoublesPairingService().pair({
+        tournamentId: T,
+        entrants: [PlayerId('solo'), ...padded],
+        entryRanking: ranking([]),
+        persistentPairs: [],
+        freeAgentFillers: [PlayerId('spare')],
+        drawSize: 4,
+        random: neverRandom,
+        strength: strengthOf([
+          ['solo', 60],
+          ['f1', 90],
+          ['f2', 80],
+          ['f3', 70],
+          ['f4', 50],
+        ]),
+        fillerEntrants: new Set(padded),
+      });
+
+      const covered = result.pairs.flatMap((p) => [p.playerA, p.playerB]);
+      expect(covered).toContain(PlayerId('spare'));
+      expect(result.pairs).toHaveLength(3);
+    });
+
+    it('leaves the legacy random pairing byte-for-byte when strength/fillerEntrants are absent', () => {
+      // Same inputs as the legacy "even count" test above: without the
+      // strength map the service must still shuffle-pair everyone.
+      const result = new DoublesPairingService().pair({
+        tournamentId: T,
+        entrants: [PlayerId('a'), PlayerId('b'), PlayerId('c'), PlayerId('d')],
+        entryRanking: ranking([['a', 1], ['b', 2], ['c', 3], ['d', 4]]),
+        persistentPairs: [],
+        freeAgentFillers: [],
+        drawSize: 4,
+        random: neverRandom,
+      });
+      expect(result.pairs).toHaveLength(2);
+    });
+  });
 });
