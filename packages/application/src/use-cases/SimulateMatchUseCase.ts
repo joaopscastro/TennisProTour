@@ -1,4 +1,4 @@
-import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek, WorldId } from '@tennis-manager/domain';
+import { TournamentId, PlayerId, MatchId, Player, TournamentTier, AgeBand, GameWeek, WorldId, isJuniorTier } from '@tennis-manager/domain';
 import { DrawPhase, qualifyingPointsFor, qualifyingPrizeMoneyFor, StandardPrizeMoneyTable } from '@tennis-manager/domain';
 import { MatchLog } from '@tennis-manager/domain';
 import { MatchSimulator } from '@tennis-manager/domain';
@@ -277,18 +277,27 @@ export class SimulateMatchUseCase {
     // XP is what applyTraining later spends — every player develops by
     // playing, free agents and fillOnly players included (they have no
     // manager to earn manager XP for, but still grow their own game).
+    // A junior-tier match teaches more per match (Batch 4B, F4 — the
+    // optional context, senior path unchanged), so a junior event is a
+    // genuinely better DEVELOPMENT choice without touching its
+    // ITF-sourced ranking points.
     const loserGames = outcome.setScores.reduce((sum, set) => sum + set.loserGames, 0);
+    const matchExperienceContext = { juniorTier: isJuniorTier(tournament.tier) };
     if (winnerPlayer) {
       winnerPlayer.applyMatchFatigue(fatigueCostForMatch(winnerPlayer.attributes.physical.stamina.value));
       winnerPlayer.applyMatchForm(1);
       winnerPlayer.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
-      winnerPlayer.gainExperience(this.developmentPolicy.matchExperience({ loserGames, isWinner: true }));
+      winnerPlayer.gainExperience(
+        this.developmentPolicy.matchExperience({ loserGames, isWinner: true, context: matchExperienceContext }),
+      );
     }
     if (loserPlayer) {
       loserPlayer.applyMatchFatigue(fatigueCostForMatch(loserPlayer.attributes.physical.stamina.value));
       loserPlayer.applyMatchForm(1);
       loserPlayer.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
-      loserPlayer.gainExperience(this.developmentPolicy.matchExperience({ loserGames, isWinner: false }));
+      loserPlayer.gainExperience(
+        this.developmentPolicy.matchExperience({ loserGames, isWinner: false, context: matchExperienceContext }),
+      );
     }
     if (winnerPlayer) await this.players.save(winnerPlayer);
     if (loserPlayer) await this.players.save(loserPlayer);

@@ -50,8 +50,12 @@ const SURFACE_ROTATION: ReadonlyArray<Surface> = ['hard', 'clay', 'grass', 'indo
  * Idempotency: opening is skipped for any (week, tier) that already has
  * an open senior tournament — cheap and sufficient, because both this
  * use case's own re-fires and the season-backfill script always create
- * the FULL count for a tier, so "at least one exists" means "the slate
- * is already satisfied" and nothing is ever double-minted.
+ * the FULL count for a tier in one run (the per-count loop below is
+ * sequential and only a thrown DB error can interrupt it), so "at least
+ * one exists" means "the slate is already satisfied" and nothing is ever
+ * double-minted. This holds for the twin weekly `tour` events (Batch
+ * 4B, F1) exactly as it did for the single one: a re-fire skips the
+ * whole tier, never opens a half slate.
  */
 export class GenerateSeniorTournamentsUseCase {
   constructor(

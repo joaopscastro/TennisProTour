@@ -49,6 +49,7 @@ import { DrizzleTrainingScheduleRepository } from './DrizzleTrainingScheduleRepo
 import { DrizzleTournamentRepository } from './DrizzleTournamentRepository';
 import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository';
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
+import { DrizzleManagerCosmeticAdapter } from './DrizzleManagerCosmeticAdapter';
 import { DrizzleManagerLadderRepository } from './DrizzleManagerLadderRepository';
 import { DrizzleManagerAccountCreationAdapter } from './DrizzleManagerAccountCreationAdapter';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
@@ -109,6 +110,7 @@ beforeEach(async () => {
   await db.delete(schema.doublesPeakRankings);
   await db.delete(schema.practiceSessions);
   await db.delete(schema.players);
+  await db.delete(schema.managerCosmetics);
   await db.delete(schema.managerProgression); // no FKs, order doesn't matter
   await db.delete(schema.managerLadder); // no FKs, order doesn't matter
   await db.delete(schema.coaches); // no FKs, order doesn't matter
@@ -839,6 +841,93 @@ describe('DrizzleTournamentRepository', () => {
     expect(counts.get('t-cme-1')).toBe(2);
     expect(counts.get('t-cme-2')).toBeUndefined();
     expect(await tournamentRepository.countManagerEntrants!([])).toEqual(new Map());
+  });
+
+  it('countTierEntriesForSeason counts distinct tournaments across singles AND doubles, scoped to tier + season (Batch 4B, F1)', async () => {
+    await playerRepository.save(Player.hire(PlayerId('sc-p1'), 'Season Cap', 20 * 52, attributes(30), ManagerId('m1')));
+    await playerRepository.save(Player.hire(PlayerId('sc-p2'), 'Other Manager Player', 20 * 52, attributes(30), ManagerId('m1')));
+
+    // Season 1 for sc-p1: two singles challengers (the second ALSO has
+    // their doubles entry — same tournament, counts once), a third
+    // challenger entered only through doubles, a futures (wrong tier),
+    // and an event for a different player (wrong player).
+    const singlesOne = Tournament.open({
+      name: 'Season Cap One',
+      id: TournamentId('t-sc-1'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    singlesOne.registerEntrant({ playerId: PlayerId('sc-p1'), seed: null });
+    await tournamentRepository.save(singlesOne);
+
+    const singlesTwo = Tournament.open({
+      name: 'Season Cap Two',
+      id: TournamentId('t-sc-2'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 2 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    singlesTwo.registerEntrant({ playerId: PlayerId('sc-p1'), seed: null });
+    singlesTwo.registerDoublesEntrant(PlayerId('sc-p1'));
+    await tournamentRepository.save(singlesTwo);
+
+    const doublesOnly = Tournament.open({
+      name: 'Season Cap Doubles Only',
+      id: TournamentId('t-sc-3'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 3 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    doublesOnly.registerDoublesEntrant(PlayerId('sc-p1'));
+    await tournamentRepository.save(doublesOnly);
+
+    const wrongTier = Tournament.open({
+      name: 'Season Cap Futures',
+      id: TournamentId('t-sc-futures'),
+      tier: 'futures',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 4 },
+      drawSize: 16,
+    });
+    wrongTier.registerEntrant({ playerId: PlayerId('sc-p1'), seed: null });
+    await tournamentRepository.save(wrongTier);
+
+    const otherPlayer = Tournament.open({
+      name: 'Season Cap Other Player',
+      id: TournamentId('t-sc-other'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 5 },
+      drawSize: 16,
+    });
+    otherPlayer.registerEntrant({ playerId: PlayerId('sc-p2'), seed: null });
+    await tournamentRepository.save(otherPlayer);
+
+    const nextSeason = Tournament.open({
+      name: 'Season Cap Next Season',
+      id: TournamentId('t-sc-season2'),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 2, week: 1 },
+      drawSize: 16,
+    });
+    nextSeason.registerEntrant({ playerId: PlayerId('sc-p1'), seed: null });
+    await tournamentRepository.save(nextSeason);
+
+    // Three distinct challenger tournaments in season 1: the same-event
+    // singles+doubles pair collapses to one, the doubles-only event still
+    // counts.
+    expect(await tournamentRepository.countTierEntriesForSeason(PlayerId('sc-p1'), 'challenger', 1)).toBe(3);
+    expect(await tournamentRepository.countTierEntriesForSeason(PlayerId('sc-p1'), 'challenger', 2)).toBe(1);
+    expect(await tournamentRepository.countTierEntriesForSeason(PlayerId('sc-p1'), 'futures', 1)).toBe(1);
+    expect(await tournamentRepository.countTierEntriesForSeason(PlayerId('sc-p2'), 'challenger', 1)).toBe(1);
   });
 
   it('round-trips an unstarted tournament and lists it via findOpenForRegistration', async () => {
@@ -2177,6 +2266,65 @@ describe('DrizzleManagerLadderRepository.deductManagers (Batch 3.3, real Postgre
     await ladder.deductManagers([ManagerId('ladder-m1')], -50);
 
     expect(await ladder.scoreFor(ManagerId('ladder-m1'))).toBe(1_000);
+  });
+});
+
+describe('DrizzleManagerCosmeticAdapter (Batch 4B, F2 — the zero-competitive-effect XP sink)', () => {
+  const cosmetics = new DrizzleManagerCosmeticAdapter(db);
+  const xp = new DrizzleManagerXpRepository(db);
+
+  it('purchases atomically: XP is deducted and the unlock is persisted and readable', async () => {
+    await xp.credit(ManagerId('mc-m1'), 1_000);
+
+    const outcome = await cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'badge-star', xpCost: 200 });
+    expect(outcome).toEqual({ kind: 'purchased', itemId: 'badge-star', xpSpent: 200 });
+    expect(await xp.balanceFor(ManagerId('mc-m1'))).toBe(800);
+    expect(await cosmetics.ownedFor(ManagerId('mc-m1'))).toEqual(['badge-star']);
+
+    // The batched leaderboard read sees it too (and omits managers with none).
+    const batch = await cosmetics.ownedByManagers([ManagerId('mc-m1'), ManagerId('mc-nobody')]);
+    expect(batch.get('mc-m1')).toEqual(['badge-star']);
+    expect(batch.has('mc-nobody')).toBe(false);
+    expect(await cosmetics.ownedByManagers([])).toEqual(new Map());
+  });
+
+  it('refuses a re-buy without charging again, regardless of remaining balance', async () => {
+    await xp.credit(ManagerId('mc-m1'), 5_000);
+    await cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'banner-aurora', xpCost: 700 });
+
+    const rebuy = await cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'banner-aurora', xpCost: 700 });
+
+    expect(rebuy).toEqual({ kind: 'already-owned' });
+    expect(await xp.balanceFor(ManagerId('mc-m1'))).toBe(4_300); // charged exactly once
+    expect(await cosmetics.ownedFor(ManagerId('mc-m1'))).toEqual(['banner-aurora']);
+  });
+
+  it('under real concurrent double-submits of the SAME item, exactly one charges and the rest are refused as already-owned', async () => {
+    await xp.credit(ManagerId('mc-m1'), 3_000);
+
+    const attempts = await Promise.all([
+      cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'badge-crown', xpCost: 1_500 }),
+      cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'badge-crown', xpCost: 1_500 }),
+      cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'badge-crown', xpCost: 1_500 }),
+    ]);
+
+    // The composite-key claim + rollback discipline means exactly ONE
+    // debit survives; every losing transaction's debit is rolled back
+    // with its failed insert.
+    expect(attempts.filter((a) => a.kind === 'purchased')).toHaveLength(1);
+    expect(attempts.filter((a) => a.kind === 'already-owned')).toHaveLength(2);
+    expect(await xp.balanceFor(ManagerId('mc-m1'))).toBe(1_500);
+    expect(await cosmetics.ownedFor(ManagerId('mc-m1'))).toEqual(['badge-crown']);
+  });
+
+  it('refuses an unaffordable purchase even when it is not already owned, leaving nothing behind', async () => {
+    await xp.credit(ManagerId('mc-m1'), 100);
+
+    const outcome = await cosmetics.purchaseAndCharge({ managerId: ManagerId('mc-m1'), itemId: 'banner-obsidian', xpCost: 1_100 });
+
+    expect(outcome).toEqual({ kind: 'insufficient-xp', required: 1_100, balance: 100 });
+    expect(await xp.balanceFor(ManagerId('mc-m1'))).toBe(100);
+    expect(await cosmetics.ownedFor(ManagerId('mc-m1'))).toEqual([]);
   });
 });
 

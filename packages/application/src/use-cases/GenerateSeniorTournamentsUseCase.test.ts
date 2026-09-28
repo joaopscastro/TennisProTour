@@ -89,14 +89,17 @@ describe('GenerateSeniorTournamentsUseCase', () => {
 
     expect(byTier.get('futures')).toBe(2);
     expect(byTier.get('challenger')).toBe(2);
-    expect(byTier.get('tour')).toBe(1);
+    // Batch 4B (F1): TWO weekly tour events, so a top-ranked player
+    // (barred from futures, soft-capped on challenger) has a real weekly
+    // choice rather than a single forced entry.
+    expect(byTier.get('tour')).toBe(2);
     expect(byTier.has('major')).toBe(false);
 
-    expect(result.opened).toBe(5);
-    expect(open).toHaveLength(5);
+    expect(result.opened).toBe(6);
+    expect(open).toHaveLength(6);
   });
 
-  it('adds a 128-draw major on its every-13-week cadence, on top of the weekly futures/challenger/tour', async () => {
+  it('adds a 128-draw major on its every-13-week cadence, on top of the weekly futures/challenger/twin tours', async () => {
     // Generation opens for NEXT week: setup week 11 -> opens week 12,
     // abs 1*52 + 12 = 64 -> 64 % 13 = 12 (the major's phase — see the
     // policy's week-51 rule; majors are weeks 12/25/38/51, never 52).
@@ -111,7 +114,7 @@ describe('GenerateSeniorTournamentsUseCase', () => {
     expect(major!.ageBand).toBeNull();
     expect(open.filter((t) => t.tier === 'futures')).toHaveLength(2);
     expect(open.filter((t) => t.tier === 'challenger')).toHaveLength(2);
-    expect(open.filter((t) => t.tier === 'tour')).toHaveLength(1);
+    expect(open.filter((t) => t.tier === 'tour')).toHaveLength(2);
   });
 
   it('honors an explicit week override (the season-backfill path) instead of the world clock', async () => {
@@ -120,9 +123,9 @@ describe('GenerateSeniorTournamentsUseCase', () => {
     // World is week 1; generate for a FUTURE week 40 regardless.
     const result = await useCase.execute({ worldId, week: { season: 1, week: 40 } });
 
-    expect(result.opened).toBe(5);
+    expect(result.opened).toBe(6);
     const open = await tournaments.findOpenForRegistration();
-    expect(open).toHaveLength(5);
+    expect(open).toHaveLength(6);
     for (const t of open) {
       expect(t.weekScheduled).toEqual({ season: 1, week: 40 });
     }
@@ -134,9 +137,9 @@ describe('GenerateSeniorTournamentsUseCase', () => {
     const first = await useCase.execute({ worldId });
     const second = await useCase.execute({ worldId });
 
-    expect(first.opened).toBe(5);
+    expect(first.opened).toBe(6);
     expect(second.opened).toBe(0);
-    expect(await tournaments.findOpenForRegistration()).toHaveLength(5);
+    expect(await tournaments.findOpenForRegistration()).toHaveLength(6);
   });
 
   it('reuses the same surface rotation across a full season so the slate is varied, not monotonous', async () => {

@@ -25,8 +25,16 @@ export interface PlayerDevelopmentPolicy {
    * almost nothing, a 7-6 7-6 war teaches a lot — and the winner earns a
    * fixed fraction (WINNER_SHARE) of what the loser earns from the same
    * match. `loserGames` is the match loser's total games won across all
-   * sets, never a per-set figure. */
-  matchExperience(input: { loserGames: number; isWinner: boolean }): number;
+   * sets, never a per-set figure.
+   *
+   * `context` is OPTIONAL and additive (Batch 4B, F4): absent — every
+   * pre-existing caller and test — the result is byte-identical to
+   * before. `juniorTier: true` marks a match at a junior-tier event, which
+   * teaches more per match (see JUNIOR_MATCH_XP_MULTIPLIER below), so a
+   * junior event is a genuinely better DEVELOPMENT choice even when a
+   * senior one is also legal — without touching the ITF-sourced junior
+   * ranking points, which stay exactly as sourced. */
+  matchExperience(input: { loserGames: number; isWinner: boolean; context?: MatchExperienceContext }): number;
 
   /** Free experience a player accrues every weekly tick purely from
    * their `talent` stat — the "young high-talent players are long-term
@@ -40,6 +48,15 @@ export interface PlayerDevelopmentPolicy {
    * and a player's growth rate is ultimately bounded by how much they
    * play (match XP) plus their talent (weekly income). */
   experienceCostPerSkillPoint(): number;
+}
+
+/** Optional match-context bag for `matchExperience` (Batch 4B, F4). A
+ * tiny, named shape rather than a bare boolean parameter, so future
+ * context (e.g. a stage-of-career signal) can be added additively. */
+export interface MatchExperienceContext {
+  /** True when the match belongs to a JUNIOR-tier tournament (see
+   * isJuniorTier). Absent/false = the senior path, unchanged. */
+  juniorTier?: boolean;
 }
 
 /**
@@ -80,6 +97,18 @@ export class StandardPlayerDevelopmentPolicy implements PlayerDevelopmentPolicy 
    * playing" is a real constraint, not a formality. */
   private static readonly XP_PER_SKILL_POINT = 18;
 
+  /** PLACEHOLDER (Batch 4B, F4): a junior-tier match grants this much of
+   * the ordinary match experience. A j500 win is worth less than a senior
+   * doubles title for the same match load (the ITF-sourced junior point
+   * tables are deliberately lower), so with no development advantage the
+   * optimal play was to ignore juniors entirely once any senior event was
+   * legal — odd for a tennis-manager fantasy. ×1.5 makes a junior event a
+   * genuinely better DEVELOPMENT choice (more player XP per match) while
+   * leaving the ITF-sourced junior ranking points, prize money and titles
+   * completely untouched. Not tuned — same status as every other
+   * placeholder here; the next agent season validates it. */
+  private static readonly JUNIOR_MATCH_XP_MULTIPLIER = 1.5;
+
   /** Optional constructor overrides — same pattern as
    * StatisticalMatchSimulator's `pointProbabilityDivisor` override, which
    * exists specifically so `apps/api/scripts/balance-simulation.mjs` can
@@ -92,11 +121,17 @@ export class StandardPlayerDevelopmentPolicy implements PlayerDevelopmentPolicy 
     private readonly xpPerSkillPointOverride: number = StandardPlayerDevelopmentPolicy.XP_PER_SKILL_POINT,
   ) {}
 
-  matchExperience(input: { loserGames: number; isWinner: boolean }): number {
+  matchExperience(input: { loserGames: number; isWinner: boolean; context?: MatchExperienceContext }): number {
     const loserGames = Math.max(0, input.loserGames);
     const loserXp = StandardPlayerDevelopmentPolicy.MATCH_XP_FLOOR + loserGames * StandardPlayerDevelopmentPolicy.XP_PER_LOSER_GAME;
     const raw = input.isWinner ? loserXp * StandardPlayerDevelopmentPolicy.WINNER_SHARE : loserXp;
-    return Math.round(raw);
+    // ×1 when there's no junior context (or juniorTier is false) — the
+    // default stays byte-identical for every pre-existing caller, since
+    // Math.round(raw * 1) === Math.round(raw).
+    const tierMultiplier = input.context?.juniorTier
+      ? StandardPlayerDevelopmentPolicy.JUNIOR_MATCH_XP_MULTIPLIER
+      : 1;
+    return Math.round(raw * tierMultiplier);
   }
 
   weeklyTalentIncome(talent: number): number {

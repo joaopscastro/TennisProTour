@@ -115,6 +115,7 @@ beforeEach(async () => {
   await db.delete(schema.mastersCups);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
+  await db.delete(schema.managerCosmetics);
   await db.delete(schema.managerProgression);
   // Notification tables FK managers.id — must go before the managers wipe.
   await db.delete(schema.notificationDeliveries);
@@ -363,6 +364,138 @@ describe('API', () => {
       payload: { playerId: 'rank-subject' },
     });
     expect(accepted.statusCode).toBe(201);
+  });
+
+  it('lets a top-50 player enter challengers up to the per-season soft cap, refuses the next (singles AND doubles), and the preview agrees (Batch 4B, F1)', async () => {
+    const adminHeaders = { 'x-internal-admin-token': process.env.INTERNAL_ADMIN_TOKEN ?? 'test-admin' };
+    // Five challenger events in five different weeks of season 2 — the
+    // senior weekly cap is one tournament per week, so distinct weeks
+    // isolate the SEASON cap under test. Season 2 is ahead of the world's
+    // S1W52 clock, so every row stays in the open list.
+    const ids = ['t-sc-1', 't-sc-2', 't-sc-3', 't-sc-4', 't-sc-5'];
+    for (let i = 0; i < ids.length; i++) {
+      const opened = await app.inject({
+        method: 'POST',
+        url: '/tournaments/open-registration',
+        headers: adminHeaders,
+        payload: {
+          tournamentId: ids[i],
+          tier: 'challenger',
+          surface: 'clay',
+          weekScheduled: { season: 2, week: i + 1 },
+          drawSize: 16,
+        },
+      });
+      expect(opened.statusCode).toBe(201);
+    }
+
+    // A manager with a rank-50 senior player: 49 players seeded ahead in
+    // the rolling ledger, so the real RankPositionQuery places the subject
+    // at exactly #50 — INSIDE the challenger soft-cap cutoff.
+    const managerId = 'm-season-cap';
+    expect(await hirePlayer('cap50-subject', managerId)).toBe(201);
+    const agingPolicy = new StandardAgingPolicy();
+    for (let i = 0; i < 49; i++) {
+      await deps.players.save(
+        Player.generateFillOnly(
+          PlayerId(`sc-ahead-${i}`),
+          `Cap Ahead ${i}`,
+          750,
+          agingPolicy.stageForAge(750),
+          fixedAttributes(30),
+          'BR',
+          100,
+          { speed: 100, stamina: 100, strength: 100 },
+        ),
+      );
+      await db.insert(schema.rankingLedger).values({
+        id: `ledger-sc-ahead-${i}`,
+        playerId: `sc-ahead-${i}`,
+        tournamentId: 't-sc-seed',
+        tier: 'challenger',
+        ageBand: null,
+        points: 10_000 - i,
+        seasonEarned: 1,
+        weekEarned: 52,
+      });
+    }
+    await db.insert(schema.rankingLedger).values({
+      id: 'ledger-sc-subject',
+      playerId: 'cap50-subject',
+      tournamentId: 't-sc-seed',
+      tier: 'challenger',
+      ageBand: null,
+      points: 1,
+      seasonEarned: 1,
+      weekEarned: 52,
+    });
+
+    // The hard challenger bar is gone: the first three entries succeed.
+    for (const id of ids.slice(0, 3)) {
+      const entered = await app.inject({
+        method: 'POST',
+        url: `/tournaments/${id}/entrants`,
+        headers: { 'x-dev-manager-id': managerId },
+        payload: { playerId: 'cap50-subject' },
+      });
+      expect(entered.statusCode).toBe(201);
+    }
+
+    // The preview and the server enforcement are the SAME decision: the
+    // unentered week-4/5 rows report the cap used up and are disabled; an
+    // already-entered row excludes its own tournament (2 used, not 3) and
+    // stays enterable. Challenger is never hard-barred.
+    const list = await app.inject({ method: 'GET', url: '/tournaments?status=open&playerId=cap50-subject' });
+    expect(list.statusCode).toBe(200);
+    const rows = list.json() as Array<{
+      id: string;
+      rankRestricted: boolean;
+      seasonCapRestricted: boolean;
+      seasonCapReason: string | null;
+      seasonCapUsedThisSeason: number | null;
+      seasonCapLimitThisSeason: number | null;
+    }>;
+    const fourth = rows.find((r) => r.id === 't-sc-4')!;
+    expect(fourth.rankRestricted).toBe(false);
+    expect(fourth.seasonCapRestricted).toBe(true);
+    expect(fourth.seasonCapUsedThisSeason).toBe(3);
+    expect(fourth.seasonCapLimitThisSeason).toBe(3);
+    expect(fourth.seasonCapReason).toContain('all 3 are used');
+    expect(rows.find((r) => r.id === 't-sc-5')!.seasonCapRestricted).toBe(true);
+    const first = rows.find((r) => r.id === 't-sc-1')!;
+    expect(first.seasonCapRestricted).toBe(false);
+    expect(first.seasonCapUsedThisSeason).toBe(2); // its own entry excluded
+
+    // The fourth singles attempt is refused with the SAME reason, and so
+    // is a fourth attempt through the doubles field (no discipline
+    // loophole).
+    const refusedSingles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-sc-4/entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap50-subject' },
+    });
+    expect(refusedSingles.statusCode).toBe(409);
+    expect((refusedSingles.json() as { error: string }).error).toContain('all 3 are used');
+
+    const refusedDoubles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-sc-4/doubles-entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap50-subject' },
+    });
+    expect(refusedDoubles.statusCode).toBe(409);
+    expect((refusedDoubles.json() as { error: string }).error).toContain('all 3 are used');
+
+    // Same-event singles+doubles counts once: the doubles of week 3 (where
+    // the player already holds singles) is NOT a fourth challenger.
+    const sameEventDoubles = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-sc-3/doubles-entrants',
+      headers: { 'x-dev-manager-id': managerId },
+      payload: { playerId: 'cap50-subject' },
+    });
+    expect(sameEventDoubles.statusCode).toBe(201);
   });
 
   it('counts singles + doubles at the SAME event as ONE weekly entry — display and enforcement agree, and a second event is still refused at the senior cap of 1', async () => {
@@ -1310,6 +1443,82 @@ describe('API', () => {
       totalPoints: 250,
       rank: 1,
     });
+  });
+
+  it('sells cosmetics for XP: the owned set round-trips, refusals are real, and the badge shows on the leaderboard (Batch 4B, F2)', async () => {
+    const managerId = 'm-cosmetics';
+    const headers = { 'x-dev-manager-id': managerId };
+    // Fund the wallet BEFORE the first request (the starter grant only
+    // applies to a genuinely new account, and this row already exists).
+    await deps.managerXp.credit(ManagerId(managerId), 2_000);
+
+    // The catalog + owned set (initially empty) + the real balance.
+    const catalog = await app.inject({ method: 'GET', url: '/managers/cosmetics', headers });
+    expect(catalog.statusCode).toBe(200);
+    const catalogBody = catalog.json();
+    expect(catalogBody.owned).toEqual([]);
+    expect(catalogBody.badge).toBeNull();
+    expect(catalogBody.xpBalance).toBe(2_000);
+    expect(catalogBody.catalog.length).toBeGreaterThanOrEqual(9);
+    expect(catalogBody.catalog.every((i: { price: number }) => typeof i.price === 'number' && i.price > 0)).toBe(true);
+
+    // Buy a badge: XP is deducted and the unlock persists.
+    const bought = await app.inject({
+      method: 'POST',
+      url: '/managers/cosmetics/purchase',
+      headers,
+      payload: { itemId: 'badge-star' },
+    });
+    expect(bought.statusCode).toBe(200);
+    expect(bought.json()).toMatchObject({ itemId: 'badge-star', xpSpent: 200, xpBalance: 1_800 });
+    expect(bought.json().owned).toContain('badge-star');
+
+    // Re-buy refused; the balance is charged exactly once.
+    const rebuy = await app.inject({
+      method: 'POST',
+      url: '/managers/cosmetics/purchase',
+      headers,
+      payload: { itemId: 'badge-star' },
+    });
+    expect(rebuy.statusCode).toBe(409);
+    expect((rebuy.json() as { error: string }).error).toContain('already owned');
+    expect((await app.inject({ method: 'GET', url: '/managers/cosmetics', headers })).json().xpBalance).toBe(1_800);
+
+    // An unknown item is refused without touching the balance.
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/managers/cosmetics/purchase',
+      headers,
+      payload: { itemId: 'no-such-item' },
+    });
+    expect(unknown.statusCode).toBe(409);
+    expect((unknown.json() as { error: string }).error).toContain('Unknown cosmetic item');
+
+    // An unaffordable item is refused with the real numbers.
+    const poor = await app.inject({
+      method: 'POST',
+      url: '/managers/cosmetics/purchase',
+      headers,
+      payload: { itemId: 'celebration-gold' },
+    });
+    expect(poor.statusCode).toBe(409);
+    expect((poor.json() as { error: string }).error).toContain('needs 2000, balance 1800');
+
+    // The entitlement/sidebar read sees the same post-spend balance.
+    const entitlement = await app.inject({ method: 'GET', url: `/managers/${managerId}/entitlement`, headers });
+    expect(entitlement.json().xpBalance).toBe(1_800);
+
+    // The owned badge renders next to the name on the public leaderboard,
+    // for the caller's own echoed row too.
+    await deps.managerLadder.credit(ManagerId(managerId), 50);
+    const board = await app.inject({ method: 'GET', url: '/managers/leaderboard', headers });
+    expect(board.statusCode).toBe(200);
+    const row = board.json().standings.find((r: { managerId: string }) => r.managerId === managerId);
+    expect(row.badge).toEqual({ itemId: 'badge-star', glyph: '★', name: 'Star Badge' });
+    expect(board.json().self.badge).toEqual({ itemId: 'badge-star', glyph: '★', name: 'Star Badge' });
+    // A manager with no badge serializes null, not an empty object.
+    const otherRow = board.json().standings.find((r: { managerId: string }) => r.managerId !== managerId);
+    if (otherRow) expect(otherRow.badge).toBeNull();
   });
 
   it('a fired Masters Cup writes its ledger rows and title keyed on the CUP id — the tournament FK hazard is gone', async () => {

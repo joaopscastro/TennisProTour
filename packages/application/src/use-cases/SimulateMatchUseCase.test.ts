@@ -6,6 +6,7 @@ import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/doma
 import { Tournament } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawSize, MatchLog, TournamentTier } from '@tennis-manager/domain';
+import { AgeBand } from '@tennis-manager/domain';
 import { MatchParticipant, MatchSimulator, SimulatedMatch } from '@tennis-manager/domain';
 import { StandardManagerXpPolicy, StandardRankingPointsTable } from '@tennis-manager/domain';
 import { StandardManagerLadderPolicy } from '@tennis-manager/domain';
@@ -270,11 +271,13 @@ function buildStartedTournament(
   entrantCount: number,
   drawSize: DrawSize,
   tier: TournamentTier = 'challenger',
+  ageBand: AgeBand | null = null,
 ): { tournament: Tournament; bracketGenerator: BracketGenerator } {
   const bracketGenerator = new BracketGenerator();
   const tournament = Tournament.open({ name: 'Test Tournament',
     id: tournamentId,
     tier,
+    ageBand,
     surface: 'hard',
     weekScheduled: { season: 1, week: 1 },
     drawSize,
@@ -394,6 +397,65 @@ describe('SimulateMatchUseCase', () => {
       expect(winner!.attributes.technical.serve.value).toBe(30);
     });
 
+  });
+
+  describe('junior-tier development-XP multiplier (Batch 4B, F4)', () => {
+    async function runOneMatch(
+      tier: TournamentTier,
+      ageBand: AgeBand | null,
+    ): Promise<{ winnerExperience: number; loserExperience: number }> {
+      const tournamentId = TournamentId(`f4-${tier}`);
+      const { tournament, bracketGenerator } = buildStartedTournament(tournamentId, 16, 16, tier, ageBand);
+      const tournaments = new InMemoryTournamentRepository();
+      await tournaments.save(tournament);
+
+      const players = new InMemoryPlayerRepository();
+      for (let i = 1; i <= 16; i++) await players.save(makePlayer(PlayerId(`p${i}`)));
+
+      const useCase = new SimulateMatchUseCase(
+        tournaments,
+        players,
+        new AlwaysAWinsSimulator(),
+        new FakeMatchLogStore(),
+        new RecordingEventPublisher(),
+        bracketGenerator,
+        new StandardRankingPointsTable(),
+        new InMemoryRankingLedgerRepository(),
+        new StandardManagerXpPolicy(),
+        new InMemoryManagerXpRepository(),
+        new StandardManagerLadderPolicy(),
+        new InMemoryManagerLadderRepository(),
+        new InMemoryPeakRankingRepository(),
+        new InMemoryTitleRepository(),
+        makeTestWorld(),
+        testWorldId,
+        new StandardPlayerDevelopmentPolicy(),
+      );
+
+      const slot0 = tournament.getScheduledMatch(1, 0);
+      await useCase.execute({ matchId: MatchId('m0'), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const winner = await players.findById(slot0.entrantA);
+      const loser = await players.findById(slot0.entrantB);
+      return { winnerExperience: winner!.experience, loserExperience: loser!.experience };
+    }
+
+    it('a junior-tier match grants the multiplied player XP, while the senior path keeps the exact old values', async () => {
+      // AlwaysAWinsSimulator: a 6-0 blowout, so the base award is the
+      // floor (loser 4; winner floor × 0.65 = 2.6 → 3). The senior path
+      // must still produce exactly those numbers (byte-identical default);
+      // a j100 match at ×1.5 gives 6 and 4.
+      const senior = await runOneMatch('challenger', null);
+      expect(senior).toEqual({ winnerExperience: 3, loserExperience: 4 });
+
+      const junior = await runOneMatch('j100', 'u14');
+      expect(junior).toEqual({ winnerExperience: 4, loserExperience: 6 });
+      // Strictly greater on BOTH sides — a junior match is a better
+      // development choice, never merely equal. (The exact values above
+      // are the one-rounding ×1.5 results: raw 4 → 6, raw 2.6 → 3.9 → 4.)
+      expect(junior.loserExperience).toBeGreaterThan(senior.loserExperience);
+      expect(junior.winnerExperience).toBeGreaterThan(senior.winnerExperience);
+    });
   });
 
   it('does not generate a further round once the final round completes, relying on TournamentCompleted instead', async () => {

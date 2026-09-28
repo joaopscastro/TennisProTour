@@ -35,6 +35,7 @@ import { StartDueTournamentsUseCase } from '@tennis-manager/application';
 import { SetTrainingScheduleUseCase } from '@tennis-manager/application';
 import { ReleasePlayerUseCase } from '@tennis-manager/application';
 import { DeleteManagerAccountUseCase } from '@tennis-manager/application';
+import { PurchaseManagerCosmeticUseCase } from '@tennis-manager/application';
 import { RegisterEntrantUseCase } from '@tennis-manager/application';
 import { SendManagerDigestsUseCase } from '@tennis-manager/application';
 import { ManagerContactPort } from '@tennis-manager/application';
@@ -56,6 +57,7 @@ import { DrizzleCoachConversionAdapter } from './adapters/outbound/DrizzleCoachC
 import { DrizzleWeeklyEntryGuardAdapter } from './adapters/outbound/DrizzleWeeklyEntryGuardAdapter';
 import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
 import { DrizzleManagerLadderRepository } from './adapters/outbound/DrizzleManagerLadderRepository';
+import { DrizzleManagerCosmeticAdapter } from './adapters/outbound/DrizzleManagerCosmeticAdapter';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
 import { DrizzleDoublesPairRepository } from './adapters/outbound/DrizzleDoublesPairRepository';
 import { DrizzleDoublesTitleRepository } from './adapters/outbound/DrizzleDoublesTitleRepository';
@@ -183,6 +185,11 @@ export interface Dependencies {
   trainingScheduleQuery: PlayerTrainingScheduleQuery;
   managerXp: DrizzleManagerXpRepository;
   managerLadder: DrizzleManagerLadderRepository;
+  /** Owned cosmetic items (Batch 4B, F2) — the zero-competitive-effect XP
+   * sink. The port is exposed for the leaderboard's badge read; the use
+   * case is the only writer. */
+  managerCosmetics: DrizzleManagerCosmeticAdapter;
+  purchaseManagerCosmetic: PurchaseManagerCosmeticUseCase;
   coaches: DrizzleCoachRepository;
   /** Exposed on Dependencies (not just built inline in buildDependencies)
    * so routes can compute the exact same real numbers a use case would
@@ -427,6 +434,11 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const managerXpPolicy = new StandardManagerXpPolicy();
   const managerLadder = new DrizzleManagerLadderRepository(options.db);
   const managerLadderPolicy = new StandardManagerLadderPolicy();
+  // The zero-competitive-effect XP sink (Batch 4B, F2) — the purchase is
+  // a cross-table atomic port (wallet debit + unlock row), the same shape
+  // as talentClaim/coachConversion below.
+  const managerCosmetics = new DrizzleManagerCosmeticAdapter(options.db);
+  const purchaseManagerCosmetic = new PurchaseManagerCosmeticUseCase(managerCosmetics);
   const developmentPolicy = new StandardPlayerDevelopmentPolicy();
   const talentClaim = new DrizzleTalentClaimAdapter(options.db);
   const coachConversion = new DrizzleCoachConversionAdapter(options.db);
@@ -636,6 +648,8 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     trainingScheduleQuery,
     managerXp,
     managerLadder,
+    managerCosmetics,
+    purchaseManagerCosmetic,
     coaches,
     talentClaimPricingPolicy,
     coachConversionPolicy,

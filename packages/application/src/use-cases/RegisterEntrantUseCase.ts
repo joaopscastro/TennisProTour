@@ -1,10 +1,16 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
-import { maxSeniorRankForTier, seniorTierEntryRestrictionReason } from '@tennis-manager/domain';
+import {
+  isInsideSoftCapCutoff,
+  seasonSoftCapRefusalReason,
+  seniorTierEntryRestrictionReason,
+  tierUsesSeniorRank,
+} from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
+import { seasonTierEntryCountFor } from './seasonEntryCap';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { applyWildCards } from './applyWildCards';
 import { retryOnConflict } from './retryOnConflict';
@@ -48,15 +54,17 @@ export interface RegisterEntrantCommand {
  * player entering the senior tour is a normal, unrestricted case in
  * real tennis (and in this game), not a second gap to close here.
  *
- * **Ranking-based tier restriction**: a player whose SENIOR ranking is
- * too good may not drop into a lower senior tier — a top-`FUTURES_MAX_RANK`
- * player may not enter `futures`, a top-`CHALLENGER_MAX_RANK` player may
- * not enter `challenger`; `tour`/`major` and every junior tier are
- * unrestricted, and an unranked player is never blocked. See
- * TierEntryRestrictionPolicy for the full rule and why it exists. This is
- * the same live senior `RankPositionQuery` the qualifying rule already
- * reads; the read only happens at a restricted tier, so an ordinary
- * tour/major/junior entry pays no extra ranking cost.
+ * **Ranking-based tier restrictions**: a top-`FUTURES_MAX_RANK` player
+ * may not enter a futures event at all (a hard bar, unchanged), and a
+ * player ranked inside `CHALLENGER_MAX_RANK` may enter at most
+ * `CHALLENGER_SEASON_ENTRY_CAP` challenger events PER SEASON (the
+ * Batch 4B soft cap that replaced the old challenger hard bar — see
+ * TierEntryRestrictionPolicy for why). `tour`/`major` and every junior
+ * tier are unrestricted, and an unranked player is never blocked. Both
+ * rules read the same live senior `RankPositionQuery`; the challenger
+ * count is a single repository read (countTierEntriesForSeason) made
+ * only for a rank actually inside the cutoff, so an ordinary
+ * tour/major/junior/lower-ranked entry pays no extra cost.
  *
  * **Weekly entry cap**: a player may not enter more than the tier's
  * weekly cap worth of same-band tournaments in one GameWeek — junior
@@ -162,17 +170,31 @@ export class RegisterEntrantUseCase {
         }
       }
 
-      // Ranking-based tier restriction (see the class doc comment and
-      // TierEntryRestrictionPolicy): a senior player ranked too highly may
-      // not drop into a lower senior tier. Only reads the rank at a tier
-      // that actually has a restriction, and only when a rank query is
-      // injected (omitted, as in the pre-qualifying unit tests, the rule is
-      // simply inert — the composition root always passes it).
-      if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+      // Ranking-based tier restrictions (see the class doc comment and
+      // TierEntryRestrictionPolicy): a top-`FUTURES_MAX_RANK` player may
+      // not drop into a futures event (hard bar, unchanged), while a
+      // player inside `CHALLENGER_MAX_RANK` faces the per-season
+      // challenger soft cap. Both read the SAME live senior rank and only
+      // at a tier whose rule needs it; a rank query omitted (the
+      // pre-qualifying unit tests) leaves the rules simply inert — the
+      // composition root always passes it.
+      if (this.seniorRankPosition && tierUsesSeniorRank(tournament.tier)) {
         const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
-        const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
-        if (reason) {
-          throw new Error(`Player ${command.playerId} is ${reason}`);
+        const hardReason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+        if (hardReason) {
+          throw new Error(`Player ${command.playerId} is ${hardReason}`);
+        }
+        // The season count read happens only for a rank inside the soft
+        // cap's cutoff, so a lower-ranked challenger entry (and every
+        // unrestricted tier, which never reaches here) pays nothing. The
+        // tournament being registered is excluded from its own count —
+        // see seasonTierEntryCountFor.
+        if (isInsideSoftCapCutoff(tournament.tier, rank)) {
+          const used = await seasonTierEntryCountFor(this.tournaments, tournament, command.playerId);
+          const capReason = seasonSoftCapRefusalReason(tournament.tier, rank, used);
+          if (capReason) {
+            throw new Error(`Player ${command.playerId} is ${capReason}`);
+          }
         }
       }
 

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, exists, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { GameWeek, PairId, PlayerId, TournamentId, WEEKS_PER_SEASON } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import {
@@ -314,6 +314,55 @@ export class DrizzleTournamentRepository implements TournamentRepository {
     const counts = new Map<string, number>();
     for (const row of rows) counts.set(row.tournamentId, Number(row.managerEntrants));
     return counts;
+  }
+
+  /**
+   * The season-scoped count behind the challenger soft cap (see the port's
+   * doc comment): how many DISTINCT challenger (or any tier's)
+   * tournaments this player is entered in for a season, counting singles
+   * (tournament_entries) and doubles (tournament_doubles_entrants)
+   * together and deduping by tournament — the same "one event counts
+   * once" semantics the weekly cap applies, just over a season. Two
+   * EXISTS probes against the tournaments table rather than a UNION+COUNT,
+   * so each tournament row is tested once. Backed by both player_id
+   * indexes (idx_tournament_entries_player_id; the doubles-entrants
+   * composite PK leads with tournament_id but the row count is small).
+   */
+  async countTierEntriesForSeason(playerId: PlayerId, tier: TournamentTier, season: number): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(tournaments)
+      .where(
+        and(
+          eq(tournaments.tier, tier),
+          eq(tournaments.seasonScheduled, season),
+          or(
+            exists(
+              this.db
+                .select({ one: sql`1` })
+                .from(tournamentEntries)
+                .where(
+                  and(
+                    eq(tournamentEntries.tournamentId, tournaments.id),
+                    eq(tournamentEntries.playerId, playerId),
+                  ),
+                ),
+            ),
+            exists(
+              this.db
+                .select({ one: sql`1` })
+                .from(tournamentDoublesEntrants)
+                .where(
+                  and(
+                    eq(tournamentDoublesEntrants.tournamentId, tournaments.id),
+                    eq(tournamentDoublesEntrants.playerId, playerId),
+                  ),
+                ),
+            ),
+          ),
+        ),
+      );
+    return Number(rows[0]?.count ?? 0);
   }
 
   async save(tournament: Tournament): Promise<void> {

@@ -34,6 +34,50 @@ describe('StandardPlayerDevelopmentPolicy', () => {
         policy.matchExperience({ loserGames: 0, isWinner: false }),
       );
     });
+
+    it('is byte-identical for every pre-existing caller — context absent, {}, or juniorTier: false all give the old value (Batch 4B, F4)', () => {
+      const cases = [
+        { loserGames: 0, isWinner: false },
+        { loserGames: 12, isWinner: false },
+        { loserGames: 12, isWinner: true },
+        { loserGames: 7, isWinner: true },
+      ] as const;
+      for (const c of cases) {
+        const plain = policy.matchExperience(c);
+        expect(policy.matchExperience({ ...c, context: {} })).toBe(plain);
+        expect(policy.matchExperience({ ...c, context: { juniorTier: false } })).toBe(plain);
+        // Hand-computed default path, so this pins the ACTUAL formula, not
+        // just self-consistency: floor(4) + games × 3, ×0.65 for a winner.
+        const expected =
+          c.isWinner ? Math.round((4 + Math.max(0, c.loserGames) * 3) * 0.65) : 4 + Math.max(0, c.loserGames) * 3;
+        expect(plain).toBe(expected);
+      }
+    });
+
+    it('multiplies a junior-tier match by the placeholder ×1.5, for winner and loser alike — development XP only', () => {
+      // The multiplier is applied to the RAW award and rounded ONCE (so a
+      // junior 2.6 winner award becomes 4, not round(3 × 1.5) = 5) — which
+      // is exactly why these are hand-computed expected values rather
+      // than senior × 1.5 comparisons.
+      const cases = [
+        { loserGames: 0, isWinner: false, senior: 4, junior: 6 },
+        { loserGames: 5, isWinner: false, senior: 19, junior: 29 },
+        { loserGames: 12, isWinner: false, senior: 40, junior: 60 },
+        { loserGames: 0, isWinner: true, senior: 3, junior: 4 },
+        { loserGames: 5, isWinner: true, senior: 12, junior: 19 },
+        { loserGames: 12, isWinner: true, senior: 26, junior: 39 },
+      ] as const;
+      for (const c of cases) {
+        expect(policy.matchExperience({ loserGames: c.loserGames, isWinner: c.isWinner })).toBe(c.senior);
+        const junior = policy.matchExperience({
+          loserGames: c.loserGames,
+          isWinner: c.isWinner,
+          context: { juniorTier: true },
+        });
+        expect(junior).toBe(c.junior);
+        expect(junior).toBeGreaterThan(c.senior);
+      }
+    });
   });
 
   describe('weeklyTalentIncome', () => {

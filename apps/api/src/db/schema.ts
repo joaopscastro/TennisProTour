@@ -316,6 +316,29 @@ export const managerProgression = pgTable('manager_progression', {
 });
 
 /**
+ * A manager's owned COSMETIC items (Batch 4B, F2) — the
+ * zero-competitive-effect XP sink. One row per (manager, item); the
+ * composite primary key is what makes a re-buy structurally impossible
+ * to double-record, so the purchase adapter's
+ * `.onConflictDoNothing().returning()` claim is the race-safe "first
+ * writer wins" boundary rather than a read-then-write check. No FK to
+ * managers — same convention as manager_progression/manager_entitlements
+ * above (a deleted account's wallet rows are anonymized/cleaned by that
+ * flow, not cascaded here). `item_id` is validated against the domain
+ * catalog (ManagerCosmetics.ts) before any write; the DB stores the id
+ * only, never a copy of the item's presentation data.
+ */
+export const managerCosmetics = pgTable(
+  'manager_cosmetics',
+  {
+    managerId: text('manager_id').notNull(),
+    itemId: text('item_id').notNull(),
+    acquiredAt: timestamp('acquired_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.managerId, table.itemId] })],
+);
+
+/**
  * A manager's DECAYING public ladder score (Manager & Progression
  * context — see ManagerLadderRepository). Deliberately a SEPARATE table
  * from manager_progression above: that one is the monotonic spendable

@@ -43,6 +43,7 @@ export * from './ranking/SeasonBonusPoolPolicy';
 export * from './ranking/WildCardPolicy';
 export * from './ranking/TierEntryRestrictionPolicy';
 export * from './manager/ManagerXpPolicy';
+export * from './manager/ManagerCosmetics';
 export * from './manager/ManagerLadderPolicy';
 export * from './manager/PracticePolicy';
 export * from './manager/TalentClaimPricingPolicy';

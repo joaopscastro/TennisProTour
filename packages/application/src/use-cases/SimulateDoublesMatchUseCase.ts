@@ -1,4 +1,4 @@
-import { GameWeek, MatchId, Player, PlayerId, TournamentId, WorldId, TournamentTier, DrawPhase } from '@tennis-manager/domain';
+import { GameWeek, MatchId, Player, PlayerId, TournamentId, WorldId, TournamentTier, DrawPhase, isJuniorTier } from '@tennis-manager/domain';
 import { DoublesPairPolicy, MatchLog, MatchSimulator } from '@tennis-manager/domain';
 import { BracketGenerator, RankingPointsTable, doublesPointsFor, doublesQualifyingPointsFor, doublesPrizeMoneyFor, doublesQualifyingPrizeMoneyFor } from '@tennis-manager/domain';
 import { ManagerXpPolicy, ManagerLadderPolicy, PlayerDevelopmentPolicy } from '@tennis-manager/domain';
@@ -198,7 +198,15 @@ export class SimulateDoublesMatchUseCase {
       p.applyMatchForm(1);
       p.applyMatchSurfaceGrowth(tournament.surface, MATCH_SURFACE_AFFINITY_GAIN);
       const isWinner = winnerPlayers.includes(p);
-      p.gainExperience(this.developmentPolicy.matchExperience({ loserGames, isWinner }));
+      // Same junior-tier development multiplier singles applies (Batch
+      // 4B, F4), so junior DOUBLES is equally a development choice.
+      p.gainExperience(
+        this.developmentPolicy.matchExperience({
+          loserGames,
+          isWinner,
+          context: { juniorTier: isJuniorTier(tournament.tier) },
+        }),
+      );
       await this.players.save(p);
     }
 

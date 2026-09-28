@@ -11,10 +11,11 @@ import {
   SurfaceAffinities,
   Tournament,
   TournamentId,
+  TournamentTier,
   WorldId,
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { qualifierSlotsFor, qualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
+import { CHALLENGER_SEASON_ENTRY_CAP, qualifierSlotsFor, qualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
 import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
@@ -56,6 +57,20 @@ class InMemoryTournamentRepository implements TournamentRepository {
         t.weekScheduled.week === week.week &&
         t.entrants.some((e) => e.playerId === playerId),
     );
+  }
+
+  /** The season count behind the challenger soft cap — same semantics as
+   * the Drizzle adapter: distinct tournaments at the tier in the season
+   * where the player holds a SINGLES or DOUBLES entry (deduped by
+   * tournament; the row's own tournament is excluded by the shared
+   * seasonTierEntryCountFor helper, not here). */
+  async countTierEntriesForSeason(playerId: PlayerId, tier: TournamentTier, season: number): Promise<number> {
+    return [...this.store.values()].filter(
+      (t) =>
+        t.tier === tier &&
+        t.weekScheduled.season === season &&
+        (t.entrants.some((e) => e.playerId === playerId) || t.doublesEntrants.some((id) => id === playerId)),
+    ).length;
   }
 
   async save(tournament: Tournament): Promise<void> {
@@ -945,17 +960,90 @@ describe('RegisterEntrantUseCase — ranking-based tier entry restrictions', () 
     await expect(useCase.execute({ tournamentId: tour, playerId: PlayerId('subject') })).resolves.toBeUndefined();
   });
 
-  it('refuses a top-50 player from challenger but allows tour', async () => {
+  it('lets a top-50 player enter challengers up to the per-season soft cap, then refuses the next one (Batch 4B, F1)', async () => {
     const { tournaments, useCase } = await setupWithRank(50);
-    const challenger = TournamentId('challenger-top50');
-    const tour = TournamentId('tour-top50');
-    await tournaments.save(openSenior(challenger, 'challenger', 1));
-    await tournaments.save(openSenior(tour, 'tour', 2));
+    // Four challenger events in four different weeks of the SAME season:
+    // the weekly cap only forbids a second entry inside one week, so this
+    // isolates the season soft cap. The hard bar is gone — the first
+    // three all succeed.
+    for (let i = 0; i < CHALLENGER_SEASON_ENTRY_CAP; i++) {
+      const id = TournamentId(`challenger-cap-${i}`);
+      await tournaments.save(openSenior(id, 'challenger', i + 1));
+      await expect(useCase.execute({ tournamentId: id, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+    }
 
-    await expect(useCase.execute({ tournamentId: challenger, playerId: PlayerId('subject') })).rejects.toThrow(
-      /ranked #50 on the senior ladder — too high to enter a challenger event/,
+    const fourth = TournamentId('challenger-cap-refused');
+    await tournaments.save(openSenior(fourth, 'challenger', CHALLENGER_SEASON_ENTRY_CAP + 1));
+    await expect(useCase.execute({ tournamentId: fourth, playerId: PlayerId('subject') })).rejects.toThrow(
+      /ranked #50 on the senior ladder — top-50 players may enter 3 challenger events per season, and all 3 are used/,
     );
-    await expect(useCase.execute({ tournamentId: tour, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+
+    // A NEW season resets the cap: the same player may enter again.
+    const nextSeason = TournamentId('challenger-cap-s2');
+    await tournaments.save(
+      Tournament.open({
+        name: 'Next Season',
+        id: nextSeason,
+        tier: 'challenger',
+        surface: 'clay',
+        weekScheduled: { season: 2, week: 1 },
+        drawSize: 16,
+      }),
+    );
+    await expect(useCase.execute({ tournamentId: nextSeason, playerId: PlayerId('subject') })).resolves.toBeUndefined();
+  });
+
+  it('applies the challenger soft cap to the doubles path, but same-event singles+doubles counts once', async () => {
+    const { tournaments, players, rankPosition } = await setupWithRank(50);
+    const playerId = PlayerId('subject');
+    await savePlayer(players, playerId, SENIOR_AGE);
+    const singles = new RegisterEntrantUseCase(tournaments, players, new BracketGenerator(), rankPosition);
+    const doubles = new RegisterDoublesEntrantUseCase(tournaments, players, undefined, rankPosition);
+
+    // Three challenger singles entries, each with a doubles draw, in three
+    // different weeks. The third is held on to for the same-event case.
+    const ids: TournamentId[] = [];
+    for (let i = 0; i < CHALLENGER_SEASON_ENTRY_CAP; i++) {
+      const id = TournamentId(`ch-cap-mixed-${i}`);
+      ids.push(id);
+      await tournaments.save(
+        Tournament.open({
+          name: 'Cap Mixed',
+          id,
+          tier: 'challenger',
+          surface: 'clay',
+          weekScheduled: { season: 1, week: i + 1 },
+          drawSize: 16,
+          doublesDrawSize: 4,
+        }),
+      );
+      await singles.execute({ tournamentId: id, playerId });
+    }
+
+    // A FOURTH challenger through the doubles field is still a fourth
+    // challenger — the cap can't be sidestepped by switching discipline.
+    const fourth = TournamentId('ch-cap-doubles-fourth');
+    await tournaments.save(
+      Tournament.open({
+        name: 'Cap Doubles Fourth',
+        id: fourth,
+        tier: 'challenger',
+        surface: 'clay',
+        weekScheduled: { season: 1, week: 9 },
+        drawSize: 16,
+        doublesDrawSize: 4,
+      }),
+    );
+    await expect(doubles.execute({ tournamentId: fourth, playerId, managerId: ManagerId('m1') })).rejects.toThrow(
+      /all 3 are used/,
+    );
+
+    // But the doubles of an event the player is ALREADY in spends no
+    // fourth slot — one tournament counts once, exactly like the weekly
+    // cap's same-event semantics.
+    await expect(
+      doubles.execute({ tournamentId: ids[ids.length - 1], playerId, managerId: ManagerId('m1') }),
+    ).resolves.toBeUndefined();
   });
 
   it('allows a player ranked just outside each cutoff (201 in futures, 51 in challenger)', async () => {

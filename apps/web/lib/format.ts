@@ -55,6 +55,22 @@ export function rankingBandScopeNote(band: RankBand): string {
     : `Only ${RANK_BAND_LABEL[band]} events count toward the ${RANK_BAND_LABEL[band]} ranking — senior and other-band results don't.`;
 }
 
+/** F4b: the visible intent behind junior competition — a junior result is
+ * not a dead end, because junior results also build the graduation bonus a
+ * player takes into the NEXT band. Describes the existing domain rule
+ * (`computeGraduationCarryover`, 50% of the player's final total in the
+ * band they're leaving, consumed on their first win after moving up)
+ * without exposing any hidden number: `GRADUATION_CARRYOVER_FRACTION` is
+ * deliberately not read here, the copy just states the rule. Returns null
+ * for the senior ladder (there is no band above it). */
+export function juniorCarryoverNote(band: RankBand): string | null {
+  if (band === 'senior') return null;
+  return (
+    `Junior results build toward the next band too: half of a player's final ${RANK_BAND_LABEL[band]} total ` +
+    'carries over as a one-time bonus on their first win after moving up.'
+  );
+}
+
 export interface SetScore {
   winnerGames: number;
   loserGames: number;

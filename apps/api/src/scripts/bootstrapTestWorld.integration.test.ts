@@ -50,6 +50,7 @@ beforeEach(async () => {
   await db.delete(schema.practiceSessions);
   await db.delete(schema.players);
   await db.delete(schema.managerEntitlements);
+  await db.delete(schema.managerCosmetics);
   await db.delete(schema.managerProgression);
   await db.delete(schema.notificationDeliveries);
   await db.delete(schema.managerNotificationStates);

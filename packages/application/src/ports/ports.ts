@@ -2,7 +2,7 @@ import { Player } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { ManagerId, PlayerId, TournamentId, GameWeek, MatchId, WorldId, CoachId } from '@tennis-manager/domain';
 import { MatchLog, GameWorld, GameDay, RankingLedgerEntry, Coach, DoublesPair, PairId, DoublesTitleRecord, DoublesPeakRankingEntry, MastersCup, WorldTeamCup } from '@tennis-manager/domain';
-import { PeakRankingEntry, RankingBand, TitleRecord } from '@tennis-manager/domain';
+import { PeakRankingEntry, RankingBand, TitleRecord, TournamentTier } from '@tennis-manager/domain';
 import { TrainingScheduleEntry } from '@tennis-manager/domain';
 
 export interface ManagerAccount {
@@ -298,6 +298,19 @@ export interface TournamentRepository {
    * compatibility; the Drizzle adapter — the only production
    * implementation — always provides it. */
   countManagerEntrants?(tournamentIds: TournamentId[]): Promise<Map<string, number>>;
+
+  /** How many DISTINCT tournaments at `tier` in `season` this player is
+   * registered in, counting SINGLES and DOUBLES together and deduping by
+   * tournament — the season-scoped big brother of the weekly cap's
+   * `findByPlayerAndWeek` + `findDoublesByPlayerAndWeek` pair. This backs
+   * the challenger per-season soft cap (see TierEntryRestrictionPolicy):
+   * a top-ranked player may enter at most `CHALLENGER_SEASON_ENTRY_CAP`
+   * challenger events per season. Same-event singles+doubles counts once,
+   * exactly as the weekly cap treats it. Optional for test compatibility
+   * (an in-memory fake may omit it; the soft cap is then inert, matching
+   * how every other optional collaborator degrades); the Drizzle adapter
+   * — the only production implementation — always provides it. */
+  countTierEntriesForSeason?(playerId: PlayerId, tier: TournamentTier, season: number): Promise<number>;
   save(tournament: Tournament): Promise<void>;
 }
 
@@ -566,6 +579,46 @@ export interface ManagerXpRepository {
    * never both pass a balance check before either deducts. Returns
    * whether the spend succeeded. */
   spendXpIfSufficient(managerId: ManagerId, amount: number): Promise<boolean>;
+}
+
+/** Outcome of an atomic cosmetic purchase — a discriminated union so the
+ * canonical `already-owned` and `insufficient-xp` refusals are distinct,
+ * user-facing states rather than one generic failure. */
+export type CosmeticPurchaseOutcome =
+  | { kind: 'purchased'; itemId: string; xpSpent: number }
+  | { kind: 'already-owned' }
+  | { kind: 'insufficient-xp'; required: number; balance: number };
+
+/**
+ * The manager cosmetics store (Batch 4B, F2) — the zero-competitive-
+ * effect XP sink. See domain ManagerCosmetics.ts for the catalog and the
+ * explicit statement of what was rejected (XP → player development /
+ * training / fatigue) as a scope decision rather than an oversight.
+ *
+ * `purchaseAndCharge` is deliberately a cross-table port, exactly like
+ * TalentClaimPort/CoachConversionPort: debiting the XP wallet and
+ * recording the unlock on a NEW table must succeed or fail together
+ * (otherwise a failed unlock insert silently eats the XP, or a free
+ * unlock could be granted by a racing double-submit). The real adapter
+ * performs both in one transaction, with the composite (manager, item)
+ * primary key making a re-buy structurally impossible to double-record.
+ */
+export interface ManagerCosmeticPort {
+  /** The cosmetic item ids this manager owns, any order. */
+  ownedFor(managerId: ManagerId): Promise<string[]>;
+  /** Batch read for the public leaderboard: every listed manager's owned
+   * item ids, in ONE query (bounded by the returned slice). Managers with
+   * no cosmetics are simply absent from the map. */
+  ownedByManagers(managerIds: ManagerId[]): Promise<Map<string, string[]>>;
+  /** Atomically records the unlock and debits `xpCost` from the
+   * manager's wallet. Succeeds only when the item was not already owned
+   * AND the balance covered the cost; on either failure nothing changes
+   * (the XP debit is rolled back with the failed insert). */
+  purchaseAndCharge(input: {
+    managerId: ManagerId;
+    itemId: string;
+    xpCost: number;
+  }): Promise<CosmeticPurchaseOutcome>;
 }
 
 /** One manager's public standing on the decaying ladder. */

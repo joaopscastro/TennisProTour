@@ -1,9 +1,15 @@
 import { PlayerId, TournamentId, isAgeEligibleForTournamentBand, isJuniorTier } from '@tennis-manager/domain';
 import { ManagerId } from '@tennis-manager/domain';
-import { maxSeniorRankForTier, seniorTierEntryRestrictionReason } from '@tennis-manager/domain';
+import {
+  isInsideSoftCapCutoff,
+  seasonSoftCapRefusalReason,
+  seniorTierEntryRestrictionReason,
+  tierUsesSeniorRank,
+} from '@tennis-manager/domain';
 import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
+import { seasonTierEntryCountFor } from './seasonEntryCap';
 import { retryOnConflict } from './retryOnConflict';
 
 export interface RegisterDoublesEntrantCommand {
@@ -34,10 +40,15 @@ export interface RegisterDoublesEntrantCommand {
  * unlimited doubles fields the same week (whose rounds run the same
  * days).
  *
- * **Ranking-based tier restriction**: the SAME senior-tour rule singles
- * enforces (see TierEntryRestrictionPolicy) applies to doubles — a
- * top-ranked player can't farm a lower tier's doubles draw either, and a
- * doubles entry can never be the loophole around the singles refusal.
+ * **Ranking-based tier restrictions**: the SAME rules singles enforces
+ * (see TierEntryRestrictionPolicy) apply to doubles — a top-ranked
+ * player can't farm a lower tier's doubles draw either, and a doubles
+ * entry can never be the loophole around a refused singles entry. That
+ * means the futures hard bar AND the challenger per-season soft cap are
+ * both re-checked here, against the same live senior rank read (and the
+ * same countTierEntriesForSeason count), so a top-50 player who has
+ * used their three challenger slots cannot spend a fourth through the
+ * doubles field.
  */
 export class RegisterDoublesEntrantUseCase {
   constructor(
@@ -87,14 +98,22 @@ export class RegisterDoublesEntrantUseCase {
         );
       }
 
-      // Ranking-based tier restriction (see TierEntryRestrictionPolicy):
-      // the SAME rule singles enforces, so a doubles entry can never be
-      // the loophole around a refused singles entry.
-      if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+      // Ranking-based tier restrictions (see TierEntryRestrictionPolicy):
+      // the SAME hard bar AND per-season soft cap singles enforces, so a
+      // doubles entry can never be the loophole around a refused singles
+      // entry.
+      if (this.seniorRankPosition && tierUsesSeniorRank(tournament.tier)) {
         const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
-        const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
-        if (reason) {
-          throw new Error(`Player ${command.playerId} is ${reason}`);
+        const hardReason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+        if (hardReason) {
+          throw new Error(`Player ${command.playerId} is ${hardReason}`);
+        }
+        if (isInsideSoftCapCutoff(tournament.tier, rank)) {
+          const used = await seasonTierEntryCountFor(this.tournaments, tournament, command.playerId);
+          const capReason = seasonSoftCapRefusalReason(tournament.tier, rank, used);
+          if (capReason) {
+            throw new Error(`Player ${command.playerId} is ${capReason}`);
+          }
         }
       }
 

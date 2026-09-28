@@ -31,6 +31,15 @@ export interface SeniorOpening {
  * arranged so a major week still also fires the smaller tiers, never
  * feeling arbitrary.
  *
+ * **Two `tour` events every week — Batch 4B (F1).** With one weekly
+ * tour and the challenger soft cap, a top-ranked player's week was a
+ * forced "enter the only tour or rest" (three independent agents in the
+ * 52-week season reported exactly this). A second weekly tour makes the
+ * top's decision a real one — which field, which surface, which host —
+ * rather than play-or-rest. A senior player still plays ONE tournament
+ * per week (`SENIOR_WEEKLY_ENTRY_CAP` = 1), so the two are a genuine
+ * choice, never two entries.
+ *
  * The major's 13-week cadence carries a `phase: 12` offset rather than
  * firing on absolute week ≡ 0 (mod 13) — see TWO_WEEK_TIERS' week-51
  * rule in TournamentSchedulePolicy.ts. Absolute weeks ≡ 0 (mod 13) are
@@ -45,7 +54,7 @@ export interface SeniorOpening {
 const SCHEDULE: ReadonlyArray<SeniorOpening & { everyNWeeks: number; phase?: number }> = [
   { tier: 'futures', drawSize: 32, count: 2, everyNWeeks: 1 },
   { tier: 'challenger', drawSize: 32, count: 2, everyNWeeks: 1 },
-  { tier: 'tour', drawSize: 64, count: 1, everyNWeeks: 1 },
+  { tier: 'tour', drawSize: 64, count: 2, everyNWeeks: 1 },
   { tier: 'major', drawSize: 128, count: 1, everyNWeeks: 13, phase: 12 },
 ];
 

@@ -13,7 +13,7 @@ import { PageShell } from '../../components/ui/primitives';
 import { Tabs } from '../../components/ui/Tabs';
 import { useDevManagerId } from '../../lib/managerContext';
 import { useEntitlement } from '../../lib/entitlement';
-import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote } from '../../lib/format';
+import { RANKING_EARNED_NOTE, RANK_BAND_LABEL, disambiguatedNames, juniorCarryoverNote, rankingBandScopeNote } from '../../lib/format';
 import { MEDAL } from '../../lib/ui/medals';
 
 const BANDS: Array<{ key: RankingBand; label: string }> = [
@@ -148,6 +148,7 @@ export default function RankingsPage() {
             <div>No player has earned points on the {ladderLabel} ladder yet.</div>
             <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', maxWidth: 560, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>
               {rankingBandScopeNote(band)} A player only appears here once they&apos;ve won a match in one of this band&apos;s own events — an empty junior table while U14-badged players have won senior matches is expected, not a bug.
+              {juniorCarryoverNote(band) && <span> {juniorCarryoverNote(band)}</span>}
             </div>
           </div>
         )}
@@ -157,6 +158,7 @@ export default function RankingsPage() {
             <div>None of your players is in the top 100 of the {ladderLabel} ladder.</div>
             <div style={{ marginTop: 8, fontSize: 12.5, color: 'var(--ink-4)', lineHeight: 1.5 }}>
               {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
+              {juniorCarryoverNote(band) && <span> {juniorCarryoverNote(band)}</span>}
             </div>
           </div>
         )}

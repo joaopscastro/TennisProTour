@@ -17,7 +17,7 @@ import { DEAD_PHYSICAL_FOCUS_NOTE, deadPhysicalFocusWarning } from '../lib/focus
 import type { PlannerWeekDto, PotentialProjectionDto } from '../lib/api';
 import { xpAffordability } from '../lib/xp';
 import { titleSummaryLabel } from '../lib/titles';
-import { RANK_BAND_LABEL, disambiguatedNames, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
+import { RANK_BAND_LABEL, disambiguatedNames, juniorCarryoverNote, rankingBandScopeNote, tournamentHistoryResultLabel } from '../lib/format';
 
 /**
  * Pure-logic regression tests for two first-time-visitor bugs. These need
@@ -391,6 +391,17 @@ test.describe('rank bands are always labelled', () => {
 
   test('the senior scope note is about senior results specifically', () => {
     expect(rankingBandScopeNote('senior')).toContain('senior-tour');
+  });
+
+  test('the junior carryover note explains the next-band bonus and is absent for senior (Batch 4B, F4b)', () => {
+    for (const band of ['u14', 'u16', 'u18'] as const) {
+      const note = juniorCarryoverNote(band);
+      expect(note).not.toBeNull();
+      expect(note).toContain(RANK_BAND_LABEL[band]);
+      expect(note).toContain('carries over');
+      expect(note).toContain('first win');
+    }
+    expect(juniorCarryoverNote('senior')).toBeNull();
   });
 });
 

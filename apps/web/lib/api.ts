@@ -290,14 +290,27 @@ export interface TournamentDto {
   qualifyingFieldTaken?: number;
   qualifyingFieldSize?: number;
   /** Whether this player's SENIOR ranking is too high to enter this event
-   * (a top-200 player can't enter futures, a top-50 player can't enter
-   * challenger — see the domain TierEntryRestrictionPolicy). The SAME
-   * rule the server enforces, so the picker can disable the row up front.
-   * Only set when ?playerId= was supplied. */
+   * under the HARD bar (a top-200 player can't enter futures; `tour`/
+   * `major`/junior tiers are unrestricted — see the domain
+   * TierEntryRestrictionPolicy). The SAME rule the server enforces, so
+   * the picker can disable the row up front. Only set when ?playerId=
+   * was supplied. */
   rankRestricted?: boolean;
   /** The plain-language reason `rankRestricted` is true, or null. Only set
    * when ?playerId= was supplied. */
   rankRestrictedReason?: string | null;
+  /** The challenger per-season SOFT cap (Batch 4B, F1): true when this
+   * player's rank is inside the top 50 AND every challenger entry this
+   * season is already used, so the server would refuse the POST. The
+   * SAME reason builder the server throws, so a disabled row and a
+   * rejected POST can never disagree. Only set when ?playerId=. */
+  seasonCapRestricted?: boolean;
+  /** The exact challenger-soft-cap refusal phrasing, or null. */
+  seasonCapReason?: string | null;
+  /** How many challenger entries this player has used this season / the
+   * cap — null on rows the cap doesn't apply to. */
+  seasonCapUsedThisSeason?: number | null;
+  seasonCapLimitThisSeason?: number | null;
   rounds: Array<{
     roundNumber: number;
     matches: Array<{ entrantA: string; entrantB: string; outcome: MatchOutcomeDto | null; scheduledStartAt: string | null; revealSeconds: number }>;
@@ -746,12 +759,21 @@ export function fetchWorldClock(): Promise<WorldClockDto> {
   return getJson('/world/clock');
 }
 
+export interface CosmeticBadgeDto {
+  itemId: string;
+  glyph: string;
+  name: string;
+}
+
 export interface ManagerLadderRowDto {
   rank: number;
   managerId: string;
   displayName: string;
   score: number;
   isSelf: boolean;
+  /** The manager's owned cosmetic badge, or null when they own none —
+   * purely presentational (Batch 4B, F2). */
+  badge: CosmeticBadgeDto | null;
 }
 
 export interface ManagerLeaderboardDto {
@@ -761,11 +783,52 @@ export interface ManagerLeaderboardDto {
     displayName: string;
     score: number;
     rank: number | null;
+    badge: CosmeticBadgeDto | null;
   };
 }
 
 export function fetchManagerLeaderboard(limit = 100): Promise<ManagerLeaderboardDto> {
   return getJson(`/managers/leaderboard?limit=${limit}`);
+}
+
+/** Manager cosmetics (Batch 4B, F2) — the zero-competitive-effect XP sink.
+ * Presentation data only: nothing here can affect a match, a training
+ * session, or a ranking (enforced server-side and pinned by a domain
+ * test). Prices are PLACEHOLDER balance values. */
+export type CosmeticKindDto = 'banner' | 'badge' | 'celebration';
+
+export interface CosmeticItemDto {
+  id: string;
+  kind: CosmeticKindDto;
+  name: string;
+  description: string;
+  price: number;
+  glyph: string;
+}
+
+export interface ManagerCosmeticsDto {
+  catalog: CosmeticItemDto[];
+  /** The caller's owned item ids. */
+  owned: string[];
+  /** The badge currently shown next to the caller's name on the public
+   * leaderboard — the highest-priced owned badge, or null. */
+  badge: CosmeticBadgeDto | null;
+  xpBalance: number;
+}
+
+export interface CosmeticPurchaseDto {
+  itemId: string;
+  xpSpent: number;
+  xpBalance: number;
+  owned: string[];
+}
+
+export function fetchManagerCosmetics(managerId?: string): Promise<ManagerCosmeticsDto> {
+  return getJson('/managers/cosmetics', managerId);
+}
+
+export function purchaseManagerCosmetic(itemId: string, managerId?: string): Promise<CosmeticPurchaseDto> {
+  return sendJson('POST', '/managers/cosmetics/purchase', { itemId }, managerId);
 }
 
 export interface RankingRowDto {

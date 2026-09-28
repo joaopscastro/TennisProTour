@@ -37,6 +37,7 @@ import {
   WEEKS_PER_SEASON,
   formatMoney,
   formatScoreline,
+  juniorCarryoverNote,
   matchRoundLabel,
   rankingBandScopeNote,
   tournamentHistoryResultLabel,
@@ -797,6 +798,11 @@ export default function PlayerProfilePage() {
                 {entry.rank === null && (
                   <div style={{ fontSize: 10, marginTop: 4, lineHeight: 1.4, color: 'var(--ink-4)' }}>
                     {RANKING_EARNED_NOTE} {rankingBandScopeNote(band)}
+                  </div>
+                )}
+                {juniorCarryoverNote(band) && (
+                  <div style={{ fontSize: 10, marginTop: 4, lineHeight: 1.4, color: 'var(--ink-4)' }}>
+                    {juniorCarryoverNote(band)}
                   </div>
                 )}
               </div>

@@ -578,6 +578,21 @@ export class Tournament {
     return rounds[rounds.length - 1].matches.every((match) => match.outcome !== null);
   }
 
+  /** Whether this player already holds a SINGLES or DOUBLES entry in this
+   * tournament — the own-event exclusion both the weekly entry cap and
+   * the challenger per-season soft cap apply (one tournament counts
+   * once, so entering the doubles of an event whose singles the player
+   * already holds must not consume a second cap slot). A public accessor
+   * deliberately, not an external reach into private state (see
+   * CLAUDE.md's SOLID note): the registration use cases and the
+   * player-scoped preview all need this same fact. */
+  isPlayerEntered(playerId: PlayerId): boolean {
+    return (
+      this._entrants.some((entrant) => entrant.playerId === playerId) ||
+      this._doublesEntrants.includes(playerId)
+    );
+  }
+
   registerEntrant(entrant: TournamentEntrant): void {
     this.assertNotCancelled('register an entrant');
     if (this.hasStarted) {

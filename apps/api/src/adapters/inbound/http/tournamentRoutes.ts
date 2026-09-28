@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, seniorTierEntryRestrictionReason, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
+import { compareGameWeek, drawOf, entryTypeOf, isAgeEligibleForTournamentBand, isInsideSoftCapCutoff, isJuniorTier, isObligatoryTier, isUnsourcedPlaceholderTier, PlayerId, resolveEntryType, seasonSoftCapRefusalReason, seniorTierEntryRestrictionReason, softSeasonCapForTier, StandardPrizeMoneyTable, StandardRankingPointsTable, TournamentId, weeksBetween } from '@tennis-manager/domain';
 import { Tournament } from '@tennis-manager/domain';
 import { AgeBand, BracketRound, DrawPhase, DrawSize, TournamentTier } from '@tennis-manager/domain';
 import { Surface } from '@tennis-manager/domain';
@@ -111,14 +111,30 @@ export interface PlayerScopedInfo {
   qualifyingFieldTaken: number;
   qualifyingFieldSize: number;
   /** Whether this player's SENIOR ranking is too high to enter this
-   * tournament at all (see TierEntryRestrictionPolicy: a top-200 player
-   * can't enter `futures`, a top-50 player can't enter `challenger`).
-   * Computed from the SAME policy RegisterEntrantUseCase enforces, so the
-   * disabled row and the server refusal can never disagree. */
+   * tournament at all under the HARD bar (see TierEntryRestrictionPolicy:
+   * a top-200 player can't enter `futures`; `tour`/`major`/junior tiers
+   * are unrestricted). Computed from the SAME policy
+   * RegisterEntrantUseCase enforces, so the disabled row and the server
+   * refusal can never disagree. */
   rankRestricted: boolean;
   /** The plain-language reason `rankRestricted` is true (the exact
    * phrasing a rejected POST uses), or null when the player may enter. */
   rankRestrictedReason: string | null;
+  /** The challenger per-season SOFT cap (Batch 4B, F1 — see
+   * TierEntryRestrictionPolicy): true when this player's rank is inside
+   * `CHALLENGER_MAX_RANK` AND they have already used every challenger
+   * entry this season, so a POST would be refused. The SAME
+   * `seasonSoftCapRefusalReason` the registration use cases throw, so the
+   * disabled row and the server refusal can never disagree. */
+  seasonCapRestricted: boolean;
+  /** The exact refusal phrasing for `seasonCapRestricted`, or null. */
+  seasonCapReason: string | null;
+  /** How many challenger entries this player has already used this
+   * season, and the soft cap — null on every row the cap doesn't apply
+   * to (an unrestricted tier, or a rank outside the cutoff). Counted
+   * from the SAME repository read the use cases enforce against. */
+  seasonCapUsedThisSeason: number | null;
+  seasonCapLimitThisSeason: number | null;
 }
 export function toTournamentDto(
   tournament: Tournament,
@@ -292,6 +308,11 @@ async function attachEntryInfo(
   playerRank: number | null,
 ): Promise<Map<string, PlayerScopedInfo>> {
   const idsByBandWeekKey = new Map<string, Set<string>>();
+  // The per-season counts behind the challenger soft cap, memoized by
+  // `${tier}-${season}` — the list can span two seasons (a season's last
+  // weeks plus the next season's opening slate) but typically all shares
+  // one, so this is one or two reads total, never one per row.
+  const seasonCounts = new Map<string, number>();
   const result = new Map<string, PlayerScopedInfo>();
   for (const tournament of list) {
     const bandKey = isJuniorTier(tournament.tier) ? 'j' : 's';
@@ -325,6 +346,37 @@ async function attachEntryInfo(
       qualifyingFieldFull = decision.kind === 'qualifying-full';
     }
 
+    // Challenger per-season soft cap (Batch 4B, F1): the count read
+    // happens only for a rank inside the cutoff, exactly as in the
+    // registration use cases, and only the numbers/reason the policy
+    // itself produces are exposed — no separate rule re-derived here.
+    let seasonCapUsedThisSeason: number | null = null;
+    let seasonCapLimitThisSeason: number | null = null;
+    let seasonCapRestricted = false;
+    let seasonCapReason: string | null = null;
+    if (isInsideSoftCapCutoff(tournament.tier, playerRank)) {
+      const key = `${tournament.tier}-${tournament.weekScheduled.season}`;
+      let total = seasonCounts.get(key);
+      if (total === undefined) {
+        total =
+          (await tournaments.countTierEntriesForSeason?.(
+            playerId,
+            tournament.tier,
+            tournament.weekScheduled.season,
+          )) ?? 0;
+        seasonCounts.set(key, total);
+      }
+      // The row's own tournament is excluded from its own count, exactly
+      // as the registration use cases exclude it (one tournament counts
+      // once — adding doubles to an event whose singles the player already
+      // holds must not read as a fourth challenger).
+      const used = tournament.isPlayerEntered(playerId) ? total - 1 : total;
+      seasonCapUsedThisSeason = used;
+      seasonCapLimitThisSeason = softSeasonCapForTier(tournament.tier);
+      seasonCapReason = seasonSoftCapRefusalReason(tournament.tier, playerRank, used);
+      seasonCapRestricted = seasonCapReason !== null;
+    }
+
     result.set(tournament.id, {
       weeklyEntryCountThisWeek: count,
       weeklyEntryCapThisWeek: weeklyEntryCapForTier(tournament.tier),
@@ -333,11 +385,16 @@ async function attachEntryInfo(
       qualifyingFieldFull,
       qualifyingFieldTaken,
       qualifyingFieldSize,
-      // Ranking-based tier restriction — the SAME predicate/reason the
-      // registration use cases enforce, so the UI can disable the row and
-      // explain why before the POST rather than only after a failure.
+      // Ranking-based tier restrictions — the SAME predicates/reason
+      // builders the registration use cases enforce, so the UI can
+      // disable a row and explain why before the POST rather than only
+      // after a failure.
       rankRestricted: seniorTierEntryRestrictionReason(tournament.tier, playerRank) !== null,
       rankRestrictedReason: seniorTierEntryRestrictionReason(tournament.tier, playerRank),
+      seasonCapRestricted,
+      seasonCapReason,
+      seasonCapUsedThisSeason,
+      seasonCapLimitThisSeason,
     });
   }
   return result;

@@ -42,6 +42,14 @@ export interface PickableTournament {
    * reason. Only set when the list was fetched with ?playerId=. */
   rankRestricted?: boolean;
   rankRestrictedReason?: string | null;
+  /** The challenger per-season soft cap (Batch 4B, F1): true once this
+   * player has used every challenger entry this season, with the server's
+   * own reason and used/limit counts. Only set when the list was fetched
+   * with ?playerId=. */
+  seasonCapRestricted?: boolean;
+  seasonCapReason?: string | null;
+  seasonCapUsedThisSeason?: number | null;
+  seasonCapLimitThisSeason?: number | null;
   /** How many of this tournament's entrants are owned by a real manager
    * (players.manager_id IS NOT NULL) — the server's own count, so a picker
    * can show "N entered by managers" without an N+1 player fetch. Optional:
@@ -166,7 +174,12 @@ function searchHaystack(tournament: PickableTournament): string {
  * ranking restriction is a genuine permission rule, so it belongs in the
  * list the label calls "every event this player is permitted to enter". */
 export function matchesTournamentPickFilters(tournament: PickableTournament, filters: TournamentPickFilters): boolean {
-  if (filters.circuit === 'eligible' && (tournament.ageEligible === false || tournament.rankRestricted === true)) return false;
+  if (
+    filters.circuit === 'eligible' &&
+    (tournament.ageEligible === false || tournament.rankRestricted === true || tournament.seasonCapRestricted === true)
+  ) {
+    return false;
+  }
   if (filters.circuit === 'senior' && tournament.ageBand !== null) return false;
   if (filters.circuit === 'junior' && tournament.ageBand === null) return false;
   if (filters.directEntryOnly && tournament.entryViaQualifying === true) return false;
@@ -199,6 +212,9 @@ export function tournamentRefusalReason(tournament: PickableTournament): string 
   }
   if (tournament.rankRestricted === true) {
     return tournament.rankRestrictedReason ?? 'Your senior ranking is too high to enter this event';
+  }
+  if (tournament.seasonCapRestricted === true) {
+    return tournament.seasonCapReason ?? 'Challenger season limit reached — no entries left this season';
   }
   const overCap =
     tournament.weeklyEntryCountThisWeek !== undefined &&
