@@ -376,15 +376,22 @@ export class Tournament {
    * stands, reason and timestamp unchanged), so a retried tick can never
    * re-cancel or overwrite the audit trail.
    *
-   * **Only a never-started draw can be cancelled** — a tournament that
-   * has played any match is resolved by play, not by fiat. (The one
-   * caller, StartDueTournamentsUseCase, only ever passes draws that
-   * failed to seed inside their grace window.)
+   * **Only a draw whose SINGLES competition has not begun can be
+   * cancelled** — once the singles main or qualifying bracket exists,
+   * the event is resolved by play, not by fiat. Deliberately keyed on
+   * the singles brackets (`hasMainDraw || hasQualifyingDrawStarted`),
+   * NOT on the broad `hasStarted`: a tournament whose DOUBLES draw was
+   * seeded while its singles draw could never be filled is exactly the
+   * dead shape this cancellation exists to close out (the 52-week agent
+   * season's 11 started-but-singles-never-played draws). A doubles
+   * bracket existing is not the singles competition starting; any
+   * doubles results already played stand, and the cancelled draw's own
+   * reason says so.
    */
   cancel(reason: string): void {
     if (this.isCancelled) return;
-    if (this.hasStarted) {
-      throw new Error(`Cannot cancel tournament ${this.id}: it has already started`);
+    if (this.hasMainDraw || this.hasQualifyingDrawStarted) {
+      throw new Error(`Cannot cancel tournament ${this.id}: its singles competition has already started`);
     }
     if (reason.trim().length === 0) {
       throw new Error(`Cannot cancel tournament ${this.id} without a reason`);
@@ -654,6 +661,42 @@ export class Tournament {
       throw new Error(`Tournament ${this.id}'s main draw is full (${this.drawSize} entrants)`);
     }
     this._entrants.push({ playerId, seed: null });
+  }
+
+  /**
+   * Adds a manager-less FILLER to the QUALIFYING field of a tournament
+   * that has already started (its doubles draw was seeded) but whose
+   * SINGLES qualifying bracket is not seeded yet. The qualifying-field
+   * analogue of `addMainDrawFiller`, for the same rescue: a draw whose
+   * doubles bracket formed while its singles field could never reach a
+   * seedable threshold is stuck, and `registerEntrant` rightly refuses
+   * to touch a started tournament. A filler placed here IS a qualifier —
+   * it must win its way through exactly like a human registrant — so the
+   * entrant is stamped `entryType: 'Q'` in the `'qualifying'` draw, same
+   * as `registerEntrant`'s qualifying branch.
+   *
+   * Refuses once the qualifying draw has started (the deadline that
+   * matters) or the main draw exists; a duplicate player or a full field
+   * is refused exactly like `registerEntrant`.
+   */
+  addQualifyingFiller(playerId: PlayerId): void {
+    this.assertNotCancelled('add a qualifying filler');
+    if (!this.hasQualifying) {
+      throw new Error(`Tournament ${this.id} holds no qualifying event`);
+    }
+    if (this.hasQualifyingDrawStarted) {
+      throw new Error(`Cannot add a qualifying filler: tournament ${this.id}'s qualifying draw is already seeded`);
+    }
+    if (this.hasMainDraw) {
+      throw new Error(`Cannot add a qualifying filler: tournament ${this.id}'s main draw is already seeded`);
+    }
+    if (this._entrants.some((e) => e.playerId === playerId)) {
+      throw new Error(`Player ${playerId} is already registered for tournament ${this.id}`);
+    }
+    if (this.qualifyingEntrants.length >= this.qualifyingDrawSize) {
+      throw new Error(`Tournament ${this.id}'s qualifying field is full (${this.qualifyingDrawSize} entrants)`);
+    }
+    this._entrants.push({ playerId, seed: null, draw: 'qualifying', entryType: 'Q' });
   }
 
   /**

@@ -90,4 +90,25 @@ describe('makeAdvanceWorldHandler — weekly system ordering (D3)', () => {
     expect(calls).not.toContain('startDueTournaments');
     expect(calls).toContain('simulateDueMatches');
   });
+
+  it('keeps the tick running when StartDueTournaments reports a skipped optimistic-lock conflict (item 2.2)', async () => {
+    // StartDueTournamentsUseCase catches a tournament whose save lost a
+    // race with a live registration PER TOURNAMENT and returns a
+    // `conflicted` count — it never throws out of the weekly system, so
+    // every later system on the same tick still runs.
+    const { deps, calls } = buildRecordingDeps();
+    (deps.startDueTournaments as unknown as { execute: () => Promise<unknown> }).execute = async () => {
+      calls.push('startDueTournaments');
+      return { started: 0, filled: 0, expired: 0, cancelled: 0, rescued: 0, conflicted: 1 };
+    };
+    const handler = makeAdvanceWorldHandler(deps, null);
+
+    const result = await handler({ worldId: 'main' });
+
+    expect(calls).toContain('startDueTournaments');
+    expect(calls).toContain('ensureSignablePool');
+    expect(calls).toContain('applyObligatoryTournamentZeros');
+    expect(calls).toContain('simulateDueMatches');
+    expect((result as { matchesSimulated?: number }).matchesSimulated).toBe(0);
+  });
 });

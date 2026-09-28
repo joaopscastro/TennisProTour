@@ -10,18 +10,25 @@ import {
   weeksBetween,
   WorldId,
 } from '@tennis-manager/domain';
-import { GameWorldRepository, PlayerRepository, TournamentRepository } from '../ports/ports';
+import { GameWorldRepository, PlayerRepository, TournamentRepository, ConcurrentModificationError } from '../ports/ports';
 import { RankedPlayer, RankPositionQuery } from '../queries/RankPositionQuery';
 import { FormDoublesDrawPreloaded, FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { applyWildCards, wildCardsApplicableTo } from './applyWildCards';
-import { FillDrawSlotsPreloaded, fillDrawSlots } from './fillDrawSlots';
+import {
+  FillDrawSlotsDiagnostics,
+  FillDrawSlotsPreloaded,
+  emptyFillDrawSlotsDiagnostics,
+  fillDrawSlots,
+} from './fillDrawSlots';
 
 export interface StartDueTournamentsCommand {
   worldId: WorldId;
 }
 
 export interface StartDueTournamentsResult {
-  /** Tournaments actually started this run (bracket seeded). */
+  /** Tournaments whose SINGLES bracket (qualifying or main) was seeded
+   * this run — including a seeded RESCUE of a started-but-singles-
+   * unseeded draw (see `rescued`). */
   started: number;
   /** Total unclaimed-player slots filled across every started
    * tournament — 0 whenever every started tournament was already full
@@ -41,10 +48,29 @@ export interface StartDueTournamentsResult {
    * cancellation grace window (CANCELLED_DRAW_GRACE_WEEKS) without ever
    * becoming seedable — the terminal state that replaced "kept open
    * forever" for a draw holding a manager's real registration (see
-   * Tournament.cancel). Entries are KEPT; the draw never plays and its
-   * players stop being locked out of the signing pool. 0 on ordinary
-   * ticks. */
+   * Tournament.cancel). Includes started-but-singles-unseeded draws the
+   * rescue pass could not fill; entries are KEPT; the draw never plays
+   * and its players stop being locked out of the signing pool. 0 on
+   * ordinary ticks. */
   cancelled: number;
+  /** The RESCUE half of the pass (item 2.1): started draws whose singles
+   * competition had never begun (see
+   * TournamentRepository.findStartedSinglesUnseeded) that this run put
+   * back into play by filling and seeding their singles bracket. The
+   * 52-week agent season produced 11 such draws — seeded here if the
+   * pool can fill them, cancelled (past grace) if it cannot. */
+  rescued: number;
+  /** Tournaments skipped this run because a live manager's registration
+   * committed a save first (the optimistic-lock conflict). Skip-and-log:
+   * the weekly tick continues, the manager's entry stands, and the next
+   * rollover picks the tournament up again. Never fatal. */
+  conflicted: number;
+  /** Per-run fill-selection counters (age-eligible candidates seen,
+   * excluded for an unfinished commitment, excluded for a same-week
+   * entry, actually placed), so "the singles fill selected 0" is
+   * provable from the tick's own log line rather than inferred after
+   * the fact. See FillDrawSlotsDiagnostics. */
+  fillDiagnostics: FillDrawSlotsDiagnostics;
 }
 
 /** How many weeks past its scheduled week a never-started tournament
@@ -73,10 +99,20 @@ export const ABANDONED_TOURNAMENT_EXPIRY_WEEKS = 2;
  * other pacing constant here. */
 export const CANCELLED_DRAW_GRACE_WEEKS = 4;
 
-/** The single plain-language reason stamped on every cancelled draw —
- * surfaced verbatim by the tournament/roster/profile/digest UI (item
- * C3), so the copy has ONE definition rather than a per-surface string. */
+/** The single plain-language reason stamped on every never-started
+ * cancelled draw — surfaced verbatim by the tournament/roster/profile/
+ * digest UI (item C3), so the copy has ONE definition rather than a
+ * per-surface string. */
 export const CANCELLED_DRAW_REASON = 'The draw could not be filled in time';
+
+/** The reason stamped by the RESCUE pass (item 2.1) on a started draw
+ * whose singles competition never began: its doubles bracket formed and
+ * played while its singles field could never be filled. Honest about
+ * the one thing that is different from an ordinary cancellation — the
+ * event may already have real doubles results on record, and those
+ * stand. */
+export const CANCELLED_DRAW_REASON_DOUBLES_STAND =
+  'The draw could not be filled in time — any doubles results already played still stand';
 
 /**
  * The missing "this tournament's registration window is over, time to
@@ -246,8 +282,27 @@ export class StartDueTournamentsUseCase {
       (t) => !expiredIds.has(t.id) && weeksBetween(t.weekScheduled, currentWeek) >= 0,
     );
 
+    // The RESCUE set (item 2.1): tournaments that are "started" only
+    // because their DOUBLES draw formed while their singles field could
+    // never be filled — the exact dead shape 11 draws sat in for a whole
+    // agent-played season. They are invisible to the due loop above
+    // (started) and to every other recovery path (no singles match rows
+    // for the sweep; no qualifying-complete state for promotion), so
+    // without this pass they would sit there forever, wasting the
+    // manager entries inside them and locking their unmanaged entrants
+    // out of the signing pool via the unfinished-commitment rule. Read
+    // ONCE per run; each candidate gets the normal fill/seed attempt
+    // below, then is cancelled past the grace window if it still cannot
+    // seed (entries kept; any doubles results already played stand).
+    const rescueCandidates = this.tournaments.findStartedSinglesUnseeded
+      ? await this.tournaments.findStartedSinglesUnseeded()
+      : [];
+
     let started = 0;
     let filled = 0;
+    let cancelled = 0;
+    let rescued = 0;
+    let conflicted = 0;
 
     // -----------------------------------------------------------------
     // Run-wide preloads (performance pass — see AGENTS.md). Everything
@@ -270,8 +325,18 @@ export class StartDueTournamentsUseCase {
     // set as fills land (see fillDrawSlots), exactly mirroring the old
     // per-candidate DB read seeing earlier fills in the same run.
     // -----------------------------------------------------------------
-    const fillOnlyPool = (await this.players.findAll()).filter((p) => p.fillOnly && !p.isRetired());
-    const freeAgents = this.formDoublesDraw ? await this.players.findFreeAgents() : undefined;
+    //
+    // The UNIFIED filler pool: the SAME `findFreeAgents()` list the
+    // doubles padding path selects from — every manager-less, non-retired
+    // free agent, INCLUDING released players that the old
+    // `fillOnly`-only singles pool silently excluded. Before this, the
+    // two paths could disagree in exactly the fatal way the 52-week
+    // agent season measured: the doubles padding placed 56+ players at
+    // ticks where the singles fill selected 0 from "the same base pool",
+    // because the singles pool was a strict subset. One pool, both paths
+    // (see FillDrawSlotsPreloaded.freeAgentPool).
+    const freeAgentPool = await this.players.findFreeAgents();
+    const freeAgents = this.formDoublesDraw ? freeAgentPool : undefined;
 
     // Still-alive-in-any-draw set (see the port's doc comment): one read
     // per run, so a filler alive in an earlier week's 14-day major (or a
@@ -308,136 +373,110 @@ export class StartDueTournamentsUseCase {
     };
 
     // The week's "already entered somewhere" set, loaded once per
-    // DISTINCT scheduled week among the due tournaments (due can span
-    // more than one week when an old draw was left open). Absent when
-    // the repository doesn't implement the set read — the fill helpers
+    // DISTINCT scheduled week among the due tournaments AND the rescue
+    // candidates (both passes below share it). Absent when the
+    // repository doesn't implement the set read — the fill helpers
     // then keep today's per-candidate findByPlayerAndWeek check.
-    const weekKey = (week: GameWeek): string => `${week.season}:${week.week}`;
     const enteredByWeek = new Map<string, Set<PlayerId>>();
     if (this.tournaments.findEnteredPlayerIdsForWeek) {
-      for (const tournament of due) {
+      for (const tournament of [...due, ...rescueCandidates]) {
         const key = weekKey(tournament.weekScheduled);
         if (enteredByWeek.has(key)) continue;
         enteredByWeek.set(key, new Set(await this.tournaments.findEnteredPlayerIdsForWeek(tournament.weekScheduled)));
       }
     }
 
+    // Per-run fill-selection counters — see the result field's doc
+    // comment. Passed through every fill below.
+    const fillDiagnostics = emptyFillDrawSlotsDiagnostics();
+    const context: AttemptStartContext = {
+      freeAgentPool,
+      freeAgents,
+      enteredByWeek,
+      singlesRankedFor,
+      doublesRankedFor,
+      unfinishedCommitmentPlayerIds,
+      diagnostics: fillDiagnostics,
+    };
+
+    // The due loop. Each tournament is attempted inside its own
+    // try/catch: a live manager registration committing first makes the
+    // whole save throw ConcurrentModificationError, and a weekly tick
+    // must skip that ONE tournament (logged) and carry on — never crash
+    // every other system riding the same day tick.
+    const attemptedIds = new Set<string>();
     for (const tournament of due) {
-      const band: RankingBand = tournament.ageBand ?? 'senior';
-      const enteredPlayerIdsForWeek = enteredByWeek.get(weekKey(tournament.weekScheduled));
-      const fillPreloaded: FillDrawSlotsPreloaded = {
-        fillOnlyPool,
-        ranked: await singlesRankedFor(band),
-        enteredPlayerIdsForWeek,
-        unfinishedCommitmentPlayerIds,
-      };
-      const doublesPreloaded: FormDoublesDrawPreloaded = {
-        singlesRanked: await singlesRankedFor(band),
-        doublesRanked: this.doublesRankByBand ? await doublesRankedFor(band) : undefined,
-        freeAgents,
-        enteredPlayerIdsForWeek,
-      };
-
-      // The automatic wild card algorithm (see WildCardPolicy/
-      // applyWildCards) runs FIRST, before the qualifying field is
-      // padded with fillers below — it must only ever consider REAL,
-      // manager-registered qualifying entrants (a filler has no
-      // manager and shouldn't get a "break"), and it must run before
-      // the qualifying bracket is ever seeded, same requirement
-      // RegisterEntrantUseCase's own auto-start path has. The senior
-      // ranking list is resolved only for a tournament that can
-      // actually award one (tier has slots + a host country recorded).
-      await applyWildCards(
-        tournament,
-        this.players,
-        this.rankPositionByBand.senior,
-        wildCardsApplicableTo(tournament) ? await singlesRankedFor('senior') : undefined,
-      );
-
-      // At a tournament that holds qualifying, the QUALIFYING field is
-      // filled from free agents too, alongside the human registrants
-      // who chose to enter it — a half-empty qualifying draw would make
-      // "earning your way in" trivial. Filled first, and separately from
-      // the main draw's directly-accepted places, because the two fields
-      // have separate capacities (mainDrawCapacity deliberately excludes
-      // the places reserved for qualifiers).
-      if (tournament.hasQualifying) {
-        const qualifyingNeeded = tournament.qualifyingDrawSize - tournament.qualifyingEntrants.length;
-        if (qualifyingNeeded > 0) {
-          filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying', fillPreloaded);
-        }
-      }
-      // The main draw's fill target. Wild cards actually AWARDED (by
-      // applyWildCards above) already occupy their reserved places and
-      // are counted in `mainEntrants`; the places the algorithm did NOT
-      // award (its reserved slot count minus what it handed out) are
-      // fillable from the pool exactly like a direct-acceptance place.
-      // So the direct+filler capacity is
-      //   drawSize − qualifierSlots − wildCardsTaken,
-      // NOT the static mainDrawCapacity (which subtracts ALL reserved
-      // wild-card slots). Without this, an event whose host country
-      // matched no qualifying registrant started `wildCardSlots` short
-      // even when the filler pool was abundant — a structural shortfall,
-      // unlike the accepted supply-driven one (see AGENTS.md).
-      const wildCardsTaken = tournament.wildCardSlotsTaken;
-      const mainDrawFillTarget = tournament.drawSize - tournament.qualifierSlots - wildCardsTaken;
-      const directlyFilled = tournament.mainEntrants.length - wildCardsTaken;
-      const needed = mainDrawFillTarget - directlyFilled;
-      if (needed > 0) {
-        filled += await this.fillSlots(tournament, needed, 'main', fillPreloaded);
-      }
-      // A tournament that stayed at zero SINGLES entrants has nothing to
-      // seed for the singles/qualifying bracket — but may still have a
-      // doubles field to form (P7b). Only skip entirely when there are
-      // neither singles entrants nor doubles entrants.
-      const hasDoublesEntrants = tournament.hasDoubles && tournament.doublesEntrants.length > 0;
-      if (tournament.entrants.length === 0 && !hasDoublesEntrants) continue;
-
-      if (tournament.entrants.length > 0) {
-        // With qualifying, the QUALIFYING bracket is what gets seeded now
-        // — it is played over the tournament's opening days, and only its
-        // survivors go into the main draw, which PromoteQualifiersUseCase
-        // seeds later (the deferred main-draw model,
-        // docs/ranking-realism-proposal.md §5).
-        if (tournament.hasQualifying) {
-          const qualifyingBracket = this.bracketGenerator.generate(
-            tournament.qualifyingEntrants,
-            tournament.qualifyingDrawSize,
+      try {
+        const outcome = await this.attemptStart(tournament, context);
+        if (outcome.seededSingles) started += 1;
+        filled += outcome.filled;
+      } catch (error) {
+        if (error instanceof ConcurrentModificationError) {
+          conflicted += 1;
+          console.warn(
+            `[start-due-tournaments] tournament ${tournament.id} was modified by a live registration mid-run — ` +
+              `skipping it this tick (the registration stands; a later rollover retries it)`,
           );
-          if (qualifyingBracket[0].matches.length === 0) {
-            await this.formDoublesDraw?.form(tournament, doublesPreloaded);
-            continue;
-          }
-          tournament.startQualifyingWithBracket(qualifyingBracket);
-          await this.tournaments.save(tournament);
-          started += 1;
-          await this.formDoublesDraw?.form(tournament, doublesPreloaded);
           continue;
         }
-
-        const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
-        // BracketGenerator's standard seed-slot placement (1v16, 8v9,
-        // 4v13, ...) spreads top seeds apart so they can't meet early —
-        // which means a field that's short but non-empty can still have
-        // EVERY entrant land on the bye side of its pair, producing round
-        // 1 matches: []. Tournament.startWithBracket() refuses that (see
-        // its own doc comment — such a round can never progress, and
-        // loses its identity entirely on the next repository read). This
-        // is an expected, ordinary outcome of filling from a limited
-        // pool, not an error: leave the tournament open and let a later
-        // tick — with more fillers generated/converted by then — try
-        // again, exactly like the zero-entrants case above.
-        if (bracket[0].matches.length === 0) {
-          await this.formDoublesDraw?.form(tournament, doublesPreloaded);
-          continue;
-        }
-        tournament.startWithBracket(bracket);
-        await this.tournaments.save(tournament);
-        started += 1;
+        throw error;
       }
+      attemptedIds.add(tournament.id);
+    }
 
-      // The doubles draw (P7b) forms independently of the singles one.
-      await this.formDoublesDraw?.form(tournament, doublesPreloaded);
+    // -----------------------------------------------------------------
+    // Rescue pass (item 2.1). Runs AFTER the due loop (so this week's
+    // draws get first pick of the pool) and skips anything the due loop
+    // just attempted. `attemptStart` is the exact same fill/wildcard/
+    // seed/doubles-formation body the due loop uses — no second,
+    // drifting copy — so a rescue can put a dead draw back into play
+    // with its singles qualifying bracket seeded, exactly as if it had
+    // been filled on its own week.
+    //
+    // seed-if-fillable, cancel-if-not: once the attempt is made and the
+    // singles bracket STILL cannot seed, a draw past
+    // CANCELLED_DRAW_GRACE_WEEKS is cancelled (Tournament.cancel now
+    // permits this — a doubles bracket existing is not the singles
+    // competition starting). Within grace it stays exactly as it was and
+    // the next rollover retries. Idempotent: a seeded or cancelled draw
+    // is no longer returned by findStartedSinglesUnseeded.
+    // -----------------------------------------------------------------
+    for (const tournament of rescueCandidates) {
+      if (tournament.isCancelled || attemptedIds.has(tournament.id)) continue;
+      let outcome: AttemptStartOutcome;
+      try {
+        outcome = await this.attemptStart(tournament, context);
+      } catch (error) {
+        if (error instanceof ConcurrentModificationError) {
+          conflicted += 1;
+          console.warn(
+            `[start-due-tournaments] rescue of tournament ${tournament.id} lost an optimistic-lock race — skipping it this tick`,
+          );
+          continue;
+        }
+        throw error;
+      }
+      filled += outcome.filled;
+      if (outcome.seededSingles) {
+        started += 1;
+        rescued += 1;
+        continue;
+      }
+      if (weeksBetween(tournament.weekScheduled, currentWeek) <= CANCELLED_DRAW_GRACE_WEEKS) continue;
+      try {
+        tournament.cancel(CANCELLED_DRAW_REASON_DOUBLES_STAND);
+        await this.tournaments.save(tournament);
+        cancelled += 1;
+      } catch (error) {
+        if (error instanceof ConcurrentModificationError) {
+          conflicted += 1;
+          console.warn(
+            `[start-due-tournaments] cancellation of tournament ${tournament.id} lost an optimistic-lock race — skipping it this tick`,
+          );
+          continue;
+        }
+        throw error;
+      }
     }
 
     // -----------------------------------------------------------------
@@ -460,16 +499,163 @@ export class StartDueTournamentsUseCase {
     // excluded by findOpenForRegistration), and cancel() itself is a
     // no-op on a second call.
     // -----------------------------------------------------------------
-    let cancelled = 0;
     for (const tournament of due) {
       if (tournament.hasStarted || tournament.isCancelled) continue;
       if (weeksBetween(tournament.weekScheduled, currentWeek) <= CANCELLED_DRAW_GRACE_WEEKS) continue;
       tournament.cancel(CANCELLED_DRAW_REASON);
-      await this.tournaments.save(tournament);
+      try {
+        await this.tournaments.save(tournament);
+      } catch (error) {
+        if (error instanceof ConcurrentModificationError) {
+          conflicted += 1;
+          console.warn(
+            `[start-due-tournaments] cancellation of tournament ${tournament.id} lost an optimistic-lock race — skipping it this tick`,
+          );
+          continue;
+        }
+        throw error;
+      }
       cancelled += 1;
     }
 
-    return { started, filled, expired: expiredIds.size, cancelled };
+    return {
+      started,
+      filled,
+      expired: expiredIds.size,
+      cancelled,
+      rescued,
+      conflicted,
+      fillDiagnostics,
+    };
+  }
+
+  /**
+   * One tournament's complete fill/wildcard/seed/doubles-formation
+   * body — the exact sequence the due loop has always run, extracted so
+   * the RESCUE pass (execute) uses the same code rather than a drifting
+   * near-copy. Mutates and saves the tournament; returns whether this
+   * attempt seeded its SINGLES bracket (qualifying or main) and how many
+   * filler slots it placed.
+   */
+  private async attemptStart(tournament: Tournament, context: AttemptStartContext): Promise<AttemptStartOutcome> {
+    const band: RankingBand = tournament.ageBand ?? 'senior';
+    const enteredPlayerIdsForWeek = context.enteredByWeek.get(weekKey(tournament.weekScheduled));
+    const fillPreloaded: FillDrawSlotsPreloaded = {
+      freeAgentPool: context.freeAgentPool,
+      ranked: await context.singlesRankedFor(band),
+      enteredPlayerIdsForWeek,
+      unfinishedCommitmentPlayerIds: context.unfinishedCommitmentPlayerIds,
+    };
+    const doublesPreloaded: FormDoublesDrawPreloaded = {
+      singlesRanked: await context.singlesRankedFor(band),
+      doublesRanked: this.doublesRankByBand ? await context.doublesRankedFor(band) : undefined,
+      freeAgents: context.freeAgents,
+      enteredPlayerIdsForWeek,
+      unfinishedCommitmentPlayerIds: context.unfinishedCommitmentPlayerIds,
+    };
+
+    // The automatic wild card algorithm (see WildCardPolicy/
+    // applyWildCards) runs FIRST, before the qualifying field is
+    // padded with fillers below — it must only ever consider REAL,
+    // manager-registered qualifying entrants (a filler has no
+    // manager and shouldn't get a "break"), and it must run before
+    // the qualifying bracket is ever seeded, same requirement
+    // RegisterEntrantUseCase's own auto-start path has. The senior
+    // ranking list is resolved only for a tournament that can
+    // actually award one (tier has slots + a host country recorded).
+    await applyWildCards(
+      tournament,
+      this.players,
+      this.rankPositionByBand.senior,
+      wildCardsApplicableTo(tournament) ? await context.singlesRankedFor('senior') : undefined,
+    );
+
+    // At a tournament that holds qualifying, the QUALIFYING field is
+    // filled from free agents too, alongside the human registrants
+    // who chose to enter it — a half-empty qualifying draw would make
+    // "earning your way in" trivial. Filled first, and separately from
+    // the main draw's directly-accepted places, because the two fields
+    // have separate capacities (mainDrawCapacity deliberately excludes
+    // the places reserved for qualifiers).
+    let filled = 0;
+    if (tournament.hasQualifying) {
+      const qualifyingNeeded = tournament.qualifyingDrawSize - tournament.qualifyingEntrants.length;
+      if (qualifyingNeeded > 0) {
+        filled += await this.fillSlots(tournament, qualifyingNeeded, 'qualifying', fillPreloaded, context.diagnostics);
+      }
+    }
+    // The main draw's fill target. Wild cards actually AWARDED (by
+    // applyWildCards above) already occupy their reserved places and
+    // are counted in `mainEntrants`; the places the algorithm did NOT
+    // award (its reserved slot count minus what it handed out) are
+    // fillable from the pool exactly like a direct-acceptance place.
+    // So the direct+filler capacity is
+    //   drawSize − qualifierSlots − wildCardsTaken,
+    // NOT the static mainDrawCapacity (which subtracts ALL reserved
+    // wild-card slots). Without this, an event whose host country
+    // matched no qualifying registrant started `wildCardSlots` short
+    // even when the filler pool was abundant — a structural shortfall,
+    // unlike the accepted supply-driven one (see AGENTS.md).
+    const wildCardsTaken = tournament.wildCardSlotsTaken;
+    const mainDrawFillTarget = tournament.drawSize - tournament.qualifierSlots - wildCardsTaken;
+    const directlyFilled = tournament.mainEntrants.length - wildCardsTaken;
+    const needed = mainDrawFillTarget - directlyFilled;
+    if (needed > 0) {
+      filled += await this.fillSlots(tournament, needed, 'main', fillPreloaded, context.diagnostics);
+    }
+    // A tournament that stayed at zero SINGLES entrants has nothing to
+    // seed for the singles/qualifying bracket — but may still have a
+    // doubles field to form (P7b). Only skip entirely when there are
+    // neither singles entrants nor doubles entrants.
+    const hasDoublesEntrants = tournament.hasDoubles && tournament.doublesEntrants.length > 0;
+    if (tournament.entrants.length === 0 && !hasDoublesEntrants) {
+      return { seededSingles: false, filled };
+    }
+
+    if (tournament.entrants.length > 0) {
+      // With qualifying, the QUALIFYING bracket is what gets seeded now
+      // — it is played over the tournament's opening days, and only its
+      // survivors go into the main draw, which PromoteQualifiersUseCase
+      // seeds later (the deferred main-draw model,
+      // docs/ranking-realism-proposal.md §5).
+      if (tournament.hasQualifying) {
+        const qualifyingBracket = this.bracketGenerator.generate(
+          tournament.qualifyingEntrants,
+          tournament.qualifyingDrawSize,
+        );
+        if (qualifyingBracket[0].matches.length === 0) {
+          await this.formDoublesDraw?.form(tournament, doublesPreloaded);
+          return { seededSingles: false, filled };
+        }
+        tournament.startQualifyingWithBracket(qualifyingBracket);
+        await this.tournaments.save(tournament);
+        await this.formDoublesDraw?.form(tournament, doublesPreloaded);
+        return { seededSingles: true, filled };
+      }
+
+      const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+      // BracketGenerator's standard seed-slot placement (1v16, 8v9,
+      // 4v13, ...) spreads top seeds apart so they can't meet early —
+      // which means a field that's short but non-empty can still have
+      // EVERY entrant land on the bye side of its pair, producing round
+      // 1 matches: []. Tournament.startWithBracket() refuses that (see
+      // its own doc comment — such a round can never progress, and
+      // loses its identity entirely on the next repository read). This
+      // is an expected, ordinary outcome of filling from a limited
+      // pool, not an error: leave the tournament open and let a later
+      // tick — with more fillers generated/converted by then — try
+      // again, exactly like the zero-entrants case above.
+      if (bracket[0].matches.length === 0) {
+        await this.formDoublesDraw?.form(tournament, doublesPreloaded);
+        return { seededSingles: false, filled };
+      }
+      tournament.startWithBracket(bracket);
+      await this.tournaments.save(tournament);
+    }
+
+    // The doubles draw (P7b) forms independently of the singles one.
+    await this.formDoublesDraw?.form(tournament, doublesPreloaded);
+    return { seededSingles: tournament.hasMainDraw || tournament.hasQualifyingDrawStarted, filled };
   }
 
   /** Registers up to `needed` eligible unclaimed players as entrants on
@@ -477,14 +663,16 @@ export class StartDueTournamentsUseCase {
    * does). Thin delegation to the shared fillDrawSlots helper — the
    * exact same selection this class used before, now reused by
    * PromoteQualifiersUseCase too (see that file). `preloaded` carries the
-   * run-wide pool/rankings/commitment set (see execute()). Returns how
-   * many were actually added — may be fewer than `needed` if the
-   * eligible pool runs out. */
+   * run-wide pool/rankings/commitment set (see execute()); `diagnostics`
+   * is the run's per-tick counter accumulator. Returns how many were
+   * actually added — may be fewer than `needed` if the eligible pool
+   * runs out. */
   private async fillSlots(
     tournament: Tournament,
     needed: number,
     draw: DrawPhase = 'main',
     preloaded: FillDrawSlotsPreloaded = {},
+    diagnostics?: FillDrawSlotsDiagnostics,
   ): Promise<number> {
     const band: RankingBand = tournament.ageBand ?? 'senior';
     return fillDrawSlots(
@@ -492,11 +680,41 @@ export class StartDueTournamentsUseCase {
       tournament,
       needed,
       draw,
-      draw === 'qualifying'
-        ? (entrant) => tournament.registerEntrant(entrant)
-        : (entrant) => this.addMainDrawEntrant(tournament, entrant),
+      (entrant) => this.addFiller(tournament, entrant),
       preloaded,
+      diagnostics,
     );
+  }
+
+  /**
+   * Places one filled entrant into the correct field, legal for the
+   * tournament's current state — the ONE fork the due loop and the
+   * rescue pass share:
+   *
+   *  - An OPEN tournament (its singles never began) registers normally
+   *    (`registerEntrant` for a qualifying place, `addMainDrawEntrant`
+   *    for a main-draw one, which itself preserves the direct-place vs
+   *    reserved-wildcard-place capacity distinction).
+   *  - A STARTED tournament (its doubles draw formed while the singles
+   *    field could not be filled — the rescue path) cannot use
+   *    `registerEntrant`, so it places the filler through
+   *    `addQualifyingFiller` / `addMainDrawFiller`, whose own guards
+   *    still refuse anything past the relevant bracket's deadline.
+   */
+  private addFiller(tournament: Tournament, entrant: TournamentEntrant): void {
+    if (entrant.draw === 'qualifying') {
+      if (tournament.hasStarted) {
+        tournament.addQualifyingFiller(entrant.playerId);
+        return;
+      }
+      tournament.registerEntrant(entrant);
+      return;
+    }
+    if (!tournament.hasStarted) {
+      this.addMainDrawEntrant(tournament, entrant);
+      return;
+    }
+    tournament.addMainDrawFiller(entrant.playerId);
   }
 
   /**
@@ -541,4 +759,30 @@ export class StartDueTournamentsUseCase {
     }
     tournament.addMainDrawFiller(entrant.playerId);
   }
+}
+
+/** Shared per-run context threaded from execute() into attemptStart():
+ * the run-wide preloads, the lazily-cached per-band ranking lists, and
+ * the run's fill diagnostics accumulator. */
+interface AttemptStartContext {
+  /** The unified `players.findFreeAgents()` list (see execute()). */
+  freeAgentPool: ReadonlyArray<Player>;
+  /** The same list, passed to doubles formation only when it is wired. */
+  freeAgents?: ReadonlyArray<Player>;
+  enteredByWeek: Map<string, Set<PlayerId>>;
+  singlesRankedFor: (band: RankingBand) => Promise<RankedPlayer[]>;
+  doublesRankedFor: (band: RankingBand) => Promise<RankedPlayer[]>;
+  unfinishedCommitmentPlayerIds?: Set<PlayerId>;
+  diagnostics: FillDrawSlotsDiagnostics;
+}
+
+interface AttemptStartOutcome {
+  /** A SINGLES bracket (qualifying or main) was seeded by this attempt. */
+  seededSingles: boolean;
+  /** Filler slots this attempt actually placed. */
+  filled: number;
+}
+
+function weekKey(week: GameWeek): string {
+  return `${week.season}:${week.week}`;
 }

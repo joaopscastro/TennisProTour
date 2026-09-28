@@ -30,6 +30,7 @@ import {
 import * as schema from '../../db/schema';
 import {
   ConcurrentModificationError,
+  CANCELLED_DRAW_REASON_DOUBLES_STAND,
   EnsureFillOnlyPopulationUseCase,
   EnsureSignablePoolUseCase,
   EventPublisherPort,
@@ -415,6 +416,108 @@ describe('DrizzleTournamentRepository', () => {
     // The unbounded accessor still returns everything started, for the
     // per-request / diagnostic callers that use it.
     expect((await tournamentRepository.findStarted()).map((t) => t.id).sort()).toEqual(['t-finished', 't-live']);
+  });
+
+  it('findStartedSinglesUnseeded returns exactly the dead shape (item 2.1): the doubles-only draw, never a qualifying-pending or archived-finished one', async () => {
+    await savePlayers(4);
+
+    // 1. The DEAD shape: `has_started = true` with NO singles match rows
+    // at all (its doubles draw is what started it). Seeded raw — the
+    // doubles bracket rows are what make the RECONSTITUTED aggregate
+    // answer `hasStarted === true`, exactly as the real dead draws do
+    // (their doubles bracket played a full event while singles never
+    // seeded).
+    await db.insert(schema.tournaments).values({
+      id: 't-dead',
+      name: 'Dead Draw',
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentDoublesPairs).values([
+      { tournamentId: 't-dead', pairId: 'dp1', playerA: PlayerId('p1'), playerB: PlayerId('p2'), chemistry: 0, draw: 'main' },
+      { tournamentId: 't-dead', pairId: 'dp2', playerA: PlayerId('p3'), playerB: PlayerId('p4'), chemistry: 0, draw: 'main' },
+    ]);
+    await db.insert(schema.tournamentDoublesMatches).values({
+      tournamentId: 't-dead',
+      draw: 'main',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: 'dp1',
+      entrantB: 'dp2',
+      winnerId: 'dp1',
+      loserId: 'dp2',
+    });
+
+    // 2. A started QUALIFYING draw awaiting its main draw (PromoteQualifiersUseCase's
+    // state) — it has a singles match row, so it is NOT the dead shape.
+    await db.insert(schema.tournaments).values({
+      id: 't-qualifying-pending',
+      name: 'Qualifying Pending',
+      tier: 'tour',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      qualifyingDrawSize: 8,
+      qualifierSlots: 2,
+      hasStarted: true,
+    });
+    await db.insert(schema.tournamentMatches).values({
+      tournamentId: 't-qualifying-pending',
+      draw: 'qualifying',
+      roundNumber: 1,
+      matchIndex: 0,
+      entrantA: PlayerId('p1'),
+      entrantB: PlayerId('p2'),
+      winnerId: PlayerId('p1'),
+      loserId: PlayerId('p2'),
+    });
+
+    // 3. A completed tournament whose old match rows were archived by the
+    // season harness's pruning — no matches, but a permanent singles
+    // title. Re-seeding it would replay a finished event; the title is
+    // the reliable guard.
+    await db.insert(schema.tournaments).values({
+      id: 't-archived-finished',
+      name: 'Archived Finished',
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    await db.insert(schema.titles).values({
+      tournamentId: 't-archived-finished',
+      playerId: PlayerId('p1'),
+      tier: 'challenger',
+      seasonEarned: 1,
+      weekEarned: 1,
+    });
+
+    // 4. A never-started open draw — not this read's business.
+    await db.insert(schema.tournaments).values({
+      id: 't-open',
+      name: 'Open',
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled: 1,
+      drawSize: 16,
+      hasStarted: false,
+    });
+
+    const found = await tournamentRepository.findStartedSinglesUnseeded();
+    expect(found.map((t) => t.id).sort()).toEqual(['t-dead']);
+    // It reconstitutes fully, and no lifecycle events fire on load.
+    expect(found[0].hasStarted).toBe(true);
+    expect(found[0].hasMainDraw).toBe(false);
+    expect(found[0].hasQualifyingDrawStarted).toBe(false);
+    expect(found[0].pullDomainEvents()).toHaveLength(0);
   });
 
   it('findStartedWithinWindow returns only started events inside the rolling window, reconstituted', async () => {
@@ -2922,6 +3025,131 @@ describe('demand-aware filler supply (real Postgres)', () => {
     const j30 = (await tournamentRepository.findById(TournamentId('demand-seed-j30')))!;
     expect(j30.entrants).toHaveLength(16);
     expect(j30.hasStarted).toBe(true);
+  });
+});
+
+/**
+ * Item 2.1: the dead-draw rescue, against real Postgres. A started draw
+ * with no singles match rows is invisible to every other recovery pass
+ * (not open, not live, no qualifying to promote); StartDueTournamentsUseCase
+ * reads it through findStartedSinglesUnseeded and either puts it back
+ * into play (seed-if-fillable) or closes it out honestly (cancel-if-not,
+ * releasing whatever free agent its entries trapped).
+ */
+describe('dead-draw rescue (real Postgres, item 2.1)', () => {
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const worldRepository = new DrizzleGameWorldRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+  const rankingLedgerRepository = new DrizzleRankingLedgerRepository(db);
+
+  function rankingsFor(worldId: WorldId): Record<RankingBand, RankPositionQuery> {
+    return {
+      senior: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'senior'),
+      u18: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u18'),
+      u16: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u16'),
+      u14: new RankPositionQuery(rankingLedgerRepository, worldRepository, worldId, 'u14'),
+    };
+  }
+
+  /** Raw-inserts the dead shape: started, singles entries, zero singles
+   * match rows (the doubles bracket is what flipped `has_started`). */
+  async function seedDeadDraw(id: string, weekScheduled: number, entrantIds: string[]): Promise<void> {
+    await db.insert(schema.tournaments).values({
+      id,
+      name: `Dead ${id}`,
+      tier: 'challenger',
+      surface: 'hard',
+      seasonScheduled: 1,
+      weekScheduled,
+      drawSize: 16,
+      hasStarted: true,
+    });
+    for (const entrantId of entrantIds) {
+      await db.insert(schema.tournamentEntries).values({
+        tournamentId: id,
+        playerId: PlayerId(entrantId),
+        seed: null,
+        entryType: 'da',
+        draw: 'main',
+      });
+    }
+  }
+
+  async function saveManaged(id: string): Promise<void> {
+    const player = Player.hire(PlayerId(id), `Managed ${id}`, 24 * 52, attributes(40), ManagerId('m-rescue'));
+    player.pullDomainEvents();
+    await playerRepository.save(player);
+  }
+
+  it('seeds a fillable dead draw on a real use-case run', async () => {
+    const worldId = WorldId('rescue-seed-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 6 }));
+
+    await saveManaged('rescue-managed-1');
+    await saveManaged('rescue-managed-2');
+    await saveManaged('rescue-managed-3');
+    await seedDeadDraw('rescue-dead-seed', 1, ['rescue-managed-1', 'rescue-managed-2', 'rescue-managed-3']);
+    for (let i = 0; i < 14; i++) {
+      const filler = Player.generateFillOnly(PlayerId(`rescue-filler-${i}`), `Rescue Filler ${i}`, 24 * 52, 'prime', attributes(35), 'US');
+      filler.pullDomainEvents();
+      await playerRepository.save(filler);
+    }
+
+    const useCase = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const result = await useCase.execute({ worldId });
+
+    expect(result.rescued).toBe(1);
+    expect(result.cancelled).toBe(0);
+    expect(result.filled).toBe(13); // 16-draw − 3 real entrants
+
+    const reloaded = (await tournamentRepository.findById(TournamentId('rescue-dead-seed')))!;
+    expect(reloaded.isCancelled).toBe(false);
+    expect(reloaded.hasMainDraw).toBe(true);
+    expect(reloaded.getRounds()[0].matches.length).toBeGreaterThan(0);
+  });
+
+  it('cancels an unfillable dead draw past grace and releases its trapped free agent through the commitment read', async () => {
+    const worldId = WorldId('rescue-cancel-world');
+    await worldRepository.save(GameWorld.create(worldId, { season: 1, week: 6 }));
+
+    const trapped = Player.generateFillOnly(PlayerId('rescue-trapped'), 'Trapped Agent', 24 * 52, 'prime', attributes(35), 'US');
+    trapped.pullDomainEvents();
+    await playerRepository.save(trapped);
+    await saveManaged('rescue-managed-1');
+    await saveManaged('rescue-managed-2');
+    await seedDeadDraw('rescue-dead-cancel', 1, ['rescue-trapped', 'rescue-managed-1', 'rescue-managed-2']);
+
+    // The exact lock the finding documented: the commitment read the
+    // signing rule enforces reports the free agent as blocked while the
+    // dead draw sits unfinished...
+    expect(await tournamentRepository.findUnfinishedCommitmentPlayerIds()).toContain(PlayerId('rescue-trapped'));
+
+    const useCase = new StartDueTournamentsUseCase(
+      tournamentRepository,
+      worldRepository,
+      playerRepository,
+      new BracketGenerator(),
+      rankingsFor(worldId),
+    );
+    const result = await useCase.execute({ worldId });
+
+    expect(result.rescued).toBe(0);
+    expect(result.cancelled).toBe(1);
+
+    const reloaded = (await tournamentRepository.findById(TournamentId('rescue-dead-cancel')))!;
+    expect(reloaded.isCancelled).toBe(true);
+    expect(reloaded.cancelReason).toBe(CANCELLED_DRAW_REASON_DOUBLES_STAND);
+    // Entries are KEPT — including the free agent's.
+    expect(reloaded.entrants.map((e) => e.playerId)).toContain(PlayerId('rescue-trapped'));
+
+    // ...and after cancellation the SAME read no longer reports them.
+    expect(await tournamentRepository.findUnfinishedCommitmentPlayerIds()).not.toContain(PlayerId('rescue-trapped'));
   });
 });
 

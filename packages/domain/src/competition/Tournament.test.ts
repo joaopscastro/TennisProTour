@@ -532,6 +532,50 @@ describe('Tournament.cancel — the terminal CANCELLED state for an unseedable d
     expect(t.isCancelled).toBe(false);
   });
 
+  it('ALLOWS cancelling a draw whose DOUBLES bracket was seeded but whose singles competition never began (item 2.1)', () => {
+    // The exact dead shape: a sparse singles field that could never
+    // seed, while the doubles bracket formed and flipped `hasStarted`.
+    // A doubles bracket existing is not the singles competition
+    // starting, so cancellation (which releases the trapped singles
+    // entrants) must remain legal.
+    const t = Tournament.open(baseProps({ doublesDrawSize: 8 }));
+    for (const id of ['s1', 's2']) t.registerEntrant({ playerId: PlayerId(id), seed: null });
+    const pairs = [
+      { pairId: PairId('dp1'), playerA: PlayerId('a1'), playerB: PlayerId('a2') },
+      { pairId: PairId('dp2'), playerA: PlayerId('b1'), playerB: PlayerId('b2') },
+      { pairId: PairId('dp3'), playerA: PlayerId('c1'), playerB: PlayerId('c2') },
+      { pairId: PairId('dp4'), playerA: PlayerId('d1'), playerB: PlayerId('d2') },
+      { pairId: PairId('dp5'), playerA: PlayerId('e1'), playerB: PlayerId('e2') },
+    ];
+    t.startDoublesWithBracket(
+      pairs,
+      new BracketGenerator().generate(
+        pairs.map((p) => ({ playerId: p.pairId, seed: null })),
+        8,
+      ),
+    );
+    expect(t.hasStarted).toBe(true); // the doubles bracket exists
+    expect(t.hasMainDraw).toBe(false);
+    expect(t.hasQualifyingDrawStarted).toBe(false);
+
+    t.cancel('The draw could not be filled in time — any doubles results already played still stand');
+
+    expect(t.isCancelled).toBe(true);
+    // The doubles bracket and its results still stand — cancellation
+    // only closes the singles competition that never happened.
+    expect(t.hasDoublesDrawStarted).toBe(true);
+  });
+
+  it('still refuses to cancel once the QUALIFYING bracket exists', () => {
+    const t = Tournament.open(baseProps({ tier: 'tour', drawSize: 16, qualifyingDrawSize: 8, qualifierSlots: 2 }));
+    for (let i = 0; i < 8; i++) {
+      t.registerEntrant({ playerId: PlayerId(`q${i}`), seed: null, draw: 'qualifying', entryType: 'Q' });
+    }
+    t.startQualifyingWithBracket(new BracketGenerator().generate(t.qualifyingEntrants, 8));
+    expect(() => t.cancel('too late')).toThrow(/singles competition has already started/);
+    expect(t.isCancelled).toBe(false);
+  });
+
   it('refuses singles AND doubles registration after cancel', () => {
     const t = Tournament.open(baseProps({ tier: 'tour', doublesDrawSize: 8 }));
     t.cancel('done');

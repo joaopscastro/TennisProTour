@@ -8,25 +8,43 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import { Pool } from 'pg';
 import { FastifyInstance } from 'fastify';
 import {
+  BracketGenerator,
   DoublesPair,
+  GameWeek,
   ManagerId,
   MatchId,
+  MatchParticipant,
+  MatchSimulator,
   PairId,
   Player,
   PlayerAttributes,
   PlayerId,
+  SimulatedMatch,
   Skill,
   StandardAgingPolicy,
+  StandardDoublesPairPolicy,
+  StandardManagerLadderPolicy,
+  StandardManagerXpPolicy,
+  StandardPlayerDevelopmentPolicy,
   StandardRankingPointsTable,
+  Surface,
   SurfaceAffinities,
   Tournament,
   TournamentId,
   WorldId,
 } from '@tennis-manager/domain';
+import {
+  ConcurrentModificationError,
+  RegisterEntrantUseCase,
+  SimulateDoublesMatchUseCase,
+  TournamentRepository,
+} from '@tennis-manager/application';
 import * as schema from '../../../db/schema';
 import { testConnectionString } from '../../../db/testConnection';
 import { buildDependencies, Dependencies } from '../../../composition';
 import { buildApp } from '../../../app';
+import { DrizzleDoublesTitleRepository } from '../../outbound/DrizzleDoublesTitleRepository';
+import { DrizzleDoublesPeakRankingRepository } from '../../outbound/DrizzleDoublesPeakRankingRepository';
 
 const connectionString = testConnectionString();
 process.env.INTERNAL_ADMIN_TOKEN ??= 'test-admin';
@@ -165,6 +183,60 @@ async function hirePlayer(id: string, managerId: string): Promise<number> {
     payload: { managerId },
   });
   return response.statusCode;
+}
+
+/** Deterministic "which bracket slot wins" doubles simulator, so the
+ * item-2.3 award regression can pin BOTH orientations against real
+ * persistence (the real simulator's outcome depends on attributes+RNG). */
+class FixedSlotWinnerSimulator implements MatchSimulator {
+  constructor(private readonly winningSide: 'A' | 'B') {}
+  simulate<S extends string>(playerA: MatchParticipant<S>, playerB: MatchParticipant<S>, _surface: Surface): SimulatedMatch<S> {
+    const winner = this.winningSide === 'A' ? playerA : playerB;
+    const loser = this.winningSide === 'A' ? playerB : playerA;
+    return {
+      outcome: { winner: winner.playerId, loser: loser.playerId, setScores: [{ winnerGames: 6, loserGames: 0 }] },
+      log: { entries: [], points: [], totalDurationSeconds: 0 },
+    };
+  }
+}
+
+class NoopEventPublisherForDoubles {
+  async publish(): Promise<void> {}
+}
+
+/**
+ * Wraps the real tournament repository and fails the FIRST `save` with
+ * the exact ConcurrentModificationError a concurrent writer produces —
+ * a genuine interleaving is not forceable from a test, so this is how
+ * the registration retry (item 2.2) is proven deterministically against
+ * real Postgres: attempt 1 loads, mutates, loses the "race"; the retry
+ * reloads fresh state and lands. Every other method delegates.
+ */
+class FlakyFirstSaveTournamentRepository implements TournamentRepository {
+  private failNext = true;
+  constructor(private readonly inner: TournamentRepository) {}
+  findById(id: TournamentId): Promise<Tournament | null> {
+    return this.inner.findById(id);
+  }
+  findOpenForRegistration(): Promise<Tournament[]> {
+    return this.inner.findOpenForRegistration();
+  }
+  findStarted(): Promise<Tournament[]> {
+    return this.inner.findStarted();
+  }
+  findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return this.inner.findByPlayerAndWeek(playerId, week);
+  }
+  findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+    return this.inner.findDoublesByPlayerAndWeek(playerId, week);
+  }
+  async save(tournament: Tournament): Promise<void> {
+    if (this.failNext) {
+      this.failNext = false;
+      throw new ConcurrentModificationError(tournament.id);
+    }
+    return this.inner.save(tournament);
+  }
 }
 
 describe('API', () => {
@@ -1684,5 +1756,214 @@ describe('API', () => {
       payload: { managerId: 'pro-manager', name: 'Third Kid', nationality: 'FR' },
     });
     expect(third.statusCode).toBe(409);
+  });
+
+  it('two concurrent singles registration POSTs for the same tournament both land, and a duplicate retry is refused (item 2.2)', async () => {
+    expect(await hirePlayer('race-a', 'm-race-1')).toBe(201);
+    expect(await hirePlayer('race-b', 'm-race-2')).toBe(201);
+
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Race Open Singles',
+        id: TournamentId('t-race-singles'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+      }),
+    );
+
+    // Two DIFFERENT players, same tournament, fired together — exactly
+    // the interleaving that used to make the second save lose to the
+    // optimistic lock and silently drop the entry.
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-race-singles/entrants',
+        headers: { 'x-dev-manager-id': 'm-race-1' },
+        payload: { playerId: 'race-a' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-race-singles/entrants',
+        headers: { 'x-dev-manager-id': 'm-race-2' },
+        payload: { playerId: 'race-b' },
+      }),
+    ]);
+    expect([first.statusCode, second.statusCode]).toEqual([201, 201]);
+
+    const fetched = await app.inject({ method: 'GET', url: '/tournaments/t-race-singles' });
+    expect(fetched.statusCode).toBe(200);
+    expect(fetched.json().entrants.map((e: { playerId: string }) => e.playerId).sort()).toEqual(['race-a', 'race-b']);
+
+    // A retried duplicate for an already-entered player is a rule
+    // refusal (already registered), never a second row.
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-race-singles/entrants',
+      headers: { 'x-dev-manager-id': 'm-race-1' },
+      payload: { playerId: 'race-a' },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    const refetched = await app.inject({ method: 'GET', url: '/tournaments/t-race-singles' });
+    expect(refetched.json().entrants.filter((e: { playerId: string }) => e.playerId === 'race-a')).toHaveLength(1);
+  });
+
+  it('two concurrent DOUBLES registration POSTs for the same tournament both land, and a duplicate retry is refused (item 2.2)', async () => {
+    expect(await hirePlayer('race-d1', 'm-race-d1')).toBe(201);
+    expect(await hirePlayer('race-d2', 'm-race-d2')).toBe(201);
+
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Race Open Doubles',
+        id: TournamentId('t-race-doubles'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+        doublesDrawSize: 8,
+      }),
+    );
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-race-doubles/doubles-entrants',
+        headers: { 'x-dev-manager-id': 'm-race-d1' },
+        payload: { playerId: 'race-d1' },
+      }),
+      app.inject({
+        method: 'POST',
+        url: '/tournaments/t-race-doubles/doubles-entrants',
+        headers: { 'x-dev-manager-id': 'm-race-d2' },
+        payload: { playerId: 'race-d2' },
+      }),
+    ]);
+    expect([first.statusCode, second.statusCode]).toEqual([201, 201]);
+
+    const fetched = await app.inject({ method: 'GET', url: '/tournaments/t-race-doubles' });
+    expect(fetched.json().doublesEntrants.sort()).toEqual(['race-d1', 'race-d2']);
+
+    const duplicate = await app.inject({
+      method: 'POST',
+      url: '/tournaments/t-race-doubles/doubles-entrants',
+      headers: { 'x-dev-manager-id': 'm-race-d1' },
+      payload: { playerId: 'race-d1' },
+    });
+    expect(duplicate.statusCode).toBe(409);
+    const refetched = await app.inject({ method: 'GET', url: '/tournaments/t-race-doubles' });
+    expect(refetched.json().doublesEntrants.filter((id: string) => id === 'race-d1')).toHaveLength(1);
+  });
+
+  it('a lost optimistic-lock race is retried and the entry lands — forced through a first-save failure, against real Postgres (item 2.2)', async () => {
+    expect(await hirePlayer('race-retry', 'm-race-retry')).toBe(201);
+    await deps.tournaments.save(
+      Tournament.open({
+        name: 'Retry Open',
+        id: TournamentId('t-race-retry'),
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+      }),
+    );
+
+    // The real repository, wrapped so the FIRST save throws the exact
+    // conflict a concurrent writer produces. Without the retry wrapper
+    // this would propagate (route 409) and the entry would be lost; with
+    // it, the flow reloads and re-applies.
+    const flaky = new FlakyFirstSaveTournamentRepository(deps.tournaments as unknown as TournamentRepository);
+    const useCase = new RegisterEntrantUseCase(flaky, deps.players, new BracketGenerator());
+
+    await useCase.execute({ tournamentId: TournamentId('t-race-retry'), playerId: PlayerId('race-retry') });
+
+    const reloaded = await deps.tournaments.findById(TournamentId('t-race-retry'));
+    expect(reloaded!.entrants.map((e) => e.playerId)).toContain(PlayerId('race-retry'));
+  });
+
+  it('awards doubles ledger points to the side that ACTUALLY won, in both orientations, against real Postgres (item 2.3)', async () => {
+    // A deterministic slot-winner simulator lets both orientations be
+    // pinned: side A wins once, side B wins once. The old bug always
+    // attributed the winner's value to whichever pair sat in the
+    // entrantA SLOT, so the side-B case is the regression.
+    const simulators = { A: new FixedSlotWinnerSimulator('A'), B: new FixedSlotWinnerSimulator('B') } as const;
+
+    for (const side of ['A', 'B'] as const) {
+      const tournamentId = TournamentId(`t-doubles-award-${side}`);
+      const agingPolicy = new StandardAgingPolicy();
+      const playerIds = ['a1', 'a2', 'b1', 'b2', 'c1', 'c2', 'd1', 'd2', 'e1', 'e2', 'f1', 'f2', 'g1', 'g2', 'h1', 'h2'];
+      for (const id of playerIds) {
+        await deps.players.save(
+          Player.generateFillOnly(PlayerId(`${side}-${id}`), `${side} ${id}`, 24 * 52, agingPolicy.stageForAge(24 * 52), fixedAttributes(40), 'US'),
+        );
+      }
+
+      const tournament = Tournament.open({
+        name: `Doubles Award ${side}`,
+        id: tournamentId,
+        tier: 'challenger',
+        surface: 'hard',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+        doublesDrawSize: 8,
+      });
+      const pairKeys = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+      const pairs = pairKeys.map((key) => ({
+        pairId: PairId(`${side}-pair-${key}`),
+        playerA: PlayerId(`${side}-${key}1`),
+        playerB: PlayerId(`${side}-${key}2`),
+        chemistry: 0,
+      }));
+      tournament.startDoublesWithBracket(
+        pairs,
+        new BracketGenerator().generate(pairs.map((p) => ({ playerId: p.pairId, seed: null })), 8),
+      );
+      tournament.pullDomainEvents();
+      await deps.tournaments.save(tournament);
+
+      const scheduled = tournament.getDoublesScheduledMatch(1, 0);
+      const useCase = new SimulateDoublesMatchUseCase(
+        deps.tournaments,
+        deps.players,
+        simulators[side],
+        new StandardDoublesPairPolicy(),
+        deps.matchLogs,
+        new NoopEventPublisherForDoubles(),
+        new BracketGenerator(),
+        new StandardRankingPointsTable(),
+        deps.rankingLedger,
+        new StandardManagerXpPolicy(),
+        deps.managerXp,
+        new StandardManagerLadderPolicy(),
+        deps.managerLadder,
+        deps.worlds,
+        WorldId('main'),
+        new StandardPlayerDevelopmentPolicy(),
+        deps.doublesPairs,
+        new DrizzleDoublesTitleRepository(db),
+        new DrizzleDoublesPeakRankingRepository(db),
+      );
+      await useCase.execute({ matchId: MatchId(`t-doubles-award-${side}-r1-m0`), tournamentId, roundNumber: 1, matchIndex: 0 });
+
+      const refreshed = (await deps.tournaments.findById(tournamentId))!;
+      const slotA = refreshed.doublesPlayersFor(scheduled.entrantA)!;
+      const slotB = refreshed.doublesPlayersFor(scheduled.entrantB)!;
+      const winningPair = side === 'A' ? slotA : slotB;
+      const losingPair = side === 'A' ? slotB : slotA;
+
+      const doublesPoints = async (playerId: PlayerId): Promise<number[]> => {
+        const rows = await db.select().from(schema.rankingLedger).where(eq(schema.rankingLedger.playerId, playerId));
+        return rows.filter((row) => row.discipline === 'doubles').map((row) => row.points);
+      };
+
+      for (const id of [winningPair.playerA, winningPair.playerB]) {
+        const points = await doublesPoints(id);
+        expect(points.length).toBeGreaterThan(0);
+        expect(Math.max(...points)).toBeGreaterThan(0);
+      }
+      for (const id of [losingPair.playerA, losingPair.playerB]) {
+        expect(await doublesPoints(id)).toEqual([0]);
+      }
+    }
   });
 });

@@ -132,6 +132,37 @@ export class DrizzleTournamentRepository implements TournamentRepository {
   }
 
   /**
+   * The RESCUE read — see the port's doc comment. Expressed as one SQL
+   * prefilter, mirroring the dead shape exactly:
+   *   - `has_started = true` — some bracket exists (else `open` sees it);
+   *   - `cancelled_at IS NULL` — a cancelled draw is terminal;
+   *   - no `tournament_matches` row at all — neither a singles main nor
+   *     qualifying bracket was ever seeded. (A qualifying-seeded /
+   *     main-pending draw HAS qualifying match rows and is deliberately
+   *     excluded: PromoteQualifiersUseCase owns that state. A
+   *     doubles-only draw has none, which is the shape being rescued.)
+   *   - no singles title — a completed tournament whose old match rows
+   *     were archived by the season harness's pruning would otherwise
+   *     look "unseeded" and be re-seeded into play; a real singles
+   *     champion is permanent (see docs/data-archival-principles.md), so
+   *     its title row is the reliable guard. The dead draws this exists
+   *     for produced zero singles titles.
+   */
+  async findStartedSinglesUnseeded(): Promise<Tournament[]> {
+    const result = await this.db.execute(sql`
+      SELECT t.id FROM tournaments t
+      WHERE t.has_started = true
+        AND t.cancelled_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM tournament_matches m WHERE m.tournament_id = t.id)
+        AND NOT EXISTS (SELECT 1 FROM titles ti WHERE ti.tournament_id = t.id)
+    `);
+    const ids = result.rows.map((row) => (row as { id: string }).id);
+    if (ids.length === 0) return [];
+    const rows = await this.db.select().from(tournaments).where(inArray(tournaments.id, ids));
+    return Promise.all(rows.map((row) => this.load(row)));
+  }
+
+  /**
    * Deletes a never-started tournament that is either genuinely EMPTY or
    * manager-less (every entrant is a filler/free agent). Guarded in one
    * transaction: it re-checks `has_started = false` AND that no

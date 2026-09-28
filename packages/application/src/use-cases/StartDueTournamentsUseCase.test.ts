@@ -5,6 +5,7 @@ import {
   GameWeek,
   GameWorld,
   ManagerId,
+  PairId,
   Player,
   PlayerAttributes,
   PlayerId,
@@ -16,9 +17,9 @@ import {
   TournamentId,
   WorldId,
 } from '@tennis-manager/domain';
-import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
+import { ConcurrentModificationError, GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
-import { CANCELLED_DRAW_GRACE_WEEKS, CANCELLED_DRAW_REASON, StartDueTournamentsUseCase } from './StartDueTournamentsUseCase';
+import { CANCELLED_DRAW_GRACE_WEEKS, CANCELLED_DRAW_REASON, CANCELLED_DRAW_REASON_DOUBLES_STAND, StartDueTournamentsUseCase } from './StartDueTournamentsUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
@@ -35,6 +36,16 @@ class InMemoryTournamentRepository implements TournamentRepository {
 
   async findStarted(): Promise<Tournament[]> {
     return [...this.store.values()].filter((t) => t.hasStarted);
+  }
+
+  async findStartedSinglesUnseeded(): Promise<Tournament[]> {
+    // Mirrors the production SQL: started, not cancelled, and no singles
+    // bracket of either kind ever seeded (in the fake, "seeded" is the
+    // presence of rounds, since rehydration rebuilds them from match
+    // rows).
+    return [...this.store.values()].filter(
+      (t) => t.hasStarted && !t.isCancelled && !t.hasMainDraw && !t.hasQualifyingDrawStarted,
+    );
   }
 
   async findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
@@ -594,5 +605,211 @@ describe('StartDueTournamentsUseCase — cancelling a never-seedable draw (P1-C1
     const reloaded = await tournaments.findById(TournamentId('t-rescued'));
     expect(reloaded!.isCancelled).toBe(false);
     expect(reloaded!.hasStarted).toBe(true);
+  });
+});
+
+describe('StartDueTournamentsUseCase — rescuing started-but-singles-unseeded draws (item 2.1)', () => {
+  /**
+   * The exact dead shape the 52-week agent season produced 11 of: the
+   * singles field is too sparse to seed, the DOUBLES bracket forms
+   * anyway (which flips `hasStarted`), and the draw then sits invisible
+   * to every other recovery path. Built directly through the aggregate
+   * (the same state the real sequence lands in), persisted, and handed
+   * to a `findStartedSinglesUnseeded`-implementing fake.
+   */
+  function startedDoublesOnlyDraw(id: string, singlesEntrants: number): Tournament {
+    const tournament = Tournament.open({
+      name: 'Dead Draw',
+      id: TournamentId(id),
+      tier: 'challenger',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 1 },
+      drawSize: 16,
+      doublesDrawSize: 4,
+    });
+    for (let i = 1; i <= singlesEntrants; i++) realEntrant(tournament, `real-${i}`);
+    const pairs = [
+      { pairId: PairId('dp-1'), playerA: PlayerId('d1a'), playerB: PlayerId('d1b') },
+      { pairId: PairId('dp-2'), playerA: PlayerId('d2a'), playerB: PlayerId('d2b') },
+      { pairId: PairId('dp-3'), playerA: PlayerId('d3a'), playerB: PlayerId('d3b') },
+    ];
+    tournament.startDoublesWithBracket(
+      pairs,
+      new BracketGenerator().generate(pairs.map((p) => ({ playerId: p.pairId, seed: null })), 4),
+    );
+    return tournament;
+  }
+
+  it('SEEDS a started doubles-only draw on the next run when the pool can fill it', async () => {
+    // 5 weeks after its scheduled week — past the cancellation grace on
+    // purpose, so this proves seed-if-fillable wins over cancel-if-not.
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 6 });
+    const dead = startedDoublesOnlyDraw('t-dead-seedable', 6);
+    await tournaments.save(dead);
+
+    for (let i = 0; i < 12; i++) await players.save(fillOnlyPlayer(`revive-${i}`, 25 * 52));
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.rescued).toBe(1);
+    expect(result.started).toBe(1);
+    expect(result.cancelled).toBe(0);
+    expect(result.filled).toBe(10); // 16-draw − 6 real entrants
+
+    const reloaded = await tournaments.findById(TournamentId('t-dead-seedable'));
+    expect(reloaded!.isCancelled).toBe(false);
+    expect(reloaded!.hasMainDraw).toBe(true);
+    // The doubles bracket that made it "started" is untouched.
+    expect(reloaded!.hasDoublesDrawStarted).toBe(true);
+  });
+
+  it('CANCELS a started doubles-only draw past grace when no pool can fill it, keeping its entries', async () => {
+    const { tournaments, useCase } = await setup({ season: 1, week: 6 });
+    const dead = startedDoublesOnlyDraw('t-dead-cancel', 4);
+    await tournaments.save(dead);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.rescued).toBe(0);
+    expect(result.cancelled).toBe(1);
+    expect(result.filled).toBe(0);
+
+    const reloaded = await tournaments.findById(TournamentId('t-dead-cancel'));
+    expect(reloaded!.isCancelled).toBe(true);
+    expect(reloaded!.cancelReason).toBe(CANCELLED_DRAW_REASON_DOUBLES_STAND);
+    // Entries are KEPT — including the singles entries that were wasted.
+    expect(reloaded!.entrants.map((e) => e.playerId as string)).toEqual([
+      'real-1',
+      'real-2',
+      'real-3',
+      'real-4',
+    ]);
+    // A re-run is a no-op: a cancelled draw is no longer in the rescue
+    // set (and findOpenForRegistration never returned it).
+    const second = await useCase.execute({ worldId });
+    expect(second.cancelled).toBe(0);
+    expect(second.rescued).toBe(0);
+  });
+
+  it('LEAVES a within-grace doubles-only draw open and retries it — a later run with a pool seeds it', async () => {
+    // 2 weeks past the scheduled week: inside CANCELLED_DRAW_GRACE_WEEKS.
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 3 });
+    const dead = startedDoublesOnlyDraw('t-dead-grace', 4);
+    await tournaments.save(dead);
+
+    const first = await useCase.execute({ worldId });
+
+    expect(first.cancelled).toBe(0);
+    expect(first.rescued).toBe(0);
+    const stillOpen = await tournaments.findById(TournamentId('t-dead-grace'));
+    expect(stillOpen!.isCancelled).toBe(false);
+    expect(stillOpen!.hasMainDraw).toBe(false);
+
+    // The retry: by the next run the pool exists (the filler top-up
+    // would have generated/converted players by then).
+    for (let i = 0; i < 12; i++) await players.save(fillOnlyPlayer(`late-${i}`, 25 * 52));
+    const second = await useCase.execute({ worldId });
+
+    expect(second.rescued).toBe(1);
+    expect(second.cancelled).toBe(0);
+    expect((await tournaments.findById(TournamentId('t-dead-grace')))!.hasMainDraw).toBe(true);
+  });
+
+  it('fills singles from the UNIFIED free-agent pool: a managerless RELEASED player is now selectable', async () => {
+    // The 52-week season's evidence gap: the doubles padding could use a
+    // released free agent while the singles fill (fillOnly-only) could
+    // not see them. One pool now serves both.
+    const { tournaments, players, useCase } = await setup({ season: 1, week: 2 });
+    const tournament = openSeniorTournament('t-unified-pool');
+    for (let i = 1; i <= 15; i++) realEntrant(tournament, `real-${i}`);
+    await tournaments.save(tournament);
+
+    const released = Player.hire(PlayerId('released-1'), 'Released One', 25 * 52, attributes(40), ManagerId('m1'));
+    released.releaseFromManager();
+    expect(released.fillOnly).toBe(false);
+    await players.save(released);
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.filled).toBe(1);
+    const reloaded = await tournaments.findById(TournamentId('t-unified-pool'));
+    expect(reloaded!.entrants.map((e) => e.playerId)).toContain(PlayerId('released-1'));
+  });
+});
+
+describe('StartDueTournamentsUseCase — optimistic-lock conflicts skip, never crash (item 2.2)', () => {
+  /**
+   * Delegates everything to the in-memory fake but throws the exact
+   * ConcurrentModificationError a live registration produces for ONE
+   * tournament id — a deterministic stand-in for the race, since the
+   * use case itself never sees a real one fail in a unit test.
+   */
+  class ConflictingTournamentRepository implements TournamentRepository {
+    constructor(
+      private readonly inner: InMemoryTournamentRepository,
+      private readonly conflictOnId: TournamentId,
+    ) {}
+    findById(id: TournamentId): Promise<Tournament | null> {
+      return this.inner.findById(id);
+    }
+    findOpenForRegistration(): Promise<Tournament[]> {
+      return this.inner.findOpenForRegistration();
+    }
+    findStarted(): Promise<Tournament[]> {
+      return this.inner.findStarted();
+    }
+    findStartedSinglesUnseeded(): Promise<Tournament[]> {
+      return this.inner.findStartedSinglesUnseeded();
+    }
+    findByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+      return this.inner.findByPlayerAndWeek(playerId, week);
+    }
+    findDoublesByPlayerAndWeek(playerId: PlayerId, week: GameWeek): Promise<Tournament[]> {
+      return this.inner.findDoublesByPlayerAndWeek(playerId, week);
+    }
+    async save(tournament: Tournament): Promise<void> {
+      if (tournament.id === this.conflictOnId) {
+        throw new ConcurrentModificationError(tournament.id);
+      }
+      return this.inner.save(tournament);
+    }
+  }
+
+  it('skips the conflicting tournament (logging, not throwing) and the rest of the tick still runs', async () => {
+    const { tournaments, worlds, players, rankingLedger } = await setup({ season: 1, week: 2 });
+
+    const conflicting = openSeniorTournament('t-conflict');
+    for (let i = 1; i <= 16; i++) realEntrant(conflicting, `c-${i}`);
+    await tournaments.save(conflicting);
+
+    const healthy = openSeniorTournament('t-healthy');
+    for (let i = 1; i <= 16; i++) realEntrant(healthy, `h-${i}`);
+    await tournaments.save(healthy);
+
+    const rankPositionByBand: Record<RankingBand, RankPositionQuery> = {
+      senior: new RankPositionQuery(rankingLedger, worlds, worldId, 'senior'),
+      u14: new RankPositionQuery(rankingLedger, worlds, worldId, 'u14'),
+      u16: new RankPositionQuery(rankingLedger, worlds, worldId, 'u16'),
+      u18: new RankPositionQuery(rankingLedger, worlds, worldId, 'u18'),
+    };
+    const conflictingRepo = new ConflictingTournamentRepository(tournaments, TournamentId('t-conflict'));
+    const useCase = new StartDueTournamentsUseCase(
+      conflictingRepo,
+      worlds,
+      players,
+      new BracketGenerator(),
+      rankPositionByBand,
+    );
+
+    const result = await useCase.execute({ worldId });
+
+    expect(result.conflicted).toBe(1);
+    expect(result.started).toBe(1); // the healthy draw still seeded
+    expect((await tournaments.findById(TournamentId('t-healthy')))!.hasStarted).toBe(true);
+    // (The in-memory fake aliases the unwritten instance, so it cannot
+    // assert "nothing persisted" — that property is the real Drizzle
+    // transaction's, covered by the real-Postgres suite. What this case
+    // pins is the contract the worker depends on: no throw, the conflict
+    // counted, and the rest of the tick still processed.)
   });
 });

@@ -46,6 +46,7 @@ export * from './use-cases/managerDigest';
 export * from './use-cases/SendManagerDigestsUseCase';
 export * from './use-cases/coachCap';
 export * from './use-cases/juniorEntryCap';
+export * from './use-cases/retryOnConflict';
 export * from './queries/RankPositionQuery';
 export * from './queries/PlayerEntryPlannerQuery';
 export * from './queries/PlayerTrainingScheduleQuery';

@@ -4,6 +4,7 @@ import { maxSeniorRankForTier, seniorTierEntryRestrictionReason } from '@tennis-
 import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
+import { retryOnConflict } from './retryOnConflict';
 
 export interface RegisterDoublesEntrantCommand {
   tournamentId: TournamentId;
@@ -54,91 +55,101 @@ export class RegisterDoublesEntrantUseCase {
   ) {}
 
   async execute(command: RegisterDoublesEntrantCommand): Promise<void> {
-    const tournament = await this.tournaments.findById(command.tournamentId);
-    if (!tournament) {
-      throw new Error(`Tournament ${command.tournamentId} not found`);
-    }
-    const player = await this.players.findById(command.playerId);
-    if (!player) {
-      throw new Error(`Player ${command.playerId} not found`);
-    }
-    if (player.managerId !== command.managerId) {
-      throw new Error(`Player ${command.playerId} is not on manager ${command.managerId}'s roster`);
-    }
-    // A retired player is never enterable — retirement is a roster fact
-    // (managerId is retained), not a deletion, so a stale UI could still
-    // offer one without this guard.
-    if (player.isRetired()) {
-      throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
-    }
-
-    if (isJuniorTier(tournament.tier) && !isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
-      throw new Error(
-        `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for the ` +
-          `${tournament.ageBand} doubles draw`,
-      );
-    }
-
-    // Ranking-based tier restriction (see TierEntryRestrictionPolicy):
-    // the SAME rule singles enforces, so a doubles entry can never be
-    // the loophole around a refused singles entry.
-    if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
-      const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
-      const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
-      if (reason) {
-        throw new Error(`Player ${command.playerId} is ${reason}`);
+    // Same bounded optimistic retry as RegisterEntrantUseCase (see
+    // retryOnConflict): a lost race against a concurrent writer for the
+    // SAME tournament reloads the fresh state and re-applies this
+    // single-player delta, instead of silently losing the doubles entry.
+    // Every rule re-evaluates against the winner's committed state, and
+    // the weekly-cap claim is idempotent for this same tournament.
+    return retryOnConflict(async () => {
+      const tournament = await this.tournaments.findById(command.tournamentId);
+      if (!tournament) {
+        throw new Error(`Tournament ${command.tournamentId} not found`);
       }
-    }
+      const player = await this.players.findById(command.playerId);
+      if (!player) {
+        throw new Error(`Player ${command.playerId} not found`);
+      }
+      if (player.managerId !== command.managerId) {
+        throw new Error(`Player ${command.playerId} is not on manager ${command.managerId}'s roster`);
+      }
+      // A retired player is never enterable — retirement is a roster fact
+      // (managerId is retained), not a deletion, so a stale UI could still
+      // offer one without this guard.
+      if (player.isRetired()) {
+        throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
+      }
 
-    // The tournament being registered is EXCLUDED from its own count
-    // (see countSameBandEntriesForWeek): this is exactly the case the
-    // pre-check used to get wrong — a senior holding a SINGLES entry in
-    // this event and now entering its DOUBLES field is still in one
-    // tournament, and must not be refused at the cap of 1. The atomic
-    // guard below already excluded it; the pre-check now agrees.
-    const entryCount = await countSameBandEntriesForWeek(
-      this.tournaments,
-      command.playerId,
-      tournament.weekScheduled,
-      tournament.tier,
-      tournament.id,
-    );
-    const cap = weeklyEntryCapForTier(tournament.tier);
-    if (entryCount >= cap) {
-      const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
-      throw new Error(
-        `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
-          `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
-          `(cap: ${cap})`,
-      );
-    }
-
-    // Atomic guard against the check-then-write race above (see
-    // WeeklyEntryGuardPort) — shares its claims with the singles path,
-    // so a singles registration and a doubles registration racing for
-    // the same player can't both slip through.
-    if (this.weeklyEntryGuard) {
-      const claimed = await this.weeklyEntryGuard.tryClaimEntry({
-        playerId: command.playerId,
-        week: tournament.weekScheduled,
-        isJunior: isJuniorTier(tournament.tier),
-        tournamentId: tournament.id,
-        cap,
-      });
-      if (!claimed) {
-        const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+      if (isJuniorTier(tournament.tier) && !isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
         throw new Error(
-          `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
-            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
-            `(a concurrent entry was registered first)`,
+          `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for the ` +
+            `${tournament.ageBand} doubles draw`,
         );
       }
-    }
 
-    // The aggregate enforces "holds a doubles draw", "not started", and
-    // "not already entered".
-    tournament.registerDoublesEntrant(command.playerId);
+      // Ranking-based tier restriction (see TierEntryRestrictionPolicy):
+      // the SAME rule singles enforces, so a doubles entry can never be
+      // the loophole around a refused singles entry.
+      if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+        const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
+        const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+        if (reason) {
+          throw new Error(`Player ${command.playerId} is ${reason}`);
+        }
+      }
 
-    await this.tournaments.save(tournament);
+      // The tournament being registered is EXCLUDED from its own count
+      // (see countSameBandEntriesForWeek): this is exactly the case the
+      // pre-check used to get wrong — a senior holding a SINGLES entry in
+      // this event and now entering its DOUBLES field is still in one
+      // tournament, and must not be refused at the cap of 1. The atomic
+      // guard below already excluded it; the pre-check now agrees.
+      const entryCount = await countSameBandEntriesForWeek(
+        this.tournaments,
+        command.playerId,
+        tournament.weekScheduled,
+        tournament.tier,
+        tournament.id,
+      );
+      const cap = weeklyEntryCapForTier(tournament.tier);
+      if (entryCount >= cap) {
+        const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+        throw new Error(
+          `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
+            `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+            `(cap: ${cap})`,
+        );
+      }
+
+      // Atomic guard against the check-then-write race above (see
+      // WeeklyEntryGuardPort) — shares its claims with the singles path,
+      // so a singles registration and a doubles registration racing for
+      // the same player can't both slip through. Idempotent for THIS
+      // tournament (it excludes the tournament from its own count and
+      // inserts onConflictDoNothing), so the retry wrapper can replay it.
+      if (this.weeklyEntryGuard) {
+        const claimed = await this.weeklyEntryGuard.tryClaimEntry({
+          playerId: command.playerId,
+          week: tournament.weekScheduled,
+          isJunior: isJuniorTier(tournament.tier),
+          tournamentId: tournament.id,
+          cap,
+        });
+        if (!claimed) {
+          const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+          throw new Error(
+            `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
+              `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+              `(a concurrent entry was registered first)`,
+          );
+        }
+      }
+
+      // The aggregate enforces "holds a doubles draw", "not started", and
+      // "not already entered".
+      tournament.registerDoublesEntrant(command.playerId);
+
+      await this.tournaments.save(tournament);
+    });
   }
 }

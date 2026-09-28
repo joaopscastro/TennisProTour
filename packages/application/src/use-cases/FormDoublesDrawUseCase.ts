@@ -22,6 +22,17 @@ export interface FormDoublesDrawPreloaded {
   doublesRanked?: ReadonlyArray<RankedPlayer>;
   freeAgents?: ReadonlyArray<Player>;
   enteredPlayerIdsForWeek?: Set<PlayerId>;
+  /** The set form of the signing rule's `noUnfinishedCommitment`
+   * predicate, from `TournamentRepository.findUnfinishedCommitmentPlayerIds`
+   * — the SAME set the singles fill consumes. A filler still alive in an
+   * earlier week's draw (a 14-day major, a late-running event) must not
+   * be padded into this draw either: the per-week set above only sees
+   * entries scheduled for the same week, so it cannot stop a
+   * cross-week double-booking. When absent, the use case reads the set
+   * itself if the repository supports it (one query); ids actually
+   * padded by this call are added to the set so a later draw in the same
+   * run can't reuse them. */
+  unfinishedCommitmentPlayerIds?: Set<PlayerId>;
 }
 
 /**
@@ -77,6 +88,17 @@ export class FormDoublesDrawUseCase {
       preloaded.singlesRanked ? Promise.resolve(preloaded.singlesRanked) : this.singlesRankByBand[band].sortedRankings(),
       preloaded.freeAgents ? Promise.resolve(preloaded.freeAgents) : this.players.findFreeAgents(),
     ]);
+    // The run-wide set when preloaded (StartDueTournamentsUseCase), or a
+    // one-off read otherwise (the RegisterEntrantUseCase auto-start path),
+    // so an odd-leftover/padding filler can never be someone still alive
+    // in an earlier week's draw. Absent only when the repository doesn't
+    // implement the read (an in-memory fake), where the old same-week-only
+    // exclusion still applies.
+    const unfinishedCommitments =
+      preloaded.unfinishedCommitmentPlayerIds ??
+      (this.tournaments.findUnfinishedCommitmentPlayerIds
+        ? new Set(await this.tournaments.findUnfinishedCommitmentPlayerIds())
+        : undefined);
     const doublesTotals = new Map(doublesRanked.map((r) => [r.playerId, r.totalPoints]));
     const singlesTotals = new Map(singlesRanked.map((r) => [r.playerId, r.totalPoints]));
 
@@ -122,6 +144,9 @@ export class FormDoublesDrawUseCase {
       const enteredThisWeek = preloaded.enteredPlayerIdsForWeek;
       for (const id of fillerIds) {
         if (entrants.length + padded.length >= targetFieldSize) break;
+        // Still alive in an earlier week's draw — never padded in, even
+        // though the same-week check below can't see that.
+        if (unfinishedCommitments?.has(id)) continue;
         const committedElsewhere = enteredThisWeek
           ? enteredThisWeek.has(id)
           : (await this.tournaments.findByPlayerAndWeek(id, tournament.weekScheduled)).length > 0;
@@ -129,6 +154,13 @@ export class FormDoublesDrawUseCase {
       }
       entrants = [...entrants, ...padded];
       fillerIds = fillerIds.filter((id) => !padded.includes(id));
+      // Mirror fillDrawSlots: record the new commitments so a later draw
+      // in the same run (same week or a later one) can't reuse a player
+      // this padding just placed.
+      for (const id of padded) {
+        unfinishedCommitments?.add(id);
+        enteredThisWeek?.add(id);
+      }
     }
 
     const entryRanking = new Map<PlayerId, number>();

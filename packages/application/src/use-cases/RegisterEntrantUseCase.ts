@@ -7,6 +7,7 @@ import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { applyWildCards } from './applyWildCards';
+import { retryOnConflict } from './retryOnConflict';
 
 export interface RegisterEntrantCommand {
   tournamentId: TournamentId;
@@ -119,138 +120,150 @@ export class RegisterEntrantUseCase {
   ) {}
 
   async execute(command: RegisterEntrantCommand): Promise<void> {
-    const tournament = await this.tournaments.findById(command.tournamentId);
-    if (!tournament) {
-      throw new Error(`Tournament ${command.tournamentId} not found`);
-    }
-
-    // Loaded up front so a retired player is refused at EVERY tier, not
-    // just junior ones. Retirement keeps the roster row (managerId is
-    // retained), so a stale UI could otherwise still offer a retired
-    // player. A missing player only throws in the junior branch below —
-    // preserving the pre-existing senior behavior, where the HTTP route
-    // (not this use case) owns roster validation, so unit tests that
-    // register senior entrants without a saved Player still work.
-    const player = await this.players.findById(command.playerId);
-    if (player?.isRetired()) {
-      throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
-    }
-
-    if (isJuniorTier(tournament.tier)) {
-      // Tournament.validateAgeBand guarantees ageBand is non-null
-      // exactly when the tier is a junior tier, so this branch is
-      // always where the age check belongs too — no separate `if
-      // (tournament.ageBand)` needed.
-      if (!player) {
-        throw new Error(`Player ${command.playerId} not found`);
+    // The WHOLE load → rules → mutate → save flow is retried on an
+    // optimistic-lock conflict (see retryOnConflict): a lost race against
+    // a concurrent writer for the SAME tournament reloads the fresh state
+    // and re-applies this single-entrant delta, instead of silently
+    // losing the entry. Every rule below re-evaluates against the
+    // winner's committed state; the weekly-cap claim is idempotent for
+    // this same tournament, so replaying it is safe.
+    return retryOnConflict(async () => {
+      const tournament = await this.tournaments.findById(command.tournamentId);
+      if (!tournament) {
+        throw new Error(`Tournament ${command.tournamentId} not found`);
       }
-      if (!isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
-        throw new Error(
-          `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for a ` +
-            `${tournament.ageBand} tournament — a player may play up into an older junior band, but not down ` +
-            `into a younger one, and a senior player may not enter a junior tournament at all`,
-        );
-      }
-    }
 
-    // Ranking-based tier restriction (see the class doc comment and
-    // TierEntryRestrictionPolicy): a senior player ranked too highly may
-    // not drop into a lower senior tier. Only reads the rank at a tier
-    // that actually has a restriction, and only when a rank query is
-    // injected (omitted, as in the pre-qualifying unit tests, the rule is
-    // simply inert — the composition root always passes it).
-    if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
-      const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
-      const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
-      if (reason) {
-        throw new Error(`Player ${command.playerId} is ${reason}`);
+      // Loaded up front so a retired player is refused at EVERY tier, not
+      // just junior ones. Retirement keeps the roster row (managerId is
+      // retained), so a stale UI could otherwise still offer a retired
+      // player. A missing player only throws in the junior branch below —
+      // preserving the pre-existing senior behavior, where the HTTP route
+      // (not this use case) owns roster validation, so unit tests that
+      // register senior entrants without a saved Player still work.
+      const player = await this.players.findById(command.playerId);
+      if (player?.isRetired()) {
+        throw new Error(`Player ${command.playerId} has retired and cannot enter tournaments`);
       }
-    }
 
-    // The tournament being registered is EXCLUDED from its own count
-    // (see countSameBandEntriesForWeek): a player already holding a
-    // DOUBLES entry in this same event is still only in one tournament,
-    // so entering its singles must not be blocked by that doubles entry.
-    // The atomic guard below excludes it identically.
-    const entryCount = await countSameBandEntriesForWeek(
-      this.tournaments,
-      command.playerId,
-      tournament.weekScheduled,
-      tournament.tier,
-      tournament.id,
-    );
-    const cap = weeklyEntryCapForTier(tournament.tier);
-    if (entryCount >= cap) {
-      const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
-      throw new Error(
-        `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
-          `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
-          `(cap: ${cap})`,
+      if (isJuniorTier(tournament.tier)) {
+        // Tournament.validateAgeBand guarantees ageBand is non-null
+        // exactly when the tier is a junior tier, so this branch is
+        // always where the age check belongs too — no separate `if
+        // (tournament.ageBand)` needed.
+        if (!player) {
+          throw new Error(`Player ${command.playerId} not found`);
+        }
+        if (!isAgeEligibleForTournamentBand(player.seasonAgeAnchorWeeks, tournament.ageBand)) {
+          throw new Error(
+            `Player ${command.playerId} (age ${(player.ageInWeeks / 52).toFixed(1)}) is not age-eligible for a ` +
+              `${tournament.ageBand} tournament — a player may play up into an older junior band, but not down ` +
+              `into a younger one, and a senior player may not enter a junior tournament at all`,
+          );
+        }
+      }
+
+      // Ranking-based tier restriction (see the class doc comment and
+      // TierEntryRestrictionPolicy): a senior player ranked too highly may
+      // not drop into a lower senior tier. Only reads the rank at a tier
+      // that actually has a restriction, and only when a rank query is
+      // injected (omitted, as in the pre-qualifying unit tests, the rule is
+      // simply inert — the composition root always passes it).
+      if (this.seniorRankPosition && maxSeniorRankForTier(tournament.tier) !== null) {
+        const { rank } = await this.seniorRankPosition.rankFor(command.playerId);
+        const reason = seniorTierEntryRestrictionReason(tournament.tier, rank);
+        if (reason) {
+          throw new Error(`Player ${command.playerId} is ${reason}`);
+        }
+      }
+
+      // The tournament being registered is EXCLUDED from its own count
+      // (see countSameBandEntriesForWeek): a player already holding a
+      // DOUBLES entry in this same event is still only in one tournament,
+      // so entering its singles must not be blocked by that doubles entry.
+      // The atomic guard below excludes it identically.
+      const entryCount = await countSameBandEntriesForWeek(
+        this.tournaments,
+        command.playerId,
+        tournament.weekScheduled,
+        tournament.tier,
+        tournament.id,
       );
-    }
-
-    // The concurrent half of the same rule: the read above is a fast,
-    // friendly pre-check, but two registrations for this player into two
-    // DIFFERENT tournaments can both pass it before either lands (the
-    // count is read-then-write). tryClaimEntry re-checks atomically under
-    // a per-player advisory lock and records a claim, so the second
-    // writer sees the first even before its tournament save commits.
-    if (this.weeklyEntryGuard) {
-      const claimed = await this.weeklyEntryGuard.tryClaimEntry({
-        playerId: command.playerId,
-        week: tournament.weekScheduled,
-        isJunior: isJuniorTier(tournament.tier),
-        tournamentId: tournament.id,
-        cap,
-      });
-      if (!claimed) {
+      const cap = weeklyEntryCapForTier(tournament.tier);
+      if (entryCount >= cap) {
         const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
         throw new Error(
-          `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
+          `Player ${command.playerId} has already entered ${entryCount} ${band} tournaments in ` +
             `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
-            `(a concurrent entry was registered first)`,
+            `(cap: ${cap})`,
         );
       }
-    }
 
-    const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);
-    // A `[Q]` registrant enters the QUALIFYING field, not the main draw
-    // — the whole point of the full model: they must win their way in.
-    const draw: DrawPhase | undefined = entryType === 'Q' ? 'qualifying' : undefined;
-    tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType, draw });
-
-    if (isFullyRegistered(tournament)) {
-      // The automatic wild card algorithm runs FIRST — before either
-      // bracket is seeded — pulling any eligible local qualifying
-      // entrants into the main draw (see this class's doc comment and
-      // applyWildCards). Must happen before startQualifyingWithBracket:
-      // a wild card bypasses qualifying entirely, it can't be granted
-      // once that bracket already exists.
-      await applyWildCards(tournament, this.players, this.seniorRankPosition);
-
-      // With qualifying, "the draw is full" starts the QUALIFYING
-      // bracket, days before the main draw exists (deferred main-draw
-      // seeding — the main draw is seeded by PromoteQualifiersUseCase
-      // once qualifying has produced its winners). Without qualifying
-      // this is exactly the pre-existing behaviour.
-      if (tournament.hasQualifying) {
-        const bracket = this.bracketGenerator.generate(tournament.qualifyingEntrants, tournament.qualifyingDrawSize);
-        tournament.startQualifyingWithBracket(bracket);
-      } else {
-        const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
-        tournament.startWithBracket(bracket);
+      // The concurrent half of the same rule: the read above is a fast,
+      // friendly pre-check, but two registrations for this player into two
+      // DIFFERENT tournaments can both pass it before either lands (the
+      // count is read-then-write). tryClaimEntry re-checks atomically under
+      // a per-player advisory lock and records a claim, so the second
+      // writer sees the first even before its tournament save commits.
+      // Idempotent for THIS tournament (it excludes the tournament from
+      // its own count and inserts onConflictDoNothing), so the retry
+      // wrapper above can safely replay it.
+      if (this.weeklyEntryGuard) {
+        const claimed = await this.weeklyEntryGuard.tryClaimEntry({
+          playerId: command.playerId,
+          week: tournament.weekScheduled,
+          isJunior: isJuniorTier(tournament.tier),
+          tournamentId: tournament.id,
+          cap,
+        });
+        if (!claimed) {
+          const band = isJuniorTier(tournament.tier) ? 'junior' : 'senior';
+          throw new Error(
+            `Player ${command.playerId} has reached the weekly limit of ${cap} ${band} tournament(s) in ` +
+              `season ${tournament.weekScheduled.season} week ${tournament.weekScheduled.week} ` +
+              `(a concurrent entry was registered first)`,
+          );
+        }
       }
-    }
 
-    // Form the doubles draw too (P7b), if wired — the singles auto-start
-    // closes registration, so whatever doubles entrants signed up during
-    // the open window are paired and seeded here rather than waiting for
-    // the weekly trigger.
-    if (this.formDoublesDraw) {
-      await this.formDoublesDraw.form(tournament);
-    }
+      const entryType = await this.resolveEntryTypeFor(tournament, command.playerId);
+      // A `[Q]` registrant enters the QUALIFYING field, not the main draw
+      // — the whole point of the full model: they must win their way in.
+      const draw: DrawPhase | undefined = entryType === 'Q' ? 'qualifying' : undefined;
+      tournament.registerEntrant({ playerId: command.playerId, seed: command.seed ?? null, entryType, draw });
 
-    await this.tournaments.save(tournament);
+      if (isFullyRegistered(tournament)) {
+        // The automatic wild card algorithm runs FIRST — before either
+        // bracket is seeded — pulling any eligible local qualifying
+        // entrants into the main draw (see this class's doc comment and
+        // applyWildCards). Must happen before startQualifyingWithBracket:
+        // a wild card bypasses qualifying entirely, it can't be granted
+        // once that bracket already exists.
+        await applyWildCards(tournament, this.players, this.seniorRankPosition);
+
+        // With qualifying, "the draw is full" starts the QUALIFYING
+        // bracket, days before the main draw exists (deferred main-draw
+        // seeding — the main draw is seeded by PromoteQualifiersUseCase
+        // once qualifying has produced its winners). Without qualifying
+        // this is exactly the pre-existing behaviour.
+        if (tournament.hasQualifying) {
+          const bracket = this.bracketGenerator.generate(tournament.qualifyingEntrants, tournament.qualifyingDrawSize);
+          tournament.startQualifyingWithBracket(bracket);
+        } else {
+          const bracket = this.bracketGenerator.generate(tournament.mainEntrants, tournament.drawSize);
+          tournament.startWithBracket(bracket);
+        }
+      }
+
+      // Form the doubles draw too (P7b), if wired — the singles auto-start
+      // closes registration, so whatever doubles entrants signed up during
+      // the open window are paired and seeded here rather than waiting for
+      // the weekly trigger.
+      if (this.formDoublesDraw) {
+        await this.formDoublesDraw.form(tournament);
+      }
+
+      await this.tournaments.save(tournament);
+    });
   }
 
   /** Direct acceptance vs. `[Q]` for this registrant — see the class doc

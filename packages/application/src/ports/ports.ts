@@ -210,6 +210,29 @@ export interface TournamentRepository {
    * the only production implementation — always provides it. */
   findStartedLive?(): Promise<Tournament[]>;
 
+  /** The RESCUE read: started tournaments whose SINGLES competition has
+   * not begun at all — `has_started = true` AND `cancelled_at IS NULL`
+   * AND no `tournament_matches` row exists (neither main nor
+   * qualifying). This is exactly the dead shape the 52-week agent season
+   * produced 11 of: a sparse singles field took the "leave it open and
+   * retry" branch, the DOUBLES draw formed anyway (which flips
+   * `hasStarted`), and from then on the draw was invisible to every
+   * recovery path — excluded from `findOpenForRegistration` (so the
+   * expiry/cancel passes never saw it) and from `findStartedLive` once
+   * its doubles bracket was decided. StartDueTournamentsUseCase reads
+   * this and runs the normal fill/seed attempt on each: back into play
+   * if the pool can fill it, or cancelled (past
+   * `CANCELLED_DRAW_GRACE_WEEKS`) if it cannot.
+   *
+   * Deliberately EXCLUDES a qualifying-seeded / main-pending draw (it
+   * has qualifying match rows — PromoteQualifiersUseCase owns that
+   * state) and a completed tournament whose match rows survived (it has
+   * a singles title; the implementation also filters those out so an
+   * archived match-history can never make a finished event look
+   * unseeded). Optional for test compatibility; the Drizzle adapter —
+   * the only production implementation — always provides it. */
+  findStartedSinglesUnseeded?(): Promise<Tournament[]>;
+
   /** Removes a never-started tournament that is either genuinely EMPTY
    * or manager-less (every entrant is a filler/free agent, so deleting it
    * releases those players from the unfinished-commitment lock) and

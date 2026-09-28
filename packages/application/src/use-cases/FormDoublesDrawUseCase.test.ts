@@ -24,6 +24,8 @@ import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 
 class InMemoryTournamentRepository implements TournamentRepository {
   private readonly store = new Map<TournamentId, Tournament>();
+  /** The set the repo-level commitment read returns — tests seed it. */
+  readonly unfinishedCommitments = new Set<PlayerId>();
 
   async findById(id: TournamentId): Promise<Tournament | null> {
     return this.store.get(id) ?? null;
@@ -45,6 +47,10 @@ class InMemoryTournamentRepository implements TournamentRepository {
     return [...this.store.values()].filter(
       (t) => t.weekScheduled.season === week.season && t.weekScheduled.week === week.week && t.entrants.some((e) => e.playerId === playerId),
     );
+  }
+
+  async findUnfinishedCommitmentPlayerIds(): Promise<PlayerId[]> {
+    return [...this.unfinishedCommitments];
   }
 
   async save(tournament: Tournament): Promise<void> {
@@ -247,6 +253,59 @@ describe('FormDoublesDrawUseCase', () => {
     // committed filler must never appear in it.
     const usedIds = formed!.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
     expect(usedIds).not.toContain(PlayerId('filler-committed'));
+  });
+
+  it('never pads with a filler still alive in an earlier week draw — the repository commitment read the singles fill uses too', async () => {
+    const { tournaments, players, pairs, useCase } = await setup({ season: 1, week: 4 });
+
+    const tournament = doublesTournament('t-cross-week');
+    const a = fillOnlyPlayer('a');
+    const b = fillOnlyPlayer('b');
+    tournament.registerDoublesEntrant(a.id);
+    tournament.registerDoublesEntrant(b.id);
+    await players.save(a);
+    await players.save(b);
+    await pairs.save(DoublesPair.activate(PairId('pp-ab'), a.id, b.id));
+    await tournaments.save(tournament);
+
+    await players.save(fillOnlyPlayer('busy-filler'));
+    // Enough fillers that the resulting field (>4 pairs for an 8-draw)
+    // produces a real round-1 match rather than an all-bye round.
+    for (let i = 1; i <= 12; i++) await players.save(fillOnlyPlayer(`free-filler-${i}`));
+    // A 14-day major's still-alive player: committed even though their
+    // draw's week is not this one, so the same-week check cannot see it.
+    tournaments.unfinishedCommitments.add(PlayerId('busy-filler'));
+
+    await useCase.form(tournament);
+    await tournaments.save(tournament);
+
+    const usedIds = tournament.doublesPairs.flatMap((p) => [p.playerA, p.playerB]);
+    expect(usedIds).not.toContain(PlayerId('busy-filler'));
+    expect(usedIds.some((id) => (id as string).startsWith('free-filler-'))).toBe(true);
+  });
+
+  it('adds every padded filler to the run-wide commitment set so a later draw in the same run cannot reuse them', async () => {
+    const { tournaments, players, pairs, useCase } = await setup({ season: 1, week: 4 });
+
+    const tournament = doublesTournament('t-commitments');
+    const a = fillOnlyPlayer('a');
+    const b = fillOnlyPlayer('b');
+    tournament.registerDoublesEntrant(a.id);
+    tournament.registerDoublesEntrant(b.id);
+    await players.save(a);
+    await players.save(b);
+    await pairs.save(DoublesPair.activate(PairId('pp-ab'), a.id, b.id));
+    await tournaments.save(tournament);
+    for (let i = 1; i <= 20; i++) await players.save(fillOnlyPlayer(`pad-${i}`));
+
+    const commitments = new Set<PlayerId>();
+    await useCase.form(tournament, { unfinishedCommitmentPlayerIds: commitments });
+
+    const paddedIds = tournament.doublesPairs
+      .flatMap((p) => [p.playerA, p.playerB])
+      .filter((id) => id !== a.id && id !== b.id);
+    expect(paddedIds.length).toBeGreaterThan(0);
+    for (const id of paddedIds) expect(commitments.has(id)).toBe(true);
   });
 
   it('is a no-op for a tournament with no doubles draw at all', async () => {

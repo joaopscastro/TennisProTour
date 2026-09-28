@@ -167,12 +167,26 @@ export class SimulateDoublesMatchUseCase {
     const { url } = await this.matchLogs.save(command.matchId, timestampedLog);
 
     // Per-player effects (fatigue, form, surface growth, development XP)
-    // for all four players, same as singles.
+    // for all four players, same as singles. The WINNING and LOSING
+    // sides are resolved from the OUTCOME's own pair ids, never from the
+    // bracket SLOTS: `scheduled.entrantA`/`entrantB` name the two slots,
+    // and either can win. Resolving by slot instead of by outcome was
+    // this file's real points-misassignment bug (found during the
+    // discipline backfill): whenever the entrantB slot won, the
+    // entrantA slot's pair still received the WINNER's rounds-won value
+    // and entrantB's pair the loser's — the stored winner_id/loser_id
+    // were correct, only the ledger values were swapped, for roughly
+    // half of all doubles matches.
+    const winningPair = tournament.doublesPlayersFor(outcome.winner);
+    const losingPair = tournament.doublesPlayersFor(outcome.loser);
+    if (!winningPair || !losingPair) {
+      throw new Error(`Could not resolve doubles pair(s) for match ${command.matchId}`);
+    }
     const [winnerA, winnerB, loserA, loserB] = await Promise.all([
-      this.players.findById(pairA.playerA),
-      this.players.findById(pairA.playerB),
-      this.players.findById(pairB.playerA),
-      this.players.findById(pairB.playerB),
+      this.players.findById(winningPair.playerA),
+      this.players.findById(winningPair.playerB),
+      this.players.findById(losingPair.playerA),
+      this.players.findById(losingPair.playerB),
     ]);
     const winnerPlayers = [winnerA, winnerB];
     const loserPlayers = [loserA, loserB];
