@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId } from '@tennis-manager/domain';
+import { ManagerId, StandardTalentClaimPricingPolicy } from '@tennis-manager/domain';
 import {
   IdGeneratorPort,
   ManagerAccount,
@@ -7,7 +7,8 @@ import {
   ManagerAccountRepository,
   ManagerXpRepository,
 } from '../ports/ports';
-import { EnsureManagerAccountUseCase, STARTER_XP_BALANCE } from './EnsureManagerAccountUseCase';
+import { EnsureManagerAccountUseCase, STARTER_XP_BALANCE, YOUNGEST_PROSPECT_PRICE_XP } from './EnsureManagerAccountUseCase';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 class InMemoryManagerAccountRepository implements ManagerAccountRepository {
   private readonly store = new Map<string, ManagerAccount>();
@@ -97,7 +98,33 @@ describe('EnsureManagerAccountUseCase onboarding', () => {
 
     expect(await managerXp.balanceFor(account.id)).toBe(STARTER_XP_BALANCE);
     expect(managerXp.creditCalls).toBe(1);
-    expect(STARTER_XP_BALANCE).toBeGreaterThanOrEqual(50); // at least one claim's worth
+  });
+
+  it('is exactly two youngest-bracket prospects and no more (deliberate product rule)', () => {
+    const pricing = new StandardTalentClaimPricingPolicy();
+    const youngestPrice = pricing.priceFor(50, TALENT_POOL_AGE_RANGE.minWeeks, TALENT_POOL_AGE_RANGE);
+
+    // The youngest age prices flat: rating does not change the cost.
+    expect(pricing.priceFor(10, TALENT_POOL_AGE_RANGE.minWeeks, TALENT_POOL_AGE_RANGE)).toBe(youngestPrice);
+    expect(pricing.priceFor(90, TALENT_POOL_AGE_RANGE.minWeeks, TALENT_POOL_AGE_RANGE)).toBe(youngestPrice);
+
+    // STARTER_XP_BALANCE is COMPUTED as exactly 2 x that real price, so
+    // it can never drift when the pricing policy's constants change.
+    expect(YOUNGEST_PROSPECT_PRICE_XP).toBe(youngestPrice);
+    expect(STARTER_XP_BALANCE).toBe(2 * youngestPrice);
+    expect(STARTER_XP_BALANCE).toBe(100); // the documented arithmetic: 2 x 50
+
+    // Two raw kids fit exactly; a third does not.
+    const budget = STARTER_XP_BALANCE;
+    expect(budget - 2 * youngestPrice).toBe(0);
+    expect(budget - 3 * youngestPrice).toBeLessThan(0);
+
+    // An established older/stronger prospect is out of reach: a 75-rated
+    // (strong) oldest-age player prices ABOVE the whole starter grant, so
+    // a newcomer cannot buy a ready-made player instead of gambling on
+    // kids (principle #1).
+    const establishedPrice = pricing.priceFor(75, TALENT_POOL_AGE_RANGE.maxWeeks, TALENT_POOL_AGE_RANGE);
+    expect(establishedPrice).toBeGreaterThan(STARTER_XP_BALANCE);
   });
 
   it('does NOT re-grant starter XP to a returning manager', async () => {

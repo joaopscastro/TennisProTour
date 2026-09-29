@@ -874,7 +874,7 @@ automatically consistent because both read the same helper.
 
 **Update â€” the single most significant bug found this session: `Skill` (the value object behind every technical/physical/mental attribute) used to round every training/decline delta against its own already-rounded value, silently discarding any sustained delta under 0.5 forever â€” now fixed. Found live, not theorized**, while running the fast-tick 5-season cohort-aging playtest above: two of five tracked players (the strongest, 87 and 82 OVR) showed EXACTLY ZERO attribute change across 28 consecutive weekly rollovers despite real, correctly-targeted, fully-funded training the whole time, while an LLM agent monitoring them concluded this was "healthy catch-up mechanics" â€” a wrong read, caught by checking the raw DB values directly rather than trusting the agent's summary. The real cause: `Skill.add(delta)` was `Skill.of(this.value + delta)`, and `Skill.of` rounded on construction â€” so a delta under 0.5, applied repeatedly, landed on the same integer every time, with the fractional progress thrown away, forever. This hit two real mechanisms, one conditional and one universal: (1) `applyPotentialDiminishingReturns` scales a physical attribute's training delta by `headroom/15`; once headroom drops under 7.5 points the delta drops under 0.5 and permanently zeroes â€” not rare, since `PlayerGenerationPolicy` rolls headroom uniformly over [0, 45] independently per physical attribute, so roughly 1-in-6 rolls lands a physical attribute permanently untrainable from the moment a player is generated; (2) `StandardAgingPolicy`'s decline-stage decay is a flat `-0.05/week`, always under 0.5 â€” meaning a 'decline'-stage player never actually declined at all, ever, under the old behavior, universally, not conditionally. **Fix**: `Skill` now carries fractional precision internally (`raw`), with `.value` (what every other caller â€” the simulator, DTOs, `overallRating()` â€” reads) computed fresh as `Math.round(raw)` on each read rather than baked in at construction; `add()` accumulates against `raw`, so sub-0.5 deltas now genuinely accumulate across calls. This only holds if the fraction survives a save/load round-trip, so the 9 Skill-backed `players` columns (serve/forehand/backhand/volley/speed/stamina/strength/consistency/clutch/doubles) were migrated `integer` â†’ `double precision` (migration `0043`, the same type `experience` already used for exactly this reason), and `DrizzlePlayerRepository.toRow` now persists `.raw`, never `.value`. `SurfaceAffinities` was checked and is NOT affected (its training delta is always â‰¥0.6, never ceiling-gated). Two existing tests had the old bug baked in as an expected assertion and were rewritten to the correct behavior (`Player.test.ts`'s ceiling-approach test now reaches the ceiling exactly instead of plateauing one point short; `PlayerAgingService.test.ts`'s test â€” previously titled "demonstrates that StandardAgingPolicy's -0.05/week delta never actually moves an integer Skill value" â€” now asserts decline genuinely happens). Domain 333 (2 rewritten, not added), application 205, api 79 (real Postgres migration round-trip), worker 8, full `tsc --build --force` and web typecheck all clean. Full investigation and methodology in `docs/balance-tuning-report.md`'s "Skill integer-rounding bug" section â€” this does not overturn that report's earlier roster-gap finding, it explains why live play looked even flatter than that finding's own pessimistic prediction.
 
-**Update â€” onboarding is now possible: a brand-new manager is granted starter XP on account creation (was: 0 XP, permanently unable to sign a first player).** `EnsureManagerAccountUseCase` now credits `STARTER_XP_BALANCE` (500, PLACEHOLDER) the moment an account is genuinely CREATED. Before this, XP was only ever granted from match results and every talent-pool claim costs â‰¥50 XP (`TalentClaimPricingPolicy`), so a fresh signup had literally no path to their first player â€” invisible in dev because the seed/bot scripts fund everyone. The grant fires only on real creation (every existing/deleted/suspended path returns before it), so a returning manager never re-gets it. 500 is enough to sign one or two free agents (youngest ~50 XP, a strong prime-age prospect ~150-250) without buying an elite roster outright â€” a start, not a leg-up (principle #1). **The first version of this grant WAS a check-then-act race, and the earlier "could double it; a few hundred XP is a negligible, self-correcting edge, not worth a transactional insert" characterisation of it here was WRONG â€” corrected.** A brand-new manager's first page load fires several parallel manager-scoped requests; each missed the `findByAuthSubject` lookup, saved, and credited again (reproduced directly: 8 concurrent first-requests to one new identity returned `500, 2500, 3000, 1500, 3000, 3000, 0, 1000`), so a new manager could start with up to ~6Ã— the intended balance â€” a real violation of principle #1 (a granted advantage must never unconditionally boost competitiveness) â€” and a concurrent read could transiently see **0**, rendering "0 XP / Sign disabled". The grant is now atomic and idempotent: `ManagerAccountCreationPort.createWithStarterXp` inserts the account AND its starter-progression row in ONE DB transaction, gated on a conditional `INSERT ... ON CONFLICT DO NOTHING RETURNING` (`DrizzleManagerAccountCreationAdapter`), so exactly one concurrent caller is the creator and therefore the only one that grants â€” and the account is never visible before its opening balance is, which closes the transient-0 window too. `STARTER_XP_BALANCE` and "grant only on genuine creation" are unchanged. Covered by `EnsureManagerAccountUseCase.test.ts` (grant on create, no re-grant on return, no grant to a suspended/deleted account) plus a concurrent `Promise.all` test against real Postgres at BOTH the adapter level (`DrizzleRepositories.integration.test.ts`: exactly one of 8 concurrent creates grants; balance exactly 500) and through the real HTTP route (`api.integration.test.ts`: 8 concurrent first-requests all report 500).
+**Update â€” onboarding is now possible: a brand-new manager is granted starter XP on account creation (was: 0 XP, permanently unable to sign a first player).** `EnsureManagerAccountUseCase` now credits `STARTER_XP_BALANCE` the moment an account is genuinely CREATED. (It originally granted 500 XP, picked loosely; **superseded â€” `STARTER_XP_BALANCE` is now exactly 2 Ã— the flat youngest-prospect price = 100 XP, derived from `StandardTalentClaimPricingPolicy`, and is a deliberate product rule rather than a tuning placeholder: a newcomer can afford precisely two raw kids and cannot buy a ready-made player. See the mixed human+agents world pass at the end of this file.**) Before this, XP was only ever granted from match results and every talent-pool claim costs â‰¥50 XP (`TalentClaimPricingPolicy`), so a fresh signup had literally no path to their first player â€” invisible in dev because the seed/bot scripts fund everyone. The grant fires only on real creation (every existing/deleted/suspended path returns before it), so a returning manager never re-gets it. 500 is enough to sign one or two free agents (youngest ~50 XP, a strong prime-age prospect ~150-250) without buying an elite roster outright â€” a start, not a leg-up (principle #1). **The first version of this grant WAS a check-then-act race, and the earlier "could double it; a few hundred XP is a negligible, self-correcting edge, not worth a transactional insert" characterisation of it here was WRONG â€” corrected.** A brand-new manager's first page load fires several parallel manager-scoped requests; each missed the `findByAuthSubject` lookup, saved, and credited again (reproduced directly: 8 concurrent first-requests to one new identity returned `500, 2500, 3000, 1500, 3000, 3000, 0, 1000`), so a new manager could start with up to ~6Ã— the intended balance â€” a real violation of principle #1 (a granted advantage must never unconditionally boost competitiveness) â€” and a concurrent read could transiently see **0**, rendering "0 XP / Sign disabled". The grant is now atomic and idempotent: `ManagerAccountCreationPort.createWithStarterXp` inserts the account AND its starter-progression row in ONE DB transaction, gated on a conditional `INSERT ... ON CONFLICT DO NOTHING RETURNING` (`DrizzleManagerAccountCreationAdapter`), so exactly one concurrent caller is the creator and therefore the only one that grants â€” and the account is never visible before its opening balance is, which closes the transient-0 window too. `STARTER_XP_BALANCE` and "grant only on genuine creation" are unchanged. Covered by `EnsureManagerAccountUseCase.test.ts` (grant on create, no re-grant on return, no grant to a suspended/deleted account) plus a concurrent `Promise.all` test against real Postgres at BOTH the adapter level (`DrizzleRepositories.integration.test.ts`: exactly one of 8 concurrent creates grants; balance exactly 500) and through the real HTTP route (`api.integration.test.ts`: 8 concurrent first-requests all report 500).
 
 **Update â€” race-safety pass, part 1: the two write paths fixable with pure application logic are FIXED.**
 - **Practice double-spend (fixed).** `RunPracticeSessionUseCase` used to read `recordedOn`, then award XP/fatigue/ladder, then `record` â€” a double-click or two tabs both passed the read and double-awarded. Now `PracticeSessionRepository.tryRecord(playerId, day)` is an ATOMIC conditional insert (`.onConflictDoNothing().returning()` â€” true only for the call that actually created the (player, day) row), called BEFORE any award; the losing call throws "already practiced today" and awards nothing. Covered by a concurrent `Promise.allSettled` test asserting exactly one fulfilment and a single ladder credit.
@@ -2946,3 +2946,102 @@ HTTP, +5 digestFeedPin, +1 entry-activity adapter, +13 digestFeed pure),
 worker **18** (unchanged) â€” all green; full monorepo
 `tsc --build --force` and `apps/web` typecheck clean; mocked Playwright
 suite **102** passed. The only migration is `0056` (`manager_entry_activity`).
+
+
+## Mixed human+agents world pass — day pacing, archive protection, the starter-XP product rule, create-world
+
+Built on `4eeddbb`. Four small, independent changes from the owner's
+request to stand up a world where a HUMAN plays alongside four agents,
+with the real new-manager economy on both sides (no artificial funding).
+The frozen `advance-world-day` system order was deliberately NOT touched;
+all of this is harness/ops/product-constant work.
+
+**A1 — the season runner can now PACE game days: `agentSeason.mjs
+--day-pace-ms <ms>` waits that many real milliseconds after every
+successful game-day tick.** Before this, `advance` ran all 7 day ticks
+back-to-back, so a whole game-week completed in a few real minutes (the
+existing `--tick-interval-ms` only scales the match REVEAL windows; it
+never paced the days themselves). The wait happens AFTER the day's tick
+and its `day-<d>.tick.json` checkpoint, so a crash or clean stop can
+never lose an applied day, and it is one wait per game day (7 per week).
+Unset (the default) is a hard no-op — no sleep call, byte-identical to
+the historical back-to-back behaviour. The mixed world's sizing rule:
+`barrier (ready gate + collect + nudge) + 7 × day-pace ˜ 45 min`; with
+the short barrier (2 min ready gate / 4 min collect / 2 min nudge) the
+day pace is **317000 ms**, one game-week is a real ~45 minutes, and a
+52-week season is ~39 real hours — which is the point: the human gets
+real decision time per week. `run.json` records the resolved
+`dayPaceMs`. A second, equally small runner extension landed with it:
+**`--fund-xp none`** skips the fresh-run funding upsert entirely (the
+entitlement GET still creates each account) so a world can deliberately
+start every manager on the product's own `STARTER_XP_BALANCE` instead of
+100,000 — required for a no-artificial-funding world.
+
+**A2 — `archiveOldMatchRows` can no longer erase a human manager's match
+history.** The evidence archive (harness mitigation: finished tournaments
+older than ~3 weeks with no entry by the RUN's tracked players keep only
+their final round, `tournament_matches` and all doubles matches dropped)
+computed "tracked" from the run's own managers' rosters only — so a human
+playing alongside the agents had their old rounds (and the replay blobs
+those rounds link to) silently vanish once the tournament aged past the
+window. The function now takes an optional 4th parameter,
+`protectedManagerIds` (the runner's new `--protect-managers human-m1`):
+the archivable CTE additionally excludes any tournament with a singles
+entry, doubles entrant, OR formed doubles pair (covering the
+filler-padding case, where a pair member never gets an entrant row) whose
+player's `manager_id` is in the protected set at archive time. `[]`
+(the default, and every soak.mjs call) is behaviourally identical to
+before — `['__none__']` can never match a real manager id. Proven by a
+real-Postgres case (`apps/api/src/scripts/archiveOldMatchRows.integration.test.ts`,
+3 cases) that a human-owned player's old round survives an archive pass
+and then provably disappears when the same call runs without protection.
+
+**A3 — `STARTER_XP_BALANCE` is now a DELIBERATE PRODUCT RULE, not a
+placeholder: exactly 2 × the flat youngest-prospect price = 100 XP.**
+The old 500 was picked loosely relative to the owner's stated intent
+("enough to buy 2 young and new generated prospects and no more than
+that"). The constant is now COMPUTED — `2 * YOUNGEST_PROSPECT_PRICE_XP`,
+where the latter is resolved through the real
+`StandardTalentClaimPricingPolicy.priceFor(0, TALENT_POOL_AGE_RANGE.minWeeks, TALENT_POOL_AGE_RANGE)`
+(the youngest age prices flat, so rating is irrelevant there and every
+youngest-bracket prospect costs the same 50 XP) — so the grant can never
+drift from what `ClaimTalentPoolCandidateUseCase` actually charges. A
+newcomer can afford precisely two raw kids and cannot buy a ready-made
+player. The atomic, exactly-once create-and-grant behaviour
+(`ManagerAccountCreationPort.createWithStarterXp`) is completely
+unchanged. `EnsureManagerAccountUseCase.test.ts` now pins the arithmetic
+(2 × 50 = 100; three kids unaffordable; a 75-rated oldest-age prospect
+costs more than the whole grant) and `api.integration.test.ts` reads the
+constant instead of the literal.
+
+**A4 — two ops-only hardening pieces.** (1) The API's boot log now emits
+one `world identity resolved` line with the resolved `WORLD_ID` and the
+database NAME (never the connection string — it carries credentials),
+mirroring the worker's own `worker up` log, so a stack assembled with a
+mismatched world is visible immediately instead of only as confusing
+cross-world data later. (2) A new `npm run create-world -w apps/api --
+--world <id> [--db-name …] [--api-port …] [--web-port …]` script wraps
+the documented manual bring-up (create the database if absent ? run
+migrations ? run the real bootstrap as a child process ? print the exact
+env for api/worker/web). It is idempotent, composes the target connection
+string from `DATABASE_URL` (credentials/host preserved, database name
+replaced), validates the database name as a safe SQL identifier, and runs
+the bootstrap as a CHILD because `composition.ts` resolves `WORLD_ID` at
+module-evaluation time. Pure half unit-tested (`createWorld.test.ts`, 4
+cases).
+
+**The mixed world itself (`human1`).** Fresh database
+`tennis_manager_human1`, `WORLD_ID=human1`, API on 3204, a web dev server
+with `NEXT_PUBLIC_API_URL=http://localhost:3204` and
+`NEXT_PUBLIC_DEV_MANAGER_ID=human-m1`, and the season runner with
+`--run-id human1-season-1`, four agents `agent-m1..agent-m4`,
+`--fund-xp none` (so all five managers start on the 100-XP product
+starter balance), `--day-pace-ms 317000`, the short barrier windows, and
+`--protect-managers human-m1`. The worlds `agents-season-2b/-3/-4/-5`
+and their APIs are untouched.
+
+**Test counts after this pass**: domain **449** (unchanged), application
+**334** (was 333; +1 A3 rule case), api **293** (was 286; +3 A2
+real-Postgres, +4 create-world pure), worker **18** (unchanged) — all
+green; full monorepo `tsc --build --force` and `apps/web` typecheck
+clean; mocked Playwright suite **102** (unchanged). No schema migration.

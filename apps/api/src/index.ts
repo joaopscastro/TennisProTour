@@ -69,6 +69,22 @@ async function main(): Promise<void> {
   // a 404 when a replay is opened. See matchLogDirectory.ts.
   app.log.info({ matchLogDirectory }, 'match-log store directory resolved');
 
+  // The resolved world identity and database, mirroring the worker's own
+  // "worker up" log. A stack assembled with the wrong WORLD_ID is the
+  // documented footgun (ranking reads and the day-tick key are
+  // world-scoped, and a script on another world must set the same value),
+  // so make it visible at boot instead of only as confusing cross-world
+  // data later. DB name only — never the connection string (which carries
+  // credentials).
+  const worldId = process.env.WORLD_ID ?? 'main';
+  let databaseName = '(unparsed)';
+  try {
+    databaseName = decodeURIComponent(new URL(connectionString).pathname.replace(/^\//, '')) || '(default)';
+  } catch {
+    /* connectionString is not a URL — keep the placeholder */
+  }
+  app.log.info({ worldId, database: databaseName }, 'world identity resolved');
+
   // One explicit line stating the resolved world-tick cadence. The API
   // doesn't schedule the tick, but it recomputes /world/clock's countdown
   // from this same value — so logging it here makes the api↔worker

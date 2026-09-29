@@ -39,7 +39,12 @@
  *             while a clock-derived key is idempotent by construction (a
  *             retry of an already-applied day recomputes a key the world
  *             has moved past; a not-yet-applied day recomputes the same
- *             key and is accepted).
+ *             key and is accepted). With `--day-pace-ms <ms>` the runner
+ *             additionally WAITS that long after every day tick, so one
+ *             game-week can be stretched to a real ~45 minutes instead of
+ *             completing in a few (the "human plays alongside agents"
+ *             cadence); unset means no wait at all — byte-identical to
+ *             the historical behaviour.
  *   close   — snapshot pre-prune health, run the SAME prune/archive SQL
  *             soak.mjs uses, write `week-NNN.ADVANCED.json`, append
  *             `decisions.jsonl`, update `report.json`.
@@ -79,6 +84,13 @@
  *     --api http://localhost:3200 \
  *     --db postgresql://tennis:tennis@localhost:5432/tennis_manager_agents \
  *     --world agents --managers agent-m1,agent-m2,agent-m3,agent-m4
+ *
+ * Optional flags for a human+agents world: `--day-pace-ms <ms>` waits
+ * that long after every game-day tick (stretching a week to a real ~45
+ * minutes), `--protect-managers <ids>` keeps a human manager's players'
+ * tournaments out of the evidence archive, and `--fund-xp none` leaves
+ * every manager on the product's own starter XP instead of funding
+ * 100,000.
  */
 import pg from 'pg';
 import { spawn } from 'node:child_process';
@@ -174,6 +186,18 @@ const DEFAULTS = {
   collectMs: 15 * 60 * 1000,
   nudgeMs: 5 * 60 * 1000,
   pollMs: 2000,
+  /** A1: real milliseconds to WAIT after every game-day tick (7 waits per
+   * game-week). null (the default) = no wait, byte-identical to the
+   * historical back-to-back behaviour. Used to stretch a game-week to a
+   * real ~45 minutes for a world where a human plays alongside the
+   * agents; the pacing formula the mixed world uses is
+   * `barrier (ready gate + collect + nudge) + 7 × day-pace ≈ 45 min`. */
+  dayPaceMs: null,
+  /** A2: managers whose players' tournaments the evidence archive must
+   * NEVER prune (e.g. the human's manager id in a human+agents world).
+   * See archiveOldMatchRows' 4th parameter. Empty = only the run's
+   * tracked players are protected (the pre-existing behaviour). */
+  protectManagers: [],
   staleLockMs: 2 * 60 * 1000,
   allowDb: false,
   forceLock: false,
@@ -220,6 +244,22 @@ function parseArgs(argv) {
   if (!Number.isFinite(tickIntervalMs) || tickIntervalMs <= 0) {
     throw new StopRunError(`--tick-interval-ms must be a positive number of milliseconds, got "${raw['tick-interval-ms']}"`);
   }
+  // A1: `--day-pace-ms` is OPTIONAL — undefined (never passed) is the
+  // only way to get null, so a bare `--day-pace-ms` flag is a config
+  // error rather than silently meaning "no pace".
+  let dayPaceMs = null;
+  if (raw['day-pace-ms'] !== undefined) {
+    dayPaceMs = Number(raw['day-pace-ms']);
+    if (!Number.isFinite(dayPaceMs) || dayPaceMs < 0) {
+      throw new StopRunError(`--day-pace-ms must be a non-negative number of milliseconds, got "${raw['day-pace-ms']}"`);
+    }
+  }
+  // B-world support: `--fund-xp none` deliberately SKIPS the fresh-run
+  // funding upsert below, leaving every manager on the product's own
+  // starter XP (see STARTER_XP_BALANCE) instead of overwriting it with
+  // 100,000. The entitlement GET still runs, so accounts are created.
+  const fundXpRaw = raw['fund-xp'];
+  const fundXp = fundXpRaw === 'none' ? null : num(fundXpRaw, DEFAULTS.fundXp);
   return {
     runId: typeof raw['run-id'] === 'string' ? raw['run-id'] : DEFAULTS.runId,
     runRoot: typeof raw['run-root'] === 'string' ? raw['run-root'] : DEFAULTS.runRoot,
@@ -228,9 +268,16 @@ function parseArgs(argv) {
     world: typeof raw.world === 'string' ? raw.world : DEFAULTS.world,
     weeks: num(raw.weeks, DEFAULTS.weeks),
     managers: (typeof raw.managers === 'string' ? raw.managers : DEFAULTS.managers).split(',').map((s) => s.trim()).filter(Boolean),
-    fundXp: num(raw['fund-xp'], DEFAULTS.fundXp),
+    fundXp,
     ratePerSec: num(raw.rate, DEFAULTS.ratePerSec),
     tickIntervalMs,
+    dayPaceMs,
+    // A2: comma-separated manager ids whose players' tournaments the
+    // archive must keep (see DEFAULTS.protectManagers).
+    protectManagers: (typeof raw['protect-managers'] === 'string' ? raw['protect-managers'] : '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
     readyGateMs: num(raw['ready-gate-ms'], DEFAULTS.readyGateMs),
     collectMs: num(raw['collect-ms'], DEFAULTS.collectMs),
     nudgeMs: num(raw['nudge-ms'], DEFAULTS.nudgeMs),
@@ -1704,6 +1751,15 @@ async function runDay({ day, clockBefore }) {
   persistState();
   updateCurrent(state.weekIndex, 'advance');
   log(`week ${state.weekIndex} day ${day} ticked`, { tickKey: checkpoint.tickKey, elapsedMs: phaseMs });
+  // A1: optional day-level pacing (`--day-pace-ms`). The wait happens
+  // AFTER a successful tick + checkpoint, so a crash or stop can never
+  // lose an applied day; with the option unset (null) this is a no-op
+  // and the week runs back-to-back exactly as it always did. One wait
+  // per game day, 7 per week.
+  if (runCtx.dayPaceMs !== null) {
+    log(`week ${state.weekIndex} day ${day} pacing`, { dayPaceMs: runCtx.dayPaceMs });
+    await sleep(runCtx.dayPaceMs);
+  }
   return clockAfter;
 }
 
@@ -1749,7 +1805,7 @@ async function phaseClose() {
   let pruned = 0;
   if (runCtx.prune) pruned = await pruneStuckTournaments(db, currentAbs);
   let archived = null;
-  if (runCtx.archive) archived = await archiveOldMatchRows(db, currentAbs, [...trackedIds]);
+  if (runCtx.archive) archived = await archiveOldMatchRows(db, currentAbs, [...trackedIds], runCtx.protectManagers);
   const economy = await snapshotEconomy(db, run.managers);
   const tracked = await snapshotTracked(db, [...trackedIds]);
   report.trackedCohort.weekly.push({
@@ -2066,6 +2122,8 @@ async function main() {
     db: args.db,
     world: args.world,
     tickIntervalMs: args.tickIntervalMs,
+    dayPaceMs: args.dayPaceMs,
+    protectManagers: args.protectManagers,
     forceLock: args.forceLock,
     staleLockMs: args.staleLockMs,
     prune: args.prune,
@@ -2118,6 +2176,8 @@ async function main() {
     managers: args.managers,
     fundXp: args.fundXp,
     tickIntervalMs: args.tickIntervalMs,
+    dayPaceMs: args.dayPaceMs,
+    protectManagers: args.protectManagers,
     protocolVersion: 1,
     runnerVersion: 1,
   };
@@ -2141,7 +2201,14 @@ async function main() {
     writeFileSync(join(runDir, 'protocol', 'WEEK_PROMPT.md'), protocol.week);
     writeJsonAtomic(join(runDir, 'protocol', 'EXAMPLE_DECISION.json'), protocol.exampleDraft);
     writeJsonAtomic(join(runDir, 'CURRENT.json'), { runId, weekIndex: 0, week: weekDirName(0), phase: 'idle', updatedAt: nowIso() });
-    log(`new run ${runId} created`, { startWeek: run.startWeek, db: dbName, world: args.world });
+    log(`new run ${runId} created`, {
+      startWeek: run.startWeek,
+      db: dbName,
+      world: args.world,
+      dayPaceMs: args.dayPaceMs,
+      protectManagers: args.protectManagers,
+      fundXp: args.fundXp,
+    });
   }
 
   runnerLogPath = join(runDir, 'runner.log');
@@ -2223,14 +2290,22 @@ async function main() {
     report.meta.startClock = await getClock();
     for (const managerId of run.managers) {
       await api('GET', '/me/entitlement', undefined, managerId); // creates the account
-      await q(
-        db,
-        `INSERT INTO manager_progression (manager_id, xp_balance, updated_at)
-         VALUES ($1, $2, now())
-         ON CONFLICT (manager_id) DO UPDATE SET xp_balance = EXCLUDED.xp_balance, updated_at = now()`,
-        [managerId, args.fundXp],
-      );
-      log(`funded ${managerId}`, { xp: args.fundXp });
+      if (args.fundXp === null) {
+        // `--fund-xp none`: the account was just created by the
+        // entitlement GET above and carries the product's own
+        // STARTER_XP_BALANCE — deliberately do NOT overwrite it (the
+        // mixed human+agents world tests the real new-manager economy).
+        log(`left ${managerId} on the product starter XP (no --fund-xp)`, {});
+      } else {
+        await q(
+          db,
+          `INSERT INTO manager_progression (manager_id, xp_balance, updated_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (manager_id) DO UPDATE SET xp_balance = EXCLUDED.xp_balance, updated_at = now()`,
+          [managerId, args.fundXp],
+        );
+        log(`funded ${managerId}`, { xp: args.fundXp });
+      }
     }
     report.meta.bootstrapNormalized = await normalizeBootstrap(db, absoWeek(report.meta.startClock.currentWeek));
     log('normalized bootstrap far-future opens', { removed: report.meta.bootstrapNormalized });

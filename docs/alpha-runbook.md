@@ -161,8 +161,11 @@ Confirm the world is actually alive and playable:
    `stale` goes true once the gap since the last advancing tick exceeds
    twice the expected cadence.
 2. **Sign up** through the web app. A brand-new manager is created with
-   **`xpBalance: 500`** (starter XP) — enough to sign one or two free
-   agents.
+   **`xpBalance: 100`** (the deliberate product rule: starter XP is exactly
+   two youngest-bracket talent-pool prospects — 2 × the flat youngest
+   prospect price of 50 XP — and no more, so a newcomer builds a first
+   roster from cheap, uncertain kids and cannot buy a ready-made player;
+   see `STARTER_XP_BALANCE` in `EnsureManagerAccountUseCase.ts`).
 3. `GET /talent-pool` is **non-empty** (free agents to sign).
 4. `GET /tournaments?status=open` shows **current-week rows with
    `registrationOpen: true`**.

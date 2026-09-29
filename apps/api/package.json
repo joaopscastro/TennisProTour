@@ -9,6 +9,7 @@
     "start": "tsc --build && node dist/index.js",
     "seed": "tsc --build && node dist/scripts/seed.js",
     "bootstrap": "tsc --build && node dist/scripts/bootstrapTestWorld.js",
+    "create-world": "tsc --build && node dist/scripts/createWorld.js",
     "genesis-seed": "tsc --build && node dist/scripts/genesisSeedFillOnlyPlayers.js",
     "typecheck": "tsc --noEmit",
     "pretest": "node ../../scripts/ensure-test-db.js",

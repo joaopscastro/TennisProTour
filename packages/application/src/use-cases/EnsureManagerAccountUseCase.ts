@@ -1,5 +1,6 @@
-import { ManagerId } from '@tennis-manager/domain';
+import { ManagerId, StandardTalentClaimPricingPolicy } from '@tennis-manager/domain';
 import { ManagerAccount, ManagerAccountRepository, IdGeneratorPort, ManagerAccountCreationPort } from '../ports/ports';
+import { TALENT_POOL_AGE_RANGE } from './talentPoolAgeRange';
 
 export interface EnsureManagerAccountCommand {
   authSubject: string;
@@ -10,17 +11,43 @@ export interface EnsureManagerAccountCommand {
 }
 
 /**
- * PLACEHOLDER starter XP a brand-new manager is granted the moment their
- * account is created — the onboarding fix. Without it a fresh account has
- * 0 XP, every talent-pool claim costs ≥50 XP, and XP is only ever earned
- * from match results, so a new manager literally could not acquire their
- * first player. 500 is enough to sign one or two free agents (the
- * youngest cost ~50 XP, a strong prime-age prospect ~150-250) so a new
- * manager has a real choice, without being so generous it buys an elite
- * roster outright — this is a start, not a leg-up (CLAUDE.md principle
- * #1). Not tuned; flagged like every other placeholder.
+ * The flat XP price of the YOUNGEST prospect the talent pool can produce:
+ * at `TALENT_POOL_AGE_RANGE.minWeeks` the blended pricing formula is fully
+ * flat (`ageInterpolationFactor` = 0 there, so the candidate's rating does
+ * not enter the calculation at all — every youngest-age prospect costs the
+ * same `StandardTalentClaimPricingPolicy` BASE_COST). Resolved through the
+ * REAL pricing policy rather than hard-coded, so this can never drift from
+ * what `ClaimTalentPoolCandidateUseCase` actually charges.
  */
-export const STARTER_XP_BALANCE = 500;
+export const YOUNGEST_PROSPECT_PRICE_XP = new StandardTalentClaimPricingPolicy().priceFor(
+  0, // rating is deliberately irrelevant here — the youngest age prices flat
+  TALENT_POOL_AGE_RANGE.minWeeks,
+  TALENT_POOL_AGE_RANGE,
+);
+
+/**
+ * DELIBERATE PRODUCT RULE — not a tuning placeholder. A brand-new manager
+ * starts with exactly enough XP to sign TWO youngest-bracket generated
+ * prospects, and no more: the onboarding grant is `2 × the flat
+ * youngest-prospect price = 2 × 50 = 100 XP` today (the multiplication is
+ * derived from the pricing policy above, so the two stay in lockstep).
+ *
+ * Why exactly two: a newcomer must be able to build a first roster (the
+ * free-tier cap is 2 players) from RAW KIDS — the cheapest, least-certain
+ * end of the talent pool — and cannot reach a ready-made player instead.
+ * There is no third claim and no leftover large enough to matter; a
+ * newcomer cannot buy an established or older/stronger player out of the
+ * gate. This is the onboarding half of CLAUDE.md principle #1 (money buys
+ * convenience, never an unconditional win-rate boost): equal access to
+ * the same gambles, not a head start on results.
+ *
+ * This balance is granted atomically and exactly once per account (see
+ * `ManagerAccountCreationPort.createWithStarterXp`): the account row and
+ * its opening balance are inserted in a single transaction, gated on a
+ * conditional insert, so concurrent first requests can neither double the
+ * grant nor observe a transient 0.
+ */
+export const STARTER_XP_BALANCE = 2 * YOUNGEST_PROSPECT_PRICE_XP;
 
 /** Resolves an authenticated external identity to the application's own
  * manager profile. This is intentionally separate from authentication so

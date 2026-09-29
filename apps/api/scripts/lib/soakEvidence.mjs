@@ -104,9 +104,21 @@ export async function normalizeBootstrap(db, currentAbs) {
  * all doubles matches. It does not touch ranking_ledger, titles, entries or
  * XP, so economy/ranking/title evidence is unaffected; per-match evidence for
  * tracked players is preserved by the tracked-player exclusion.
+ *
+ * A2: `protectedManagerIds` extends that exclusion to whole MANAGERS whose
+ * ids are not part of the run at all — the human player's manager in a
+ * human+agents world. Without it, a human-owned player's old rounds (and
+ * the replay blobs they link to) silently vanished from the bracket the
+ * moment the tournament aged past the 3-week window, because `trackedIds`
+ * only ever contains the RUN's managers' rosters. A tournament is kept
+ * when ANY of its singles entries, doubles entrants, or formed doubles
+ * pairs belongs to a player owned by a protected manager at archive time.
+ * `[]` (the default) is behaviourally identical to the old tracked-only
+ * guard: `['__none__']` can never match a real manager id.
  */
-export async function archiveOldMatchRows(db, currentAbs, trackedIds) {
+export async function archiveOldMatchRows(db, currentAbs, trackedIds, protectedManagerIds = []) {
   const ids = trackedIds.length > 0 ? trackedIds : ['__none__'];
+  const protectedManagers = protectedManagerIds.length > 0 ? protectedManagerIds : ['__none__'];
   const archivableCte = `
     WITH finals AS (
       SELECT tournament_id, MAX(round_number) AS rn
@@ -124,6 +136,17 @@ export async function archiveOldMatchRows(db, currentAbs, trackedIds) {
                         WHERE e.tournament_id = t.id AND e.player_id = ANY($2::text[]))
         AND NOT EXISTS (SELECT 1 FROM tournament_doubles_entrants de
                         WHERE de.tournament_id = t.id AND de.player_id = ANY($2::text[]))
+        AND NOT EXISTS (SELECT 1 FROM tournament_entries pe
+                        JOIN players pp ON pp.id = pe.player_id
+                        WHERE pe.tournament_id = t.id AND pp.manager_id = ANY($3::text[]))
+        AND NOT EXISTS (SELECT 1 FROM tournament_doubles_entrants pde
+                        JOIN players pdp ON pdp.id = pde.player_id
+                        WHERE pde.tournament_id = t.id AND pdp.manager_id = ANY($3::text[]))
+        AND NOT EXISTS (SELECT 1 FROM tournament_doubles_pairs pdp2
+                        JOIN players pa ON pa.id = pdp2.player_a
+                        JOIN players pb ON pb.id = pdp2.player_b
+                        WHERE pdp2.tournament_id = t.id
+                          AND (pa.manager_id = ANY($3::text[]) OR pb.manager_id = ANY($3::text[])))
     )`;
   const mainDeleted = await q(
     db,
@@ -132,7 +155,7 @@ export async function archiveOldMatchRows(db, currentAbs, trackedIds) {
      USING archivable a
      WHERE tm.tournament_id = a.id AND tm.draw = 'main' AND tm.round_number < a.rn
      RETURNING tm.tournament_id`,
-    [currentAbs - 3, ids],
+    [currentAbs - 3, ids, protectedManagers],
   );
   const doublesDeleted = await q(
     db,
@@ -141,7 +164,7 @@ export async function archiveOldMatchRows(db, currentAbs, trackedIds) {
      USING archivable a
      WHERE dm.tournament_id = a.id
      RETURNING dm.tournament_id`,
-    [currentAbs - 3, ids],
+    [currentAbs - 3, ids, protectedManagers],
   );
   return { mainDeleted: mainDeleted.length, doublesDeleted: doublesDeleted.length };
 }

@@ -42,6 +42,7 @@ import {
   ConcurrentModificationError,
   RegisterEntrantUseCase,
   SimulateDoublesMatchUseCase,
+  STARTER_XP_BALANCE,
   TournamentRepository,
 } from '@tennis-manager/application';
 import * as schema from '../../../db/schema';
@@ -2352,10 +2353,11 @@ describe('API', () => {
   it("reports a manager's entitlement tier", async () => {
     const response = await app.inject({ method: 'GET', url: '/managers/some-free-manager/entitlement', headers: { 'x-dev-manager-id': 'some-free-manager' } });
     expect(response.statusCode).toBe(200);
-    // xpBalance is STARTER_XP_BALANCE (500): the first request for a
-    // never-seen manager creates the account, and account creation now
+    // xpBalance is STARTER_XP_BALANCE (the deliberate product rule: exactly
+    // two youngest-bracket prospects, 2 x 50 = 100 XP): the first request
+    // for a never-seen manager creates the account, and account creation
     // grants starter XP so a new manager can afford a first signing.
-    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: 500 });
+    expect(response.json()).toEqual({ managerId: 'some-free-manager', tier: 'free', customPlayerCredits: 0, xpBalance: STARTER_XP_BALANCE });
   });
 
   it('grants starter XP exactly once across concurrent first-requests (no inflated balance, no transient 0)', async () => {
@@ -2363,7 +2365,7 @@ describe('API', () => {
     // fires several parallel manager-scoped requests, each of which used
     // to miss the check-then-act account lookup and grant again. The
     // atomic create-and-grant must make every one of these responses
-    // report exactly STARTER_XP_BALANCE (500) — never 0, never a multiple.
+    // report exactly STARTER_XP_BALANCE — never 0, never a multiple.
     const authSubject = `race-newcomer-${Date.now()}`;
     const headers = { 'x-dev-manager-id': authSubject };
     const responses = await Promise.all(
@@ -2371,7 +2373,7 @@ describe('API', () => {
     );
 
     expect(responses.every((r) => r.statusCode === 200)).toBe(true);
-    expect(responses.map((r) => r.json().xpBalance)).toEqual(Array(8).fill(500));
+    expect(responses.map((r) => r.json().xpBalance)).toEqual(Array(8).fill(STARTER_XP_BALANCE));
   });
 
   it('lists available free-agent players and NEVER leaks the hidden potentialCeiling or physicalCeilings', async () => {
