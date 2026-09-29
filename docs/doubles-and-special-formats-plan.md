@@ -75,10 +75,22 @@ the first place one real manager's players interact with another's.
 
 Two ways a pair comes to exist:
 
+> **STATUS UPDATE (final pre-validation pass): the cross-manager
+> invitation flow described below is NO LONGER CREATED by the product.**
+> `CreateDoublesPairUseCase` now requires BOTH players on the caller's
+> roster (unretired, not already paired) — a real-Postgres incident in the
+> season-4 agent world showed a cross-manager request returning 201 and
+> the `pending` row sitting unanswered forever while occupying both
+> players' one-pair slot, blocking the requester's real pairing. The
+> `pending`/accept machinery still exists for legacy rows (and the
+> `DoublesPair` aggregate still models `pending`), but no path creates a
+> new one. The rest of this section is kept for the design history.
+
 - **Same-manager pair.** A manager forms a pair from two of their own
   rostered players, directly from their board — immediate, active the
   moment it's created, no confirmation needed.
-- **Cross-manager pair.** A manager targets another real manager's player
+- **Cross-manager pair (historical design).** A manager targets another real
+  manager's player
   (never a free agent — a managerless player has no one to accept) and
   sends an **invitation**. The target player's manager sees the pending
   invite on their board and accepts (→ active) or declines (→ gone).

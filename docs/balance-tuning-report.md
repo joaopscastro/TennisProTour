@@ -920,3 +920,121 @@ the cap even when strong candidates are available); the seeded
 - **Test counts**: domain 432 → **442**, application 324 → **325**, api
   **259** (unchanged), worker **18** (unchanged). Full monorepo
   `tsc --build --force` and `apps/web` typecheck clean.
+
+## Season-4 post-mortem pass — bounded practice, doubles scoring parity, and why not the cap
+
+Source: the completed 52-week `agents-season-4` run (world
+`tennis_manager_agents4`, 4 LLM managers, 0 missed weeks). Code-version
+caveat, stated up front: the API process that served that run booted at
+20:08Z, eleven minutes before commit `a707b89` (the cap-aware doubles
+field-strength fix) landed at 20:19Z — so the run's doubles FIELDS are
+most consistent with the pre-field-fix model (a soft, randomly-paired
+filler field). The per-entry doubles advantage measured below therefore
+includes the soft-field effect; `a707b89` already addressed that half
+(see the `doublesField` bucket above), and this pass addresses the
+SCORING half, which is independent of field strength.
+
+### The measured problem (season 4, senior tournaments only)
+
+From `ranking_ledger` + `players` on `tennis_manager_agents4` (each
+player's rows credit their manager once; a doubles match writes one row
+per partner, both crediting the same manager — the structural
+double-credit):
+
+| manager | singles entries | singles pts | pts/entry | doubles entries | doubles pts | pts/entry | doubles/singles per entry |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| agent-m1 (quit doubles after 1 loss) | 57 | 51,450 | 903 | 2 | 360 | 180 | 0.20 |
+| agent-m2 (ladder champion) | 46 | 36,795 | **800** | 43 | 107,740 | **2,506** | **3.13** |
+| agent-m3 | 49 | 46,830 | 956 | 44 | 55,940 | 1,271 | 1.33 |
+| agent-m4 | 49 | 51,500 | 1,051 | 45 | 78,730 | 1,750 | 1.66 |
+| m2-m4 aggregate | 144 | 135,125 | 938 | 132 | 242,410 | 1,837 | 1.96 |
+
+Per MATCH the two disciplines are near parity by design (the sourced ATP
+tables pay comparable round-by-round values and the same-event doubles
+entry is fatigue-cheap but real); the dominance lives in the per-ENTRY
+gap: the capped, weaker doubles field produces deeper runs, and BOTH
+partners' awards credit one manager ladder. m2 won the ladder with
+doubles responsible for 74.5% of their points from 48% of their entries
+(21 of ~37 titles including three majors); m1, who stopped playing
+doubles after week 1, finished last.
+
+### The fix chosen: a doubles points parity factor (NOT the weekly cap)
+
+`DOUBLES_POINTS_PARITY_FACTOR = 0.5` (DoublesRanking.ts) scales the
+sourced senior ATP doubles table at award time; the raw table and the
+round-by-round SHAPE are unchanged. Why this and not "doubles consumes
+the weekly cap": re-adding the cap cost was already rejected once as
+making doubles strictly dominated (nobody played it) — and the numbers
+above show why it cannot work alone: with per-entry doubles at 1.3-3.1×
+singles, a singles-OR-doubles weekly choice would collapse to "always
+doubles". Scaling the points instead keeps the same-event doubles entry
+legal (both draws remain enterable) while making the two lines
+comparable. The 0.5 value matches the existing junior fallback
+(`DOUBLES_POINTS_FACTOR`), so the game now has one consistent rule:
+doubles is worth half the corresponding singles stage. This is a
+deliberate, disclosed DEVIATION from raw ATP doubles parity, which is
+sourced and otherwise preserved; the deviation is priced because this
+game's structure (every event has doubles; one manager can pair two own
+players; no real calendar/entry cost) does not reproduce the real
+opportunity cost that makes ATP parity work in reality.
+
+**Balance tool before/after** (new `entryValue` bucket, 120 seeded draws
+per tier; singles = a real unseeded 32/64/128 draw of individually
+sampled free agents — measured season-4 OVR percentiles 37.8/41.5/44.1/
+48.4/67.7/90.6 — vs an 84-OVR manager; doubles = the production cap-aware
+padded field, both partners' awards counted; expected manager ladder
+points per entry):
+
+| tier | draw (S/D) | singles/entry | doubles before | doubles after | ratio before | ratio after |
+|---|---:|---:|---:|---:|---:|---:|
+| futures | 32/16 | 243 | 549 | 275 | 2.26 | **1.13** |
+| challenger | 32/16 | 500 | 1,060 | 530 | 2.12 | **1.06** |
+| tour | 64/32 | 789 | 2,009 | 1,004 | 2.55 | **1.27** |
+| major | 128/64 | 1,014 | 4,465 | 2,233 | 4.40 | **2.20** |
+
+Read plainly: at the three weekly tiers doubles drops from 2.1-2.6× to
+1.06-1.27× singles per entry — a comparable choice — while the major
+keeps a 2.2× doubles edge (only 4 majors a season, and the cap-aware
+field there is at its softest; the field-strength lever, not the points
+lever, is the right instrument for that residual). `doublesField`
+re-run unchanged and healthy: average padded pair 108.7, best 123.5,
+manager H2H vs best 52.1%, title rate 32.2% (matches the `a707b89`
+numbers exactly — this pass did not touch the field).
+
+### Practice: a bounded, legible weekly contribution
+
+Measured season-4 usage (`practice_sessions`, all four rosters): **965
+sessions over 330 player-weeks** (avg 2.92/player/week, max 7); **93
+player-weeks were over the new cap**, containing 648 sessions — 369
+sessions above 3. Under the old flat +15/session rule those 965 sessions
+banked **14,475 ladder points** across four managers (~3,619 each);
+under the cap the same play banks **8,940** (~2,235 each) — a **38%
+reduction** (~1,384 fewer ladder points per manager per season), while
+every session still grants its development XP and costs its fatigue.
+Three consecutive agent seasons reported it as an exploit-shaped free
+pump; m2 explicitly called it "the single biggest ladder lever".
+
+`StandardPracticePolicy` now bounds the LADDER credit per player per
+game week (`ladderSessionsPerWeek()` = 3, PLACEHOLDER), applied through
+`ladderPointsForSession(sessionsThisWeek)`; XP (2/session) and fatigue
+(2/session) are unchanged:
+
+| sessions in one week | 1 | 2 | 3 | 4 | 5 | 6 | 7 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| ladder before | 15 | 30 | 45 | 60 | 75 | 90 | 105 |
+| ladder after | 15 | 30 | 45 | 45 | 45 | 45 | 45 |
+| given up | 0 | 0 | 0 | 15 | 30 | 45 | 60 |
+
+The reward shape is now emitted in the agent digest (`practice`) so the
+mechanic is discoverable instead of a source-reading secret (m1: "I left
+~2,300 ladder points on the table because nothing told me a session
+banks 15 manager points").
+
+**Regression coverage**: `PracticePolicy.test.ts` (the cap boundary,
+the 45/week maximum, XP/fatigue untouched); `RunPracticeSessionUseCase.test.ts`
+(5 sessions in a week: 15/15/15/0/0; later sessions still grant XP and
+cost fatigue; the cap is per player); the `practiceLadder` + `entryValue`
+buckets in `balance-simulation.mjs` as the permanent measurements;
+`DoublesRanking.test.ts` + `digestFeedPin` pins (the parity factor, the
+shape, the junior fallback left at its existing level, and the backfill's
+`sourcedDoublesPointsFor` path deliberately un-factored).

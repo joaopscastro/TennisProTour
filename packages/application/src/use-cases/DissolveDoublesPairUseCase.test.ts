@@ -26,11 +26,9 @@ describe('DissolveDoublesPairUseCase', () => {
     const pairs = new InMemoryDoublesPairRepository();
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
-    const pair = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
-      playerA: PlayerId('a'),
-      playerB: PlayerId('b'),
-      managerId: ManagerId('m1'),
-    });
+    // Hand-seeded: the create path no longer produces pending invites.
+    const pair = DoublesPair.propose(PairId('p-invite'), PlayerId('a'), PlayerId('b'));
+    await pairs.save(pair);
 
     const dissolved = await new DissolveDoublesPairUseCase(pairs, players).execute({ pairId: pair.id, managerId: ManagerId('m2') });
     expect(dissolved.isDissolved).toBe(true);
@@ -41,11 +39,8 @@ describe('DissolveDoublesPairUseCase', () => {
     const pairs = new InMemoryDoublesPairRepository();
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
-    const pending = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
-      playerA: PlayerId('a'),
-      playerB: PlayerId('b'),
-      managerId: ManagerId('m1'),
-    });
+    const pending = DoublesPair.propose(PairId('p-legacy'), PlayerId('a'), PlayerId('b'));
+    await pairs.save(pending);
     pending.accept();
     await pairs.save(pending);
 

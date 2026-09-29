@@ -25,6 +25,16 @@ export interface RunPracticeSessionResult {
  * the (player, day) marker, so a second practice the same day is refused.
  * This is what stops "practice forever" from being an infinite XP tap —
  * the day clock is the throttle, exactly as it paces matches.
+ *
+ * **The ladder half is additionally capped PER WEEK** (season-4 balance
+ * fix): the first `PracticePolicy.ladderSessionsPerWeek()` sessions a
+ * player practises in a game week bank ladder points; later sessions
+ * that week still grant development XP and cost fatigue but bank no
+ * ladder. Measured before the cap: up to 105 ladder/week/player for a
+ * day-and-a-half of clicks, fatigue-negative overall at the current
+ * recovery, and invisible in the digest — three consecutive agent
+ * seasons called it "exploit-shaped, not a choice". With the cap it is
+ * a bounded, legible choice (see PracticePolicy's doc comment).
  */
 export class RunPracticeSessionUseCase {
   constructor(
@@ -57,15 +67,18 @@ export class RunPracticeSessionUseCase {
       throw new Error(`Player ${command.playerId} has already practiced today`);
     }
 
+    // The weekly sessions count INCLUDES the just-recorded session, so
+    // this session's 0-based index in the week is count - 1.
+    const sessionsBeforeThisOne = Math.max(0, (await this.practices.countInWeek(command.playerId, today)) - 1);
     const experience = this.policy.practiceExperience();
     const fatigue = this.policy.practiceFatigue();
-    const ladderPoints = this.policy.ladderPoints();
+    const ladderPoints = this.policy.ladderPointsForSession(sessionsBeforeThisOne);
 
     player.gainExperience(experience);
     player.applyMatchFatigue(fatigue);
     await this.players.save(player);
 
-    await this.managerLadder.credit(command.managerId, ladderPoints);
+    if (ladderPoints > 0) await this.managerLadder.credit(command.managerId, ladderPoints);
 
     return { experience, fatigue, ladderPoints };
   }

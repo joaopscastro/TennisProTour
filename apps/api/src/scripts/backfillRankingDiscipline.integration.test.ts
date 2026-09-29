@@ -38,6 +38,7 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  await db.delete(schema.managerEntryActivity); // FKs to players AND tournaments — before both
   await db.delete(schema.weeklyEntryClaims);
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);

@@ -36,6 +36,7 @@ beforeEach(async () => {
   // Child tables first (FKs), then parents — same order every other api
   // integration suite uses. game_worlds is wiped too so bootstrap's
   // phase 0 genuinely exercises the "world absent" path.
+  await db.delete(schema.managerEntryActivity); // FKs to players AND tournaments — before both
   await db.delete(schema.weeklyEntryClaims);
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);

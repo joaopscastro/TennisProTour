@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { ManagerId, PlayerId } from '@tennis-manager/domain';
+import { DoublesPair, ManagerId, PairId, PlayerId } from '@tennis-manager/domain';
 import { Player } from '@tennis-manager/domain';
 import { PlayerAttributes, Skill, SurfaceAffinities } from '@tennis-manager/domain';
 import { ReleasePlayerUseCase } from './ReleasePlayerUseCase';
-import { CreateDoublesPairUseCase } from './CreateDoublesPairUseCase';
-import { InMemoryDoublesPairRepository, InMemoryPlayerRepository, makePlayer, SequentialIdGenerator } from './doublesTestHelpers';
+import { InMemoryDoublesPairRepository, InMemoryPlayerRepository, makePlayer } from './doublesTestHelpers';
 
 function startingAttributes(): PlayerAttributes {
   return new PlayerAttributes({
@@ -41,11 +40,11 @@ describe('ReleasePlayerUseCase', () => {
     const pairs = new InMemoryDoublesPairRepository();
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
-    const pair = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
-      playerA: PlayerId('a'),
-      playerB: PlayerId('b'),
-      managerId: ManagerId('m1'),
-    });
+    // A cross-manager ACTIVE pair, hand-seeded: the create path no longer
+    // forms pending cross-manager invites (both players must share a
+    // manager), but legacy active pairs still exist and the release
+    // cascade must dissolve them.
+    const pair = DoublesPair.propose(PairId('p-ab'), PlayerId('a'), PlayerId('b'));
     pair.accept();
     await pairs.save(pair);
     expect((await pairs.findById(pair.id))!.isActive).toBe(true);

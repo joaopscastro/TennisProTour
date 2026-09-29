@@ -687,6 +687,40 @@ export interface ManagerLadderRepository {
 }
 
 /**
+ * The manager ENTRY-ACTIVITY ledger — the honest key for the weekly
+ * inactivity deduction (ManagerLadderPolicy.inactivityPenaltyPoints).
+ *
+ * **Why this exists as its own record, not a read of existing tables.**
+ * The original check counted tournaments whose `weekScheduled` equalled
+ * the ending week — i.e. events PLAYED that week — which is not the
+ * same thing as entries MADE that week: generation opens a week's
+ * tournaments one week ahead, so a manager who registered for week W+1
+ * during week W (the normal, expected flow) counted as inactive when W
+ * ended, and a manager whose roster arrived mid-week was structurally
+ * guaranteed one wrongful −500. There is no way to recover "which game
+ * week was current when this entry was made" from the entry rows
+ * themselves (`created_at` is wall-clock, the world clock is game time),
+ * so registration stamps it here at write time.
+ *
+ * One row per (manager, season, week) — the first entry of the week is
+ * enough to answer "did this manager enter anything during week W"; the
+ * PK's `.onConflictDoNothing()` makes repeated registrations in the same
+ * week a no-op. Registered by the two registration use cases after their
+ * tournament save commits (a refused entry records nothing).
+ */
+export interface ManagerEntryActivityRepository {
+  /** Records that `managerId` made an entry during the game week
+   * `week`. Idempotent per (manager, season, week). */
+  record(managerId: ManagerId, week: GameWeek, playerId: PlayerId, tournamentId: TournamentId): Promise<void>;
+
+  /** Every manager with at least one entry MADE during `week` — one
+   * DISTINCT query, called once per weekly rollover (never per player).
+   * Compare with `TournamentRepository.findByPlayerAndWeek`, which is
+   * about the SCHEDULED week of events, not when entries were made. */
+  findManagerIdsWithActivityInWeek(week: GameWeek): Promise<ManagerId[]>;
+}
+
+/**
  * Outcome of an atomic sign+charge attempt — a discriminated union
  * rather than a boolean/null, since ClaimTalentPoolCandidateUseCase
  * needs to distinguish two different, user-facing failure reasons (the
@@ -889,6 +923,11 @@ export interface PracticeSessionRepository {
    * double-award XP/fatigue/ladder. This is the once-per-day guard's
    * race-safe form; `record`/`recordedOn` remain for non-racing reads. */
   tryRecord(playerId: PlayerId, day: GameDay): Promise<boolean>;
+  /** How many sessions this player already has recorded in `week` (all
+   * days of that game week). Used to size the BOUNDED weekly ladder
+   * credit (see PracticePolicy.ladderPointsForSession) — the day claim
+   * above throttles one session/day, this is what throttles the week. */
+  countInWeek(playerId: PlayerId, week: GameWeek): Promise<number>;
 }
 
 /**

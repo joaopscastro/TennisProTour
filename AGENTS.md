@@ -2797,3 +2797,152 @@ cases in `display-logic.spec.ts` and +2 browser cases in the new
 `junior-best-n` spec, one per surface: the j100-that-counts-nothing case
 and the breaks-into-the-best-N case). Full `tsc --build --force`,
 `apps/web` typecheck and the mocked suite all clean.
+
+## Final pre-validation pass — four verified bugs, two measured balance fixes, six harness/legibility items
+
+Built on `8d66769`, `a707b89`, `c2b5062`. Every item below was verified
+with evidence (code pointers, the `tennis_manager_agents4` season-4 DB,
+or a real-Postgres test) BEFORE being changed; all four acceptance
+suites are green and non-decreasing, `npx tsc --build --force` and
+`apps/web` typecheck are clean, the mocked Playwright suite is green
+(102), and the frozen `advance-world-day` system order was deliberately
+NOT touched.
+
+**1 — `createPair` no longer accepts another manager's player (verified
+live in the season-4 DB).** `CreateDoublesPairUseCase` used to allow a
+cross-manager request (`playerB` on someone else's roster → a `pending`
+invitation). The season-4 runner log + `doubles_pairs` prove the failure
+one agent reported: m3 POSTed a pair with m4's Sofia Dubois at
+20:32:19Z, got **201**, and the pending row sat there occupying both
+players' one-pair slot until m3 dissolved it five minutes later to form
+their real pair. **Fix**: BOTH players must be on the caller's roster,
+both must be unretired, and neither may already be in a non-dissolved
+pair — each refusal has a plain-language message. `DoublesPair.propose`/
+`AcceptDoublesPairUseCase` still work for genuinely pending/legacy rows,
+but nothing creates a new pending pair any more. Coverage: unit cases
+(cross-manager refused with nothing written, retired refused on either
+side), and a real-Postgres/HTTP case — the cross-manager POST returns
+400 with the reason, `doubles_pairs` stays empty, and the requester's
+real own-roster pair lands 201/active on the very next call.
+
+**2 — the weekly inactivity deduction is now keyed on entries MADE, not
+events played, and the onboarding window covers the first two weeks
+(verified against the season-4 ladder wipe).** The old check read
+`TournamentRepository.findByPlayerAndWeek(endingWeek)`, i.e. tournaments
+whose `weekScheduled` equals the ending week — but generation opens a
+week's slate one week AHEAD, so a manager who registered during week W
+for week W+1 (the normal flow) counted as idle when W ended. m4's whole
+208-point bank was wiped to 0 in week 3 exactly this way ("my 208 -> 0
+in w3"), and because the onboarding exemption only covered the claim
+week, a brand-new manager was structurally guaranteed one wrongful −500.
+**Fix, stated exactly**: a new `manager_entry_activity` ledger (migration
+`0056_dizzy_captain_universe.sql`; PK `(manager_id, season, week)`, FK'd
+to players and (cascading) tournaments) is stamped by BOTH registration
+use cases (`entryWeek` — the world's current game week — supplied by the
+HTTP routes, recorded only AFTER the tournament save commits, so a
+refused entry records nothing and a retry is idempotent). The weekly
+tick reads ONE `findManagerIdsWithActivityInWeek(endingWeek)` query
+(`DrizzleManagerEntryActivityRepository`) instead of the per-player
+loop, and a manager is idle only when the roster made no entry that
+week. The onboarding exemption now skips a manager whose ENTIRE active
+roster joined in `endingWeek` OR the week before it
+(`weeksBetween(managerSinceWeek, endingWeek) <= 1`) — the first week
+after a claim can no longer be penalised. Coverage: `AdvanceWorldWeekUseCase.test.ts`
+(activity-based sparing, the future-week registration shape, per-player
+windows, the three-rollover exemption arc), both register use cases'
+record/no-record unit cases, a real-Postgres adapter case (idempotent PK,
+week-scoped read), and real-HTTP cases through the real composition and
+real Postgres: registering this week for a FUTURE week is not penalised
+while a genuinely idle roster still is, and a brand-new manager is
+exempt across BOTH of their first two rollovers and penalised from the
+third.
+
+**3 — the entry PREVIEW now reads the same season age anchor the
+registration gate does (verdict: the gate was right, the preview was
+the inconsistent one).** The season-4 report ("Petrov's U14 lockout at
+raw age >728w while her displayed rankBand stayed 'u14' — 26 weeks
+without u14 access, u14 total frozen at 441") was traced to a single
+call site: `tournamentRoutes.ts`'s player-scoped open list passed
+`player.ageInWeeks` into `attachEntryInfo`, while `RegisterEntrantUseCase`
+(the actual gate), `DrizzleRosterDashboardQuery`, `DrizzlePlayerProfileQuery`
+and the manager digest all use `player.seasonAgeAnchorWeeks` (the real
+ITF "age as of January 1" rule). So a player at raw 729 / anchor 728
+displayed `u14` and would have been ACCEPTED by the gate, yet every U14
+row was marked `ageEligible: false` in the preview and silently dropped
+from the digest's `canEnterNow`. **Fix**: pass `seasonAgeAnchorWeeks`
+(parameter renamed `playerEligibilityAgeWeeks`, doc comment updated).
+Pin: a real-Postgres/HTTP test constructs exactly that boundary (hired at
+14×52 = 728, aged one ordinary tick to 729, anchor stays 728), asserts
+the preview row reads `ageEligible: true`, and then POSTs the entry and
+gets 201 — preview and enforcement now provably agree.
+
+**4 — practice's ladder credit is bounded per week (measured).** Season
+4 reality: 965 sessions over 330 player-weeks (avg 2.92/player/week,
+max 7), 93 player-weeks over the new cap; under the old flat +15/session
+those sessions banked 14,475 ladder points across four managers, under
+the cap they bank 8,940 (−38%, ~−1,384 manager/season) while every
+session keeps its full development-XP and fatigue role. `StandardPracticePolicy`
+gained `ladderSessionsPerWeek()` (3) + `ladderPointsForSession(sessionsThisWeek)`;
+`PracticeSessionRepository` gained `countInWeek`; `RunPracticeSessionUseCase`
+computes the session index after its atomic day claim. Before/after
+table (max/week 105 → 45) and the reasoning live in
+docs/balance-tuning-report.md; the digest now carries the whole reward
+shape so the mechanic is discoverable. Coverage: `PracticePolicy.test.ts`
+(cap boundary, 45/week max, XP/fatigue untouched), the use case (5 days:
+15/15/15/0/0, later sessions still train, per-player cap), the pinned
+digest mirror (`digestFeedPin.test.ts`), and the new `practiceLadder`
+balance bucket.
+
+**5 — doubles is no longer a dominant scoring engine: the sourced ATP
+doubles table is scaled by a disclosed parity factor (measured).** Season
+4, senior only: doubles earned 1.33× (m3), 1.66× (m4) and 3.13× (m2) the
+singles points per entry, and m2 won the ladder with 74.5% of their
+points from doubles (21 of ~37 titles incl. three majors) while m1, who
+quit doubles, finished last. Root causes: the manager ladder credits
+BOTH partners' awards from one entry, the capped doubles field produces
+deeper runs, and same-event doubles costs no extra weekly cap slot.
+**Chosen fix: `DOUBLES_POINTS_PARITY_FACTOR = 0.5`** applied at award
+time (`doublesPointsFor`), keeping the sourced round-by-round shape and
+leaving `sourcedDoublesPointsFor` untouched for the discipline backfill
+(historical reconstruction must keep reproducing what the ledger
+recorded). **Why not "doubles consumes the weekly cap"**: that was
+already rejected once as making doubles strictly dominated, and the
+measured per-entry gap means a singles-OR-doubles choice would collapse
+to "always doubles" — the scoring side is the honest lever. The
+deviation from sourced ATP doubles parity is deliberate and disclosed,
+with the structural reason stated in the constant's doc comment (real
+ATP parity works because the real calendar/entry rules force a choice
+this game does not model). Tool before/after (`entryValue` bucket, real
+thumbnail brackets): futures 2.26×→1.13×, challenger 2.12×→1.06×, tour
+2.55×→1.27×, major 4.40×→2.20×. `doublesField` re-run unchanged/healthy
+(avg padded pair 108.7, best 123.5, manager title rate 32.2%). Full
+numbers + regression list in docs/balance-tuning-report.md.
+
+**6 — digest/harness legibility fixes (all covered by
+`digestFeed.test.mjs` + `digestFeedPin.test.ts`).** (a) `roster[].doublesRankings`
+is now carried (the profile's `currentDoublesRankings`), so doubles
+decisions are no longer half-blind. (b) `practice` — the full reward
+shape, pinned against the real policy. (c) `concludesInWeek`/`finalDay`
+on every event row (open + pending), derived purely and pinned against
+`Tournament.roundScheduledDay` for every generated shape (a week-50
+qualifying major's final = S1W52 day 3; a week-51 one = S2W1 day 3 — the
+exact "finishes outside its labelled week" case). (d) `lastApply` now
+merges the per-day `day-N.practice.json` outcomes (they were silently
+dropped; ~10 weeks of one agent's practice was unverifiable). (e) title
+bloat fixed: detailed `titles`/`doublesTitles` are capped to the newest
+5 of the CURRENT season, with career `titleCounts` and per-season
+`titlesBySeason` counters beside them (one champion's array reached ~70
+entries / an 86 KB digest). (f) the headline `rank` now prefers the
+player's own eligibility band when it has a real rank, otherwise their
+most meaningful ladder — the "empty U14 rank while the real senior rank
+only leaked through blocked reasons" case — with every ladder still in
+`allRankings`. The generated RULES.md text documents all of it, plus the
+new createPair rule.
+
+**Test counts after this pass**: domain **449** (was 442; +3 practice
+policy, +4 doubles parity), application **333** (was 326; +2 pair rules,
++3 entry-activity, +2 practice), api **286** (was 264; +3 real-Postgres/
+HTTP, +5 digestFeedPin, +1 entry-activity adapter, +13 digestFeed pure),
+worker **18** (unchanged) — all green; full monorepo
+`tsc --build --force` and `apps/web` typecheck clean; mocked Playwright
+suite **102** passed. The only migration is `0056` (`manager_entry_activity`).

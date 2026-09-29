@@ -17,7 +17,7 @@ import {
 } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
 import { CHALLENGER_SEASON_ENTRY_CAP, qualifierSlotsFor, qualifyingDrawSizeFor, wildCardSlotsFor } from '@tennis-manager/domain';
-import { GameWorldRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
+import { GameWorldRepository, ManagerEntryActivityRepository, PlayerRepository, RankingLedgerRepository, TournamentRepository } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { FormDoublesDrawUseCase } from './FormDoublesDrawUseCase';
 import { JUNIOR_WEEKLY_ENTRY_CAP } from './juniorEntryCap';
@@ -1216,6 +1216,114 @@ describe('registration gates follow the SINGLES/DOUBLES competition, not the bro
 
     const after = await tournaments.findById(id);
     expect(after!.entrants.some((e) => e.playerId === player)).toBe(true);
+  });
+});
+
+/** The entry-activity stamp (manager entries MADE per week — see
+ * ManagerEntryActivityRepository): the weekly inactivity deduction reads
+ * this ledger, so a successful registration must write it and a refused
+ * one must not. The in-memory fake mirrors the real adapter's
+ * (manager, season, week) idempotency. */
+class RecordingEntryActivity implements ManagerEntryActivityRepository {
+  readonly records: Array<{ managerId: ManagerId; week: GameWeek; playerId: PlayerId; tournamentId: TournamentId }> = [];
+
+  async record(managerId: ManagerId, week: GameWeek, playerId: PlayerId, tournamentId: TournamentId): Promise<void> {
+    if (this.records.some((r) => r.managerId === managerId && r.week.season === week.season && r.week.week === week.week)) return;
+    this.records.push({ managerId, week, playerId, tournamentId });
+  }
+
+  async findManagerIdsWithActivityInWeek(week: GameWeek): Promise<ManagerId[]> {
+    return this.records.filter((r) => r.week.season === week.season && r.week.week === week.week).map((r) => r.managerId);
+  }
+}
+
+describe('registration records manager entry activity (the inactivity-penalty key)', () => {
+  const week: GameWeek = { season: 1, week: 1 };
+
+  it('records a successful singles entry for the manager, stamped with the WORLD week it was made in', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const activity = new RecordingEntryActivity();
+    const player = PlayerId('act-p1');
+    await savePlayer(players, player, SENIOR_AGE);
+    const id = TournamentId('act-t1');
+    await tournaments.save(openDoublesTournament(id, { season: 1, week: 2 })); // entry targets week 2...
+
+    const singles = new RegisterEntrantUseCase(
+      tournaments,
+      players,
+      new BracketGenerator(),
+      undefined,
+      undefined,
+      undefined,
+      activity,
+    );
+    // ...but it was MADE during week 1 (entryWeek), which is what counts.
+    await singles.execute({ tournamentId: id, playerId: player, entryWeek: week });
+
+    expect(activity.records).toEqual([
+      { managerId: ManagerId('m1'), week: { season: 1, week: 1 }, playerId: player, tournamentId: id },
+    ]);
+  });
+
+  it('records nothing when the registration is REFUSED', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const activity = new RecordingEntryActivity();
+    const player = PlayerId('act-x');
+    await savePlayer(players, player, SENIOR_AGE); // 25yo — cannot enter a U14 draw
+    const id = TournamentId('act-refused');
+    const junior = Tournament.open({
+      name: 'Refused Junior',
+      id,
+      tier: 'j30',
+      surface: 'clay',
+      weekScheduled: { season: 1, week: 2 },
+      drawSize: 16,
+      ageBand: 'u14',
+    });
+    await tournaments.save(junior);
+
+    const singles = new RegisterEntrantUseCase(
+      tournaments,
+      players,
+      new BracketGenerator(),
+      undefined,
+      undefined,
+      undefined,
+      activity,
+    );
+    await expect(singles.execute({ tournamentId: id, playerId: player, entryWeek: week })).rejects.toThrow(
+      /not age-eligible/,
+    );
+    // The refusal happened before any save — the ledger stays untouched.
+    expect(activity.records).toHaveLength(0);
+    const after = await tournaments.findById(id);
+    expect(after!.entrants).toHaveLength(0);
+  });
+
+  it('the doubles path stamps the same ledger', async () => {
+    const tournaments = new InMemoryTournamentRepository();
+    const players = new InMemoryPlayerRepository();
+    const activity = new RecordingEntryActivity();
+    const player = PlayerId('act-dbl');
+    await savePlayer(players, player, SENIOR_AGE);
+    const id = TournamentId('act-dbl-t1');
+    await tournaments.save(openDoublesTournament(id, { season: 1, week: 2 }));
+
+    const doubles = new RegisterDoublesEntrantUseCase(
+      tournaments,
+      players,
+      undefined,
+      undefined,
+      undefined,
+      activity,
+    );
+    await doubles.execute({ tournamentId: id, playerId: player, managerId: ManagerId('m1'), entryWeek: week });
+
+    expect(activity.records).toEqual([
+      { managerId: ManagerId('m1'), week: { season: 1, week: 1 }, playerId: player, tournamentId: id },
+    ]);
   });
 });
 

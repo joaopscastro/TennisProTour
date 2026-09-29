@@ -113,7 +113,11 @@ import {
   compactLastResults,
   compactShop,
   compactSinglesTitles,
+  compactTitlesBySeason,
   compactTournamentBase,
+  headlineRanking,
+  mergeLastApply,
+  practiceReward,
   reconcileDecisions,
   selectTalentPool,
   selectWeekEvents,
@@ -514,6 +518,9 @@ your behalf. You read your digest and write one decision file per week.
 
 - Trainable attributes: serve, forehand, backhand, volley, speed, stamina,
   strength, doubles. Mental attributes (consistency, clutch) are NEVER trainable.
+- \`createPair\` requires BOTH players to be on YOUR roster (a pair forms
+  immediately). Requesting a pair with another manager's player is refused —
+  there is no invitation flow.
 - \`purchaseCosmetic\` buys one item from the XP cosmetics shop using the
   \`shop\` section of your digest (\`shop.items[].itemId\`, \`price\`, \`owned\`,
   \`affordable\`). Cosmetics are STRICTLY presentation-only — they change a
@@ -524,7 +531,11 @@ your behalf. You read your digest and write one decision file per week.
 - \`effectiveFrom\` is optional \`{season, week}\`; it must be the current or a
   future week. Omit it to start now.
 - \`practice\` days are game days 1..7 of THIS week; practice runs before that
-  day's tick. Each player can practice at most once per game day.
+  day's tick. Each player can practice at most once per game day. The reward
+  is in the digest's \`practice\` section: every session grants development XP
+  and costs fatigue, but only the first \`ladderSessionsPerWeek\` sessions per
+  player per week bank ladder points — extra sessions that week add no
+  ladder (they still train the player).
 - A free agent you CLAIM this week joins your roster, but this week's digest
   was built before the claim, so the new player has no entry candidates in it
   yet — enter them from NEXT week's digest (the \`events.canEnterNow\` map is
@@ -540,17 +551,30 @@ your behalf. You read your digest and write one decision file per week.
   so a doubles win is never misread as a singles win. A result appears here
   once it has aired; in this harness that is seconds after it is played, so
   this is genuinely "what happened last week".
-- \`roster[].titles\` — singles titles. \`roster[].doublesTitles\` — doubles
-  titles, each naming the PARTNER (partnerId/partnerName). Both pay ranking
-  points, so read both; \`roster[].titleCounts\` gives
-  \`{ singles, doubles }\` at a glance.
+- \`roster[].titles\` — the NEWEST few singles titles of the CURRENT season.
+  \`roster[].doublesTitles\` — the same for doubles titles, each naming the
+  PARTNER (partnerId/partnerName). Both pay ranking points, so read both;
+  \`roster[].titleCounts\` gives \`{ singles, doubles }\` career totals at a
+  glance, and \`roster[].titlesBySeason\` gives per-season
+  \`{ season, singles, doubles }\` counters (detailed rows are capped to keep
+  the digest small — counters are the full record).
+- \`roster[].rank\` — the player's HEADLINE ranking \`{ band, rank, points }\`:
+  their own eligibility band when it has a real rank/points, otherwise their
+  most meaningful other ladder (a junior-eligible senior player shows their
+  SENIOR rank here instead of an empty U14 row). \`roster[].allRankings\` has
+  every singles ladder; \`roster[].doublesRankings\` has the doubled
+  (\`discipline='doubles'\`) ladders per band.
 - \`roster[].nextMatch\` — the next match the player still has TO PLAY (null
   when they are not alive in any draw). A match that has already been decided
   (even one whose result has not aired yet) is NOT reported here; it shows up
   in \`lastResults\` once aired.
 - \`roster[].pendingEntries\` — every entry whose event has not CONCLUDED yet:
   a seeded-and-playing draw counts, only a fully-decided or cancelled event
-  drops out. \`hasStarted\` tells you whether the draw is live.
+  drops out. \`hasStarted\` tells you whether the draw is live, and
+  \`concludesInWeek\`/\`finalDay\` tell you exactly where the FINAL lands —
+  a qualifying \`tour\` finishes in week+1 (day 1) and a qualifying \`major\`
+  in week+2 (day 3), so do not plan around the label's own week for those.
+  \`events.canEnterNow\` / \`events.openByWeek\` rows carry the same fields.
 - \`events.canEnterNow[playerId]\` — up to 32 ENTERABLE candidate events
   (nearest week, then SENIOR circuit before junior, then tier — a senior
   \`tour\`/major is always included even if the cap truncates), followed by
@@ -575,6 +599,11 @@ your behalf. You read your digest and write one decision file per week.
   kind — they are the deliberate sink for XP you have no other use for
   (buy with a \`purchaseCosmetic\` action). \`xpBalance\` is the same figure
   as \`manager.xpBalance\`.
+- \`practice\` — the practice-session reward shape:
+  \`{ experiencePerSession, fatiguePerSession, ladderPointsPerSession,
+  ladderSessionsPerWeek, maxLadderPointsPerWeekPerPlayer, note }\`. Use it to
+  decide practice days deliberately (banking ladder is capped per player per
+  week; XP/fatigue keep applying after the cap).
 
 ## Apply order (per manager, sequential)
 release → claim → dissolvePair → createPair → acceptPair → enterSingles /
@@ -841,12 +870,9 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
       for (const entry of week.entries ?? []) {
         if (tournamentConcluded(entry)) continue;
         pendingEntries.push({
+          ...compactTournamentBase(entry),
           week: entry.weekScheduled,
           tournamentId: entry.id,
-          name: entry.name,
-          tier: entry.tier,
-          ageBand: entry.ageBand,
-          surface: entry.surface,
           hasStarted: entry.hasStarted === true,
         });
         if (pendingEntries.length >= 13) break;
@@ -860,7 +886,13 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
 
     const rankings = profile?.currentRankings ?? [];
     const band = dash?.rankBand ?? profile?.currentEligibleBand ?? 'senior';
-    const ownRank = rankings.find((r) => r.band === band) ?? { band, totalPoints: 0, rank: null };
+    // The HEADLINE rank (season-4 fix): prefer the player's own
+    // eligibility band when it has a real rank/points, otherwise the
+    // most meaningful band among ALL their ladders — one agent's `rank`
+    // was always their empty U14 row while their real senior rank only
+    // leaked through blocked-reason strings. `allRankings` keeps every
+    // ladder visible beside the headline.
+    const headline = headlineRanking(rankings, band);
 
     roster.push({
       identity: {
@@ -878,15 +910,23 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
       stageNote: dash?.stageNote ?? null,
       focus: dash?.trainingFocus ?? null,
       rankBand: band,
-      rank: { band, rank: ownRank.rank, points: ownRank.totalPoints },
+      rank: {
+        band: headline.band,
+        rank: headline.rank,
+        points: headline.totalPoints ?? headline.points ?? 0,
+      },
       allRankings: rankings,
+      // The live DOUBLES ladder totals/ranks per band (season-4 fix:
+      // "the digest has no doubles rank/points anywhere, so doubles
+      // decisions are half-blind").
+      doublesRankings: profile?.currentDoublesRankings ?? [],
       peaks: profile?.peakRankings ?? [],
-      titles: compactSinglesTitles(profile),
-      // Doubles titles are a distinct list (a doubles trophy names the
-      // PARTNER, not a singles tournament name) and count in the title
-      // summary alongside singles — a measured season had 28 doubles
-      // titles invisible in the digest.
-      doublesTitles: compactDoublesTitles(profile),
+      // Detailed title rows are capped and season-scoped; career totals
+      // and per-season counters live beside them (see
+      // compactTitlesBySeason) — the season-4 digest-bloat fix.
+      titles: compactSinglesTitles(profile, { currentSeason: clock.currentWeek.season }),
+      doublesTitles: compactDoublesTitles(profile, { currentSeason: clock.currentWeek.season }),
+      titlesBySeason: compactTitlesBySeason(profile),
       titleCounts: {
         singles: (profile?.titles ?? []).length,
         doubles: (profile?.doublesTitles ?? []).length,
@@ -994,11 +1034,30 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     });
 
   // Last week's apply outcomes, so the agent learns what was rejected.
+  // Practice outcomes live in their own per-day files (they are deferred
+  // to their listed game days by `runPracticeForDay`, so they never
+  // appear in the apply JSONL) — the season-4 report: "practice outcomes
+  // never appear in lastApply ... ~10 weeks of actions were
+  // unverifiable". Both sources are merged here, clearly typed.
   const lastApply = weekIndex > 0 ? readJsonl(join(run.runDir, 'weeks', weekDirName(weekIndex - 1), 'apply', `${managerId}.jsonl`)) : [];
-  const lastApplyCompact = lastApply
-    .filter((entry) => entry.type !== 'practice')
-    .slice(-50)
-    .map((entry) => ({ type: entry.type, action: entry.action, ok: entry.ok, status: entry.status, error: entry.error ?? null }));
+  const lastWeekDir = weekIndex > 0 ? join(run.runDir, 'weeks', weekDirName(weekIndex - 1)) : null;
+  const practiceOutcomes = [];
+  if (lastWeekDir) {
+    for (let day = 1; day <= DAYS_PER_WEEK; day++) {
+      const rows = readJson(join(lastWeekDir, `day-${day}.practice.json`)) ?? [];
+      for (const row of rows) {
+        if (row.managerId !== managerId) continue;
+        practiceOutcomes.push({
+          type: 'practice',
+          action: { playerId: row.playerId, day: row.day },
+          ok: row.ok,
+          status: row.status,
+          error: row.error ?? null,
+        });
+      }
+    }
+  }
+  const lastApplyCompact = mergeLastApply(lastApply, practiceOutcomes);
 
   const missedWeeks = (report.weeks ?? [])
     .filter((week) => week.decisions?.[managerId] === 'missed')
@@ -1037,6 +1096,11 @@ async function buildDigest({ run, weekIndex, worldWeek, clock, deadlineAt, repor
     // items (the domain source-guard test proves no competitive module
     // can read one). `purchaseCosmetic` in a decision buys one.
     shop: compactShop(cosmeticsRes.ok ? cosmeticsRes.body : null),
+    // The practice-session reward shape (season-4 report: "Practice's
+    // reward is invisible in the digest — I left ~2,300 ladder points on
+    // the table"). Values are pinned against the domain's real policy by
+    // digestFeedPin.test.ts.
+    practice: practiceReward(),
     talentPool: freeAgents,
     talentPoolCommitted: committedFreeAgents,
     // The API's own counts, carried through unchanged: `availableTotal` is

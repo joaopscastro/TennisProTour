@@ -91,8 +91,51 @@ export function isPinnedSeniorEvent(t) {
   return t.circuit === 'senior' && PINNED_SENIOR_TIERS.includes(t.tier);
 }
 
+/** Tiers that run over two weeks (14 days) — see the domain's
+ * TournamentSchedulePolicy. Mirrored here (not imported: this module is
+ * plain node JS run outside the TS build) with a pin test in the api
+ * suite comparing it against the domain's own `isTwoWeekTier`. */
+export const TWO_WEEK_TIERS = ['major', 'juniorMasters'];
+
+const WEEKS_PER_SEASON = 52;
+
+function absoWeekOf(week) {
+  return week.season * WEEKS_PER_SEASON + week.week;
+}
+
+/**
+ * Which week (and day) a tournament's FINAL actually lands in — the
+ * "two-week event's conclusion" signal the season-4 agents had to infer
+ * by hand ("Majors finish outside their labelled week... needs a 'final
+ * on SxWy' hint"). The real span (see the domain's roundScheduledDay):
+ * qualifying days run FIRST (one per day), then the main draw's own
+ * round-day map — 14 days for a two-week tier (packed via
+ * ceil(r*14/rounds)), one per day up to `totalRounds` for every other
+ * tier. So a 128-draw major = 3 qualifying days + 14 = final on event
+ * day 17 (3 days into week+2), while a 64-draw `tour` with its 2
+ * qualifying days = final on event day 8 (first day of week+1).
+ *
+ * Pure and conservative: a missing/0 `qualifyingRoundCount` is treated
+ * as "no qualifying" (correct for every tier that holds none, and for
+ * open events the DTO always carries the stored real value), and
+ * `startDay` defaults to 1 (every generated tournament starts day 1).
+ */
+export function tournamentConclusion(t) {
+  if (!t.weekScheduled) return { concludesInWeek: null, finalDay: null };
+  const rounds = typeof t.totalRounds === 'number' ? t.totalRounds : Math.round(Math.log2(t.drawSize ?? 128));
+  const qualifyingDays = typeof t.qualifyingRoundCount === 'number' ? t.qualifyingRoundCount : 0;
+  const mainSpan = TWO_WEEK_TIERS.includes(t.tier) ? 14 : rounds;
+  const startDay = typeof t.startDay === 'number' && t.startDay >= 1 ? t.startDay : 1;
+  const endDayOffset = startDay - 1 + qualifyingDays + mainSpan - 1; // 0-based day offset from weekScheduled day 1
+  const absolute = absoWeekOf(t.weekScheduled) + Math.floor(endDayOffset / 7);
+  const season = Math.floor((absolute - 1) / WEEKS_PER_SEASON);
+  const week = absolute - season * WEEKS_PER_SEASON;
+  return { concludesInWeek: { season, week }, finalDay: (endDayOffset % 7) + 1 };
+}
+
 export function compactTournamentBase(t) {
   const totalRounds = Math.round(Math.log2(t.drawSize));
+  const conclusion = tournamentConclusion(t);
   return {
     id: t.id,
     name: t.name,
@@ -111,6 +154,11 @@ export function compactTournamentBase(t) {
     managerEntrants: typeof t.managerEntrants === 'number' ? t.managerEntrants : null,
     championPoints: Array.isArray(t.pointsBreakdown) ? t.pointsBreakdown[0]?.points ?? null : null,
     championPrizeMoney: Array.isArray(t.prizeMoneyBreakdown) ? t.prizeMoneyBreakdown[0]?.prizeMoney ?? null : null,
+    /** Where the FINAL lands (see tournamentConcludes). For a one-week
+     * event this equals its own scheduled week; a qualifying `tour`
+     * finishes in week+1 day 1, a qualifying `major` in week+2 day 3. */
+    concludesInWeek: conclusion.concludesInWeek,
+    finalDay: conclusion.finalDay,
   };
 }
 
@@ -192,6 +240,24 @@ export function enterabilityBlockReason(t, currentAbs) {
   if (!mainRoom && !qualifyingRoom) return 'the draw is full';
   if (absoWeek(t.weekScheduled) < currentAbs) return 'the week has already passed';
   return null;
+}
+
+/** The digest's `lastApply` merge (season-4 fix): practice outcomes are
+ * written to their own per-day files (they are deferred to their listed
+ * game days by `runPracticeForDay`, so they never appear in the apply
+ * JSONL), and the old mapper dropped every `type: 'practice'` row — so
+ * ~10 weeks of practice actions were unverifiable. Pure: takes the apply
+ * JSONL rows and the already-read practice rows, keeps the newest
+ * `limit`, and normalises both to the same compact shape. */
+export function mergeLastApply(applyEntries, practiceRows, limit = 60) {
+  const compact = (entry) => ({
+    type: entry.type,
+    action: entry.action,
+    ok: entry.ok,
+    status: entry.status,
+    error: entry.error ?? null,
+  });
+  return [...(applyEntries ?? []), ...(practiceRows ?? [])].slice(-limit).map(compact);
 }
 
 /** How many currently-committed (unsignable) free agents the digest still
@@ -402,9 +468,83 @@ export function selectWeekEvents(events, maxPerWeek = MAX_EVENTS_PER_WEEK, maxPe
 // Digest roster mappers (titles + results, doubles included)
 // ---------------------------------------------------------------------------
 
-/** The digest's singles-titles mapping — field shape unchanged. */
-export function compactSinglesTitles(profile) {
-  return (profile?.titles ?? []).map((t) => ({
+/**
+ * The practice-session reward shape, mirrored from
+ * StandardPracticePolicy (domain) so the digest can state it — the
+ * measured problem: "Practice's reward is invisible in the digest — I
+ * left ~2,300 ladder points on the table in W1-11 because nothing told
+ * me a session banks 15 manager points." Values are pinned against the
+ * real policy by `apps/api/src/scripts/digestFeedPin.test.ts`, so they
+ * cannot silently drift.
+ *
+ * The ladder half is bounded per week (season-4 fix): the first
+ * `ladderSessionsPerWeek` sessions per player per game week bank
+ * `ladderPointsPerSession`; later sessions that week still grant
+ * experience and cost fatigue but bank no ladder.
+ */
+export const PRACTICE_REWARD = {
+  experiencePerSession: 2,
+  fatiguePerSession: 2,
+  ladderPointsPerSession: 15,
+  ladderSessionsPerWeek: 3,
+};
+
+export function practiceReward() {
+  const { experiencePerSession, fatiguePerSession, ladderPointsPerSession, ladderSessionsPerWeek } = PRACTICE_REWARD;
+  return {
+    experiencePerSession,
+    fatiguePerSession,
+    ladderPointsPerSession,
+    ladderSessionsPerWeek,
+    maxLadderPointsPerWeekPerPlayer: ladderPointsPerSession * ladderSessionsPerWeek,
+    note:
+      `Practice grants ${experiencePerSession} development XP and costs ${fatiguePerSession} fatigue per session, ` +
+      `once per player per game day. The first ${ladderSessionsPerWeek} sessions per player per week also bank ` +
+      `${ladderPointsPerSession} manager ladder points each (max ${ladderPointsPerSession * ladderSessionsPerWeek}/week); ` +
+      `later sessions still grant XP and cost fatigue but bank no ladder.`,
+  };
+}
+
+/** How many detailed title rows the digest keeps per player (newest
+ * first) — the season-4 bloat fix. One agent's titles array reached ~70
+ * entries (86 KB / 4,400-line digest by week 51); per-season COUNTERS
+ * plus the newest few rows carry the same decision-relevant information
+ * without repeating every tournament row. */
+export const MAX_TITLES_DETAIL = 5;
+
+function newestFirst(list) {
+  return [...(list ?? [])].sort((a, b) => {
+    const wa = a?.weekEarned ? absoWeek(a.weekEarned) : 0;
+    const wb = b?.weekEarned ? absoWeek(b.weekEarned) : 0;
+    return wb - wa;
+  });
+}
+
+/** Career title counts by season, for both disciplines — the compact
+ * replacement for the full per-title arrays. */
+export function compactTitlesBySeason(profile) {
+  const bySeason = new Map();
+  const add = (title, discipline) => {
+    const season = title?.weekEarned?.season;
+    if (typeof season !== 'number') return;
+    const row = bySeason.get(season) ?? { season, singles: 0, doubles: 0 };
+    row[discipline] += 1;
+    bySeason.set(season, row);
+  };
+  for (const t of profile?.titles ?? []) add(t, 'singles');
+  for (const t of profile?.doublesTitles ?? []) add(t, 'doubles');
+  return [...bySeason.values()].sort((a, b) => a.season - b.season);
+}
+
+/** The digest's singles-titles mapping — the NEWEST `limit` titles of
+ * `currentSeason` only (all titles when `currentSeason` is omitted, as
+ * the pre-season-4 callers/tests do). Career totals live in
+ * `titleCounts` + `titlesBySeason`. */
+export function compactSinglesTitles(profile, { currentSeason, limit = MAX_TITLES_DETAIL } = {}) {
+  const rows = typeof currentSeason === 'number'
+    ? (profile?.titles ?? []).filter((t) => t?.weekEarned?.season === currentSeason)
+    : profile?.titles ?? [];
+  return newestFirst(rows).slice(0, limit).map((t) => ({
     tournamentId: t.tournamentId,
     name: t.name,
     tier: t.tier,
@@ -418,10 +558,14 @@ export function compactSinglesTitles(profile) {
  * only `profile.titles`), so 28 doubles titles across a measured season
  * were only ever inferred from prize-money jumps — even though a senior
  * doubles title pays real ranking points. The DTO already carries the
- * interesting half (the partner), so this is a straight map.
+ * interesting half (the partner), so this is a straight map, capped and
+ * season-scoped like the singles half above.
  */
-export function compactDoublesTitles(profile) {
-  return (profile?.doublesTitles ?? []).map((t) => ({
+export function compactDoublesTitles(profile, { currentSeason, limit = MAX_TITLES_DETAIL } = {}) {
+  const rows = typeof currentSeason === 'number'
+    ? (profile?.doublesTitles ?? []).filter((t) => t?.weekEarned?.season === currentSeason)
+    : profile?.doublesTitles ?? [];
+  return newestFirst(rows).slice(0, limit).map((t) => ({
     tournamentId: t.tournamentId,
     tier: t.tier,
     partnerId: t.partnerId,
@@ -429,6 +573,44 @@ export function compactDoublesTitles(profile) {
     partnerNationality: t.partnerNationality,
     weekEarned: t.weekEarned,
   }));
+}
+
+/**
+ * The digest's HEADLINE ranking for a player — the season-4 fix for
+ * "one agent's `rank` was always their (empty) U14 rank while their real
+ * senior rank only leaked through blocked-reason strings". Picks, in
+ * order:
+ *   1. the player's own eligibility band (`preferredBand`) when it has a
+ *      real rank or any points — the normal case;
+ *   2. otherwise the MEANINGFUL ranking among `rankings` — best (lowest)
+ *      non-null rank, then most points, senior before junior on a tie;
+ *   3. otherwise the preferred band's empty row (an honest "unranked on
+ *      your own ladder").
+ * `allRankings` stays on the digest beside this, so both ladders remain
+ * visible; this only decides which one the single `rank` headline shows.
+ */
+export function headlineRanking(rankings, preferredBand) {
+  const rows = Array.isArray(rankings) ? rankings : [];
+  const pointsOf = (r) => {
+    const value = r?.totalPoints ?? r?.points ?? 0;
+    return typeof value === 'number' ? value : 0;
+  };
+  const isRanked = (r) => r != null && (typeof r.rank === 'number' || pointsOf(r) > 0);
+  const preferred = rows.find((r) => r.band === preferredBand);
+  if (preferred && isRanked(preferred)) return preferred;
+  const meaningful = rows.filter(isRanked);
+  if (meaningful.length === 0) {
+    return preferred ?? rows[0] ?? { band: preferredBand, rank: null, totalPoints: 0 };
+  }
+  return [...meaningful].sort((a, b) => {
+    const rankA = typeof a.rank === 'number' ? a.rank : Number.POSITIVE_INFINITY;
+    const rankB = typeof b.rank === 'number' ? b.rank : Number.POSITIVE_INFINITY;
+    if (rankA !== rankB) return rankA - rankB;
+    const pointsDiff = pointsOf(b) - pointsOf(a);
+    if (pointsDiff !== 0) return pointsDiff;
+    const seniorFirst = (r) => (r.band === 'senior' ? 0 : 1);
+    return seniorFirst(a) - seniorFirst(b);
+  })[0];
 }
 
 function compactResult(m, discipline) {

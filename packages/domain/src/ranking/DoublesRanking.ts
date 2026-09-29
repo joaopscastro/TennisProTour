@@ -49,11 +49,14 @@ export const DOUBLES_POINTS_FACTOR = 0.5;
 
 /**
  * Real, sourced senior doubles points from the 2026 PIF ATP Doubles
- * Rankings table (Chapter IX) — replaces the flat 0.5×singles
- * placeholder that used to apply here too. Same tier mapping
- * `StandardRankingPointsTable` uses (major↔Grand Slam, tour↔ATP Tour
- * Masters 1000, challenger↔ATP Tour 500, futures↔ATP Tour 250), and
- * once again the draw sizes line up exactly with a real published
+ * Rankings table (Chapter IX) — the SOURCE OF TRUTH, kept unscaled. The
+ * game's AWARD-TIME function applies `DOUBLES_POINTS_PARITY_FACTOR` on
+ * top (see `doublesPointsFor`); this raw table is still what historical
+ * reconstruction (the discipline backfill) must read, because it
+ * reproduces what the ledger actually recorded at the time. Same tier
+ * mapping `StandardRankingPointsTable` uses (major↔Grand Slam, tour↔ATP
+ * Tour Masters 1000, challenger↔ATP Tour 500, futures↔ATP Tour 250),
+ * and once again the draw sizes line up exactly with a real published
  * variant with no interpolation needed: this project's
  * `doublesDrawSizeFor` derives a doubles draw as roughly half the
  * singles draw (major→64, tour→32, challenger/futures→16 pairs), which
@@ -75,18 +78,53 @@ const SENIOR_DOUBLES_POINTS_BY_ROUND: Readonly<Partial<Record<TournamentTier, Re
   futures:      [0,  45, 90,  150, 250],
 };
 
-/** Doubles ranking points for a tier/round, source-of-truth first (the
- * four senior tiers above), falling back to the singles-derived
- * placeholder for every tier without a real published doubles table
- * (the junior grades). `singlesPoints` is the tier/round's already-
- * computed singles award — only consumed by the fallback path, so a
- * caller with a senior tier never needs to have computed it just to
- * throw it away, but every existing call site already has it in scope
- * either way. */
-export function doublesPointsFor(tier: TournamentTier, roundsWon: number, singlesPoints: number): number {
+/**
+ * The game's DELIBERATE deviation from raw ATP doubles parity (season-4
+ * balance fix; PLACEHOLDER-but-measured): a senior doubles award is
+ * worth half the sourced table.
+ *
+ * Why deviate from a sourced number, stated plainly: real ATP doubles
+ * pays the same champion value as singles from a smaller draw, because
+ * in real tennis a player cannot simply play BOTH every week — the
+ * calendar, the entry rules and the physical cost force a choice. This
+ * game's structure does not: every event carries a doubles draw, a
+ * persistent pair of the manager's own players is entered at the same
+ * tournament with no extra weekly-cap cost, and BOTH partners' results
+ * credit the same manager ladder. Measured over the 52-week season-4
+ * agent world, that made doubles earn 1.3-3.1× the singles points per
+ * entry (the champion: 2,506 vs 800) and two pairs took the large
+ * majority of titles — "play doubles every week" was close to strictly
+ * better, not a choice. Halving the senior table brings the aggregate
+ * to parity (measured: 918 vs 938 points/entry across the three
+ * doubles-playing managers) while keeping the sourced round-by-round
+ * SHAPE intact. The junior fallback (0.5 × the singles award) already
+ * sat at this level and is deliberately NOT scaled again. Both numbers
+ * and rationale live in docs/balance-tuning-report.md.
+ */
+export const DOUBLES_POINTS_PARITY_FACTOR = 0.5;
+
+/** The raw, UNScaled doubles award for a tier/round — the sourced senior
+ * table where one exists, the junior singles-derived placeholder
+ * (`DOUBLES_POINTS_FACTOR`) otherwise. Used by award-time code through
+ * `doublesPointsFor`, and directly by the ranking-discipline backfill,
+ * which must reproduce the values history actually wrote. */
+export function sourcedDoublesPointsFor(tier: TournamentTier, roundsWon: number, singlesPoints: number): number {
   const table = SENIOR_DOUBLES_POINTS_BY_ROUND[tier];
   if (table) return table[Math.min(Math.max(roundsWon, 0), table.length - 1)];
   return Math.round(singlesPoints * DOUBLES_POINTS_FACTOR);
+}
+
+/** Doubles ranking points for a tier/round, AS AWARDED by this game: the
+ * sourced senior table scaled by `DOUBLES_POINTS_PARITY_FACTOR`, or the
+ * junior placeholder fallback (already at the same 0.5 level, unscaled
+ * again). `singlesPoints` is the tier/round's already-computed singles
+ * award — only consumed by the fallback path, so a caller with a senior
+ * tier never needs to have computed it just to throw it away, but every
+ * existing call site already has it in scope either way. */
+export function doublesPointsFor(tier: TournamentTier, roundsWon: number, singlesPoints: number): number {
+  const table = SENIOR_DOUBLES_POINTS_BY_ROUND[tier];
+  if (table) return Math.round(sourcedDoublesPointsFor(tier, roundsWon, singlesPoints) * DOUBLES_POINTS_PARITY_FACTOR);
+  return sourcedDoublesPointsFor(tier, roundsWon, singlesPoints);
 }
 
 /** The flat-factor scaling alone, for a fixed/capstone-style payout

@@ -43,6 +43,10 @@ const {
   Player,
   StandardTrainingPolicy,
   StandardPlayerDevelopmentPolicy,
+  StandardPracticePolicy,
+  StandardRankingPointsTable,
+  doublesPointsFor,
+  sourcedDoublesPointsFor,
   weakestTrainableAttribute,
   formModifier,
   FORM_SWEET_SPOT_MIN,
@@ -564,8 +568,8 @@ const doublesPairPolicy = new StandardDoublesPairPolicy();
 const doublesRandom = makeSeededRandom(4242);
 const doublesSimulator = new StatisticalMatchSimulator({ next: doublesRandom }, DIVISOR);
 
-function buildDoublesField(mode) {
-  const fillerCount = DOUBLES_FIELD_DRAW_SIZE * 2 - 2;
+function buildDoublesField(mode, drawSize = DOUBLES_FIELD_DRAW_SIZE) {
+  const fillerCount = drawSize * 2 - 2;
   let selectedIds;
   const pairingInput = {
     tournamentId: TournamentId(`doubles-field-${mode}`),
@@ -580,7 +584,7 @@ function buildDoublesField(mode) {
       },
     ],
     freeAgentFillers: [],
-    drawSize: DOUBLES_FIELD_DRAW_SIZE,
+    drawSize,
     random: { next: doublesRandom },
   };
   if (mode === 'before') {
@@ -683,6 +687,196 @@ const doublesFieldSummary = {
   },
 };
 
+// --- Bucket 10: practice ladder contribution (the weekly bound) ----------
+// The measured season-4 problem: practice paid +15 ladder per session,
+// once per player per game day, with NO weekly cap — up to 105/week/player
+// for a day-and-a-half of clicks, fatigue-negative overall at the current
+// recovery, and invisible in the digest. Three consecutive agent seasons
+// called it "exploit-shaped, not a choice"; one agent lost ~2,300 ladder
+// points to not knowing about it. The fix bounds the LADDER credit to the
+// first `ladderSessionsPerWeek` sessions a player practises in a week
+// (development XP and fatigue are unchanged). This row replays both rules
+// through the REAL policy for 1..7 sessions/week (7 = the day-clock
+// maximum).
+const practicePolicy = new StandardPracticePolicy();
+const PRACTICE_SESSION_COUNTS = [1, 2, 3, 4, 5, 6, 7];
+const practiceLadderRows = PRACTICE_SESSION_COUNTS.map((sessionsThisWeek) => {
+  let ladderBefore = 0;
+  let ladderAfter = 0;
+  for (let session = 0; session < sessionsThisWeek; session++) {
+    // The pre-fix constant: StandardPracticePolicy.ladderPoints() (15),
+    // flat and uncapped.
+    ladderBefore += 15;
+    ladderAfter += practicePolicy.ladderPointsForSession(session);
+  }
+  return {
+    sessionsThisWeek,
+    ladderBefore,
+    ladderAfter,
+    ladderGivenUp: ladderBefore - ladderAfter,
+  };
+});
+
+// --- Bucket 11: singles vs doubles entry value at the same tier -----------
+// The measured season-4 problem: doubles earned 1.3-3.1x the singles
+// points per entry (champion: 2,506 vs 800) because a manager plays BOTH
+// draws of the same event with no extra weekly-cap cost, both partners'
+// awards credit the same ladder, and the cap-aware padded field is
+// weaker than a singles field of individual players. The chosen fix
+// scales the SOURCED senior doubles table by DOUBLES_POINTS_PARITY_FACTOR
+// (0.5) — see docs/balance-tuning-report.md. This bucket measures the
+// expected manager ladder points per entry under the REAL award path:
+//   - singles: a real draw (32/64/128) of individually-sampled free
+//     agents (the measured season-4 OVR percentiles) vs the manager's
+//     84-OVR player, points awarded per match reached
+//     (StandardRankingPointsTable.pointsFor);
+//   - doubles: the production cap-aware padded field at the matching
+//     doubles draw size (16/32/64 pairs), awarding BOTH partners'
+//     doublesPointsFor per match (before = the raw sourced table,
+//     after = the parity-scaled one).
+// Deterministic seeded source so the rows are reproducible run to run.
+const SINGLES_POOL_OVR_STOPS = [37.8, 41.5, 44.1, 48.4, 67.7, 90.6]; // measured on tennis_manager_agents4 free agents
+const ENTRY_VALUE_POOL_SIZE = 300;
+const ENTRY_VALUE_TRIALS = 120;
+const ENTRY_VALUE_TIERS = [
+  { tier: 'futures', singlesDraw: 32, doublesDraw: 16 },
+  { tier: 'challenger', singlesDraw: 32, doublesDraw: 16 },
+  { tier: 'tour', singlesDraw: 64, doublesDraw: 32 },
+  { tier: 'major', singlesDraw: 128, doublesDraw: 64 },
+];
+const pointsTable = new StandardRankingPointsTable();
+const entryValueRandom = makeSeededRandom(20260929);
+
+function sampleFromStops(stops, u) {
+  const slots = stops.length - 1;
+  const x = Math.min(u, 0.999999) * slots;
+  const i = Math.floor(x);
+  const t = x - i;
+  return stops[i] + (stops[i + 1] - stops[i]) * t;
+}
+
+const singlesPool = [];
+for (let i = 0; i < ENTRY_VALUE_POOL_SIZE; i++) {
+  singlesPool.push(doublesPlayer(`entry-singles-fa-${i}`, Math.max(0, sampleFromStops(SINGLES_POOL_OVR_STOPS, entryValueRandom())), 50, 60));
+}
+const entrySinglesManager = doublesPlayer('entry-singles-mgr', 84, 50, 60);
+const singlesAttributesById = new Map([[entrySinglesManager.playerId, entrySinglesManager.attributes], ...singlesPool.map((p) => [p.playerId, p.attributes])]);
+
+function shuffle(list) {
+  const items = [...list];
+  for (let i = items.length - 1; i > 0; i--) {
+    const j = Math.floor(entryValueRandom() * (i + 1));
+    [items[i], items[j]] = [items[j], items[i]];
+  }
+  return items;
+}
+
+/** One real singles entry: a fresh unseeded 32/64/128 draw, every match
+ * through the real simulator. Returns the manager's expected ladder
+ * points (sum of StandardRankingPointsTable per match reached) and
+ * matches played. */
+function playSinglesEntry(tier, drawSize) {
+  const field = shuffle([
+    { playerId: entrySinglesManager.playerId, fatigue: 0, form: 0, attributes: entrySinglesManager.attributes },
+    ...shuffle(singlesPool)
+      .slice(0, drawSize - 1)
+      .map((p) => ({ playerId: p.playerId, fatigue: 0, form: 0, attributes: p.attributes })),
+  ]);
+  let roundsWon = 0;
+  let points = 0;
+  let matches = 0;
+  let survivors = field;
+  while (survivors.length > 1) {
+    const next = [];
+    for (let i = 0; i < survivors.length; i += 2) {
+      const a = survivors[i];
+      const b = survivors[i + 1];
+      const { outcome } = simulator.simulate(a, b, 'hard');
+      const winner = outcome.winner === a.playerId ? a : b;
+      const loser = outcome.winner === a.playerId ? b : a;
+      next.push(winner);
+      if (winner.playerId === entrySinglesManager.playerId) {
+        matches++;
+        roundsWon++;
+        points += pointsTable.pointsFor(tier, roundsWon);
+      }
+      if (loser.playerId === entrySinglesManager.playerId) matches++;
+    }
+    survivors = next;
+  }
+  return { points, matches };
+}
+
+/** One real doubles entry via the production padding path, awarding BOTH
+ * partners' points per match reached — raw (before) and parity-scaled
+ * (after) from the SAME match outcomes. */
+function playDoublesEntry(tier, drawSize) {
+  const pairs = buildDoublesField('after', drawSize);
+  const managerPair = pairs.find((p) => p.persistentPairId !== undefined);
+  let roundsWon = 0;
+  let raw = 0;
+  let awarded = 0;
+  let matches = 0;
+  let survivors = shuffle(pairs);
+  while (survivors.length > 1) {
+    const next = [];
+    for (let i = 0; i < survivors.length; i += 2) {
+      const a = survivors[i];
+      const b = survivors[i + 1];
+      const { outcome } = doublesSimulator.simulate(doublesParticipantFor(a), doublesParticipantFor(b), 'hard');
+      const winner = outcome.winner === a.pairId ? a : b;
+      const loser = outcome.winner === a.pairId ? b : a;
+      next.push(winner);
+      if (winner.pairId === managerPair.pairId) {
+        matches++;
+        roundsWon++;
+        // Both partners are the manager's players, so BOTH awards credit
+        // the same ladder (the measured double-credit structure).
+        raw += sourcedDoublesPointsFor(tier, roundsWon, 0) * 2;
+        awarded += doublesPointsFor(tier, roundsWon, 0) * 2;
+      }
+      if (loser.pairId === managerPair.pairId) matches++;
+    }
+    survivors = next;
+  }
+  return { raw, awarded, matches };
+}
+
+const entryValueRows = ENTRY_VALUE_TIERS.map(({ tier, singlesDraw, doublesDraw }) => {
+  let singlesPoints = 0;
+  let singlesMatches = 0;
+  let doublesRaw = 0;
+  let doublesAwarded = 0;
+  let doublesMatches = 0;
+  for (let trial = 0; trial < ENTRY_VALUE_TRIALS; trial++) {
+    const singlesEntry = playSinglesEntry(tier, singlesDraw);
+    singlesPoints += singlesEntry.points;
+    singlesMatches += singlesEntry.matches;
+    const doublesEntry = playDoublesEntry(tier, doublesDraw);
+    doublesRaw += doublesEntry.raw;
+    doublesAwarded += doublesEntry.awarded;
+    doublesMatches += doublesEntry.matches;
+  }
+  const singlesPerEntry = singlesPoints / ENTRY_VALUE_TRIALS;
+  const doublesPerEntryBefore = doublesRaw / ENTRY_VALUE_TRIALS;
+  const doublesPerEntryAfter = doublesAwarded / ENTRY_VALUE_TRIALS;
+  return {
+    tier,
+    singlesDraw,
+    doublesDraw,
+    singlesPerMatch: singlesMatches > 0 ? singlesPoints / singlesMatches : 0,
+    singlesPerEntry,
+    doublesPerMatchBefore: doublesMatches > 0 ? doublesRaw / doublesMatches : 0,
+    doublesPerMatchAfter: doublesMatches > 0 ? doublesAwarded / doublesMatches : 0,
+    doublesPerEntryBefore,
+    doublesPerEntryAfter,
+    doublesShareBefore: singlesPerEntry + doublesPerEntryBefore > 0 ? doublesPerEntryBefore / (singlesPerEntry + doublesPerEntryBefore) : 0,
+    doublesShareAfter: singlesPerEntry + doublesPerEntryAfter > 0 ? doublesPerEntryAfter / (singlesPerEntry + doublesPerEntryAfter) : 0,
+    ratioBefore: singlesPerEntry > 0 ? doublesPerEntryBefore / singlesPerEntry : 0,
+    ratioAfter: singlesPerEntry > 0 ? doublesPerEntryAfter / singlesPerEntry : 0,
+  };
+});
+
 function isMonotonicNonDecreasing(rows, key) {
   for (let i = 1; i < rows.length; i++) {
     if (rows[i].winRateA < rows[i - 1].winRateA - 0.02) return false; // small tolerance for sampling noise
@@ -763,6 +957,20 @@ const report = {
     before: doublesFieldSummary.before,
     after: doublesFieldSummary.after,
   },
+  practiceLadder: {
+    description:
+      'Ladder points a player banks for practising 1..7 times in one game week, BEFORE (flat 15/session, uncapped — up to 105/week) vs AFTER the weekly bound (StandardPracticePolicy: the first ladderSessionsPerWeek=3 sessions pay 15, later sessions that week bank 0). Development XP and fatigue are unchanged in both — practice keeps its training role; only the ladder pump is bounded.',
+    rows: practiceLadderRows,
+    maxLadderPerWeekBefore: practiceLadderRows[practiceLadderRows.length - 1].ladderBefore,
+    maxLadderPerWeekAfter: practiceLadderRows[practiceLadderRows.length - 1].ladderAfter,
+  },
+  entryValue: {
+    description:
+      'Expected manager ladder points per tournament entry at each senior tier under the REAL award path, singles vs doubles. Singles: a real unseeded 32/64/128 draw of individually sampled free agents (measured season-4 OVR percentiles 37.8/41.5/44.1/48.4/67.7/90.6) vs an 84-OVR manager player, awarding StandardRankingPointsTable.pointsFor per match reached. Doubles: the production cap-aware padded field (16/32/64 pairs) via buildDoublesField("after"), awarding BOTH partners\' doubles points per match reached — BEFORE = the raw sourced ATP doubles table, AFTER = the table scaled by DOUBLES_POINTS_PARITY_FACTOR (0.5). ratio* = doubles per entry / singles per entry; doublesShare* = the share of a "singles + same-event doubles" week that comes from the doubles half.',
+    managerSinglesOverall: 84,
+    trials: ENTRY_VALUE_TRIALS,
+    rows: entryValueRows,
+  },
 };
 
 writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2));
@@ -819,5 +1027,21 @@ for (const mode of ['before', 'after']) {
   const s = doublesFieldSummary[mode];
   console.log(
     `  ${mode.padEnd(6)}  ${s.averagePaddedPairStrength.toFixed(1).padStart(15)}  ${s.bestPaddedPairStrength.toFixed(1).padStart(16)}  ${(s.managerWinRateVsBestPaddedPair * 100).toFixed(1).padStart(19)}%  ${(s.managerTitleRate * 100).toFixed(1).padStart(17)}%`,
+  );
+}
+
+console.log(`\nPractice ladder contribution per player per week (bounded to ${practicePolicy.ladderSessionsPerWeek()} paid sessions):`);
+console.log('  sessions  before  after  given up');
+for (const row of practiceLadderRows) {
+  console.log(
+    `  ${String(row.sessionsThisWeek).padStart(8)}  ${String(row.ladderBefore).padStart(6)}  ${String(row.ladderAfter).padStart(5)}  ${String(row.ladderGivenUp).padStart(8)}`,
+  );
+}
+
+console.log(`\nSingles vs doubles entry value (expected manager ladder points per entry; ${ENTRY_VALUE_TRIALS} seeded draws each):`);
+console.log('  tier        draw(S/D)   singles/entry  doubles/entry before  after  ratio before  after');
+for (const row of entryValueRows) {
+  console.log(
+    `  ${row.tier.padEnd(10)}  ${String(`${row.singlesDraw}/${row.doublesDraw}`).padStart(9)}  ${row.singlesPerEntry.toFixed(0).padStart(13)}  ${row.doublesPerEntryBefore.toFixed(0).padStart(20)}  ${row.doublesPerEntryAfter.toFixed(0).padStart(5)}  ${row.ratioBefore.toFixed(2).padStart(12)}  ${row.ratioAfter.toFixed(2).padStart(5)}`,
   );
 }

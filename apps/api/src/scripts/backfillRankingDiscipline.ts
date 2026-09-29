@@ -59,8 +59,8 @@ import {
   bestResultsCapFor,
   BracketRound,
   doublesBestResultsCapFor,
-  doublesPointsFor,
   doublesQualifyingPointsFor,
+  sourcedDoublesPointsFor,
   GameWeek,
   PairId,
   PlayerId,
@@ -292,7 +292,13 @@ function doublesMatchAwardValues(
   const value = (roundsWon: number) =>
     draw === 'qualifying'
       ? doublesQualifyingPointsFor(roundsWon)
-      : doublesPointsFor(tier, roundsWon, pointsTable.pointsFor(tier, roundsWon));
+      : // Deliberately the UNScaled sourced lookup: this function
+        // reproduces what the ledger ACTUALLY recorded historically,
+        // which predates the doubles points parity factor (the
+        // award-time `doublesPointsFor` scales the sourced table — see
+        // DoublesRanking.ts). Using the award-time value here would make
+        // every pre-factor doubles row unclassifiable.
+        sourcedDoublesPointsFor(tier, roundsWon, pointsTable.pointsFor(tier, roundsWon));
   return { winnerValue: value(winnerWins), loserValue: value(loserWins) };
 }
 

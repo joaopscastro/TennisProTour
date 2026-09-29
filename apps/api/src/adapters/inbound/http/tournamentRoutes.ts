@@ -164,6 +164,11 @@ export function toTournamentDto(
      * StandardPrizeMoneyTable's doc comment). */
     prizeMoneyBreakdown: prizeMoneyBreakdownFor(tournament.tier, tournament.drawSize),
     weekScheduled: tournament.weekScheduled,
+    /** The day-within-week the tournament's first round day falls on
+     * (1..7; every generated event uses 1). Exposed so a client can
+     * compute where the FINAL lands when the span spills into the next
+     * week (see digestFeed's concludesInWeek). */
+    startDay: tournament.startDay,
     drawSize: tournament.drawSize,
     /** How many entrants are in the MAIN draw RIGHT NOW. `entrants` above
      * covers BOTH draws (a qualifying-tier event's below-cutoff field sits
@@ -282,11 +287,24 @@ function toRoundDtos<S extends string>(rounds: ReadonlyArray<BracketRound<S>>) {
 
 /** For every tournament in the list: how many OTHER same-band
  * tournaments the given player has already entered in that tournament's
- * specific week, and whether the player's CURRENT age is eligible for
- * that tournament's band at all (isAgeEligibleForTournamentBand — a
- * player who's aged out of a junior band gets ageEligible: false; the
- * senior tour always returns true, matching RegisterEntrantUseCase's own
- * one-directional age rule). Both bands carry the weekly-cap fields: the
+ * specific week, and whether the player's SEASON-ANCHORED eligibility
+ * age qualifies for that tournament's band at all
+ * (isAgeEligibleForTournamentBand — a player who's aged out of a junior
+ * band gets ageEligible: false; the senior tour always returns true,
+ * matching RegisterEntrantUseCase's own one-directional age rule).
+ *
+ * **The caller MUST pass `Player.seasonAgeAnchorWeeks`, never
+ * `Player.ageInWeeks`** — the exact rule RegisterEntrantUseCase enforces
+ * at POST time (the real ITF "age as of January 1" anchor; see that
+ * field's doc comment). Passing the raw age here was a REAL, verified
+ * bug: a player at raw 729 weeks with anchor 728 showed rankBand 'u14'
+ * on the roster/profile (both anchor-based) and was accepted by the
+ * registration gate (anchor-based), yet the preview marked every U14
+ * event `ageEligible: false` — so the digest's `canEnterNow` silently
+ * dropped every U14 row and the player could not be entered from the UI
+ * even though the server would have accepted her. Preview and
+ * enforcement must read the same age concept. Both bands carry the
+ * weekly-cap fields: the
  * senior tour is capped at 1 tournament/week (SENIOR_WEEKLY_ENTRY_CAP),
  * so an EnterTournamentModal can disable a second senior entry the same
  * week up front, exactly as it already did for the junior 3/week cap.
@@ -304,7 +322,7 @@ async function attachEntryInfo(
   tournaments: TournamentRepository,
   list: Tournament[],
   playerId: PlayerId,
-  playerAgeInWeeks: number,
+  playerEligibilityAgeWeeks: number,
   playerRank: number | null,
 ): Promise<Map<string, PlayerScopedInfo>> {
   const idsByBandWeekKey = new Map<string, Set<string>>();
@@ -380,7 +398,7 @@ async function attachEntryInfo(
     result.set(tournament.id, {
       weeklyEntryCountThisWeek: count,
       weeklyEntryCapThisWeek: weeklyEntryCapForTier(tournament.tier),
-      ageEligible: isAgeEligibleForTournamentBand(playerAgeInWeeks, tournament.ageBand),
+      ageEligible: isAgeEligibleForTournamentBand(playerEligibilityAgeWeeks, tournament.ageBand),
       entryViaQualifying,
       qualifyingFieldFull,
       qualifyingFieldTaken,
@@ -578,7 +596,10 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
   // caller like EnterTournamentModal can disable an over-cap or
   // age-ineligible entry attempt up front instead of only discovering
   // it from a failed POST — both are real (RegisterEntrantUseCase's
-  // own sources), never a client-side guess.
+  // own sources), never a client-side guess. ageEligible reads the
+  // player's SEASON-ANCHORED eligibility age, the same value the
+  // registration gate uses (see attachEntryInfo's doc comment for the
+  // preview-vs-enforcement bug the raw age caused).
   app.get<{ Querystring: { status?: string; playerId?: string } }>('/tournaments', async (request, reply) => {
     const playerId = request.query.playerId ? PlayerId(request.query.playerId) : null;
     if (request.query.status === 'open') {
@@ -596,7 +617,7 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       const open = world ? list.filter((t) => compareGameWeek(t.weekScheduled, world.currentWeek) >= 0) : list;
       const player = playerId ? await deps.players.findById(playerId) : null;
       const rank = player ? (await deps.rankPosition.rankFor(playerId!)).rank : null;
-      const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, open, playerId, player.ageInWeeks, rank) : null;
+      const entryInfo = playerId && player ? await attachEntryInfo(deps.tournaments, open, playerId, player.seasonAgeAnchorWeeks, rank) : null;
       const managerCounts = await managerEntrantCounts(deps.tournaments, open);
       // Explicit and additive, not derived from `hasStarted` on the
       // client: this list is ALREADY filtered to genuinely-open
@@ -676,10 +697,18 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       // this registration might just have completed closes (see
       // RegisterEntrantUseCase). There is no wild-card input on this
       // route at all.
+      //
+      // The world clock is read here (one PK lookup, same as the claim
+      // route) so the entry is stamped with the game week it was MADE in
+      // — the weekly inactivity deduction keys on that, not on the
+      // registered event's scheduled week (see
+      // ManagerEntryActivityRepository).
+      const world = await deps.worlds.findById(WORLD_ID);
       await deps.registerEntrant.execute({
         tournamentId,
         playerId: PlayerId(request.body.playerId),
         seed: request.body.seed ?? null,
+        entryWeek: world?.currentWeek ?? null,
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);
@@ -713,10 +742,12 @@ export function registerTournamentRoutes(app: FastifyInstance, deps: Dependencie
       const tournamentId = TournamentId(request.params.id);
       const player = await deps.players.findById(PlayerId(request.body.playerId));
       if (!player || player.managerId !== manager.id) return reply.code(404).send({ error: 'Player not found in your roster' });
+      const world = await deps.worlds.findById(WORLD_ID);
       await deps.registerDoublesEntrant.execute({
         tournamentId,
         playerId: PlayerId(request.body.playerId),
         managerId: manager.id,
+        entryWeek: world?.currentWeek ?? null,
       });
 
       const tournament = await deps.tournaments.findById(tournamentId);

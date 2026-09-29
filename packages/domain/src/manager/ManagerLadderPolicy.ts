@@ -30,18 +30,27 @@ export interface ManagerLadderPolicy {
   weeklyDecayFactor(): number;
 
   /** A FLAT point deduction applied — AFTER the routine weekly decay,
-   * not instead of it — only to a manager who registered NONE of their
-   * rostered players into ANY tournament (singles or doubles) during
-   * the week just ended. Inspired by the real ATP rulebook's
-   * withdrawal-penalty concept (Chapter IX, 9.03.C — a
-   * scheduled-but-skipped ATP 500 costs ranking points), reinterpreted
-   * for this game's actual failure mode: not a withdrawal (there is no
-   * such action here), but an absentee manager simply forgetting to
-   * enter anyone for a whole week. Scoped to the MANAGER LADDER
-   * specifically (not the player's own ranking, which already has no
-   * equivalent "forced zero" outside the obligatory-major rule) because
-   * the ladder is this game's own "come back and stay active" retention
-   * mechanic — the natural home for a real activity penalty.
+   * not instead of it — only to a manager who MADE no tournament entry
+   * for ANY of their rostered players (singles or doubles) during the
+   * week just ended. Keyed on entries MADE (registration time, stamped
+   * in the manager entry-activity ledger), never on which week the
+   * entered events were SCHEDULED to play: generation opens a week's
+   * slate a week ahead, so "registered for week W+1 during week W" is
+   * the normal, expected flow and must count as activity. (The original
+   * scheduled-week key wrongly penalized exactly that, and guaranteed a
+   * mid-week-claimed roster one −500; see
+   * AdvanceWorldWeekUseCase/ManagerEntryActivityRepository.) Inspired
+   * by the real ATP rulebook's withdrawal-penalty concept (Chapter IX,
+   * 9.03.C — a scheduled-but-skipped ATP 500 costs ranking points),
+   * reinterpreted for this game's actual failure mode: not a withdrawal
+   * (there is no such action here), but an absentee manager simply
+   * forgetting to enter anyone for a whole week. Scoped to the MANAGER
+   * LADDER specifically (not the player's own ranking, which already has
+   * no equivalent "forced zero" outside the obligatory-major rule)
+   * because the ladder is this game's own "come back and stay active"
+   * retention mechanic — the natural home for a real activity penalty.
+   * A manager whose whole active roster joined within the last two
+   * weeks is exempt (the onboarding window — see AdvanceWorldWeekUseCase).
    *
    * FLAT POINTS, deliberately not a multiplier: the original ×0.95
    * design cost a rest week in proportion to standing — at a 25k score

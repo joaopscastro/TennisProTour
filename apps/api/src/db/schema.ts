@@ -364,6 +364,39 @@ export const managerLadder = pgTable(
 );
 
 /**
+ * The manager ENTRY-ACTIVITY ledger (see
+ * ports.ts's ManagerEntryActivityRepository for the full rationale): one
+ * row per (manager, season, week) the manager made at least one
+ * tournament entry in. This is the honest key for the weekly inactivity
+ * deduction — the old check counted events SCHEDULED in the ending week,
+ * which mis-fired for anyone who registered for a FUTURE week (the
+ * normal flow) and treated a mid-week roster claim as inactive.
+ *
+ * `player_id`/`tournament_id` are the FIRST entry of that week (audit
+ * context only — the rule only needs "did this manager enter anything").
+ * The tournament FK cascades so the abandoned-draw cleanup can never
+ * leave a dangling reference; note a manager-entered draw is never
+ * abandoned-deleted (that delete refuses when a manager-owned entry
+ * exists), so a real activity row always keeps its tournament.
+ */
+export const managerEntryActivity = pgTable(
+  'manager_entry_activity',
+  {
+    managerId: text('manager_id').notNull(),
+    season: integer('season').notNull(),
+    week: integer('week').notNull(),
+    playerId: text('player_id')
+      .notNull()
+      .references(() => players.id),
+    tournamentId: text('tournament_id')
+      .notNull()
+      .references(() => tournaments.id, { onDelete: 'cascade' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.managerId, table.season, table.week] })],
+);
+
+/**
  * A manager's converted coach (Manager & Progression bounded context —
  * see Coach/ConvertPlayerToCoachUseCase). No FK to players: a coach's
  * sourcePlayerId/sourcePlayerName are lineage/flavor snapshotted at

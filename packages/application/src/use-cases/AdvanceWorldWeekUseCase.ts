@@ -24,10 +24,10 @@ import {
   CoachRepository,
   EventPublisherPort,
   GameWorldRepository,
+  ManagerEntryActivityRepository,
   ManagerLadderRepository,
   PlayerRepository,
   RankingLedgerRepository,
-  TournamentRepository,
   TrainingScheduleRepository,
 } from '../ports/ports';
 import { TickProfiler } from '../profiling/tickProfile';
@@ -190,7 +190,7 @@ export class AdvanceWorldWeekUseCase {
     private readonly managerLadder: ManagerLadderRepository,
     private readonly managerLadderPolicy: ManagerLadderPolicy,
     private readonly developmentPolicy: PlayerDevelopmentPolicy,
-    private readonly tournaments: TournamentRepository,
+    private readonly entryActivity: ManagerEntryActivityRepository,
   ) {}
 
   async execute(command: AdvanceWorldWeekCommand): Promise<AdvanceWorldWeekResult> {
@@ -201,7 +201,8 @@ export class AdvanceWorldWeekUseCase {
 
     // Captured BEFORE advanceDay() mutates it — this is the week that's
     // ENDING with this rollover, i.e. the week a manager had to actually
-    // register someone in, for the inactivity-penalty check below.
+    // MAKE an entry in, for the entry-activity-based inactivity-penalty
+    // check below (and the week the onboarding exemption measures from).
     const endingWeek = world.currentWeek;
 
     // One tick = one game DAY now (see docs/day-tick-and-scheduling.md).
@@ -348,13 +349,24 @@ export class AdvanceWorldWeekUseCase {
 
     // The EXTRA inactivity penalty (see
     // ManagerLadderPolicy.inactivityPenaltyPoints' doc comment): a
-    // manager whose WHOLE roster registered zero entries (singles or
-    // doubles) anywhere during the week that just ended takes a FLAT
-    // deduction on top of the routine decay above — deliberately not a
-    // multiplier, so a rest week stays cheaper than a tournament win
-    // (a ×0.95 at a 25k score cost ~1,495, more than a `tour` title
-    // banks). A manager with no active players at all owes nothing
-    // here — there was nobody to forget to register.
+    // manager who MADE no entry (singles or doubles) during the week
+    // that just ended takes a FLAT deduction on top of the routine decay
+    // above — deliberately not a multiplier, so a rest week stays
+    // cheaper than a tournament win (a ×0.95 at a 25k score cost ~1,495,
+    // more than a `tour` title banks). A manager with no active players
+    // at all owes nothing here — there was nobody to forget to register.
+    //
+    // **Keyed on entries MADE, not events played** (the season-4 fix):
+    // the original check counted tournaments whose weekScheduled equalled
+    // the ending week — i.e. events PLAYED — so a manager who registered
+    // for a FUTURE week (the normal flow: generation opens week W+1's
+    // slate during week W) was counted as idle, and a manager whose
+    // roster arrived mid-week was structurally guaranteed one wrongful
+    // −500. `findManagerIdsWithActivityInWeek` reads the entry-activity
+    // ledger those registrations stamp (see
+    // ManagerEntryActivityRepository), one query for the whole tick.
+    const activeManagerIds = new Set(await this.entryActivity.findManagerIdsWithActivityInWeek(endingWeek));
+    profiler.mark('entryActivityRead', { activeManagers: activeManagerIds.size });
     const playersByManager = new Map<ManagerId, typeof allPlayers>();
     for (const player of allPlayers) {
       if (player.managerId === null || player.isRetired()) continue;
@@ -364,33 +376,24 @@ export class AdvanceWorldWeekUseCase {
     }
     const inactiveManagerIds: ManagerId[] = [];
     for (const [managerId, roster] of playersByManager) {
-      // Onboarding exemption (agent-season E): a manager whose ENTIRE
-      // active roster was acquired DURING the week that just ended had no
-      // digest in which to plan entries — that week's digest was built
-      // before the claim (and its player-scoped event list was empty), so
-      // the flat deduction would wipe exactly the practice ladder points
-      // their onboarding week earned. The exemption applies to that one
-      // week: from the next rollover the roster predates the week and the
-      // normal rule applies in full. `managerSinceWeek` unset (a
-      // pre-feature row, or a path that didn't stamp one) is treated
-      // conservatively as NON-exempt, exactly like a player acquired
-      // before the week.
-      const allJoinedThisWeek = roster.every(
-        (player) => player.managerSinceWeek !== null && weeksBetween(player.managerSinceWeek, endingWeek) === 0,
+      // Onboarding exemption (agent-season E, extended by the season-4
+      // report): a manager whose ENTIRE active roster joined during the
+      // ending week OR the week before it is skipped. The claim week
+      // itself has a digest built before the claims (no entry possible),
+      // and the FOLLOWING week's digest was already written before the
+      // roster's `canEnterNow` could matter for its draws — so a
+      // brand-new manager is structurally unable to act in either of
+      // their first two weeks. From the third rollover the roster
+      // predates the window and the normal rule applies in full. A
+      // `managerSinceWeek` unset (a pre-feature row, or a path that
+      // didn't stamp one) is treated conservatively as NON-exempt,
+      // exactly like a player acquired before the window.
+      const withinOnboardingWindow = roster.every(
+        (player) => player.managerSinceWeek !== null && weeksBetween(player.managerSinceWeek, endingWeek) <= 1,
       );
-      if (allJoinedThisWeek) continue;
-      let active = false;
-      for (const player of roster) {
-        const [singles, doubles] = await Promise.all([
-          this.tournaments.findByPlayerAndWeek(player.id, endingWeek),
-          this.tournaments.findDoublesByPlayerAndWeek(player.id, endingWeek),
-        ]);
-        if (singles.length > 0 || doubles.length > 0) {
-          active = true;
-          break;
-        }
-      }
-      if (!active) inactiveManagerIds.push(managerId);
+      if (withinOnboardingWindow) continue;
+      if (activeManagerIds.has(managerId)) continue;
+      inactiveManagerIds.push(managerId);
     }
     await this.managerLadder.deductManagers(inactiveManagerIds, this.managerLadderPolicy.inactivityPenaltyPoints());
     profiler.mark('inactivityPenalty', { inactiveManagers: inactiveManagerIds.length });

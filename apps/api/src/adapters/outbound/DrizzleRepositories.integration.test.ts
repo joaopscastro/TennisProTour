@@ -51,6 +51,7 @@ import { DrizzleRankingLedgerRepository } from './DrizzleRankingLedgerRepository
 import { DrizzleManagerXpRepository } from './DrizzleManagerXpRepository';
 import { DrizzleManagerCosmeticAdapter } from './DrizzleManagerCosmeticAdapter';
 import { DrizzleManagerLadderRepository } from './DrizzleManagerLadderRepository';
+import { DrizzleManagerEntryActivityRepository } from './DrizzleManagerEntryActivityRepository';
 import { DrizzleManagerAccountCreationAdapter } from './DrizzleManagerAccountCreationAdapter';
 import { DrizzleTalentClaimAdapter } from './DrizzleTalentClaimAdapter';
 import { DrizzleCoachConversionAdapter } from './DrizzleCoachConversionAdapter';
@@ -97,6 +98,7 @@ beforeEach(async () => {
   // Notification tables FK managers.id — before anything they reference.
   await db.delete(schema.notificationDeliveries);
   await db.delete(schema.managerNotificationStates);
+  await db.delete(schema.managerEntryActivity); // FKs to players AND tournaments — before both
   await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
@@ -2266,6 +2268,45 @@ describe('DrizzleManagerLadderRepository.deductManagers (Batch 3.3, real Postgre
     await ladder.deductManagers([ManagerId('ladder-m1')], -50);
 
     expect(await ladder.scoreFor(ManagerId('ladder-m1'))).toBe(1_000);
+  });
+});
+
+describe('DrizzleManagerEntryActivityRepository (real Postgres — the inactivity-penalty key)', () => {
+  const activity = new DrizzleManagerEntryActivityRepository(db);
+  const playerRepository = new DrizzlePlayerRepository(db);
+  const tournamentRepository = new DrizzleTournamentRepository(db);
+
+  it('records once per (manager, season, week), is a no-op on a repeat, and reads back by week', async () => {
+    await playerRepository.save(Player.generateFillOnly(PlayerId('mea-p1'), 'Entry Actor', 25 * 52, 'prime', attributes(30), 'BR'));
+    await playerRepository.save(Player.generateFillOnly(PlayerId('mea-p2'), 'Other Actor', 25 * 52, 'prime', attributes(30), 'BR'));
+    await tournamentRepository.save(
+      Tournament.open({ name: 'Activity T1', id: TournamentId('mea-t1'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 1 }, drawSize: 16 }),
+    );
+    await tournamentRepository.save(
+      Tournament.open({ name: 'Activity T2', id: TournamentId('mea-t2'), tier: 'challenger', surface: 'clay', weekScheduled: { season: 1, week: 2 }, drawSize: 16 }),
+    );
+
+    const week1: GameWeek = { season: 1, week: 1 };
+    const week2: GameWeek = { season: 1, week: 2 };
+    await activity.record(ManagerId('mea-m1'), week1, PlayerId('mea-p1'), TournamentId('mea-t1'));
+    // Same manager, same week, different entry — the PK keeps exactly one
+    // row (the first entry is enough to answer "did they act?").
+    await activity.record(ManagerId('mea-m1'), week1, PlayerId('mea-p2'), TournamentId('mea-t2'));
+    await activity.record(ManagerId('mea-m2'), week2, PlayerId('mea-p2'), TournamentId('mea-t2'));
+
+    const rows = await db.select().from(schema.managerEntryActivity);
+    expect(rows).toHaveLength(2);
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ managerId: 'mea-m1', season: 1, week: 1, playerId: 'mea-p1', tournamentId: 'mea-t1' }),
+        expect.objectContaining({ managerId: 'mea-m2', season: 1, week: 2 }),
+      ]),
+    );
+
+    // The weekly read returns exactly the managers active in THAT week.
+    expect(await activity.findManagerIdsWithActivityInWeek(week1)).toEqual([ManagerId('mea-m1')]);
+    expect(await activity.findManagerIdsWithActivityInWeek(week2)).toEqual([ManagerId('mea-m2')]);
+    expect(await activity.findManagerIdsWithActivityInWeek({ season: 2, week: 1 })).toEqual([]);
   });
 });
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { DOUBLES_BEST_RESULTS_CAP, doublesEntryRanking, doublesPrizeMoneyFor } from './DoublesRanking';
+import {
+  DOUBLES_BEST_RESULTS_CAP,
+  DOUBLES_POINTS_PARITY_FACTOR,
+  doublesEntryRanking,
+  doublesPointsFor,
+  doublesPrizeMoneyFor,
+  sourcedDoublesPointsFor,
+} from './DoublesRanking';
 
 describe('doublesEntryRanking', () => {
   it('uses the doubles ranking when a player has one', () => {
@@ -29,5 +36,43 @@ describe('doublesPrizeMoneyFor', () => {
   it('pays nothing at a junior tier — no fallback to a singles-scaled amount, unlike doublesPointsFor', () => {
     expect(doublesPrizeMoneyFor('j100', 0)).toBe(0);
     expect(doublesPrizeMoneyFor('j100', 5)).toBe(0);
+  });
+});
+
+describe('the doubles points parity factor (season-4 balance fix)', () => {
+  it('awards senior doubles at HALF the sourced table — the deliberate, measured deviation from raw ATP parity', () => {
+    expect(DOUBLES_POINTS_PARITY_FACTOR).toBe(0.5);
+    // Sourced senior values: major [0,90,180,360,720,1200,2000], etc.
+    expect(sourcedDoublesPointsFor('major', 6, 2000)).toBe(2000);
+    expect(doublesPointsFor('major', 6, 2000)).toBe(1000);
+    expect(sourcedDoublesPointsFor('tour', 5, 1000)).toBe(1000);
+    expect(doublesPointsFor('tour', 5, 1000)).toBe(500);
+    expect(doublesPointsFor('challenger', 1, 50)).toBe(45);
+    expect(doublesPointsFor('futures', 4, 165)).toBe(125);
+  });
+
+  it('keeps the sourced round-by-round SHAPE — every stage still pays strictly more than the one below', () => {
+    for (const tier of ['major', 'tour', 'challenger', 'futures'] as const) {
+      for (let round = 1; round < 8; round++) {
+        const prev = doublesPointsFor(tier, round - 1, 0);
+        const next = doublesPointsFor(tier, round, 0);
+        // A stage beyond the tier's own round count clamps to its champion
+        // value, so `next >= prev` holds (equal at the clamp).
+        expect(next).toBeGreaterThanOrEqual(prev);
+      }
+    }
+  });
+
+  it('leaves the junior fallback at its existing 0.5 × singles level — NOT scaled a second time', () => {
+    // Junior tiers have no sourced doubles table; the fallback already
+    // matches the senior post-factor level (half of singles).
+    expect(doublesPointsFor('j100', 6, 60)).toBe(30);
+    expect(sourcedDoublesPointsFor('j100', 6, 60)).toBe(30);
+  });
+
+  it('the historical reconstruction path (sourcedDoublesPointsFor) never applies the factor', () => {
+    // The backfill must reproduce what the ledger recorded BEFORE this
+    // change, so it reads the raw sourced table.
+    expect(sourcedDoublesPointsFor('major', 6, 2000)).not.toBe(doublesPointsFor('major', 6, 2000));
   });
 });

@@ -393,6 +393,13 @@
       "when": 1790614629282,
       "tag": "0055_petite_nightcrawler",
       "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "7",
+      "when": 1790668337925,
+      "tag": "0056_dizzy_captain_universe",
+      "breakpoints": true
     }
   ]
 }

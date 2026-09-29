@@ -1,5 +1,5 @@
-import { and, eq } from 'drizzle-orm';
-import { GameDay, PlayerId } from '@tennis-manager/domain';
+import { and, eq, sql } from 'drizzle-orm';
+import { GameDay, GameWeek, PlayerId } from '@tennis-manager/domain';
 import { PracticeSessionRepository } from '@tennis-manager/application';
 import { Db } from '../../db/client';
 import { practiceSessions } from '../../db/schema';
@@ -44,5 +44,22 @@ export class DrizzlePracticeSessionRepository implements PracticeSessionReposito
       .onConflictDoNothing()
       .returning({ playerId: practiceSessions.playerId });
     return rows.length > 0;
+  }
+
+  /** The bounded-weekly-ladder-credit read: how many sessions this
+   * player already has in the game week `week` (all its days). One
+   * COUNT against the (player, season, week, day) PK — cheap. */
+  async countInWeek(playerId: PlayerId, week: GameWeek): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(practiceSessions)
+      .where(
+        and(
+          eq(practiceSessions.playerId, playerId),
+          eq(practiceSessions.season, week.season),
+          eq(practiceSessions.week, week.week),
+        ),
+      );
+    return rows[0]?.count ?? 0;
   }
 }

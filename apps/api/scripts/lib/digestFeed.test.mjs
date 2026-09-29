@@ -2,18 +2,25 @@ import { describe, expect, it } from 'vitest';
 import {
   MAX_CAN_ENTER_NOW,
   MAX_COMMITTED_SHOWN,
+  MAX_TITLES_DETAIL,
   buildCandidateView,
   compactDoublesTitles,
   compactLastResults,
   compactShop,
+  compactSinglesTitles,
+  compactTitlesBySeason,
+  compactTournamentBase,
   compareCandidates,
   decisionNeedsReaccept,
   enterabilityBlockReason,
   hashDecisionContent,
+  mergeLastApply,
   reconcileDecisions,
   selectTalentPool,
   selectWeekEvents,
   tournamentConcluded,
+  tournamentConclusion,
+  practiceReward,
 } from './digestFeed.mjs';
 
 /** Minimal toTournamentDto-shaped fixture; only the fields the helpers read. */
@@ -594,5 +601,118 @@ describe('compactShop (the XP cosmetics shop, design item 3)', () => {
       expect(shop.owned).toEqual([]);
       expect(shop.xpBalance).toBeNull();
     }
+  });
+});
+
+describe('tournamentConclusion (where the FINAL lands — the two-week-event fix)', () => {
+  it('a one-week tier with no qualifying finishes in its own week, on its last round day', () => {
+    const t = tournament({ tier: 'futures', drawSize: 32 }); // 5 rounds
+    expect(tournamentConclusion(t)).toEqual({ concludesInWeek: { season: 1, week: 5 }, finalDay: 5 });
+  });
+
+  it('a qualifying 64-draw tour lands on week+1 day 1 (2 qualifying days + 6 main rounds)', () => {
+    const t = tournament({ tier: 'tour', drawSize: 64, qualifyingRoundCount: 2 });
+    expect(tournamentConclusion(t)).toEqual({ concludesInWeek: { season: 1, week: 6 }, finalDay: 1 });
+  });
+
+  it('a qualifying 128-draw major lands on week+2 day 3 (3 qualifying days + 14 main days)', () => {
+    const t = tournament({ tier: 'major', drawSize: 128, qualifyingRoundCount: 3 });
+    expect(tournamentConclusion(t)).toEqual({ concludesInWeek: { season: 1, week: 7 }, finalDay: 3 });
+  });
+
+  it('a juniorMasters (14 days, no qualifying) lands on week+1 day 7', () => {
+    const t = tournament({ tier: 'juniorMasters', drawSize: 32, qualifyingRoundCount: 0 });
+    expect(tournamentConclusion(t)).toEqual({ concludesInWeek: { season: 1, week: 6 }, finalDay: 7 });
+  });
+
+  it('rolls the season boundary correctly and handles a missing week honestly', () => {
+    const t = tournament({ tier: 'major', drawSize: 128, qualifyingRoundCount: 3, weekScheduled: { season: 1, week: 52 } });
+    expect(tournamentConclusion(t)).toEqual({ concludesInWeek: { season: 2, week: 2 }, finalDay: 3 });
+    expect(tournamentConclusion({ tier: 'major', drawSize: 128, weekScheduled: null })).toEqual({ concludesInWeek: null, finalDay: null });
+  });
+
+  it('compactTournamentBase carries concludesInWeek/finalDay on every row', () => {
+    const compact = compactTournamentBase(tournament({ tier: 'major', drawSize: 128, qualifyingRoundCount: 3 }));
+    expect(compact.concludesInWeek).toEqual({ season: 1, week: 7 });
+    expect(compact.finalDay).toBe(3);
+  });
+});
+
+describe('practiceReward (the invisible-practice fix)', () => {
+  it('states the full bounded reward shape', () => {
+    const reward = practiceReward();
+    expect(reward).toMatchObject({
+      experiencePerSession: 2,
+      fatiguePerSession: 2,
+      ladderPointsPerSession: 15,
+      ladderSessionsPerWeek: 3,
+      maxLadderPointsPerWeekPerPlayer: 45,
+    });
+    expect(reward.note).toContain('15');
+    expect(reward.note).toContain('3 sessions');
+  });
+
+  it('lastApply now carries practice outcomes instead of dropping them', () => {
+    const applyRows = [{ type: 'enterSingles', action: { playerId: 'p1' }, ok: true, status: 201, error: null }];
+    const practiceRows = [
+      { type: 'practice', action: { playerId: 'p1', day: 3 }, ok: true, status: 201, error: null },
+      { type: 'practice', action: { playerId: 'p1', day: 5 }, ok: false, status: 409, error: 'already practiced today' },
+    ];
+    const merged = mergeLastApply(applyRows, practiceRows);
+    expect(merged.map((r) => r.type)).toEqual(['enterSingles', 'practice', 'practice']);
+    // Field shape normalised for every row: an error row carries its real
+    // reason, a successful one carries null.
+    expect(merged[2]).toEqual({
+      type: 'practice',
+      action: { playerId: 'p1', day: 5 },
+      ok: false,
+      status: 409,
+      error: 'already practiced today',
+    });
+    expect(merged[0].error).toBeNull();
+  });
+
+  it('mergeLastApply keeps the newest rows within its limit and tolerates missing sources', () => {
+    const many = Array.from({ length: 70 }, (_, i) => ({ type: 'release', action: { playerId: `p${i}` }, ok: true, status: 200 }));
+    const merged = mergeLastApply(many, undefined);
+    expect(merged).toHaveLength(60);
+    expect(merged[59].action.playerId).toBe('p69');
+    expect(mergeLastApply(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('the title bloat fix (season counters + a capped detail list)', () => {
+  const title = (season, week, extras = {}) => ({ tournamentId: `t-${season}-${week}`, name: `T${week}`, tier: 'tour', ageBand: null, weekEarned: { season, week }, ...extras });
+  const profile = {
+    titles: [title(1, 1), title(1, 2), title(1, 3), title(1, 4), title(1, 5), title(1, 6), title(1, 40), title(2, 1)],
+    doublesTitles: [
+      { tournamentId: 'd1', tier: 'tour', partnerId: 'p2', partnerName: 'P2', partnerNationality: 'BR', weekEarned: { season: 1, week: 2 } },
+      { tournamentId: 'd2', tier: 'major', partnerId: 'p2', partnerName: 'P2', partnerNationality: 'BR', weekEarned: { season: 1, week: 24 } },
+    ],
+  };
+
+  it('counts career titles per season for both disciplines', () => {
+    expect(compactTitlesBySeason(profile)).toEqual([
+      { season: 1, singles: 7, doubles: 2 },
+      { season: 2, singles: 1, doubles: 0 },
+    ]);
+  });
+
+  it('keeps only the newest 5 titles of the CURRENT season (one champions array was ~70 entries / an 86 KB digest)', () => {
+    const compact = compactSinglesTitles(profile, { currentSeason: 2 });
+    expect(compact.map((t) => t.weekEarned.week)).toEqual([1]); // only season 2 exists so far
+    const season1 = compactSinglesTitles(profile, { currentSeason: 1 });
+    expect(season1).toHaveLength(5);
+    expect(season1.map((t) => t.weekEarned.week)).toEqual([40, 6, 5, 4, 3]); // newest first
+  });
+
+  it('caps doubles titles the same way and keeps the partner fields', () => {
+    const compact = compactDoublesTitles(profile, { currentSeason: 1 });
+    expect(compact.map((t) => t.tournamentId)).toEqual(['d2', 'd1']);
+    expect(compact[0].partnerName).toBe('P2');
+  });
+
+  it('without a currentSeason it stays backward compatible (all titles, still capped)', () => {
+    expect(compactSinglesTitles(profile)).toHaveLength(MAX_TITLES_DETAIL);
   });
 });

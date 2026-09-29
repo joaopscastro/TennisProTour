@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { DoublesPair, ManagerId, PairId, PlayerId } from '@tennis-manager/domain';
 import { AcceptDoublesPairUseCase } from './AcceptDoublesPairUseCase';
-import { CreateDoublesPairUseCase } from './CreateDoublesPairUseCase';
 
-// Reuses CreateDoublesPairUseCase to build a genuine pending cross-
-// manager pair in the store, so this test exercises the real accept
-// transition rather than hand-seeding a DoublesPair.
-import { InMemoryDoublesPairRepository, InMemoryPlayerRepository, SequentialIdGenerator, makePlayer } from './doublesTestHelpers';
+// Pending cross-manager pairs are HAND-SEEDED here (DoublesPair.propose):
+// CreateDoublesPairUseCase no longer creates them — a pair request now
+// requires both players on the caller's roster (the live 201/pending-
+// forever bug). Accept itself still works for any genuinely pending row,
+// legacy or otherwise, which is what these tests cover.
+import { InMemoryDoublesPairRepository, InMemoryPlayerRepository, makePlayer } from './doublesTestHelpers';
 
 describe('AcceptDoublesPairUseCase', () => {
   it('accepts a pending pair when the caller owns the invited player', async () => {
@@ -15,11 +16,8 @@ describe('AcceptDoublesPairUseCase', () => {
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
 
-    const pair = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
-      playerA: PlayerId('a'),
-      playerB: PlayerId('b'),
-      managerId: ManagerId('m1'),
-    });
+    const pair = DoublesPair.propose(PairId('p-invite'), PlayerId('a'), PlayerId('b'));
+    await pairs.save(pair);
     expect(pair.isPending).toBe(true);
 
     const accepted = await new AcceptDoublesPairUseCase(pairs, players).execute({ pairId: pair.id, managerId: ManagerId('m2') });
@@ -32,11 +30,8 @@ describe('AcceptDoublesPairUseCase', () => {
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
 
-    const pair = await new CreateDoublesPairUseCase(players, pairs, new SequentialIdGenerator()).execute({
-      playerA: PlayerId('a'),
-      playerB: PlayerId('b'),
-      managerId: ManagerId('m1'),
-    });
+    const pair = DoublesPair.propose(PairId('p-invite'), PlayerId('a'), PlayerId('b'));
+    await pairs.save(pair);
 
     await expect(new AcceptDoublesPairUseCase(pairs, players).execute({ pairId: pair.id, managerId: ManagerId('m1') })).rejects.toThrow(
       /cannot accept/,

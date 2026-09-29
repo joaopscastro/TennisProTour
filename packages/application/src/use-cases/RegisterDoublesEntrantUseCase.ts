@@ -1,12 +1,13 @@
 import { PlayerId, TournamentId, isAgeEligibleForTournamentBand, isJuniorTier } from '@tennis-manager/domain';
 import { ManagerId } from '@tennis-manager/domain';
+import { GameWeek } from '@tennis-manager/domain';
 import {
   isInsideSoftCapCutoff,
   seasonSoftCapRefusalReason,
   seniorTierEntryRestrictionReason,
   tierUsesSeniorRank,
 } from '@tennis-manager/domain';
-import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
+import { ManagerEntryActivityRepository, PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { seasonTierEntryCountFor } from './seasonEntryCap';
@@ -17,6 +18,10 @@ export interface RegisterDoublesEntrantCommand {
   tournamentId: TournamentId;
   playerId: PlayerId;
   managerId: ManagerId;
+  /** The WORLD's current game week at registration time — same
+   * entry-activity stamp as RegisterEntrantCommand.entryWeek. Optional:
+   * omitted (unit tests/scripts) records nothing. */
+  entryWeek?: GameWeek | null;
 }
 
 /**
@@ -74,6 +79,9 @@ export class RegisterDoublesEntrantUseCase {
      * see RegisterEntrantUseCase's doc comment). Optional for test
      * compatibility; the composition root always passes it. */
     private readonly formDoublesDraw?: FormDoublesDrawUseCase,
+    /** Entry-activity ledger — same optional/test-compat shape and
+     * purpose as RegisterEntrantUseCase's `entryActivity`. */
+    private readonly entryActivity?: ManagerEntryActivityRepository,
   ) {}
 
   async execute(command: RegisterDoublesEntrantCommand): Promise<void> {
@@ -191,6 +199,12 @@ export class RegisterDoublesEntrantUseCase {
       }
 
       await this.tournaments.save(tournament);
+
+      // Same entry-activity stamp as the singles path — after the save
+      // so a refused entry records nothing.
+      if (this.entryActivity && command.entryWeek) {
+        await this.entryActivity.record(command.managerId, command.entryWeek, command.playerId, tournament.id);
+      }
     });
   }
 }

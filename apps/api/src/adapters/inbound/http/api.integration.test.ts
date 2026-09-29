@@ -18,6 +18,7 @@ import {
   MatchSimulator,
   PairId,
   Player,
+  PlayerAgingService,
   PlayerAttributes,
   PlayerId,
   qualifierSlotsFor,
@@ -101,6 +102,7 @@ beforeEach(async () => {
   // ranking_ledger/titles have FKs to both players and tournaments —
   // must go before either; peak_rankings/training_schedule only
   // reference players.
+  await db.delete(schema.managerEntryActivity); // FKs to players AND tournaments — before both
   await db.delete(schema.weeklyEntryClaims); // FKs to players AND tournaments — before both
   await db.delete(schema.rankingLedger);
   await db.delete(schema.titles);
@@ -960,6 +962,42 @@ describe('API', () => {
     expect(profile.json().seasonPrizeMoney).toBe(cAfterSweep!.seasonPrizeMoney);
   });
 
+  it('a cross-manager pair request is refused with a clear message and writes nothing (was: 201 + a pending invite that blocked the requester)', async () => {
+    expect(await hirePlayer('pair-a1', 'm-pair-a')).toBe(201);
+    expect(await hirePlayer('pair-a2', 'm-pair-a')).toBe(201);
+    expect(await hirePlayer('pair-other', 'm-pair-b')).toBe(201);
+
+    // The exact live shape: manager A asks to pair with manager B's
+    // player. This used to return 201 and create a `pending` row that
+    // occupied BOTH players' one-pair slot forever (the season-4 agent
+    // had to dissolve it before their real pairing could land).
+    const refused = await app.inject({
+      method: 'POST',
+      url: '/doubles-pairs',
+      headers: { 'x-dev-manager-id': 'm-pair-a' },
+      payload: { playerA: 'pair-a1', playerB: 'pair-other' },
+    });
+    expect(refused.statusCode).toBe(400);
+    expect(refused.json().error).toMatch(/not on manager m-pair-a's roster/);
+
+    // Nothing was written — no pending row to block the real pair.
+    const rowsAfterRefusal = await db.select().from(schema.doublesPairs);
+    expect(rowsAfterRefusal).toHaveLength(0);
+
+    // The requester can form their REAL, own-roster pair immediately.
+    const formed = await app.inject({
+      method: 'POST',
+      url: '/doubles-pairs',
+      headers: { 'x-dev-manager-id': 'm-pair-a' },
+      payload: { playerA: 'pair-a1', playerB: 'pair-a2' },
+    });
+    expect(formed.statusCode).toBe(201);
+    expect(formed.json().status).toBe('active');
+    const rowsAfterForm = await db.select().from(schema.doublesPairs);
+    expect(rowsAfterForm).toHaveLength(1);
+    expect(rowsAfterForm[0].status).toBe('active');
+  });
+
   it('concurrent singles and doubles registrations on the SAME tournament both land (agent-season A)', async () => {
     // The reported flow: two managers acting at once, one entering
     // singles and one entering doubles. Before the fix, whichever side
@@ -1208,7 +1246,7 @@ describe('API', () => {
     }
   }, 120_000);
 
-  it('a brand-new roster is exempt from the inactivity deduction for its onboarding week, and penalized the next (agent-season E)', async () => {
+  it('a brand-new roster is exempt from the inactivity deduction for its onboarding window (the claim week AND the next), and penalized from the third (agent-season E + season-4 extension)', async () => {
     const worldId = WorldId('main');
     const originalWorld = await deps.worlds.findById(worldId);
     const ladderPolicy = new StandardManagerLadderPolicy();
@@ -1248,7 +1286,9 @@ describe('API', () => {
       const stamped = await deps.players.findById(PlayerId('onboard-free'));
       expect(stamped!.managerSinceWeek).toEqual({ season: 1, week: 52 });
 
-      // The control: a roster that predates the ending week.
+      // The control: a roster that predates the onboarding window (two
+      // weeks before the ending week — one week back would still be
+      // inside the extended window).
       const veteran = Player.hire(
         PlayerId('veteran-p'),
         'Veteran',
@@ -1259,7 +1299,7 @@ describe('API', () => {
         100,
         { speed: 100, stamina: 100, strength: 100 },
         50,
-        { season: 1, week: 51 },
+        { season: 1, week: 50 },
       );
       veteran.pullDomainEvents();
       await deps.players.save(veteran);
@@ -1276,6 +1316,172 @@ describe('API', () => {
       // The veteran manager (zero entries, roster predating the week)
       // still takes it.
       expect(await deps.managerLadder.scoreFor(ManagerId('m-veteran'))).toBeCloseTo(1000 * factor - penalty);
+
+      // The very next rollover (ending S2W1) is ALSO exempt — this is
+      // the season-4 extension: the manager's S1W52 digest predated the
+      // claim and the S2W1 digest was built before any entry could be
+      // planned from it, so a −500 here is structurally impossible to
+      // avoid by playing well. Tick a full S2W1 (the first tick above
+      // left us at S2W1 day 1).
+      let secondRollover = false;
+      for (let i = 0; i < 8 && !secondRollover; i++) {
+        const r = await deps.advanceWorldWeek.execute({ worldId, tickKey: `e2e-onboard-s2w1-${i}` });
+        secondRollover = r.weekRolledOver;
+      }
+      expect(secondRollover).toBe(true);
+      const afterSecond = 1000 * factor;
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-onboard'))).toBeCloseTo(afterSecond * factor);
+
+      // The THIRD rollover (ending S2W2) ends the onboarding window — a
+      // genuinely idle week now takes the normal deduction.
+      let thirdRollover = false;
+      for (let i = 0; i < 8 && !thirdRollover; i++) {
+        const r = await deps.advanceWorldWeek.execute({ worldId, tickKey: `e2e-onboard-s2w2-${i}` });
+        thirdRollover = r.weekRolledOver;
+      }
+      expect(thirdRollover).toBe(true);
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-onboard'))).toBeCloseTo(
+        afterSecond * factor * factor - penalty,
+      );
+    } finally {
+      await deps.worlds.save(originalWorld!);
+    }
+  });
+
+  it('registers this week for a FUTURE week and is not penalized — while a genuinely idle manager is (the season-4 wrongful −500)', async () => {
+    const worldId = WorldId('main');
+    const originalWorld = await deps.worlds.findById(worldId);
+    const ladderPolicy = new StandardManagerLadderPolicy();
+    const factor = ladderPolicy.weeklyDecayFactor();
+    const penalty = ladderPolicy.inactivityPenaltyPoints();
+    const agingPolicy = new StandardAgingPolicy();
+    try {
+      // Mid-week day 4 of S1W52: still week 52. The rollover below ends
+      // week 52, so "entries made during week 52" is exactly what the
+      // inactivity check must count.
+      await deps.worlds.save(
+        GameWorld.reconstitute({ id: worldId, currentWeek: { season: 1, week: 52 }, currentDay: 4, lastAppliedTick: null }),
+      );
+
+      const rosterPlayer = (id: string, managerId: ManagerId) => {
+        const p = Player.hire(PlayerId(id), `Player ${id}`, 24 * 52, fixedAttributes(40), managerId, 'US', 100, { speed: 100, stamina: 100, strength: 100 }, 50, { season: 1, week: 1 });
+        p.pullDomainEvents();
+        return p;
+      };
+      await deps.players.save(rosterPlayer('keyed-active', ManagerId('m-keyed')));
+      await deps.players.save(rosterPlayer('keyed-idle', ManagerId('m-idle')));
+
+      // An event scheduled for the FUTURE week — the normal flow.
+      await deps.openRegistration.execute({
+        tournamentId: TournamentId('t-keyed-future'),
+        tier: 'futures',
+        surface: 'hard',
+        weekScheduled: { season: 2, week: 1 },
+        drawSize: 32,
+      });
+
+      // The active manager enters THROUGH THE REAL ROUTE during week 52.
+      const entered = await app.inject({
+        method: 'POST',
+        url: '/tournaments/t-keyed-future/entrants',
+        headers: { 'x-dev-manager-id': 'm-keyed' },
+        payload: { playerId: 'keyed-active' },
+      });
+      expect(entered.statusCode).toBe(201);
+
+      // The entry was stamped with the week it was MADE in (S1W52), not
+      // the event's scheduled week (S2W1) — the honest key.
+      const claimRows = await db.select().from(schema.managerEntryActivity);
+      expect(claimRows).toEqual([
+        expect.objectContaining({ managerId: 'm-keyed', season: 1, week: 52, playerId: 'keyed-active' }),
+      ]);
+
+      await deps.managerLadder.credit(ManagerId('m-keyed'), 1000);
+      await deps.managerLadder.credit(ManagerId('m-idle'), 1000);
+
+      // Tick until the week actually rolls over (world is at S1W52 day
+      // 4, so three day ticks reach day 7 and the fourth rolls it).
+      let rolled = false;
+      for (let i = 0; i < 8 && !rolled; i++) {
+        const r = await deps.advanceWorldWeek.execute({ worldId, tickKey: `e2e-keyed-${i}` });
+        rolled = r.weekRolledOver;
+      }
+      expect(rolled).toBe(true);
+
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-keyed'))).toBeCloseTo(1000 * factor);
+      // The idle manager's roster predates the week (managerSinceWeek
+      // S1W1) and made no entry — the deduction applies.
+      expect(await deps.managerLadder.scoreFor(ManagerId('m-idle'))).toBeCloseTo(1000 * factor - penalty);
+    } finally {
+      await deps.worlds.save(originalWorld!);
+    }
+  });
+
+  it('the entry preview reads the SEASON-ANCHORED eligibility age, not the raw age (the live raw-729 / anchor-728 U14 case)', async () => {
+    const agingService = new PlayerAgingService(new StandardAgingPolicy());
+    const originalWorld = await deps.worlds.findById(WorldId('main'));
+    try {
+      // A player hired at exactly 14*52 = 728 weeks — the INCLUSIVE U14
+      // edge (RankingBand.U14_MAX_AGE_WEEKS) — then aged one ordinary
+      // mid-week tick: raw age 729 (which alone reads as U16), season
+      // anchor still 728 (the real ITF "age as of January 1" rule).
+      // This is exactly the state the season-4 agent hit: roster/profile
+      // band displays said 'u14', the registration gate accepted U14
+      // (both anchor-based), but the entry PREVIEW read the raw age and
+      // refused every U14 event — the U14 rows vanished from the digest's
+      // `canEnterNow` for 26 weeks while her u14 total sat frozen.
+      const player = Player.hire(
+        PlayerId('anchor-p'),
+        'Anchor Player',
+        728,
+        fixedAttributes(40),
+        ManagerId('m-anchor'),
+        'BR',
+        100,
+        { speed: 100, stamina: 100, strength: 100 },
+        50,
+        { season: 1, week: 30 },
+      );
+      player.pullDomainEvents();
+      agingService.advance(player);
+      expect(player.ageInWeeks).toBe(729);
+      expect(player.seasonAgeAnchorWeeks).toBe(728);
+      await deps.players.save(player);
+
+      // A genuinely open U14 event for the preview to (not) offer.
+      await deps.openRegistration.execute({
+        tournamentId: TournamentId('t-anchor-u14'),
+        tier: 'j30',
+        surface: 'clay',
+        weekScheduled: { season: 1, week: 52 },
+        drawSize: 16,
+        ageBand: 'u14',
+      });
+
+      const list = await app.inject({
+        method: 'GET',
+        url: '/tournaments?status=open&playerId=anchor-p',
+        headers: { 'x-dev-manager-id': 'm-anchor' },
+      });
+      expect(list.statusCode).toBe(200);
+      const row = (list.json() as Array<{ id: string; ageBand: string | null; ageEligible?: boolean }>).find(
+        (t) => t.id === 't-anchor-u14',
+      );
+      // The preview and the prove-it POST below must agree — both read
+      // the anchor, so the raw 729 no longer hides the U14 row.
+      expect(row?.ageEligible).toBe(true);
+
+      // And the registration gate really does accept it, so the preview
+      // is not just self-consistent with a refusal.
+      const entered = await app.inject({
+        method: 'POST',
+        url: '/tournaments/t-anchor-u14/entrants',
+        headers: { 'x-dev-manager-id': 'm-anchor' },
+        payload: { playerId: 'anchor-p' },
+      });
+      expect(entered.statusCode).toBe(201);
+      const saved = await deps.tournaments.findById(TournamentId('t-anchor-u14'));
+      expect(saved!.entrants.map((e) => e.playerId as string)).toContain('anchor-p');
     } finally {
       await deps.worlds.save(originalWorld!);
     }

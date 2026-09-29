@@ -33,7 +33,10 @@ export interface CompactedResult {
   discipline: 'singles' | 'doubles';
 }
 
-export function compactSinglesTitles(profile: unknown): Array<{
+export function compactSinglesTitles(
+  profile: unknown,
+  options?: { currentSeason?: number; limit?: number },
+): Array<{
   tournamentId: string;
   name: string;
   tier: string;
@@ -41,7 +44,54 @@ export function compactSinglesTitles(profile: unknown): Array<{
   weekEarned: CompactedWeek;
 }>;
 
-export function compactDoublesTitles(profile: unknown): CompactedDoublesTitle[];
+export function compactDoublesTitles(
+  profile: unknown,
+  options?: { currentSeason?: number; limit?: number },
+): CompactedDoublesTitle[];
+
+export interface CompactedSeasonTitles {
+  season: number;
+  singles: number;
+  doubles: number;
+}
+
+export function compactTitlesBySeason(profile: unknown): CompactedSeasonTitles[];
+
+export const MAX_TITLES_DETAIL: number;
+
+export function headlineRanking(
+  rankings: unknown,
+  preferredBand: string,
+): { band: string; rank: number | null; totalPoints?: number; points?: number };
+
+export const TWO_WEEK_TIERS: string[];
+
+export function tournamentConclusion(t: {
+  tier: string;
+  drawSize?: number;
+  totalRounds?: number;
+  qualifyingRoundCount?: number;
+  startDay?: number;
+  weekScheduled?: CompactedWeek | null;
+}): { concludesInWeek: CompactedWeek | null; finalDay: number | null };
+
+export interface PracticeReward {
+  experiencePerSession: number;
+  fatiguePerSession: number;
+  ladderPointsPerSession: number;
+  ladderSessionsPerWeek: number;
+  maxLadderPointsPerWeekPerPlayer: number;
+  note: string;
+}
+
+export const PRACTICE_REWARD: {
+  experiencePerSession: number;
+  fatiguePerSession: number;
+  ladderPointsPerSession: number;
+  ladderSessionsPerWeek: number;
+};
+
+export function practiceReward(): PracticeReward;
 
 export function compactLastResults(matches: unknown, limitPerDiscipline?: number): CompactedResult[];
 

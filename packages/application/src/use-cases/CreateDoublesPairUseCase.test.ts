@@ -23,15 +23,35 @@ describe('CreateDoublesPairUseCase', () => {
     expect(await pairs.findById(pair.id)).not.toBeNull();
   });
 
-  it('forms a cross-manager pair as a pending invitation', async () => {
+  it('refuses a cross-manager pair request with a clear message (was: 201 + a pending invite that blocked the requester)', async () => {
     const players = new InMemoryPlayerRepository();
     const pairs = new InMemoryDoublesPairRepository();
     await players.save(makePlayer(PlayerId('a'), ManagerId('m1')));
     await players.save(makePlayer(PlayerId('b'), ManagerId('m2')));
 
-    const pair = await makeUseCase(players, pairs).execute({ playerA: PlayerId('a'), playerB: PlayerId('b'), managerId: ManagerId('m1') });
+    await expect(
+      makeUseCase(players, pairs).execute({ playerA: PlayerId('a'), playerB: PlayerId('b'), managerId: ManagerId('m1') }),
+    ).rejects.toThrow(/not on manager m1's roster/);
+    // Nothing was written — the requester's one-pair slot stays free.
+    expect(await pairs.findByPlayer(PlayerId('a'))).toEqual([]);
+  });
 
-    expect(pair.isPending).toBe(true);
+  it('refuses a retired partner, and a retired initiator', async () => {
+    const players = new InMemoryPlayerRepository();
+    const pairs = new InMemoryDoublesPairRepository();
+    const managerId = ManagerId('m1');
+    await players.save(makePlayer(PlayerId('a'), managerId));
+    const retired = makePlayer(PlayerId('retired'), managerId);
+    retired.advanceWeek(40 * 52, 'retired', retired.attributes);
+    await players.save(retired);
+
+    const useCase = makeUseCase(players, pairs);
+    await expect(useCase.execute({ playerA: PlayerId('a'), playerB: PlayerId('retired'), managerId })).rejects.toThrow(
+      /Retired player retired cannot be in a doubles pair/,
+    );
+    await expect(useCase.execute({ playerA: PlayerId('retired'), playerB: PlayerId('a'), managerId })).rejects.toThrow(
+      /Retired player retired cannot be in a doubles pair/,
+    );
   });
 
   it('rejects pairing with a free agent', async () => {

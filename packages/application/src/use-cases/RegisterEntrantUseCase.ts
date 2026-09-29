@@ -1,13 +1,13 @@
 import { isAgeEligibleForTournamentBand, isJuniorTier, PlayerId, TournamentId } from '@tennis-manager/domain';
 import { BracketGenerator } from '@tennis-manager/domain';
-import { DrawPhase, entryTypeOf, EntryType, resolveEntryType, Tournament } from '@tennis-manager/domain';
+import { DrawPhase, entryTypeOf, EntryType, GameWeek, resolveEntryType, Tournament } from '@tennis-manager/domain';
 import {
   isInsideSoftCapCutoff,
   seasonSoftCapRefusalReason,
   seniorTierEntryRestrictionReason,
   tierUsesSeniorRank,
 } from '@tennis-manager/domain';
-import { PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
+import { ManagerEntryActivityRepository, PlayerRepository, TournamentRepository, WeeklyEntryGuardPort } from '../ports/ports';
 import { RankPositionQuery } from '../queries/RankPositionQuery';
 import { countSameBandEntriesForWeek, weeklyEntryCapForTier } from './juniorEntryCap';
 import { seasonTierEntryCountFor } from './seasonEntryCap';
@@ -21,6 +21,12 @@ export interface RegisterEntrantCommand {
   /** Unseeded by default — direct roster-row "Enter" actions don't
    * carry a seed the way an admin-configured draw might. */
   seed?: number | null;
+  /** The WORLD's current game week at registration time (the route
+   * reads it from the world clock; see ManagerEntryActivityRepository).
+   * Stamped into the entry-activity ledger so the weekly inactivity
+   * deduction can ask "did this manager enter anything during week W"
+   * honestly — omitted (unit tests/scripts) records nothing. */
+  entryWeek?: GameWeek | null;
 }
 
 /**
@@ -125,6 +131,13 @@ export class RegisterEntrantUseCase {
      * the cap is the pre-existing (concurrency-unsafe) check-then-write;
      * the composition root always passes it. */
     private readonly weeklyEntryGuard?: WeeklyEntryGuardPort,
+    /** Entry-activity ledger (see ManagerEntryActivityRepository) —
+     * optional for the same test-compat reason: without it (or without
+     * `command.entryWeek`) nothing is recorded and the weekly inactivity
+     * check simply sees no activity, exactly as the pre-feature unit
+     * tests expect. The composition root always passes it and the route
+     * always supplies the week. */
+    private readonly entryActivity?: ManagerEntryActivityRepository,
   ) {}
 
   async execute(command: RegisterEntrantCommand): Promise<void> {
@@ -293,6 +306,14 @@ export class RegisterEntrantUseCase {
       }
 
       await this.tournaments.save(tournament);
+
+      // The manager really did make an entry this week — record it
+      // AFTER the tournament save commits, so a refused registration
+      // (any rule above) records nothing, and a retry re-records
+      // idempotently (PK = manager+season+week, ON CONFLICT DO NOTHING).
+      if (this.entryActivity && command.entryWeek && player?.managerId) {
+        await this.entryActivity.record(player.managerId, command.entryWeek, command.playerId, tournament.id);
+      }
     });
   }
 

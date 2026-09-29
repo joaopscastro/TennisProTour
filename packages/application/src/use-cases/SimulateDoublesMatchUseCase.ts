@@ -64,7 +64,10 @@ export function doublesMatchIdForSlot(tournamentId: TournamentId, roundNumber: n
  *   bracket);
  * - ranking points go to BOTH players of the winning pair (and a 0 entry
  *   to both of an eliminated pair), stamped `discipline: 'doubles'` and
- *   scaled by DOUBLES_POINTS_FACTOR — never mixed into singles totals;
+ *   awarded through `doublesPointsFor` (the sourced ATP doubles table
+ *   scaled by the game's `DOUBLES_POINTS_PARITY_FACTOR` — the
+ *   season-4 measured deviation from raw ATP doubles parity; see that
+ *   constant's doc comment) — never mixed into singles totals;
  * - a title IS written on the main draw's final (P7c, built) — via a
  *   dedicated `doublesTitles`/`doubles_titles` table, not the singles
  *   `titles` table, so the old "titles is PK'd on tournament_id and can't

@@ -57,6 +57,7 @@ import { DrizzleCoachConversionAdapter } from './adapters/outbound/DrizzleCoachC
 import { DrizzleWeeklyEntryGuardAdapter } from './adapters/outbound/DrizzleWeeklyEntryGuardAdapter';
 import { DrizzleManagerXpRepository } from './adapters/outbound/DrizzleManagerXpRepository';
 import { DrizzleManagerLadderRepository } from './adapters/outbound/DrizzleManagerLadderRepository';
+import { DrizzleManagerEntryActivityRepository } from './adapters/outbound/DrizzleManagerEntryActivityRepository';
 import { DrizzleManagerCosmeticAdapter } from './adapters/outbound/DrizzleManagerCosmeticAdapter';
 import { DrizzleCoachRepository } from './adapters/outbound/DrizzleCoachRepository';
 import { DrizzleDoublesPairRepository } from './adapters/outbound/DrizzleDoublesPairRepository';
@@ -185,6 +186,11 @@ export interface Dependencies {
   trainingScheduleQuery: PlayerTrainingScheduleQuery;
   managerXp: DrizzleManagerXpRepository;
   managerLadder: DrizzleManagerLadderRepository;
+  /** The manager entry-activity ledger — one row per (manager, season,
+   * week) an entry was MADE in; read once per weekly rollover by the
+   * inactivity deduction, written by the registration use cases. Exposed
+   * for tests/integration reads. */
+  managerEntryActivity: DrizzleManagerEntryActivityRepository;
   /** Owned cosmetic items (Batch 4B, F2) — the zero-competitive-effect XP
    * sink. The port is exposed for the leaderboard's badge read; the use
    * case is the only writer. */
@@ -434,6 +440,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
   const managerXpPolicy = new StandardManagerXpPolicy();
   const managerLadder = new DrizzleManagerLadderRepository(options.db);
   const managerLadderPolicy = new StandardManagerLadderPolicy();
+  // The manager entry-activity ledger — the honest key for the weekly
+  // inactivity deduction (see ManagerEntryActivityRepository).
+  const managerEntryActivity = new DrizzleManagerEntryActivityRepository(options.db);
   // The zero-competitive-effect XP sink (Batch 4B, F2) — the purchase is
   // a cross-table atomic port (wallet debit + unlock row), the same shape
   // as talentClaim/coachConversion below.
@@ -558,7 +567,14 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     new MathRandomSource(),
   );
   const weeklyEntryGuard = new DrizzleWeeklyEntryGuardAdapter(options.db);
-  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(tournaments, players, weeklyEntryGuard, rankPosition, formDoublesDraw);
+  const registerDoublesEntrant = new RegisterDoublesEntrantUseCase(
+    tournaments,
+    players,
+    weeklyEntryGuard,
+    rankPosition,
+    formDoublesDraw,
+    managerEntryActivity,
+  );
 
   // Masters Cup (P8b): the season-end capstone, generated on a season-end
   // rollover, simulated match-by-match, and advanced from groups to
@@ -648,6 +664,7 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     trainingScheduleQuery,
     managerXp,
     managerLadder,
+    managerEntryActivity,
     managerCosmetics,
     purchaseManagerCosmetic,
     coaches,
@@ -700,9 +717,9 @@ export function buildDependencies(options: CompositionOptions): Dependencies {
     ),
     openTournament,
     openRegistration,
-    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw, weeklyEntryGuard),
+    registerEntrant: new RegisterEntrantUseCase(tournaments, players, bracketGenerator, rankPosition, formDoublesDraw, weeklyEntryGuard, managerEntryActivity),
     simulateMatch,
-    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy, tournaments),
+    advanceWorldWeek: new AdvanceWorldWeekUseCase(worlds, players, billing, standardAging, proAging, events, trainingPolicy, coaches, rankingLedger, trainingSchedule, managerLadder, managerLadderPolicy, developmentPolicy, managerEntryActivity),
     generateJuniorTournaments,
     generateSeniorTournaments,
     startDueTournaments: new StartDueTournamentsUseCase(

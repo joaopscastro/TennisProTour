@@ -75,9 +75,12 @@ export function registerDoublesRoutes(app: FastifyInstance, deps: Dependencies):
     return Promise.all(pairs.map((pair) => toPairDto(deps, pair)));
   });
 
-  // Forms a pair. `playerA` must be the caller's own player; `playerB`
-  // either another of the caller's players (same-manager → active) or a
-  // different manager's player (cross-manager → pending invite).
+  // Forms a pair between TWO of the caller's own players (active
+  // immediately). A cross-manager request is REFUSED (see
+  // CreateDoublesPairUseCase's doc comment: the old pending-invite flow
+  // produced a 201 that sat unanswered forever, blocking the requester's
+  // real pairing). Accept/dissolve below still serve any genuinely
+  // pending legacy row.
   app.post<{ Body: { playerA: string; playerB: string } }>(
     '/doubles-pairs',
     {
